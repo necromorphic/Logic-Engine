@@ -113,6 +113,11 @@ jobs:
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-public.js', 'src/endpoints/users-admin.js', 'src/users.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs', 'src/endpoints/content-manager.js', 'src/endpoints/image-metadata.js', 'src/endpoints/images.js', 'src/endpoints/moving-ui.js', 'src/endpoints/presets.js', 'src/endpoints/quick-replies.js', 'src/endpoints/secrets.js', 'src/endpoints/sprites.js', 'src/endpoints/stats.js', 'src/endpoints/themes.js', 'src/endpoints/worldinfo.js', 'src/endpoints/vectors.js', 'src/endpoints/extensions.js', 'src/endpoints/backgrounds.js', 'src/endpoints/avatars.js', 'src/endpoints/assets.js', 'src/endpoints/files.js')
           foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
+      - name: Generate pinned patched-source manifest
+        shell: pwsh
+        env:
+          SILLYTAVERN_DIR: Sillytavern
+        run: node host-adapter/prototype/generate-pinned-source-manifest.mjs
       - name: Run Host lifecycle and identity acceptance tests
         shell: pwsh
         env:
@@ -123,3 +128,11 @@ jobs:
           node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
           node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
           node --test experiments/host-adapter-source-audit/harness.mjs
+      - name: Upload verified pinned-source manifest
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-pinned-source-manifest
+          path: Sillytavern/plugins/logic-engine-extension-gateway/pinned-source-manifest.json
+          if-no-files-found: error
+          retention-days: 14
