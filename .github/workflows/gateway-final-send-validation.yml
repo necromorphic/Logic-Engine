@@ -1,0 +1,36 @@
+name: Gateway Final-Send Validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/security/memory-dispatch-gateway.js'
+      - 'src/storage/coordinator-lock.js'
+      - 'host-adapter/protected-memory-final-send.mjs'
+      - 'host-adapter/sillytavern-final-send-adapter.mjs'
+      - 'tests/memory-dispatch-gateway.test.js'
+      - 'tests/protected-memory-final-send.test.js'
+      - 'tests/sillytavern-final-send-adapter.test.js'
+      - '.github/workflows/gateway-final-send-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway-final-send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntax validation
+        run: |
+          node --check src/security/memory-dispatch-gateway.js
+          node --check src/storage/coordinator-lock.js
+          node --check host-adapter/protected-memory-final-send.mjs
+      - name: Gateway and Final-Send tests
+        run: node --test tests/memory-dispatch-gateway.test.js tests/protected-memory-final-send.test.js tests/sillytavern-final-send-adapter.test.js
