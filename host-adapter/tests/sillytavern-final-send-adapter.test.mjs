@@ -11,7 +11,7 @@ const sourceKeys = [
   'FIREWORKS', 'NANOGPT', 'POLLINATIONS', 'MOONSHOT', 'ZAI', 'SILICONFLOW',
   'WORKERS_AI',
 ];
-const sources = Object.fromEntries(sourceKeys.map((key) => [key, key]));
+const sources = Object.fromEntries(sourceKeys.map((key) => [key, key.toLowerCase()]));
 const expectedRoutes = Object.freeze({
   CLAUDE: 'claude',
   AI21: 'ai21',
