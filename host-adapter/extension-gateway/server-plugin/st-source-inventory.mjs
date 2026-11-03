@@ -53,6 +53,7 @@ const sameStat = (left, right) => (process.platform === 'win32'
   && left.mtimeNs === right.mtimeNs
   && left.ctimeNs === right.ctimeNs;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -548,9 +549,9 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     }
   }
 
-  files.sort((a, b) => a.kind.localeCompare(b.kind) || a.locator.localeCompare(b.locator));
+  files.sort((a, b) => compareText(a.kind, b.kind) || compareText(a.locator, b.locator));
   const directoriesDigest = directoriesSeen.map(({ kind, identity, names }) => ({ kind, identity, names }))
-    .sort((a, b) => a.kind.localeCompare(b.kind));
+    .sort((a, b) => compareText(a.kind, b.kind));
   const chatFiles = files.filter(file => file.logical_identity);
   const logicalIdentityComplete = chatFiles.length > 0
     && chatFiles.every(file => file.logical_identity.identity_status === 'CURRENT_IDENTITIES_VERIFIED');
