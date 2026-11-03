@@ -247,6 +247,19 @@ function isPlainRecord(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
+function plainDataRecord(value, allowedKeys, requiredKeys = allowedKeys) {
+  if (!isPlainRecord(value) || !Array.isArray(allowedKeys) || !Array.isArray(requiredKeys)) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length < requiredKeys.length
+    || keys.some((key) => typeof key !== 'string' || !allowedKeys.includes(key))
+    || requiredKeys.some((key) => !Object.hasOwn(value, key))) return false;
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+}
+
 function stableJson(value, depth = 0, seen = new WeakSet()) {
   if (depth > 32) throw new Error('MEMORY_DISPATCH_NOT_READY');
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
