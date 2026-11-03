@@ -231,3 +231,13 @@ test('Lane B envelope rejects another NPC and mismatched request scope or author
     assert.doesNotMatch(JSON.stringify(result), /Lane B report/);
   });
 });
+
+test('receiver rejects reuse of the same issued context for a second dispatch', async () => {
+  const { builder, receiver } = setup();
+  const built = await builder.build(request);
+  assert.equal(built.status, 'ready');
+  assert.equal((await receiver.receive(built.context, request)).status, 'accepted');
+  const replayed = await receiver.receive(built.context, request);
+  assert.equal(replayed.status, 'non_ready');
+  assert.equal(replayed.reason, 'context_replay_rejected');
+});
