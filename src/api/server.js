@@ -158,13 +158,18 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
   if (hostAssertionNonceStore !== null
-    && typeof hostAssertionNonceStore.consume !== 'function') {
-    throw new TypeError('Host assertion nonce store must expose atomic consume().');
+    && (typeof hostAssertionNonceStore.consume !== 'function'
+      || typeof hostAssertionNonceStore.revokeSession !== 'function'
+      || typeof hostAssertionNonceStore.isSessionRevoked !== 'function')) {
+    throw new TypeError('Host assertion nonce store must expose atomic consume(), revokeSession(), and isSessionRevoked().');
   }
   if (!memoryNpcConsumers || typeof memoryNpcConsumers !== 'object' || Array.isArray(memoryNpcConsumers)
     || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
       || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
+  }
+  if (Object.keys(memoryNpcConsumers).length > 0 && hostAssertionNonceStore === null) {
+    throw new TypeError('Memory NPC retrieval requires a durable Host assertion nonce and revocation store.');
   }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
