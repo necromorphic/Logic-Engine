@@ -40,6 +40,7 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 | `src/endpoints/users-private.js` | `/change-avatar`, `/change-password`, `/backup`, `/change-name`, `/reset-settings` | Unsupported/bulk mutation guard; fail closed while Host authority is active |
 | `src/endpoints/users-private.js` | `/reset-step2` (user-root reset) | Explicitly unsupported; fail closed |
 | `src/endpoints/users-public.js` | `/recover-step2` (password recovery) | Unsupported mutation guard; credential changes are blocked while Host authority is active |
+| `src/endpoints/stable-diffusion.js` | ComfyUI `/save-workflow`, `/delete-workflow`, `/rename-workflow` | Unsupported mutation guard; per-account workflow files cannot change while Host authority is active |
 | `src/endpoints/users-admin.js` | `/delete` (account/root deletion) | Explicitly unsupported; fail closed |
 | Startup group metadata migration | Legacy group metadata rewrite | Blocked whenever Host authority is configured; pre-migration scans cannot authorize writes |
 | Browser character/group import and group-bookmark copy | Import/copy/restore path | Client guard; server bulk guards remain authoritative |
