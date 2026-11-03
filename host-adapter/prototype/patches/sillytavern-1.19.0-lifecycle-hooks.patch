@@ -2557,6 +2557,8 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
  
-@@ -219 +221 @@
+@@ -217,3 +219,3 @@
+ });
+ 
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
 +router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
