@@ -9,6 +9,8 @@ on:
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
+      - 'native/secure-vfs-probe/*.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'tests/security-vfs-broker-integration.test.js'
       - 'tests/security-vfs-strict-mode.test.js'
@@ -193,3 +195,5 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Validate persistent role manifest schema
         run: node --test tests/sqlite-role-manifest-schema.test.js
+      - name: Test Windows manifest lifecycle transactions and crash recovery
+        run: node --test tests/windows-manifest-lifecycle.test.js
