@@ -52,8 +52,14 @@ test('Host session revocation is read by Gateway and serialized with the shared 
   const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
   const store = await readFile(new URL('../src/application/host-assertion-nonce-store.js', import.meta.url), 'utf8');
   const api = await readFile(new URL('../src/api/server.js', import.meta.url), 'utf8');
-  assert.match(runtime, /hostSessionRevocationReader\.isSessionRevoked/);
-  assert.match(runtime, /HOST_SESSION_REVOKED/);
+  assert.match(runtime, /readHostEvidence: \(\{ hostContext, coordinatorLease \}\) => \{/);
+  const hostReaderStart = runtime.indexOf('readHostEvidence: ({ hostContext, coordinatorLease }) => {');
+  const hostReaderEnd = runtime.indexOf('\n      },\n    });', hostReaderStart);
+  assert.ok(hostReaderStart >= 0 && hostReaderEnd > hostReaderStart);
+  const hostReader = runtime.slice(hostReaderStart, hostReaderEnd);
+  assert.ok(hostReader.indexOf('hostSessionRevocationReader.isSessionRevoked') >= 0);
+  assert.ok(hostReader.indexOf('hostJournal.readAuthoritySnapshotUnderLease') > hostReader.indexOf('hostSessionRevocationReader.isSessionRevoked'));
+  assert.match(hostReader, /HOST_SESSION_REVOKED/);
   assert.match(store, /async revokeSession\(/);
   assert.match(store, /await acquireCoordinatorLeaseWithoutBlocking\(this\.\#coordinatorDb\)/);
   assert.match(api, /await hostAssertionNonceStore\.revokeSession\(/);
