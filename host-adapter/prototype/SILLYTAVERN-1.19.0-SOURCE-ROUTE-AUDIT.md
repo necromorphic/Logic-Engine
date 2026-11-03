@@ -163,3 +163,27 @@ Operation disposition at this candidate:
 - Pending recovery is same-session only. A renewed signed ST session cannot resolve a PREPARED mutation from the previous session; it remains NON_READY/RECOVERY_REQUIRED.
 
 Do not infer production readiness from passing source audit, patch-apply, isolated receipt-store tests, or the fake-provider harness. Acceptance requires the exact pinned ST 1.19.0 real-file harness, browser IndexedDB restart, Core journal restart/replay and all security/test jobs to pass on the same exact HEAD.
+
+## Host inventory integration update — 3 Nov 2026 (PR #871)
+
+The uploaded `SillyTavern-release.zip` was independently checked against the pinned commit using Git blob SHA-1. In addition to the files listed above, these exact matches were verified:
+
+| File | Git blob SHA |
+|---|---|
+| `package.json` | `ea41cec0158fc2678f16d587d7bcf880be3fc302` |
+| `src/endpoints/groups.js` | `68094f9fc53e0765ff186d09093a0dd5e3a2d6ab` |
+| `src/users.js` | `3ef054eb725afc3ba1b1ac1952fd9e54d549c073` |
+| `src/server-main.js` | `bcf5bed8d6248af1db5ed0d59796e2c284bde95b` |
+| `src/endpoints/users-private.js` | `4f3bda9f1b84c29e8524918e2f77616236d20ba9` |
+| `src/endpoints/users-admin.js` | `2b86bb7c85949cee93b2c099c2f840b3f415d6b1` |
+| `src/endpoints/extensions.js` | `dfdc28a78c360b95f0bf74a4f392110ebcbff068` |
+
+The pinned mutation contract now covers **54 guarded routes**: the original 47 per-user routes, both user-root reset routes, and all five extension source mutation routes. The source audit also verifies the users-admin POST router guard, the ST logout session invalidation path, and fail-closed handling of incomplete user-data/system-prompt startup migrations. The installed-plugin source-root resolver now points three directory levels upward to the actual SillyTavern root.
+
+Core has a separate `POST /v1/host-root-inventory/complete` route. The Host Adapter submits an HMAC-signed proof binding the accepted root manifest to the exact pinned ST commit, mutation-coverage digest/count, source-file digest, two-pass full-root scan, shared VSS snapshot, file count/bytes, reparse-point policy and current logical chat identity status. Core persists the proof in a hash-chained completeness journal. `getAuthoritySnapshot()` refuses lifecycle authority until that proof verifies; source drift or a changed root manifest invalidates the authority snapshot. The initial baseline is no longer sufficient to unlock Host lifecycle.
+
+**Current limitation:** root changes are detected and fail closed as `NON_READY`; this PR does not yet reconcile a changed root manifest back to `AUTHORITATIVE_COMPLETE` using operation-to-file-delta receipts. Chat rename/delete/import/group import/copy-branch and backup restore remain blocked rather than supported mutations. Export is read-only. Message/swipe edits use the existing receipt path, but a subsequent root scan that sees a changed manifest currently invalidates the root proof. This is containment, not full lifecycle completion.
+
+The uploaded `ST-VectorService.zip` was separately inspected. Its SQLite/Vectra storage is under `ST_VECTOR_ROOT` (or the service working directory), outside SillyTavern's authenticated per-user root. Its `/v1/insert` and `/v1/delete` routes use one shared bearer key and have no ST session/account/conversation binding or Host lifecycle receipts. The sidecar is documented as a separate trust boundary; its files are not included in the Host `AUTHORITATIVE_COMPLETE` scope.
+
+CI on the exact PR head is the acceptance gate for the current implementation. A green patch/source audit alone is not production readiness evidence.
