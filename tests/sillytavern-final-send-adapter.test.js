@@ -263,3 +263,42 @@ test('asynchronous protected dispatch failure cannot clear the response protecti
   );
   assert.equal(writes, 0);
 });
+
+
+test('one protected Host response cannot dispatch the model twice after a completed first handoff', async () => {
+  const response = {};
+  let upstreamCalls = 0;
+  let gatewayCalls = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      async dispatchProtectedRequest(request) {
+        gatewayCalls += 1;
+        return request.transport();
+      },
+      authorizeResponseWrite(_requestId, write) {
+        return write();
+      },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  const dispatch = () => adapter.dispatch({
+    request: { body: { chat_completion_source: 'makersuite', stream: false } },
+    response,
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[{"role":"user","content":"once"}]}' },
+    stream: false,
+    transport: async () => {
+      upstreamCalls += 1;
+      return { status: 200 };
+    },
+  });
+
+  const first = await dispatch();
+  assert.equal(first.status, 200);
+  await assert.rejects(dispatch(), /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/);
+  assert.equal(gatewayCalls, 1);
+  assert.equal(upstreamCalls, 1);
+});
