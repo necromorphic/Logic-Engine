@@ -95,6 +95,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
   assert.equal(body.attestation.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(body.attestation.snapshot_sha256, 'd'.repeat(64));
   assert.equal(body.attestation.covered_delta_sha256, null);
+  assert.equal(body.attestation.source_manifest_sha256, 'e'.repeat(64));
   const { signature, ...proof } = body.attestation;
   const expected = createHmac('sha256', env.LOGIC_ENGINE_ADAPTER_TOKEN)
     .update(canonical(proof), 'utf8').digest('hex');
