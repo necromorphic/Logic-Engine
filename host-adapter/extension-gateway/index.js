@@ -1,5 +1,5 @@
 import { interceptProtectedGeneration } from './gateway-policy.mjs';
-import { dispatchThroughExtensionGateway } from './host-context.mjs';
+import { dispatchThroughExtensionGateway, resolveGatewayHostContext } from './host-context.mjs';
 
 /**
  * Review-only SillyTavern extension gateway.
@@ -53,9 +53,45 @@ export function getStatus() {
     };
 }
 
+async function prepareConversationIdentityHeader(abort) {
+    let config;
+    try {
+        const response = await fetch('/api/plugins/logic-engine/host/config', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            globalThis.logicEngineConversationUuid = null;
+            return false;
+        }
+        config = await response.json();
+    } catch {
+        globalThis.logicEngineConversationUuid = null;
+        return false;
+    }
+    if (config?.memoryNpcEnabled !== true) {
+        globalThis.logicEngineConversationUuid = null;
+        return false;
+    }
+    try {
+        const hostContext = await resolveGatewayHostContext();
+        globalThis.logicEngineConversationUuid = hostContext.conversationUuid;
+        return true;
+    } catch {
+        globalThis.logicEngineConversationUuid = null;
+        gatewayState.protectedFailureLockout = true;
+        gatewayState.lastStatus = 'HOST_CONTEXT_NON_READY';
+        abort(true);
+        return false;
+    }
+}
+
 // SillyTavern resolves this global name from the extension manifest.
 // This is the only global intentionally registered by the prototype.
 globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (chat, contextSize, abort, type) {
+    await prepareConversationIdentityHeader(abort);
+    if (gatewayState.lastStatus === 'HOST_CONTEXT_NON_READY') return;
     const pendingRequest = gatewayState.pendingRequest;
     if (!pendingRequest) {
         // A failed protected dispatch must not turn the next user retry into
