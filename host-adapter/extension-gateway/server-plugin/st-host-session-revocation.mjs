@@ -124,7 +124,11 @@ export async function revokeHostSessionBeforeLogout(request, {
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) {
     throw new Error('HOST_SESSION_REVOCATION_UNAVAILABLE');
   }
-  const identityStore = new HostIdentityStore({ directory });
-  const revoke = createHostSessionRevocationClient({ env, fetchImpl, identityStore, getDataRoot });
-  return revoke(request, reason);
+  try {
+    const identityStore = new HostIdentityStore({ directory });
+    const revoke = createHostSessionRevocationClient({ env, fetchImpl, identityStore, getDataRoot });
+    return await revoke(request, reason);
+  } catch {
+    throw new Error('HOST_SESSION_REVOCATION_UNAVAILABLE');
+  }
 }
