@@ -325,7 +325,7 @@ test('dispatch ledger explicitly uses SQLite FULL synchronous durability', async
     const digestIndexSql = fixture.gateway.db.prepare(
       "SELECT sql FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
     ).get()?.sql ?? '';
-    assert.match(digestIndexSql, /CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger\\(request_digest\\)/i);
+    assert.match(digestIndexSql, /CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger\(request_digest\)/i);
     assert.doesNotMatch(digestIndexSql, /WHERE/i, 'generation identity remains unique after COMPLETED');
   } finally {
     await fixture.close();
