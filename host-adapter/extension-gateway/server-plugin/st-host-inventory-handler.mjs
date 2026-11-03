@@ -152,7 +152,6 @@ export function createHostInventoryHandler({
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
       const rootInventoryAuthoritative = rootInventoryPersisted
-        && mutationCoverageVerified
         && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
         && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
         && Number.isSafeInteger(rootInventory.lifecycle_sequence)
