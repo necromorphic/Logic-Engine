@@ -291,17 +291,62 @@ export class MemoryNpcConsumer {
     normalizedSources.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
       || compareCodeUnits(a.source_version, b.source_version));
 
-    const snapshot = engine.getSnapshot(worldId, {
-      ...(sourceIds.length ? { entityIds: sourceIds } : {}),
-      includeSourceVersions: true,
-    });
-    if (!snapshot || snapshot.world_id !== worldId
-      || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
-      || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0
-      || !Array.isArray(snapshot.entities) || snapshot.entities.length !== sourceIds.length) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-    const currentEntities = new Map(snapshot.entities.map(entity => [entity.entity_id, entity]));
+    // Re-read the complete Core canonical-entity inventory, not only the
+    // requested source subset. The page cursor pins every page to one exact
+    // world revision/commit sequence while the shared Coordinator is held.
+    const currentEntities = new Map();
+    let cursor = null;
+    let marker = null;
+    let previousEntityId = null;
+    let pageCount = 0;
+    do {
+      const page = engine.getCanonicalEntityInventory(worldId, {
+        limit: 200,
+        ...(cursor ? { cursor } : {}),
+      });
+      pageCount += 1;
+      if (!page || page.world_id !== worldId
+        || !Number.isSafeInteger(page.world_revision) || page.world_revision < 0
+        || !Number.isSafeInteger(page.commit_sequence) || page.commit_sequence < 0
+        || !Array.isArray(page.entities) || typeof page.complete !== 'boolean') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const pageMarker = {
+        world_revision: page.world_revision,
+        commit_sequence: page.commit_sequence,
+      };
+      if (marker && (marker.world_revision !== pageMarker.world_revision
+        || marker.commit_sequence !== pageMarker.commit_sequence)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      marker = pageMarker;
+      for (const entity of page.entities) {
+        if (!object(entity) || !validId(entity.entity_id)
+          || !['active', 'destroyed'].includes(entity.status)
+          || typeof entity.source_version !== 'string'
+          || !/^core-entity-v1:[1-9][0-9]*$/.test(entity.source_version)
+          || currentEntities.has(entity.entity_id)
+          || (previousEntityId !== null && entity.entity_id <= previousEntityId)) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        currentEntities.set(entity.entity_id, entity);
+        previousEntityId = entity.entity_id;
+      }
+      if (page.complete) {
+        if (page.next_cursor !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+        cursor = null;
+      } else {
+        if (!page.next_cursor || page.entities.length === 0
+          || page.next_cursor.after_entity_id !== previousEntityId
+          || page.next_cursor.world_revision !== page.world_revision
+          || page.next_cursor.commit_sequence !== page.commit_sequence) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        cursor = page.next_cursor;
+      }
+      if (pageCount > 100000) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    } while (cursor);
+
     for (const source of normalizedSources) {
       const entity = currentEntities.get(source.source_entity_id);
       if (!entity || entity.status !== 'active' || entity.source_version !== source.source_version) {
