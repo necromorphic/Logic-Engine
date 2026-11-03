@@ -241,3 +241,17 @@ test('receiver rejects reuse of the same issued context for a second dispatch', 
   assert.equal(replayed.status, 'non_ready');
   assert.equal(replayed.reason, 'context_replay_rejected');
 });
+
+test('receivers created by the same builder share replay protection', async () => {
+  const { builder, receiver } = setup();
+  const secondReceiver = builder.createReceiver({
+    resolveScope: async () => scope,
+    revalidateEvidence: async () => true,
+    revalidateScope: async () => scope,
+  });
+  const built = await builder.build(request);
+  assert.equal((await receiver.receive(built.context, request)).status, 'accepted');
+  const replayed = await secondReceiver.receive(built.context, request);
+  assert.equal(replayed.status, 'non_ready');
+  assert.equal(replayed.reason, 'context_replay_rejected');
+});
