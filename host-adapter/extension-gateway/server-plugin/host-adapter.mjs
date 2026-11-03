@@ -68,13 +68,14 @@ export function createSillyTavernHostAdapter({
   let dispatchMiddleware = (_request, response) =>
     response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
   let dispatch = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let authentication = null;
 
   if (identityStore) {
     const lifecycle = createHostLifecycleJournalProxy({ identityStore });
     lifecycleEvents = lifecycle.append;
     lifecycleStatus = lifecycle.status;
 
-    const authentication = createHostRequestAuthenticationGate({
+    authentication = createHostRequestAuthenticationGate({
       resolveConversationId: async (request, requestedConversationUuid) => {
         const userHandle = request?.user?.profile?.handle;
         const sessionId = request?.session?.logicEngineSessionId;
