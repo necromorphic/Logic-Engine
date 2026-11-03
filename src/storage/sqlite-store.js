@@ -258,7 +258,7 @@ export class SQLiteStore {
     this.coordinatorLeaseDepth = 0;
     try {
       if (readOnly && corePath === ':memory:') throw new Error('CORE_READ_ONLY_REQUIRES_FILE_BACKED_STORE');
-      this.db = new DatabaseSync(corePath, readOnly ? { readOnly: true } : undefined);
+      this.db = new DatabaseSync(corePath, readOnly ? { readOnly: true } : {});
       if (this.coordinatorDb) {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
