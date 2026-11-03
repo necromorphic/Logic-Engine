@@ -92,6 +92,7 @@ export function createNpcGenerationContextHostBridge({
       return Object.freeze({ status: 'non_ready', reason: 'host_request_not_preparable' });
     }
     seenRequests.add(hostRequest);
+    const authenticatedConversationId = hostContext.conversation_id;
     try {
       let requestMetadata;
       try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
@@ -108,7 +109,7 @@ export function createNpcGenerationContextHostBridge({
       let prepared;
       let projected;
       try {
-        await runWithAuthenticatedHostSession(hostRequest, hostContext.conversation_id, async () => {
+        await runWithAuthenticatedHostSession(hostRequest, authenticatedConversationId, async () => {
           prepared = await runtime.prepareForDispatch(requestMetadata);
           if (prepared?.status === 'ready' && prepared.handoff) {
             projected = runtime.projectDispatchHandoff(prepared.handoff, requestMetadata);
@@ -124,7 +125,7 @@ export function createNpcGenerationContextHostBridge({
 
       preparedByRequest.set(hostRequest, Object.freeze({
         response: hostResponse,
-        hostContext,
+        conversationId: authenticatedConversationId,
         requestMetadata,
         handoff: prepared.handoff,
         projection: projected.projection,
@@ -151,7 +152,7 @@ export function createNpcGenerationContextHostBridge({
       projection: prepared.projection,
       runWithHostSession: callback => {
         if (typeof callback !== 'function') throw new TypeError('Host session callback is required.');
-        return runWithAuthenticatedHostSession(hostRequest, prepared.hostContext.conversation_id, callback);
+        return runWithAuthenticatedHostSession(hostRequest, prepared.conversationId, callback);
       },
       reason: null,
     });
