@@ -227,3 +227,104 @@ test('protected complete-empty context is not misrepresented as an admitted sour
   });
   assert.equal(directCalls, 1);
 });
+
+test('Core Lane A and Provider Lane B are projected separately with Lane A provenance preserved', async () => {
+  let outbound;
+  const laneAItem = {
+    acquisition_id: 'acquisition-1',
+    fact_id: 'fact-1',
+    subject_ref: 'subject-1',
+    predicate: 'knows_location',
+    value: { place: 'north gate' },
+    acquisition_kind: 'direct_observation',
+    provenance_ref: 'provenance-1',
+    provenance_digest: 'a'.repeat(64),
+    acquisition_authorization_ref: 'acquisition-auth-1',
+    source_event_ids: ['event-1'],
+    visibility_authorization_ref: 'visibility-auth-1',
+  };
+  const protectedContext = {
+    ...context,
+    laneA: {
+      lane: 'A',
+      purpose: 'npc_turn_context',
+      authorization_ref: 'read-auth-1',
+      visibility_authorization_ref: 'visibility-read-auth-1',
+      items: [laneAItem],
+    },
+    revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'A provider-backed report.' },
+    }],
+  };
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: {
+      dispatchProtectedRequest(request) {
+        return request.transport();
+      },
+    },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async (_url, request) => {
+      outbound = JSON.parse(request.body);
+      return { status: 200 };
+    },
+  });
+  await finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(JSON.stringify({
+      messages: [{ role: 'user', content: 'continue' }],
+    })),
+    hostRequestContext: { trusted: true },
+  });
+  const prompt = outbound.messages.map(message => message.content).join('\\n');
+  assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
+  assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
+  assert.match(prompt, /north gate/);
+  assert.match(prompt, /direct_observation/);
+  assert.match(prompt, /provenance-1/);
+  assert.match(prompt, /event-1/);
+  assert.match(prompt, /A provider-backed report/);
+  assert.doesNotMatch(prompt, /acquisition-auth-1/);
+  assert.doesNotMatch(prompt, /visibility-auth-1/);
+});
+
+test('Lane A projection rejects accessors instead of invoking them', async () => {
+  let calls = 0;
+  const item = {
+    acquisition_id: 'acquisition-1',
+    fact_id: 'fact-1',
+    subject_ref: 'subject-1',
+    predicate: 'knows_location',
+    value: 'north gate',
+    acquisition_kind: 'direct_observation',
+    provenance_ref: 'provenance-1',
+    provenance_digest: 'a'.repeat(64),
+    acquisition_authorization_ref: 'acquisition-auth-1',
+    source_event_ids: ['event-1'],
+    visibility_authorization_ref: 'visibility-auth-1',
+  };
+  Object.defineProperty(item, 'value', {
+    enumerable: true,
+    get() { calls += 1; throw new Error('must not execute'); },
+  });
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('must not dispatch'); } },
+    resolveProtectedMemory: () => ({
+      ...context,
+      laneA: { items: [item] },
+      revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
+      contentBlocks: [],
+    }),
+    fetchImpl: async () => { throw new Error('must not fetch'); },
+  });
+  assert.throws(() => finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+    hostRequestContext: { trusted: true },
+  }), /PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID/);
+  assert.equal(calls, 0);
+});
