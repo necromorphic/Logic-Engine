@@ -224,7 +224,7 @@ test('every pinned chat-history mutation route is either receipted or fail-close
   const section = file => {
     const start = lifecyclePatch.indexOf('diff --git a/' + file + ' ');
     assert.ok(start >= 0, 'missing lifecycle patch section: ' + file);
-    const end = lifecyclePatch.indexOf('\\ndiff --git ', start + 10);
+    const end = lifecyclePatch.indexOf('\ndiff --git ', start + 10);
     return lifecyclePatch.slice(start, end < 0 ? undefined : end);
   };
   const guardedRoutes = [
@@ -249,7 +249,7 @@ test('every pinned chat-history mutation route is either receipted or fail-close
     ['src/endpoints/users-private.js', '/reset-settings', 'hostBulkMutationGuard'],
   ];
   for (const [file, route, guard] of guardedRoutes) {
-    const lines = section(file).split('\\n').filter(line => line.startsWith('+router.post('));
+    const lines = section(file).split('\n').filter(line => line.startsWith('+router.post('));
     assert.ok(lines.some(line => line.includes("'" + route + "'") && line.includes(guard)),
       file + ' ' + route + ' must use ' + guard);
   }
@@ -263,6 +263,6 @@ test('every pinned chat-history mutation route is either receipted or fail-close
 
   const groups = section('src/endpoints/groups.js');
   assert.match(groups, /assertHostStartupMigrationAllowed/);
-  assert.match(groups, /await assertHostStartupMigrationAllowed\\(\\{/,
+  assert.match(groups, /await assertHostStartupMigrationAllowed\(\{/,
     'startup group metadata migration must check enrolled histories before writes');
 });
