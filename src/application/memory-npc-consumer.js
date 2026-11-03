@@ -866,7 +866,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
-      return Object.freeze({
+      return finalizeUnderProviderLease([], () => Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
         candidates: Object.freeze([]),
@@ -876,7 +876,7 @@ export class MemoryNpcConsumer {
           commit_sequence: filteredEmptySnapshotRead.commit_sequence,
         }),
         provider_evidence_cursor: memoryResult.provider_evidence_cursor,
-      });
+      }));
     }
 
     // A stable Memory record identity/version must not be rebound to a
