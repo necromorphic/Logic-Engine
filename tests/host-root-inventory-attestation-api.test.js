@@ -20,6 +20,7 @@ const AUTHORITY_ID = 'host-root-test-authority';
 const AUTHORITY_GENERATION = 1;
 const digest = value => createHash('sha256').update(value).digest('hex');
 const SOURCE_MANIFEST_SHA256 = digest('pinned-source-manifest');
+let trustedSourceManifestSha256 = SOURCE_MANIFEST_SHA256;
 const canonical = value => value && typeof value === 'object'
   ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
   : JSON.stringify(value);
@@ -49,7 +50,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     ? {
       authorized: true, adapter_id: ADAPTER_ID,
       host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT, root_id: ROOT_ID,
-      source_manifest_sha256: SOURCE_MANIFEST_SHA256,
+      source_manifest_sha256: trustedSourceManifestSha256,
     } : { authorized: false };
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-lifecycle.sqlite'),
@@ -219,6 +220,15 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(forgedRefresh.status, 409);
   assert.equal((await forgedRefresh.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
 
+  // A reviewed deployment explicitly updates the Core registry pin. Only
+  // after that trust-anchor change may the new source manifest be accepted.
+  trustedSourceManifestSha256 = unapprovedSourceManifestSha256;
+  const approvedRefresh = await post(base, '/v1/host-root-inventory/attest', {
+    ...identity, attestation: forgedRefreshAttestation,
+  });
+  assert.equal(approvedRefresh.status, 200);
+  assert.equal((await approvedRefresh.json()).inventory_status, 'AUTHORITATIVE_COMPLETE');
+
   const snapshot = journal.getAuthoritySnapshot({
     authority_id: AUTHORITY_ID,
     generation: AUTHORITY_GENERATION,
@@ -228,7 +238,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     root_id: ROOT_ID,
   });
   assert.equal(snapshot.status, 'INTEGRITY_OK');
-  assert.equal(snapshot.authority_status, 'REVIEW_ONLY');
-  assert.equal(snapshot.source_manifest_sha256, undefined);
+  assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(snapshot.source_manifest_sha256, unapprovedSourceManifestSha256);
 
 });
