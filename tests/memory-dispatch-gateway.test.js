@@ -2170,6 +2170,44 @@ test('Gateway rejects NPC handoffs bound to another conversation or Provider can
   }
 });
 
+test('Gateway dispatches Lane A-only context with a complete-empty Lane B proof', async () => {
+  const fixture = await createFixture();
+  try {
+    const laneABlock = {
+      epistemic_kind: 'direct_observation',
+      evidence_assessment: 'unassessed',
+      content: { subject_ref: 'entity:npc-1', predicate: 'location', value: 'Kamurocho' },
+    };
+    const request = validRequest('npc-lane-a-only', {
+      sources: [],
+      candidates: [],
+      contentBlocks: [laneABlock],
+    });
+    request.npcContextHandoff.context.lanes.lane_a.items.push({
+      acquisition_id: 'acquisition-a-only',
+      fact_id: 'fact-a-only',
+      subject_ref: 'entity:npc-1',
+      predicate: 'location',
+      value: 'Kamurocho',
+      acquisition_kind: 'direct_observation',
+      provenance_ref: 'event-a-only',
+      provenance_digest: 'f'.repeat(64),
+      acquisition_authorization_ref: 'authorization-a-only',
+      source_event_ids: ['event-a-only'],
+      visibility_authorization_ref: 'visibility-a-only',
+    });
+    const parsed = JSON.parse(request.body);
+    parsed.messages[0].content = testNpcMemoryText([laneABlock]);
+    request.body = JSON.stringify(parsed);
+    const response = await dispatchAndRelease(fixture.gateway, request);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.calls.length, 1);
+    assert.match(fixture.calls[0].request.body, /Kamurocho/);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Gateway rejects NPC candidates without source-version lineage', async () => {
   const fixture = await createFixture();
   try {
