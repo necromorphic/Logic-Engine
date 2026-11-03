@@ -867,19 +867,24 @@ export class SQLiteMemoryProvider {
     scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
     if (!validId(scope.world_id) || !validId(scope.subject_id) || !validId(scope.purpose)
       || candidates.length > 50) throw new TypeError('Invalid Provider authorized-read scope');
-    const stableCandidates = candidates.map(candidate => {
+    // Do not dispatch through caller-reachable Array.prototype methods at
+    // this security boundary. A polluted global prototype must not replace
+    // the candidate-copy operation after the array itself has been validated.
+    const stableCandidates = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
       if (!isPlainDataRecord(candidate)
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation)
         || candidate.authorization_generation < 1) {
         throw new TypeError('Invalid Provider authorized-read candidate');
       }
-      return {
+      stableCandidates.push({
         record_ref: candidate.record_ref,
         record_version: candidate.record_version,
         authorization_generation: candidate.authorization_generation,
-      };
-    });
+      });
+    }
     return this.#withCoordinatorLock(() => {
       this.#assertAcceptedHeadCurrent();
       if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
