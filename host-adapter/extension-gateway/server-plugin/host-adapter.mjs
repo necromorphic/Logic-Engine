@@ -122,6 +122,15 @@ export function createSillyTavernHostAdapter({
           || !Array.isArray(hostInventory?.filesystem?.entries)) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
+        const mutationCoverage = hostInventory?.mutation_coverage;
+        if (mutationCoverage?.status !== 'VERIFIED'
+          || mutationCoverage.source_commit !== PINNED_SILLYTAVERN_COMMIT
+          || !/^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
+          || !Number.isSafeInteger(mutationCoverage.route_count)
+          || mutationCoverage.route_count < 1
+          || !/^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED' };
+        }
 
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
