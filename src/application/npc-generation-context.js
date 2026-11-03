@@ -192,6 +192,10 @@ export function createNpcGenerationContextBuilder({
   // must not be able to accept a context issued by this builder.
   const issuedContexts = new WeakMap();
   const consumedContexts = new WeakSet();
+  const acceptedReceipts = new WeakMap();
+  const consumedReceipts = new WeakSet();
+  const dispatchHandoffs = new WeakMap();
+  const consumedHandoffs = new WeakSet();
   for (let index = 0; index < dependencyNames.length; index += 1) {
     const name = dependencyNames[index];
     if (typeof dependencies[name] !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
@@ -319,7 +323,48 @@ function createNpcGenerationContextReceiver({ resolveScope, revalidateEvidence, 
       || current.conversation_id !== issued.conversation_id || current.adapter_id !== issued.adapter_id
       || !sameSnapshot(scope.snapshot, issued.snapshot)
       || !sameSnapshot(current.snapshot, issued.snapshot)) return nonReady('context_scope_changed');
-    return Object.freeze({ status: 'accepted', context, reason: null });
+    const accepted = Object.freeze({ status: 'accepted', context, reason: null });
+    acceptedReceipts.set(accepted, Object.freeze({
+      context,
+      request_id: request.request_id,
+      generation_id: request.generation_id,
+      generation_type: request.generation_type,
+    }));
+    return accepted;
   }
-  return Object.freeze({ receive });
+
+  // Mint an opaque, in-process, one-shot handoff only from this Receiver's
+  // successful receipt. The token carries no serialized context and cannot be
+  // reconstructed from request metadata or a cloned context.
+  function issueDispatchHandoff(accepted, request) {
+    const receipt = accepted && typeof accepted === 'object' ? acceptedReceipts.get(accepted) : null;
+    if (!receipt || consumedReceipts.has(accepted) || !validateRequest(request)
+      || receipt.request_id !== request.request_id
+      || receipt.generation_id !== request.generation_id
+      || receipt.generation_type !== request.generation_type
+      || accepted.context !== receipt.context) {
+      return nonReady('dispatch_handoff_rejected');
+    }
+    consumedReceipts.add(accepted);
+    const handoff = Object.freeze(Object.create(null));
+    dispatchHandoffs.set(handoff, receipt);
+    return Object.freeze({ status: 'ready', handoff, reason: null });
+  }
+
+  // Called only by the trusted in-process Gateway while it owns the shared
+  // dispatch-start ordering boundary. It is synchronous and one-shot; the
+  // Gateway must still revalidate both lanes under that same boundary.
+  function consumeDispatchHandoff(handoff, request) {
+    const receipt = handoff && typeof handoff === 'object' ? dispatchHandoffs.get(handoff) : null;
+    if (!receipt || consumedHandoffs.has(handoff) || !validateRequest(request)
+      || receipt.request_id !== request.request_id
+      || receipt.generation_id !== request.generation_id
+      || receipt.generation_type !== request.generation_type) {
+      return nonReady('dispatch_handoff_rejected');
+    }
+    consumedHandoffs.add(handoff);
+    return Object.freeze({ status: 'accepted', context: receipt.context, reason: null });
+  }
+
+  return Object.freeze({ receive, issueDispatchHandoff, consumeDispatchHandoff });
 }
