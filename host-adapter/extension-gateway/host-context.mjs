@@ -1,7 +1,7 @@
 import { resolveStableHostConversationIdentity } from './conversation-identity.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const GATEWAY = '/api/plugins/logic-engine-extension-gateway';
+const GATEWAY = '/api/plugins/logic-engine/host';
 
 async function readJson(fetchImpl, url, options = {}) {
   const response = await fetchImpl(url, { credentials: 'same-origin', cache: 'no-store', ...options });
@@ -60,24 +60,6 @@ export async function resolveGatewayHostContext({
   });
 }
 
-export async function dispatchThroughExtensionGateway({ requestId, contextSize, type }, options = {}) {
-  if (!UUID.test(requestId ?? '')) throw new Error('HOST_DISPATCH_REQUEST_ID_INVALID');
-  if (!Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000) {
-    throw new Error('HOST_DISPATCH_CONTEXT_SIZE_INVALID');
-  }
-  if (typeof type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(type)) {
-    throw new Error('HOST_DISPATCH_GENERATION_TYPE_INVALID');
-  }
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const resolved = await resolveGatewayHostContext(options);
-  return readJson(fetchImpl, GATEWAY + '/dispatch', {
-    method: 'POST',
-    headers: resolved.getRequestHeaders(),
-    body: JSON.stringify({
-      request_id: requestId,
-      conversation_uuid: resolved.conversationUuid,
-      context_size: contextSize,
-      generation_type: type,
-    }),
-  });
+export async function dispatchThroughExtensionGateway() {
+  throw new Error('HOST_MEMORY_DISPATCH_IS_SERVER_ONLY');
 }
