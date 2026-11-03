@@ -171,6 +171,7 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     'src/endpoints/data-maid.js': ['/delete'],
     'src/endpoints/vectors.js': ['/insert', '/delete', '/purge-all', '/purge'],
     'src/endpoints/users-private.js': ['/change-avatar', '/change-password', '/backup', '/reset-settings', '/change-name', '/reset-step2'],
+    'src/endpoints/users-public.js': ['/recover-step2'],
     'src/endpoints/users-admin.js': ['/delete'],
     'src/endpoints/extensions.js': ['/install', '/update', '/switch', '/move', '/delete'],
     'src/endpoints/content-manager.js': ['/importURL', '/importUUID'],
@@ -192,6 +193,26 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
         file + ' must retain reviewed mutation route ' + route);
     }
   }
+});
+
+test('account recovery password reset is blocked while Host authority is active', () => {
+  const usersPublic = mutationSources['src/endpoints/users-public.js'];
+  assert.match(usersPublic,
+    /router\\.post\\('\\/recover-step2',\\s*hostUnsupportedMutationGuard,/);
+});
+
+test('bulk mutation guards do not authorize writes from a pre-mutation filesystem scan', async () => {
+  const handler = await readFile(resolve(process.cwd(),
+    'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'), 'utf8');
+  const start = handler.indexOf('export function createHostBulkMutationGuard(');
+  const end = handler.indexOf('export async function assertHostStartupMigrationAllowed(', start);
+  assert.ok(start >= 0 && end > start);
+  const guard = handler.slice(start, end);
+  assert.match(guard, /hostConfigured/);
+  assert.match(guard, /hostSessionActive/);
+  assert.match(guard, /HOST_BULK_MUTATION_UNSUPPORTED/);
+  assert.doesNotMatch(guard, /hasEnrolledConversation/);
+  assert.doesNotMatch(guard, /return next\\(\\);[\\s\\S]*?enumerate/);
 });
 
 test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
