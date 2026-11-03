@@ -167,3 +167,63 @@ test('ordinary non-Memory generation keeps its direct provider path', async () =
   assert.equal(result.status, 200);
   assert.equal(calls, 1);
 });
+
+test('protected NPC content is serialized into the exact outbound request and Host locators are stripped', async () => {
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { 'attributes.public_note': 'The NPC was told the bridge is closed.' },
+    }],
+  };
+  for (const [senderRoute, body, readPrompt] of [
+    ['google-ai-studio', JSON.stringify({ model: 'gemini-test', messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'hello' }], logic_engine_conversation_uuid: 'untrusted' }), parsed => parsed.messages.map(message => message.content).join('\\n')],
+    ['text-completions', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
+    ['kobold', JSON.stringify({ prompt: 'hello', logic_engine_context_size: 9000 }), parsed => parsed.prompt],
+    ['novelai-text', JSON.stringify({ input: 'hello', logic_engine_generation_type: 'untrusted' }), parsed => parsed.input],
+    ['horde-text', JSON.stringify({ prompt: 'hello', params: { logic_engine_conversation_uuid: 'untrusted' } }), parsed => parsed.prompt],
+  ]) {
+    let dispatched;
+    let outbound;
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: {
+        dispatchProtectedRequest(request) {
+          dispatched = request;
+          return request.transport();
+        },
+      },
+      resolveProtectedMemory: () => protectedContext,
+      fetchImpl: async (_url, request) => {
+        outbound = request.body;
+        return { status: 200, body: request.body };
+      },
+    });
+    await finalSend({
+      senderRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(body),
+    });
+    assert.equal(dispatched.body, outbound, senderRoute);
+    const parsed = JSON.parse(outbound);
+    assert.match(readPrompt(parsed), /Logic Engine NPC Memory Context/, senderRoute);
+    assert.match(readPrompt(parsed), /bridge is closed/, senderRoute);
+    assert.equal(JSON.stringify(parsed).includes('logic_engine_'), false, senderRoute);
+    assert.equal(JSON.stringify(parsed).includes('memory_dispatch'), false, senderRoute);
+  }
+});
+
+test('protected complete-empty context is not misrepresented as an admitted source set', async () => {
+  let directCalls = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('empty context must not dispatch'); } },
+    resolveProtectedMemory: () => null,
+    fetchImpl: async () => { directCalls += 1; return { status: 200 }; },
+  });
+  await finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+  });
+  assert.equal(directCalls, 1);
+});
