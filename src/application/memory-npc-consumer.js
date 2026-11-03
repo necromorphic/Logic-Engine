@@ -798,6 +798,7 @@ export class MemoryNpcConsumer {
         record_version: candidate.record.version,
         authorization_generation: candidate.authorization_generation,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),
