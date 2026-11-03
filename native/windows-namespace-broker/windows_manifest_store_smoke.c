@@ -64,6 +64,8 @@ int main(void) {
   if (!le_win_store_open(&store, directory, validate_test_json, validate_test_json, NULL)) goto done;
   stage = "lock metadata store";
   if (!le_win_store_lock(&store)) goto close_store;
+  stage = "probe directory FlushFileBuffers";
+  if (!FlushFileBuffers(store.directory)) goto unlock_store;
   stage = "write manifest";
   if (!le_win_store_write_manifest(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
   stage = "reject invalid manifest";
