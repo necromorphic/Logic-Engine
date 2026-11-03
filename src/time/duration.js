@@ -1,6 +1,28 @@
+import { types as utilTypes } from 'node:util';
 import { assertTimeCoordinate } from './coordinate.js';
 
-const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const object = (value) => {
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return typeof key === 'string' && descriptor !== undefined
+      && descriptor.enumerable === true && Object.hasOwn(descriptor, 'value');
+  });
+};
+const canonicalArray = (value) => {
+  if (utilTypes.isProxy(value) || !Array.isArray(value)) return false;
+  if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || keys[value.length] !== 'length') return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const key = String(index);
+    if (keys[index] !== key) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
 const nonNegativeInteger = (value) => Number.isSafeInteger(value) && value >= 0;
 
 function validateRule(rule) {
@@ -19,7 +41,7 @@ function validateRule(rule) {
     return;
   }
   if (rule.kind === 'category_map') {
-    if (!Array.isArray(rule.categories) || rule.categories.length === 0) {
+    if (!canonicalArray(rule.categories) || rule.categories.length === 0) {
       throw new TypeError('category_map must contain at least one category.');
     }
     const seen = new Set();

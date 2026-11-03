@@ -156,3 +156,39 @@ test('ISO compatibility rejects ambiguous, malformed, or unrepresentable values'
   assert.throws(() => isoInstantToCoordinate('2005-12-29T10:00:00.1234Z', epoch), TypeError);
   assert.throws(() => coordinateToIsoInstant(Number.MAX_SAFE_INTEGER, epoch), RangeError);
 });
+
+
+test('calendar and duration reject Proxy-backed inputs without invoking traps', async () => {
+  const { resolveDurationDecision } = await import('../src/time/duration.js');
+  let traps = 0;
+  const proxyObject = new Proxy({}, {
+    getPrototypeOf() { traps += 1; throw new Error('prototype trap'); },
+    ownKeys() { traps += 1; throw new Error('keys trap'); },
+  });
+  const proxyArray = new Proxy([], {
+    getPrototypeOf() { traps += 1; throw new Error('array prototype trap'); },
+    ownKeys() { traps += 1; throw new Error('array keys trap'); },
+  });
+  assert.throws(() => projectFixedCalendar(0, proxyObject), TypeError);
+  assert.throws(() => projectFixedCalendar(0, { ...calendar, months: proxyArray }), TypeError);
+  assert.throws(() => resolveDurationDecision(proxyObject), TypeError);
+  assert.throws(() => resolveDurationDecision({ kind: 'category_map', categories: proxyArray }), TypeError);
+  assert.equal(traps, 0);
+});
+
+test('calendar and duration reject accessor, symbol, sparse and custom-prototype data', async () => {
+  const { resolveDurationDecision } = await import('../src/time/duration.js');
+  const accessor = { ...calendar };
+  Object.defineProperty(accessor, 'version', { enumerable: true, get() { throw new Error('getter must not run'); } });
+  const symbolKey = { ...calendar, [Symbol('extra')]: true };
+  const customMonths = [...calendar.months];
+  Object.setPrototypeOf(customMonths, {});
+  const sparseMonths = [calendar.months[0], , calendar.months[2]];
+  assert.throws(() => projectFixedCalendar(0, accessor), TypeError);
+  assert.throws(() => projectFixedCalendar(0, symbolKey), TypeError);
+  assert.throws(() => projectFixedCalendar(0, { ...calendar, months: customMonths }), TypeError);
+  assert.throws(() => projectFixedCalendar(0, { ...calendar, months: sparseMonths }), TypeError);
+  const rule = {};
+  Object.defineProperty(rule, 'kind', { enumerable: true, get() { throw new Error('getter must not run'); } });
+  assert.throws(() => resolveDurationDecision(rule), TypeError);
+});

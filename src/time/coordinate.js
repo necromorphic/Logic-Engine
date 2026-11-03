@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 /**
  * Pure arithmetic for world-local game-time coordinates.
  *
@@ -58,7 +60,8 @@ export function createTimeInterval(from, to) {
 
 /** True for the half-open interval (from, to], including its right endpoint. */
 export function intervalContains(interval, coordinate) {
-  if (!interval || typeof interval !== 'object') {
+  if (!interval || typeof interval !== 'object' || utilTypes.isProxy(interval)
+    || Object.getPrototypeOf(interval) !== Object.prototype) {
     throw new TypeError('interval must be an interval object.');
   }
   const normalized = createTimeInterval(interval.from, interval.to);

@@ -1,6 +1,28 @@
+import { types as utilTypes } from 'node:util';
 import { assertTimeCoordinate, differenceTimeCoordinates, TIME_UNITS_PER_DAY } from './coordinate.js';
 
-const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const object = (value) => {
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return typeof key === 'string' && descriptor !== undefined
+      && descriptor.enumerable === true && Object.hasOwn(descriptor, 'value');
+  });
+};
+const canonicalArray = (value) => {
+  if (utilTypes.isProxy(value) || !Array.isArray(value)) return false;
+  if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || keys[value.length] !== 'length') return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const key = String(index);
+    if (keys[index] !== key) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || descriptor.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
 const positiveInteger = (value) => Number.isSafeInteger(value) && value > 0;
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
 const floorDivBigInt = (value, divisor) => {
@@ -17,7 +39,7 @@ function validateCalendar(definition) {
   const unitsPerDay = definition.unitsPerDay ?? TIME_UNITS_PER_DAY;
   if (!positiveInteger(unitsPerDay)) throw new TypeError('calendar.unitsPerDay must be a positive safe integer.');
 
-  if (!Array.isArray(definition.months) || definition.months.length === 0) {
+  if (!canonicalArray(definition.months) || definition.months.length === 0) {
     throw new TypeError('calendar.months must be a non-empty array.');
   }
   const monthNames = new Set();
@@ -32,7 +54,7 @@ function validateCalendar(definition) {
     if (!Number.isSafeInteger(daysPerYear)) throw new RangeError('Calendar year is too large.');
   }
 
-  if (!Array.isArray(definition.weekdays) || definition.weekdays.some((name) => typeof name !== 'string' || !name.trim())) {
+  if (!canonicalArray(definition.weekdays) || definition.weekdays.some((name) => typeof name !== 'string' || !name.trim())) {
     throw new TypeError('calendar.weekdays must be an array of non-empty names.');
   }
   if (new Set(definition.weekdays).size !== definition.weekdays.length) {
@@ -58,7 +80,7 @@ function validateCalendar(definition) {
     throw new TypeError('calendar.epoch.weekdayIndex is outside the weekday cycle.');
   }
 
-  if (definition.holidays !== undefined && !Array.isArray(definition.holidays)) {
+  if (definition.holidays !== undefined && !canonicalArray(definition.holidays)) {
     throw new TypeError('calendar.holidays must be an array when provided.');
   }
   const holidayIds = new Set();
