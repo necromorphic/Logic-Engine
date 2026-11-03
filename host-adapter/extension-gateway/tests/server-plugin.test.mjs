@@ -6,6 +6,7 @@ const test = nodeTest;
 
 import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../server-plugin/st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
+import { PINNED_ST_MUTATION_COVERAGE_SHA256 } from '../server-plugin/st-mutation-route-contract.mjs';
 
 function makeResponse() {
   return {
@@ -239,7 +240,7 @@ test('host inventory persists the full root manifest server-side and removes onl
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: pinned,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
@@ -330,7 +331,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: pinned,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
@@ -411,7 +412,7 @@ test('Host inventory cannot promote Core baseline without signed lifecycle attes
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: pinned,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
@@ -471,7 +472,7 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: pinned,
-      coverage_manifest_sha256: 'a'.repeat(64),
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
       route_count: 92,
       source_files_sha256: 'b'.repeat(64),
     }),
