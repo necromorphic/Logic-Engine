@@ -237,3 +237,28 @@ test('cross-process Host capability fails closed with a distinct error when dura
   }), /HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE/);
   assert.equal(getAuthenticatedHostSessionContext(),null);
 });
+
+test('a Host capability cannot be revived after one failed live revalidation', async () => {
+  const request = {
+    session: { logicEngineSessionId: session, logicEngineSessionHandle: userHandle },
+    user: { profile: { handle: userHandle } },
+  };
+  let authenticated = true;
+  const isAuthenticated = () => authenticated;
+  const resolveConversation = () => conversationId;
+  const resolveLiveBindings = () => ({ world_id: worldId, actor_id: actorId });
+  const resolveLiveIdentity = () => ({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+  });
+
+  await runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.ok(getAuthenticatedHostSessionContext());
+      authenticated = false;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      authenticated = true;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+    }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+  );
+});
