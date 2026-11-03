@@ -7,7 +7,7 @@
 This report distinguishes three things that must not be conflated:
 
 1. **Receipted mutation** — Host records PREPARED, verifies the persisted result against real files, then records COMMITTED/ABORTED.
-2. **Explicitly blocked mutation** — the route refuses to proceed while an enrolled conversation exists, until a route-specific lineage/receipt implementation exists.
+2. **Explicitly blocked mutation** — the route refuses to proceed whenever Host authority is configured or a Host-capability session is active, until an operation-specific persisted receipt exists.
 3. **Root-manifest observation** — a full account-root snapshot detects file drift, but does not by itself authorize a mutation or prove route coverage.
 
 ## 1. Supported chat lifecycle — receipted
@@ -31,22 +31,22 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 
 | SillyTavern surface | Operation(s) | Disposition |
 |---|---|---|
-| `src/endpoints/chats.js` | `/rename`, `/delete`, `/export`, `/import`, `/group/import`, `/group/delete` | Bulk mutation guard; fail closed when an enrolled conversation exists |
-| `src/endpoints/groups.js` | `/create`, `/edit`, `/delete` | Bulk mutation guard |
-| `src/endpoints/characters.js` | `/rename`, `/delete`, `/import`, `/duplicate` | Bulk mutation guard |
-| `src/endpoints/backups.js` | `/chat/delete` | Bulk mutation guard |
-| `src/endpoints/data-maid.js` | `/delete` | Bulk mutation guard |
+| `src/endpoints/chats.js` | `/rename`, `/delete`, `/export`, `/import`, `/group/import`, `/group/delete` | Bulk mutation guard; fail closed whenever Host authority is active |
+| `src/endpoints/groups.js` | `/create`, `/edit`, `/delete` | Bulk mutation guard; fail closed whenever Host authority is active |
+| `src/endpoints/characters.js` | `/create`, `/rename`, `/edit`, `/edit-avatar`, `/edit-attribute`, `/merge-attributes`, `/delete`, `/import`, `/duplicate` | Bulk mutation guard; fail closed whenever Host authority is active |
+| `src/endpoints/backups.js` | `/chat/delete` | Bulk mutation guard; fail closed whenever Host authority is active |
+| `src/endpoints/data-maid.js` | `/delete` | Bulk mutation guard; fail closed whenever Host authority is active |
 | `src/endpoints/settings.js` | `/save`, `/make-snapshot`, `/restore-snapshot` | Unsupported/bulk mutation guards; account settings and snapshot files cannot change without receipts |
 | `src/endpoints/users-private.js` | `/change-avatar`, `/change-password`, `/backup`, `/change-name`, `/reset-settings` | Unsupported/bulk mutation guard; fail closed while Host authority is active |
 | `src/endpoints/users-private.js` | `/reset-step2` (user-root reset) | Explicitly unsupported; fail closed |
 | `src/endpoints/users-public.js` | `/recover-step2` (password recovery) | Unsupported mutation guard; credential changes are blocked while Host authority is active |
 | `src/endpoints/stable-diffusion.js` | ComfyUI `/save-workflow`, `/delete-workflow`, `/rename-workflow` | Unsupported mutation guard; per-account workflow files cannot change while Host authority is active |
 | `src/endpoints/thumbnails.js` | `GET /` thumbnail generation side effect | When Host authority is active, serve the original image instead of writing an unreceipted account thumbnail cache file |
-| `src/endpoints/users-admin.js` | `/delete` (account/root deletion) | Explicitly unsupported; fail closed |
+| `src/endpoints/users-admin.js` | `/create`, `/disable`, `/enable`, `/promote`, `/demote`, `/delete` | Unsupported mutation guard; fail closed while Host authority is active |
 | Startup group metadata migration | Legacy group metadata rewrite | Blocked whenever Host authority is configured; pre-migration scans cannot authorize writes |
 | Browser character/group import and group-bookmark copy | Import/copy/restore path | Client guard; server bulk guards remain authoritative |
 
-**Consequences:** chat rename/move, import, export, backup restore, group deletion, and account/root reset are not enabled for enrolled data. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add an operation-specific persisted lifecycle receipt for each operation before removing its guard.
+**Consequences:** chat rename/move, import, export, backup restore, group deletion, character/group CRUD, account profile changes, and account/root reset are not enabled while Host authority is active. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add an operation-specific persisted lifecycle receipt for each operation before removing its guard.
 
 Additional unreceipted account-root and installed-source mutation surfaces are now guarded by `createHostUnsupportedMutationGuard`. While Host authority is configured (or a Host-capability session is active), these routes return `503 NON_READY / HOST_MUTATION_ROUTE_UNSUPPORTED` before the SillyTavern handler runs:
 
