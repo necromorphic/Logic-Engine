@@ -39,6 +39,7 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 
 - Installation and account IDs are generated and persisted by the server-side `HostIdentityStore`.
 - The Host session UUID is read from the signed SillyTavern session and rechecked for each protected generation.
+- The canonical conversation identity tuple is `hostSessionId:installationId:conversationUuid`; the browser conversation UUID is only a locator, while the session and installation components are server-owned.
 - The browser conversation UUID is only a locator. Host validates it against the complete server-side Host inventory before resolving Core context.
 - Host carries the verified root ID, inventory sequence and manifest digest into the server-owned generation context. The Gateway must revalidate that inventory snapshot under the shared Coordinator before `DISPATCH_STARTED`.
 - World and Actor are never accepted from the browser; Host obtains them from Core-owned durable binding resolution.
