@@ -341,6 +341,9 @@ export function createHostRootInventoryPersistence({
         root_id,
         event_id: eventId,
         entries,
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+          ? { source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       };
       const serialized = JSON.stringify(body);
       if (Buffer.byteLength(serialized, 'utf8') > MAX_ROOT_INVENTORY_BYTES) {
