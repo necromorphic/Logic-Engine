@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import {
-  copyFile, lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
+  lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm, stat, unlink, writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -30,6 +30,19 @@ async function atomicWrite(path, content) {
     await handle.close();
   }
   await rename(temp, path);
+  await syncDirectory(dirname(path));
+}
+
+async function syncDirectory(directory) {
+  let handle;
+  try {
+    handle = await open(directory, 'r');
+    await handle.sync();
+  } catch {
+    // Some Windows filesystems do not support directory fsync.
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 async function atomicReplaceExisting(path, content) {
@@ -43,6 +56,7 @@ async function atomicReplaceExisting(path, content) {
     await handle.close();
   }
   await rename(temp, path);
+  await syncDirectory(dirname(path));
 }
 
 async function assertNoSymlinkComponents(root, target) {
@@ -63,15 +77,23 @@ async function assertNoSymlinkComponents(root, target) {
   }
 }
 
-async function ensureSafeDirectory(path) {
-  const info = await lstat(path).catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-    return null;
-  });
-  if (info?.isSymbolicLink() || info && !info.isDirectory()) {
-    throw new Error('PATCH_MANAGER_DIRECTORY_UNSAFE: ' + path);
+async function ensureSafeDirectoryTree(root, target) {
+  if (!isWithin(root, target) || target === root) {
+    throw new Error('PATCH_MANAGER_DIRECTORY_UNSAFE: ' + target);
   }
-  if (!info) await mkdir(path, { recursive: false });
+  let current = root;
+  for (const component of relative(root, target).split(sep).filter(Boolean)) {
+    current = resolve(current, component);
+    try {
+      await mkdir(current);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    const info = await lstat(current);
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new Error('PATCH_MANAGER_DIRECTORY_UNSAFE: ' + current);
+    }
+  }
 }
 
 async function assertRegularFile(root, relativePath) {
@@ -120,7 +142,8 @@ export class SillyTavernPatchManager {
     this.manifestPath = resolve(manifestPath);
     this.patchPath = resolve(patchPath);
     this.runGit = runGitImpl;
-    this.managerDir = resolve(this.stRootInput, '.logic-engine-patch-manager');
+    // Keep transaction state and byte-exact backups outside the removable Extension tree.
+    this.managerDir = resolve(this.stRootInput, 'data', 'logic-engine', 'final-send-patch');
     this.statePath = resolve(this.managerDir, 'state.json');
     this.journalPath = resolve(this.managerDir, 'transaction.json');
     this.lockPath = resolve(this.managerDir, 'manager.lock');
@@ -154,7 +177,7 @@ export class SillyTavernPatchManager {
 
   async withLock(operation) {
     await assertNoSymlinkComponents(this.stRoot, this.managerDir);
-    await ensureSafeDirectory(this.managerDir);
+    await ensureSafeDirectoryTree(this.stRoot, this.managerDir);
     let handle;
     try {
       handle = await open(this.lockPath, 'wx', 0o600);
@@ -469,9 +492,7 @@ export class SillyTavernPatchManager {
         throw new Error('PATCH_BACKUP_INTEGRITY_MISMATCH: ' + relativePath);
       }
       const target = await assertRegularFile(this.stRoot, relativePath);
-      const temp = target + '.logic-engine-restore-' + randomUUID();
-      await copyFile(backup, temp);
-      await rename(temp, target);
+      await atomicReplaceExisting(target, backupBytes);
     }
     for (const relativePath of Object.keys(journal.createdFiles ?? {})) {
       await rm(resolve(this.stRoot, relativePath), { force: true });
