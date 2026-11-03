@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 /*
  * Windows SQLite manifest lifecycle coordinator.
  *
@@ -120,11 +122,8 @@ function intentFor(manifest, operation, role, kind, expectedIdentity = null) {
 }
 
 function cryptoRandomId() {
-  // The store adapter may replace this with a platform CSPRNG identifier.
-  // This value is an idempotency token, not an authentication credential.
-  const bytes = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(bytes);
-  return [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+  // An idempotency token, not an authentication credential.
+  return randomUUID().replaceAll('-', '');
 }
 
 function assertIntent(intent) {
@@ -192,6 +191,14 @@ export class WindowsManifestLifecycleCoordinator {
       validateManifest(manifest);
       const role = roleFor(manifest, roleName);
       if (activeSidecar(role, kind)) throw new Error(`An active ${kind} sidecar already exists for ${roleName}`);
+      // An unregistered object at the SQLite sidecar name is not adopted.
+      // The service must prove absence before journaling and CREATE_NEW.
+      const preexisting = await this.#namespace.openSidecar(roleName, kind,
+        role.databaseBasename + SIDECAR_SUFFIX[kind]);
+      if (preexisting) {
+        await this.#namespace.close(preexisting);
+        throw new Error(`Unmanifested ${kind} sidecar already occupies the role namespace`);
+      }
       const intent = intentFor(manifest, 'create-sidecar', roleName, kind);
       await this.#store.writeIntent(intent);
       let handle;
