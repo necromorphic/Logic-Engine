@@ -864,7 +864,7 @@ export class HostLifecycleJournal {
     `).all(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
     const root = this.#verifyRootInventoryRows(identity.host_installation_id,
       identity.authenticated_account_id, identity.root_id, rows);
-    if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY') return null;
+    if (!root.valid || !['BASELINED_REVIEW_ONLY', 'AUTHORITATIVE_COMPLETE'].includes(root.status)) return null;
     const snapshot = {
       authority_id: identity.authority_id,
       generation: identity.generation,
@@ -877,6 +877,7 @@ export class HostLifecycleJournal {
       root_journal_head_sha256: root.head_sha256,
     };
     return {
+      status: root.status,
       sequence: root.sequence,
       manifest_sha256: root.latest_manifest_sha256,
       journal_head_sha256: root.head_sha256,
@@ -1038,12 +1039,27 @@ export class HostLifecycleJournal {
     }
     this.#assertRootIdentity(input);
     const snapshot = this.#authoritySnapshotFingerprint(input);
-    if (!snapshot || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+    if (!snapshot || snapshot.status !== 'AUTHORITATIVE_COMPLETE'
+      || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')
+      || input.root_inventory_sequence !== snapshot.sequence
+      || input.root_manifest_sha256 !== snapshot.manifest_sha256
+      || !validText(input.core_conversation_id) || !validText(input.world_id)
+      || !validText(input.actor_id)) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_NOT_AUTHORITATIVE' };
     }
-    // Current journal contract intentionally exposes only a review baseline.
-    // Do not elevate its integrity proof into permission for protected egress.
-    return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_REVIEW_ONLY' };
+    return Object.freeze({
+      status: 'READY',
+      adapter_id: input.adapter_id,
+      core_conversation_id: input.core_conversation_id,
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      root_id: input.root_id,
+      root_inventory_sequence: snapshot.sequence,
+      root_manifest_sha256: snapshot.manifest_sha256,
+      authority_id: input.authority_id,
+      generation: input.generation,
+      snapshot_fingerprint: snapshot.snapshot_fingerprint,
+    });
   }
 
   getAuthoritySnapshot(input) {
