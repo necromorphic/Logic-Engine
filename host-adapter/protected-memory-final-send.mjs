@@ -306,12 +306,9 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     // Classification is performed synchronously from trusted server-side
     // request context. It must never be inferred from browser JSON or an
     // optional caller-supplied "protected" flag.
-    const protectedMemory = protectedMemoryOverride !== undefined
+    let protectedMemory = protectedMemoryOverride !== undefined
       ? protectedMemoryOverride
       : resolveProtectedMemory(hostRequestContext);
-    if (protectedMemory && typeof protectedMemory.then === 'function') {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
 
     if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
 
