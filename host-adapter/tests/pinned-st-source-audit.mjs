@@ -46,7 +46,7 @@ has(pluginLoader, /app\.use\(\`\/api\/plugins\/\$\{id\}\`, router\)/,
   'native server plugin router must mount under /api/plugins/{id}');
 has(extensions, /runGenerationInterceptors/,
   'the native interceptor chain exists but is not used as the Memory ingress');
-has(script, /await eventSource\.emit\(event_types\.GENERATE_AFTER_DATA, generate_data\)/,
+has(script, /await eventSource\.emit\(event_types\.GENERATE_AFTER_DATA,\s*generate_data\s*,\s*dryRun\s*\)/,
   'text-generation locator event must be awaited before native request serialization');
 has(openai, /await eventSource\.emit\(event_types\.CHAT_COMPLETION_SETTINGS_READY, generate_data\)/,
   'Chat Completions locator event must be awaited before native request serialization');
