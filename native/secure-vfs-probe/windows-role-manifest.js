@@ -227,7 +227,7 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   }
   const expectedSidecars = database.prepare(
     'SELECT logic_engine_vfs_probe_set_manifest_sidecar_count(?, ?) AS registered'
-  ).get(role.role, role.sidecars.length);
+  ).get(role.role, BigInt(role.sidecars.length));
   if (expectedSidecars?.registered !== 1) {
     throw new Error(`Secure VFS rejected expected sidecar count for role ${role.role}`);
   }
