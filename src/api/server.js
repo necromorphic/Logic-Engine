@@ -434,6 +434,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               lifecycle_sequence: result.lifecycle_sequence,
               lifecycle_head_sha256: result.lifecycle_head_sha256,
               attestation_sha256: result.attestation_sha256,
+              source_manifest_sha256: result.source_manifest_sha256,
               ...(result.duplicate ? { duplicate: true } : {}),
             },
           });
@@ -564,6 +565,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             integrity_status: integrity.status,
             authority_status: integrity.authority_status ?? 'REVIEW_ONLY',
             ...(result.attestation_sha256 ? { attestation_sha256: result.attestation_sha256 } : {}),
+            ...(result.source_manifest_sha256 ? { source_manifest_sha256: result.source_manifest_sha256 } : {}),
             ...(result.sequence !== undefined ? { sequence: result.sequence } : {}),
             ...(result.manifest_sha256 ? { manifest_sha256: result.manifest_sha256 } : {}),
             ...(result.delta_sha256 ? { delta_sha256: result.delta_sha256 } : {}),
