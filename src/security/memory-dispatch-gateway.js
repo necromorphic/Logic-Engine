@@ -558,6 +558,23 @@ export class MemoryDispatchGateway {
             && !objects.has('index:dispatch_ledger_unresolved_digest'))) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
+        const hasLegacyDigestIndex = objects.has('index:dispatch_ledger_unresolved_digest');
+        const hasGenerationDigestIndex = objects.has('index:dispatch_ledger_generation_digest');
+        if (hasLegacyDigestIndex && !hasGenerationDigestIndex) {
+          const legacyRowCount = this.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count;
+          if (legacyRowCount > 0) throw new Error('DISPATCH_LEDGER_LEGACY_DIGEST_REQUIRES_RECONCILIATION');
+        }
+        if (hasGenerationDigestIndex) {
+          const generationIndexSql = this.db.prepare(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
+          ).get()?.sql ?? '';
+          const normalizedIndexSql = generationIndexSql.replace(/\\s+/g, ' ').toLowerCase();
+          if (!normalizedIndexSql.includes('create unique index')
+            || !normalizedIndexSql.includes('on dispatch_ledger(request_digest)')
+            || normalizedIndexSql.includes(' where ')) {
+            throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+          }
+        }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
           'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
