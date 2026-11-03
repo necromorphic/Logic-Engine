@@ -28,7 +28,9 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /le_store_open_parent_chain\(configured_directory/);
   assert.match(store, /le_store_parent_acl_safe\(current\)/);
   assert.match(store, /INHERIT_ONLY_ACE/);
-  assert.match(store, /FILE_DELETE_CHILD \| DELETE \| WRITE_DAC \| WRITE_OWNER \| GENERIC_ALL/);
+  assert.match(store, /FILE_ADD_FILE \| FILE_ADD_SUBDIRECTORY \| FILE_WRITE_EA/);
+  assert.match(store, /FILE_WRITE_ATTRIBUTES \| FILE_DELETE_CHILD \| DELETE \| WRITE_DAC/);
+  assert.match(store, /WRITE_OWNER \| GENERIC_WRITE \| GENERIC_ALL/);
   assert.match(store, /logic_engine_win_open_relative\(parent, basename/);
   assert.doesNotMatch(store, /CreateFileW\(configured_directory/);
   assert.match(store, /FILE_FLAG_OPEN_REPARSE_POINT/);
