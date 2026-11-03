@@ -124,7 +124,7 @@ test('final authorized-read lease serializes query and record grants with a sync
   );
   assert.throws(
     () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => 'must not await'),
-    /must be synchronous/,
+    /Invalid Provider authorized-read lease input/,
   );
 
   s.provider.revokeRecord(s.scope, candidate.record.ref, candidate.record.version);
@@ -187,6 +187,9 @@ test('final Provider read lease excludes authorization mutation from a second Pr
     () => first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => 'must not disclose'),
     /MEMORY_RECORD_ACCESS_REVOKED/,
   );
+  // Close the shared-file connection before the first fixture's Windows
+  // teardown attempts to remove the Coordinator database.
+  second.provider.close();
 });
 
 test('final Provider read lease excludes cross-process authorization revoke until disclosure callback returns', async (t) => {
