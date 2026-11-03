@@ -321,6 +321,23 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     ...revocation, signature: signRevocation(revocation),
   });
   assert.equal(revocationReplay.status, 409);
+
+  const rotatedSession = '12121212-1212-4212-8212-121212121212';
+  const rotationEvent = {
+    protocol_version: 1, host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT, host_session_id: rotatedSession,
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: '13131313-1313-4313-8313-131313131313', reason: 'session_rotation',
+  };
+  const rotationResponse = await post(base, '/v1/host/session/revoke', adapterHeaders, {
+    ...rotationEvent, signature: signRevocation(rotationEvent),
+  });
+  assert.equal(rotationResponse.status, 204);
+  assert.equal(nonceStore.isSessionRevoked(ADAPTER_ID, {
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    host_session_id: rotatedSession,
+  }), true);
   assert.equal(calls, 8);
 
   // Reopen the SQLite file to prove revocation survives a Core process restart.
