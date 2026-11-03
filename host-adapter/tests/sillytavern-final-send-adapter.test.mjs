@@ -214,8 +214,8 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
       assert.equal(request.user.profile.handle, 'test-user');
       return trustedHostContext;
     },
-    resolveProtectedMemory: (_request, hostContext) => {
-      resolvedContext = hostContext;
+    resolveProtectedMemory: preparedContext => {
+      resolvedContext = preparedContext;
       return null;
     },
   });
@@ -234,5 +234,7 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
     transport: async () => ({ status: 200 }),
   });
   assert.equal(result.status, 200);
-  assert.equal(resolvedContext, trustedHostContext);
+  assert.equal(resolvedContext.hostContext, trustedHostContext);
+  assert.equal(resolvedContext.request, request);
+  assert.equal(resolvedContext.hostRoute, 'chat-completions');
 });
