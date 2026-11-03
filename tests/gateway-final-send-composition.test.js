@@ -12,6 +12,17 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
   assert.match(source, /runWithAuthenticatedHostSession: memoryEnabled/);
 });
 
+test('production NPC correlation IDs are Host-generated and never read from browser JSON', async () => {
+  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const metadata = await readFile(new URL('../host-adapter/npc-generation-request-metadata.mjs', import.meta.url), 'utf8');
+  assert.match(source, /createRequestMetadata: \(\) => createNpcGenerationRequestMetadata\(\)/);
+  assert.match(source, /import \{ createNpcGenerationRequestMetadata \}/);
+  assert.doesNotMatch(source, /function generationBody\(request\)/);
+  assert.match(metadata, /request_id: randomUUID\(\)/);
+  assert.match(metadata, /generation_id: randomUUID\(\)/);
+  assert.match(metadata, /generation_type: 'normal'/);
+});
+
 test('Lane A and Lane B remain distinct in the provider projection', async () => {
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
   const finalSend = await readFile(new URL('../host-adapter/protected-memory-final-send.mjs', import.meta.url), 'utf8');
