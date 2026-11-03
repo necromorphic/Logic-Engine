@@ -112,7 +112,7 @@ export function createSillyTavernFinalSendAdapter({
   resolveProtectedMemory,
   chatCompletionSources,
   nativeForwardFetchResponse,
-  prepareHostContext = async () => null,
+  prepareHostContext = async () => Object.freeze({ status: 'UNPROTECTED' }),
 }) {
   if (typeof nativeForwardFetchResponse !== 'function'
     || typeof prepareHostContext !== 'function') {
@@ -136,14 +136,22 @@ export function createSillyTavernFinalSendAdapter({
       if (!request || typeof request !== 'object' || !response || typeof response !== 'object') {
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
-      assertAuthenticatedHostRequest(request);
-      const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
-      const hostContext = prepareHostContext
-        ? await prepareHostContext(request, response, hostRoute) : null;
+      const hostRoute = resolveHostRoute(request);
+      const hostContext = await prepareHostContext(request, response, hostRoute);
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
-      preparedContextByRequest.set(request, Object.freeze({ request, hostContext: hostContext ?? null, hostRoute }));
+      if (hostContext?.status === 'UNPROTECTED') {
+        preparedContextByRequest.set(request, Object.freeze({ request, hostContext, hostRoute }));
+        return;
+      }
+      if (hostContext?.status !== 'READY') {
+        throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+      }
+      // Host preparation authenticates the exact request and stores the
+      // process-local capability. Only after that may the adapter accept it.
+      assertAuthenticatedHostRequest(request);
+      preparedContextByRequest.set(request, Object.freeze({ request, hostContext, hostRoute }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
