@@ -576,6 +576,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   );
   assert.equal(oldSessionRead.status, 401);
   assert.equal((await oldSessionRead.json()).error.code, 'HOST_SESSION_REVOKED');
-  assert.equal(retrievalContexts.length, 4);
+  // Three lifecycle reads plus the native Final-Send preparation and the
+  // subsequent rotation check; the revoked old assertion adds no retrieval.
+  assert.equal(retrievalContexts.length, 5);
 
 });
