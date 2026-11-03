@@ -196,7 +196,7 @@ test('Windows manifest enrollment retains retired sidecar generations beside one
   ];
   const db = fakeDatabase();
   assert.equal(registerWindowsManifestRole(
-    db, generations, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+    db, generations, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), 1);
   const registrations = db.calls.filter((call) =>
     call.sql.includes('register_manifest_sidecar')
@@ -219,7 +219,7 @@ test('Windows manifest enrollment rejects two active sidecar identities for one 
     generation: 8,
   });
   assert.throws(() => registerWindowsManifestRole(
-    fakeDatabase(), ambiguous, 'core', 'C:\\\\LogicEngine\\\\data\\\\core.sqlite'
+    fakeDatabase(), ambiguous, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
   ), /transitional or invalid sidecar/);
 });
 
