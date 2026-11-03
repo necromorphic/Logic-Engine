@@ -131,15 +131,13 @@ export function createHostInventoryHandler({
       if (typeof verifySourceIdentity === 'function') {
         try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
       }
-      // A root attestation request must never be made for an unverified installed
-      // source manifest; otherwise Core would persist evidence before the Host
-      // mutation surface itself has been authenticated.
-      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
-        || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
-        return response.status(503).json({ status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' });
-      }
+      // Inventory can be reported for diagnostics while source or route
+      // attestation is incomplete, but Core must not persist a root baseline
+      // until both independent proofs are verified.
+      const sourceAuthorityVerified = sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+        && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '');
       let rootInventory = null;
-      if (typeof persistRootInventory === 'function') {
+      if (sourceAuthorityVerified && mutationCoverageVerified && typeof persistRootInventory === 'function') {
         try {
           rootInventory = await persistRootInventory({
             userHandle,
