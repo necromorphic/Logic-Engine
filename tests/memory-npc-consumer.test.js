@@ -73,7 +73,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
     authorization_generation: 1,
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'source-v1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
