@@ -86,7 +86,7 @@ The exact pinned-source contract now enumerates **91 POST route entries across 2
 - 89 other mutation routes are explicitly fail-closed until an operation-specific persisted receipt exists.
 - The inventory includes account/credential changes, user backups and resets, chat/group/character operations, content imports, files and asset upload/download/delete, image metadata, backgrounds, avatars, presets, quick replies, secrets, sprites, statistics, world information, vectors, settings snapshots, extension lifecycle, and ComfyUI workflow changes.
 - Logout remains separately verified by source-order assertion: Core session revocation must succeed before the SillyTavern session is cleared.
-- The route contract digest is bound into the Host inventory evidence. A missing guard, route rename, source drift, or incomplete route set leaves mutation coverage NON_READY and prevents authoritative root attestation.
+- The route contract digest is bound into the Host inventory evidence. A missing guard, route rename, source drift, or incomplete route set leaves mutation coverage NON_READY and prevents authoritative root attestation. The HTTP inventory handler now returns `503 HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED` before calling Core when this check fails; it cannot persist an authoritative baseline and merely report a review-only blocker.
 
 This is source-level coverage of the pinned built-in routes, not live runtime acceptance. It does not authorize third-party extensions or arbitrary filesystem writers; those remain excluded/fail-closed by the source attestation boundary.
 
