@@ -978,8 +978,7 @@ diff --git a/src/users.js b/src/users.js
  }
 +async function revokeHostSessionBeforeAccountSwitch(request, nextHandle) {
 +    const session = request?.session;
-+    if (!process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR || !session
-+        || session.logicEngineSessionId === undefined
++    if (!session || session.logicEngineSessionId === undefined
 +        || session.logicEngineSessionHandle === nextHandle) return;
 +    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
 +    delete session.logicEngineSessionId;
@@ -1010,7 +1009,7 @@ diff --git a/src/users.js b/src/users.js
 @@ -994,5 +1007,12 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
-+            if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && request.session.logicEngineSessionId !== undefined) {
++            if (request.session.logicEngineSessionId !== undefined) {
 +                try {
 +                    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
 +                } catch {
@@ -1035,8 +1034,7 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 @@ -93,4 +94,15 @@
  
          await loginLimiter.delete(ip);
-+        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR
-+            && request.session.logicEngineSessionId !== undefined
++        if (request.session.logicEngineSessionId !== undefined
 +            && request.session.logicEngineSessionHandle !== user.handle) {
 +            try {
 +                await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
