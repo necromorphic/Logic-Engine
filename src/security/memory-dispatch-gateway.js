@@ -1089,6 +1089,17 @@ export class MemoryDispatchGateway {
     }
     assertSameSources(currentLaneB.sources, context.sources);
     assertSameCandidates(currentLaneB.candidates, context.candidates);
+    const currentLaneB = assertSyncResult(this.npcContextRuntime.getLaneBDispatchEvidence(
+      context.npcContext, context.generationRequest,
+    ));
+    if (currentLaneB.status !== 'ready' || currentLaneB.lane !== 'B'
+      || currentLaneB.world_id !== context.worldId || currentLaneB.actor_id !== context.actorId
+      || currentLaneB.conversation_id !== context.hostContext.core_conversation_id
+      || currentLaneB.adapter_id !== context.hostContext.adapter_id) {
+      throw new Error('MEMORY_DISPATCH_LANE_B_REVALIDATION_DENIED');
+    }
+    assertSameSources(currentLaneB.sources, context.sources);
+    assertSameCandidates(currentLaneB.candidates, context.candidates);
     const laneAResult = assertSyncResult(this.npcContextRuntime.revalidateLaneAForDispatch(
       context.npcContext, context.generationRequest,
     ));
