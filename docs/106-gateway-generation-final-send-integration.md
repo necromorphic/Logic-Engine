@@ -54,7 +54,7 @@ The Hook patch is scoped to the five text-generation handler entrypoints listed 
 
 ### Protected prompt construction and Host metadata scrubbing
 
-`createProtectedMemoryFinalSend` now requires a server-resolved `contentBlocks` array for every protected request. It serializes only each block's `epistemic_kind`, `evidence_assessment`, and `content`; inserts a system message after existing system/developer instructions for Chat Completions; and prefixes the `prompt`/`input` fields for Text Completions, Kobold, and NovelAI text. Horde is rejected before this step.
+`createProtectedMemoryFinalSend` now requires a non-empty server-resolved `contentBlocks` array for every protected request; an empty protected projection is `NON_READY` and cannot be treated as an admitted source set. It serializes only each block's `epistemic_kind`, `evidence_assessment`, and `content`; inserts a system message after existing system/developer instructions for Chat Completions; and prefixes the `prompt`/`input` fields for Text Completions, Kobold, and NovelAI text. Horde is rejected before this step.
 
 Before dispatch it recursively removes Host-only fields (`logic_engine_*`, memory-dispatch/NPC-context markers, conversation/world/actor/generation/session/chat/installation/account identifiers) from the provider JSON body and strips corresponding Host headers. The exact post-injection body is passed to the Gateway, whose durable ledger stores its SHA-256 digest rather than raw prompt text; the same body bytes are passed to the captured native transport capability. Regression tests cover all 29 registered sender identities and verify that Host metadata is absent while provider credentials remain.
 
