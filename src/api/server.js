@@ -515,6 +515,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           root_id: trustedIdentity.root_id,
           event_id: body.event_id,
           entries: body.entries,
+          ...(body.source_manifest_sha256 ? { source_manifest_sha256: body.source_manifest_sha256 } : {}),
         };
         let result;
         try {
