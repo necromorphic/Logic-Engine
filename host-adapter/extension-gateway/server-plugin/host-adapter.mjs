@@ -15,6 +15,7 @@ import {
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+import { createHostMemoryNpcContextReceiver } from './memory-npc-context-receiver.mjs';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
@@ -64,9 +65,9 @@ export function createSillyTavernHostAdapter({
 
   let lifecycleEvents = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
   let lifecycleStatus = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
-  let dispatchMiddleware = (_request, response) =>
-    response.status(503).json({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' });
-  let dispatch = unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
+  let prepareFinalSendContext = async () => {
+    throw new Error('HOST_IDENTITY_STORE_UNCONFIGURED');
+  };
 
   if (identityStore) {
     const lifecycle = createHostLifecycleJournalProxy({ identityStore });
@@ -133,12 +134,31 @@ export function createSillyTavernHostAdapter({
         };
       },
     });
-    dispatchMiddleware = authentication.middleware;
-    dispatch = createHostMemoryDispatchProxyHandler({
-      env,
-      fetchImpl,
-      resolveHostContext: authentication.resolveHostContext,
-    });
+    const receiveNpcContext = createHostMemoryNpcContextReceiver({ env, fetchImpl });
+    prepareFinalSendContext = async (request, { conversationUuid, contextSize = 8192, generationType = 'chat' } = {}) => {
+      if (!request || typeof request !== 'object' || !request.body || typeof request.body !== 'object'
+        || Array.isArray(request.body)) throw new Error('HOST_MEMORY_NPC_CONTEXT_NOT_READY');
+      if (Object.hasOwn(request.body, 'conversation_uuid')) {
+        throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
+      }
+      request.body.conversation_uuid = conversationUuid;
+      let authenticationResult;
+      try {
+        authenticationResult = await authentication.authenticateRequest(request);
+      } finally {
+        delete request.body.conversation_uuid;
+      }
+      if (authenticationResult?.status !== 'READY') {
+        throw new Error(authenticationResult?.status === 'NON_READY'
+          ? 'HOST_MEMORY_NPC_CONTEXT_NOT_READY' : 'HOST_SESSION_NOT_AUTHENTICATED');
+      }
+      return receiveNpcContext({
+        hostContext: authenticationResult.context,
+        conversationUuid,
+        contextSize,
+        generationType,
+      });
+    };
   }
 
   return Object.freeze({
@@ -147,8 +167,7 @@ export function createSillyTavernHostAdapter({
     inventory,
     lifecycleEvents,
     lifecycleStatus,
-    dispatchMiddleware,
-    dispatch,
+    prepareFinalSendContext,
     capture: createHostDigestProxyHandler({ env, fetchImpl }),
     reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
   });
