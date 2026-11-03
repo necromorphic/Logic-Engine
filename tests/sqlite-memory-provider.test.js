@@ -177,7 +177,7 @@ test('final Provider read lease excludes cross-process authorization revoke unti
     });
     process.stdout.write('READY\\n');
     process.stdin.setEncoding('utf8').once('data', chunk => {
-      if (chunk.trim() !== 'REVOKE') process.exit(2);
+      if (!chunk.startsWith('REVOKE')) process.exit(2);
       provider.revokeRecord(
         { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
         'memory:record-a', 'record-v1',
