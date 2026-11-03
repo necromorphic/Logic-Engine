@@ -314,7 +314,7 @@ test('Horde async task creation remains native only when unprotected', async () 
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   };
-  const protectedAdapter = createAdapter({ resolveProtectedMemory: () => protectedContext });
+  const protectedAdapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'ready', context: protectedContext }) });
   const protectedRequest = { body: {} };
   let protectedTransportCalls = 0;
   assert.equal(protectedAdapter.resolveSenderRoute(protectedRequest, 'horde-text'), 'unregistered');
@@ -362,7 +362,7 @@ test('registered protected sender is delegated to the Core Gateway', () => {
       return write();
     },
   };
-  const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext, gateway });
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'ready', context: protectedContext }), gateway });
   const request = { body: { chat_completion_source: 'OPENAI', stream: false } };
   const response = {};
 
