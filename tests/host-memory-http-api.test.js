@@ -95,6 +95,10 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   }) : ({ authorized: false });
   const resolveHostLifecycleIdentity = input => resolveIdentity(input, 'REVIEW_ONLY');
   const resolveHostMemoryIdentity = input => resolveIdentity(input, hostIdentitySnapshot.authority_status);
+  const hostLifecycleJournal = {
+    append: event => ({ status: 'appended', event_id: event.event_id }),
+    getConversationStatus: () => ({ status: 'review_only_lifecycle_read_allowed' }),
+  };
   let calls = 0;
   let failConsumer = false;
   let consumerResultOverride = null;
@@ -150,6 +154,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
+    hostLifecycleJournal,
     resolveHostLifecycleIdentity,
     resolveHostMemoryIdentity,
   });
@@ -165,6 +170,16 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const headers = { authorization: 'Bearer ' + API_TOKEN };
   const adapterHeaders = { ...headers, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN };
   const adminHeaders = { ...headers, 'x-admin-token': ADMIN_TOKEN };
+
+  const lifecycleStatus = await fetch(base + '/v1/host-lifecycle/status?'
+    + new URLSearchParams({
+      host_installation_id: INSTALLATION,
+      authenticated_account_id: ACCOUNT,
+      host_session_id: SESSION,
+      conversation_uuid: CONVERSATION,
+    }), { headers: adapterHeaders });
+  assert.equal(lifecycleStatus.status, 200);
+  assert.equal((await lifecycleStatus.json()).lifecycle.status, 'review_only_lifecycle_read_allowed');
 
   const actorBinding = await post(base, '/v1/worlds/host-memory-world/actor-bindings', adminHeaders, {
     adapter_id: ADAPTER_ID, entity_id: 'host-memory-actor',
