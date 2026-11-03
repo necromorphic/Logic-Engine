@@ -2197,6 +2197,7 @@ test('Gateway accepts only the exact combined Lane A and Lane B prompt projectio
       provenance_digest: 'e'.repeat(64),
       acquisition_authorization_ref: 'authorization-1',
       source_event_ids: ['event-1'],
+      visibility_authorization_ref: 'visibility-1',
     });
     request.contentBlocks.unshift({
       epistemic_kind: 'direct_observation',
