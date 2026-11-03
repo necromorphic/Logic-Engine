@@ -1374,6 +1374,10 @@ export class HostLifecycleJournal {
         ...result,
         status: 'INTEGRITY_OK',
         authority_status: authority?.authority_status ?? 'REVIEW_ONLY',
+        ...(Number.isSafeInteger(authority?.lifecycle_sequence)
+          ? { lifecycle_sequence: authority.lifecycle_sequence } : {}),
+        ...(validDigest(authority?.lifecycle_head_sha256)
+          ? { lifecycle_head_sha256: authority.lifecycle_head_sha256 } : {}),
         ...(authority?.attestation_sha256 ? { attestation_sha256: authority.attestation_sha256 } : {}),
         ...(authority?.source_manifest_sha256 ? { source_manifest_sha256: authority.source_manifest_sha256 } : {}),
       };
