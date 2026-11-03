@@ -249,7 +249,8 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
     'HOST_LIFECYCLE_USER_DIRECTORY_MISSING',
     'HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED',
     'Skipping system prompt migration while Host authority is active.',
-    'Skipping unreceipted startup group metadata migration while Host inventory is enabled.',
+    'assertHostStartupMigrationAllowed({',
+    'Skipping startup group metadata migration: ',
   ],
 }));
 
@@ -335,7 +336,9 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');
     }
     if (relative.endsWith('groups.js')
-      && !source.includes('Skipping unreceipted startup group metadata migration while Host inventory is enabled.')) {
+      && (!source.includes('assertHostStartupMigrationAllowed({')
+        || !source.includes('Skipping startup group metadata migration: ')
+        || !source.includes('continue;'))) {
       throw new Error('HOST_ST_GROUP_MIGRATION_GUARD_MISSING');
     }
   }
