@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <wchar.h>
 #include <strsafe.h>
+#define LE_COUNT_OF(value) (sizeof(value) / sizeof((value)[0]))
 #include <bcrypt.h>
 #include <aclapi.h>
 #include <sddl.h>
@@ -117,12 +118,12 @@ static int le_store_is_ntfs(HANDLE directory) {
   wchar_t volume_root[MAX_PATH];
   wchar_t filesystem[MAX_PATH];
   DWORD length;
-  length = GetFinalPathNameByHandleW(directory, final_path, _countof(final_path),
+  length = GetFinalPathNameByHandleW(directory, final_path, LE_COUNT_OF(final_path),
       FILE_NAME_NORMALIZED | VOLUME_NAME_GUID);
-  if (length == 0 || length >= _countof(final_path)
-      || !GetVolumePathNameW(final_path, volume_root, _countof(volume_root))
+  if (length == 0 || length >= (DWORD)LE_COUNT_OF(final_path)
+      || !GetVolumePathNameW(final_path, volume_root, LE_COUNT_OF(volume_root))
       || !GetVolumeInformationW(volume_root, NULL, 0, NULL, NULL, NULL,
-          filesystem, _countof(filesystem))
+          filesystem, LE_COUNT_OF(filesystem))
       || wcscmp(filesystem, L"NTFS") != 0) {
     SetLastError(ERROR_NOT_SUPPORTED);
     return 0;
@@ -278,7 +279,7 @@ static int le_win_store_replace(
     hex[i * 2 + 1] = digits[nonce[i] & 15];
   }
   hex[32] = L'\0';
-  if (FAILED(StringCchPrintfW(temporary, _countof(temporary), L"manifest-%s.tmp", hex))) {
+  if (FAILED(StringCchPrintfW(temporary, LE_COUNT_OF(temporary), L"manifest-%s.tmp", hex))) {
     SetLastError(ERROR_INVALID_NAME);
     return 0;
   }
