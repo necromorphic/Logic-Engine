@@ -130,10 +130,16 @@ export async function verifyPinnedSourceIdentity({
       if (!within(root, candidate)) return { status: 'NON_READY', code: 'HOST_SOURCE_PATH_ESCAPE' };
       const actualPath = await realpath(candidate);
       if (!within(root, actualPath)) return { status: 'NON_READY', code: 'HOST_SOURCE_PATH_ESCAPE' };
-      const stat = await lstat(candidate);
-      if (!stat.isFile() || stat.isSymbolicLink()) {
-        return { status: 'NON_READY', code: 'HOST_SOURCE_FILE_UNSAFE' };
+      let cursor = root;
+      let stat;
+      for (const segment of expected.path.split(/[\\/]/)) {
+        cursor = path.join(cursor, segment);
+        stat = await lstat(cursor);
+        if (stat.isSymbolicLink()) {
+          return { status: 'NON_READY', code: 'HOST_SOURCE_FILE_UNSAFE' };
+        }
       }
+      if (!stat?.isFile()) return { status: 'NON_READY', code: 'HOST_SOURCE_FILE_UNSAFE' };
       if (sha256(await readFile(candidate)) !== expected.sha256) {
         return { status: 'NON_READY', code: 'HOST_SOURCE_FILE_DIGEST_MISMATCH' };
       }
