@@ -83,6 +83,13 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
   'src/endpoints/data-maid.js': Object.freeze({
     '/delete': 'hostBulkMutationGuard',
   }),
+  'src/endpoints/extensions.js': Object.freeze({
+    '/install': 'hostSourceMutationGuard',
+    '/update': 'hostSourceMutationGuard',
+    '/switch': 'hostSourceMutationGuard',
+    '/move': 'hostSourceMutationGuard',
+    '/delete': 'hostSourceMutationGuard',
+  }),
   'src/endpoints/users-private.js': Object.freeze({
     '/reset-settings': 'hostUserRootResetGuard',
     '/reset-step2': 'hostUserRootResetGuard',
@@ -151,14 +158,17 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     'src/endpoints/groups.js',
   ];
   for (const relative of specialFiles) {
-    if (files.has(relative)) continue;
     const bytes = await readFile(join(sourceRoot, relative));
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     const source = bytes.toString('utf8');
     if (relative.endsWith('extensions.js') && !source.includes('HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED')) {
       throw new Error('HOST_ST_EXTENSION_SOURCE_MUTATION_GUARD_MISSING');
     }
-    if (relative.endsWith('users-admin.js') && !source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')) {
+    if (relative.endsWith('users-admin.js')
+      && (!source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')
+        || !source.includes('router.use(')
+        || !source.includes("request.method === 'POST'")
+        || !source.includes("!['/get', '/slugify'].includes(request.path)"))) {
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
