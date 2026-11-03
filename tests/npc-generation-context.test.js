@@ -317,3 +317,14 @@ test('opaque dispatch handoff cannot be minted from a forged acceptance object',
   const forged = Object.freeze({ status: 'accepted', context: Object.freeze({ ...scope }) , reason: null });
   assert.equal(receiver.issueDispatchHandoff(forged, request).status, 'non_ready');
 });
+
+
+test('Lane B rejects a malformed Provider evidence cursor before context issuance', async () => {
+  const bad = laneB();
+  bad.result.provider_evidence_cursor.candidate_digest = 'not-a-digest';
+  const { builder } = setup({ laneB: () => bad });
+  const result = await builder.build(request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'lane_b_result_invalid');
+  assert.equal(result.context, null);
+});
