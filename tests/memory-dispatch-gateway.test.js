@@ -576,6 +576,7 @@ test('stream response is not released when Provider revoke wins during upstream 
   try {
     const pending = finalSend({
       senderRoute: 'google-ai-studio',
+      hostRoute: 'chat-completions',
       endpointUrl: 'https://provider.example/stream',
       requestInit: {
         method: 'POST',
@@ -609,12 +610,13 @@ test('successful stream begins its one Host response write under the Coordinator
   let hostWrites = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
-    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    resolveProtectedMemory: (hostRequestContext) => ({ status: 'ready', context: hostRequestContext }),
     fetchImpl: async () => ({ status: 200, body: 'stream-body' }),
   });
   try {
     await finalSend({
       senderRoute: 'google-ai-studio',
+      hostRoute: 'chat-completions',
       endpointUrl: 'https://provider.example/stream',
       requestInit: {
         method: 'POST',
@@ -692,7 +694,7 @@ test('all protected sender families share one real Gateway and each causes exact
   };
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
-    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    resolveProtectedMemory: (hostRequestContext) => ({ status: 'ready', context: hostRequestContext }),
     fetchImpl: async () => {
       upstreamCalls += 1;
       return { status: 200, body: 'upstream-response' };
