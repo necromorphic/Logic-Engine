@@ -90,6 +90,17 @@ The exact pinned-source contract now enumerates **91 POST route entries across 2
 
 This is source-level coverage of the pinned built-in routes, not live runtime acceptance. It does not authorize third-party extensions or arbitrary filesystem writers; those remain excluded/fail-closed by the source attestation boundary.
 
+### External ST-VectorService inventory boundary
+
+The standalone ST-VectorService process is not part of the SillyTavern account data root. Its configured `ST_VECTOR_ROOT` owns a separate `vector_storage` tree, including `vectors.sqlite`, SQLite WAL/SHM sidecars, and per-collection index files. Its `/v1/insert` and `/v1/delete` endpoints are independent mutation routes.
+
+A bearer API key authenticates requests to that service, but does not prove the SillyTavern account, signed session, conversation, or Core lifecycle identity. Therefore:
+
+- SillyTavern `AUTHORITATIVE_COMPLETE` does **not** attest the VectorService database or its backup directories.
+- VectorService writes are not covered by the 91-route SillyTavern mutation contract.
+- Memory Provider must not treat this external store as authoritative Host evidence merely because the ST root inventory is complete.
+- Integrating it requires a separate registered source identity and adapter: account/session binding, consistent SQLite snapshot including WAL/SHM handling, per-file or database manifest, monotonic mutation journal, and Core-verified capability. Until then it remains an external, non-authoritative source.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |
