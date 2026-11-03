@@ -320,7 +320,7 @@ export class HostLifecycleJournal {
     let release = null;
     try {
       release = beginCoordinatorLock(this.coordinator);
-      this.db = new DatabaseSync(resolve(path), readOnly ? { readOnly: true } : undefined);
+      this.db = new DatabaseSync(resolve(path), readOnly ? { readOnly: true } : {});
       if (readOnly) {
         const objects = new Set(this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
