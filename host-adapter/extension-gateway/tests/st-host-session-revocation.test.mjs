@@ -47,6 +47,7 @@ test('logout revocation signs the exact adapter/installation/account/session tup
   const call = calls[0];
   assert.equal(call.url, 'http://127.0.0.1:8787/v1/host/session/revoke');
   assert.equal(call.options.method, 'POST');
+  assert.equal(call.options.redirect, 'error');
   assert.equal(call.options.headers.authorization, 'Bearer ' + API_TOKEN);
   assert.equal(call.options.headers['x-adapter-id'], 'st-host-adapter');
   const body = JSON.parse(call.options.body);
