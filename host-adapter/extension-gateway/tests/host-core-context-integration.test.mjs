@@ -54,8 +54,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'groupChats');
+  const extensions = join(root, 'extensions');
   const identityDirectory = join(directory, 'host-identity');
-  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
+  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true }), mkdir(extensions, { recursive: true })]);
   const corePath = join(directory, 'core.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
   const store = new SQLiteStore(':memory:');
@@ -189,6 +190,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     chats: pathRelative(process.cwd(), chats),
     groups: pathRelative(process.cwd(), groups),
     groupChats: pathRelative(process.cwd(), groupChats),
+    extensions: pathRelative(process.cwd(), extensions),
   };
   const authoritativeFixture = async ({ directories }) => {
     assert.deepEqual(directories, { root, chats, groups, groupChats });
