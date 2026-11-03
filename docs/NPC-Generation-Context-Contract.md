@@ -4,8 +4,7 @@
 
 ## Purpose
 
-Convert two separately authorized Core evidence envelopes into one immutable, request-scoped generation context. Lane A and Lane B remains a distinct Provider-backed evidence envelope with Core purpose `npc_turn_context` and Provider purpose `npc_decision`; it is not merged with Lane A. Every admitted Lane B candidate additionally carries `source_kind=canonical_entity` and the exact Core-owned `source_version` token read from `getSnapshot(..., { includeSourceVersions: true })` at the same world/commit snapshot. Missing, inactive, duplicate, malformed, or snapshot-mismatched source-version rows make Lane B non-ready. This lineage is mandatory because the Gateway's Provider reader validates source versions independently at dispatch-start; the world snapshot cursor alone is not source lineage.
- or dispatches to a model.
+Convert two separately authorized Core evidence envelopes into one immutable, request-scoped generation context for a specific NPC and generation request. Lane A and Lane B remain distinct: Lane A contains Core-authorized knowledge acquisitions; Lane B contains Provider-backed Memory evidence with Core purpose `npc_turn_context` and Provider purpose `npc_decision`. The lanes are never merged. Every admitted Lane B candidate additionally carries `source_kind=canonical_entity` and the exact Core-owned `source_version` token read from `getSnapshot(..., { includeSourceVersions: true })` at the same world/commit snapshot. Missing, inactive, duplicate, malformed, or snapshot-mismatched source-version rows make Lane B non-ready. This lineage is mandatory because the Gateway's Provider reader validates source versions independently at dispatch-start; the world snapshot cursor alone is not source lineage.
 
 ## Trust boundary
 
