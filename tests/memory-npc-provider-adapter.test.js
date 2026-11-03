@@ -216,7 +216,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     const generation = await adapter.runWithAuthenticatedHostSession(
       hostRequest, conversationId, async () => {
         const built = await adapter.npcGenerationContext.build(generationRequest);
-        assert.equal(built.status, 'ready');
+        assert.equal(built.status, 'ready', `unexpected generation build: ${built.reason}`);
         assert.equal(built.context.world_id, worldId);
         assert.equal(built.context.actor_id, actorId);
         assert.equal(built.context.lanes.lane_a.items.length, 1);
