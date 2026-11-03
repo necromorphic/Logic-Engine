@@ -58,6 +58,17 @@ const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex
 const MAX_ROOT_INVENTORY_ENTRIES = 25_000;
 const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
 const MAX_ROOT_DELTA_FILES = 5_000;
+const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
+const HOST_INVENTORY_PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+const HOST_INVENTORY_PATCH_BLOB_SHA = 'aa11464e0f8c3784d39b674f0212e4fb12279d7b';
+const HOST_INVENTORY_HANDLER_BLOB_SHA = '81ec8a51d3db28a3042833a6a2648fdaf8bf6d9d';
+const ROOT_ATTESTATION_KEYS = Object.freeze([
+  'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
+  'inventory_sequence', 'manifest_sha256', 'inventory_head_sha256', 'covered_delta_sha256',
+  'coverage_id', 'pinned_host_commit', 'patch_blob_sha', 'host_handler_blob_sha',
+  'source_identity_status', 'snapshot_alignment', 'snapshot_sha256',
+  'lifecycle_sequence', 'lifecycle_head_sha256', 'issued_at', 'nonce', 'signature',
+]);
 
 function validateRootEntries(entries) {
   if (!Array.isArray(entries) || entries.length > MAX_ROOT_INVENTORY_ENTRIES) {
@@ -240,13 +251,16 @@ function validateEvent(event) {
  * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
-  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false }) {
+  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null,
+    verifyMutationReceipt = () => false, verifyRootInventoryAttestation = () => false }) {
     if (!validText(path) || !isAbsolute(path) || path === ':memory:'
       || !validText(coordinatorPath) || !isAbsolute(coordinatorPath)
       || typeof resolveIdentity !== 'function' || isProxy(resolveIdentity)
       || Object.getPrototypeOf(resolveIdentity) === Object.getPrototypeOf(async function () {})
       || typeof verifyMutationReceipt !== 'function' || isProxy(verifyMutationReceipt)
       || Object.getPrototypeOf(verifyMutationReceipt) === Object.getPrototypeOf(async function () {})
+      || typeof verifyRootInventoryAttestation !== 'function' || isProxy(verifyRootInventoryAttestation)
+      || Object.getPrototypeOf(verifyRootInventoryAttestation) === Object.getPrototypeOf(async function () {})
       || (resolveRootIdentity !== null && (typeof resolveRootIdentity !== 'function'
         || isProxy(resolveRootIdentity)
         || Object.getPrototypeOf(resolveRootIdentity) === Object.getPrototypeOf(async function () {})))) {
@@ -256,6 +270,7 @@ export class HostLifecycleJournal {
     this.resolveIdentity = resolveIdentity;
     this.resolveRootIdentity = resolveRootIdentity;
     this.verifyMutationReceipt = verifyMutationReceipt;
+    this.verifyRootInventoryAttestation = verifyRootInventoryAttestation;
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
@@ -348,6 +363,29 @@ export class HostLifecycleJournal {
         CREATE TRIGGER IF NOT EXISTS host_root_inventory_events_no_delete
           BEFORE DELETE ON host_root_inventory_events BEGIN
             SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
+          END;
+        CREATE TABLE IF NOT EXISTS host_root_inventory_attestations (
+          host_installation_id TEXT NOT NULL,
+          authenticated_account_id TEXT NOT NULL,
+          root_id TEXT NOT NULL CHECK(length(root_id)=64),
+          inventory_sequence INTEGER NOT NULL CHECK(inventory_sequence > 0),
+          manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+          inventory_head_sha256 TEXT NOT NULL CHECK(length(inventory_head_sha256)=64),
+          lifecycle_sequence INTEGER NOT NULL CHECK(lifecycle_sequence >= 0),
+          lifecycle_head_sha256 TEXT NOT NULL CHECK(length(lifecycle_head_sha256)=64),
+          nonce TEXT NOT NULL,
+          attestation_sha256 TEXT NOT NULL CHECK(length(attestation_sha256)=64),
+          canonical_attestation_json TEXT NOT NULL,
+          PRIMARY KEY(host_installation_id,authenticated_account_id,root_id,inventory_sequence),
+          UNIQUE(nonce)
+        );
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_attestations_no_update
+          BEFORE UPDATE ON host_root_inventory_attestations BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_ATTESTATION_APPEND_ONLY');
+          END;
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_attestations_no_delete
+          BEFORE DELETE ON host_root_inventory_attestations BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_ATTESTATION_APPEND_ONLY');
           END;
       `);
       const lifecycleColumns = new Set(this.db.prepare('PRAGMA table_info(host_lifecycle_events)').all().map(column => column.name));
