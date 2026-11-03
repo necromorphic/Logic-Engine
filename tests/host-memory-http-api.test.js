@@ -359,6 +359,31 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal(calls, 7);
 
 
+  // Root Inventory authority can also be revoked while a Provider read is
+  // suspended. Core must re-resolve the exact root binding after the read.
+  let rootConsumerStarted;
+  const rootStarted = new Promise(resolve => { rootConsumerStarted = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = rootConsumerStarted;
+  const rootRaceAssertion = {
+    ...assertion, nonce: '27272727-2727-4727-8727-272727272727',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const rootRaceRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: rootRaceAssertion, signature: sign(rootRaceAssertion),
+    request_id: '28282828-2828-4828-8828-282828282828',
+  });
+  await rootStarted;
+  hostIdentityAllowed = false;
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const rootRaceResponse = await rootRaceRead;
+  assert.equal(rootRaceResponse.status, 401);
+  assert.equal((await rootRaceResponse.json()).error.code, 'HOST_ROOT_IDENTITY_UNAUTHORIZED');
+  hostIdentityAllowed = true;
+  consumerStartedResolve = null;
+  assert.equal(calls, 8);
+
   // A signed logout revocation is durable, scoped to the exact installation /
   // account / session tuple, and invalidates assertions already in flight.
   const revocation = {
@@ -419,7 +444,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     authenticated_account_id: ACCOUNT,
     host_session_id: rotatedSession,
   }), true);
-  assert.equal(calls, 8);
+  assert.equal(calls, 9);
 
   // Reopen the SQLite file to prove revocation survives a Core process restart.
   await new Promise(resolve => server.close(resolve));
@@ -484,5 +509,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 8);
+  assert.equal(calls, 9);
 });
