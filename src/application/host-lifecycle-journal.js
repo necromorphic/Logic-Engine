@@ -139,7 +139,8 @@ function validRootInventoryAttestation(attestation, expected) {
     && attestation.patch_blob_sha === HOST_INVENTORY_PATCH_BLOB_SHA
     && attestation.host_handler_blob_sha === HOST_INVENTORY_HANDLER_BLOB_SHA
     && attestation.source_identity_status === 'CURRENT_IDENTITIES_VERIFIED'
-    && validDigest(attestation.source_manifest_sha256)
+    && validDigest(expected.source_manifest_sha256)
+    && attestation.source_manifest_sha256 === expected.source_manifest_sha256
     && attestation.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
     && validDigest(attestation.snapshot_sha256)
     && Number.isSafeInteger(attestation.lifecycle_sequence) && attestation.lifecycle_sequence > 0
@@ -1287,6 +1288,7 @@ export class HostLifecycleJournal {
       const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
       const expected = {
         adapter_id: trustedIdentity.adapter_id,
+        source_manifest_sha256: trustedIdentity.source_manifest_sha256,
         host_installation_id: input.host_installation_id,
         authenticated_account_id: input.authenticated_account_id,
         root_id: input.root_id,
