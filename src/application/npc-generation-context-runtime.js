@@ -495,12 +495,78 @@ export function createCoreNpcGenerationContextRuntime({
     return Object.freeze({ status: 'ready', handoff: issued.handoff, reason: null });
   }
 
+  function getLaneBDispatchEvidence(context, request) {
+    if (!context || typeof context !== 'object' || !dispatchableContexts.has(context)
+      || !validateRequest(request)
+      || context.request_id !== request.request_id
+      || context.generation_id !== request.generation_id
+      || context.generation_type !== request.generation_type
+      || context.purpose !== PURPOSE || context.recipient !== RECIPIENT) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_context_mismatch' });
+    }
+    const laneB = context.lanes?.lane_b;
+    if (!laneB || laneB.status !== 'ready' || laneB.provider_purpose !== 'npc_decision'
+      || laneB.core_purpose !== PURPOSE || !validSnapshot(laneB.snapshot)
+      || laneB.snapshot.world_revision !== context.snapshot.world_revision
+      || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence
+      || !Array.isArray(laneB.candidates) || laneB.candidates.length > 50) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
+    }
+    const candidates = [];
+    const sourceMap = new Map();
+    for (const candidate of laneB.candidates) {
+      if (!exactDataRecord(candidate, [
+        'record_ref', 'record_version', 'authorization_generation',
+        'source_kind', 'source_entity_id', 'source_version',
+        'epistemic_kind', 'evidence_assessment', 'content',
+      ]) || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
+        || candidate.source_kind !== 'canonical_entity' || !validId(candidate.source_entity_id)
+        || !validSourceVersion(candidate.source_version)) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_lineage_invalid' });
+      }
+      const source = Object.freeze({
+        source_kind: 'canonical_entity',
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      });
+      sourceMap.set(JSON.stringify([source.source_entity_id, source.source_version]), source);
+      candidates.push(Object.freeze({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+        source_kind: candidate.source_kind,
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      }));
+    }
+    const sources = [...sourceMap.values()].sort((left, right) =>
+      left.source_entity_id < right.source_entity_id ? -1
+        : left.source_entity_id > right.source_entity_id ? 1
+          : left.source_version < right.source_version ? -1
+            : left.source_version > right.source_version ? 1 : 0);
+    return Object.freeze({
+      status: 'ready',
+      lane: 'B',
+      world_id: context.world_id,
+      actor_id: context.actor_id,
+      conversation_id: context.conversation_id,
+      adapter_id: context.adapter_id,
+      core_purpose: PURPOSE,
+      provider_purpose: 'npc_decision',
+      snapshot: context.snapshot,
+      sources: Object.freeze(sources),
+      candidates: Object.freeze(candidates),
+    });
+  }
+
   return Object.freeze({
     build: builder.build,
     receive: receiver.receive,
     prepareForDispatch,
     issueDispatchHandoff: receiver.issueDispatchHandoff,
     consumeDispatchHandoff,
+    getLaneBDispatchEvidence,
     revalidateLaneAForDispatch,
   });
 }
