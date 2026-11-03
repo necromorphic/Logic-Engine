@@ -225,7 +225,7 @@ function createTestNpcContextRuntime() {
 }
 
 function senderHostRoute(senderRoute) {
-  return ['text-completions', 'kobold', 'novelai-text'].includes(senderRoute)
+  return ['text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(senderRoute)
     ? senderRoute : 'chat-completions';
 }
 
