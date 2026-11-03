@@ -76,6 +76,8 @@ For final-send, #870 must authenticate the native request locally and provide Ho
 - an authenticated Host assertion with durable nonce replay protection;
 - an in-process `prepareGenerationContext(request, response)` capability for native generation hooks. It must run the same Host authentication gate and return immutable authenticated conversation/installation/account scope; it must not trust `x-logic-engine-conversation-uuid` or any browser-supplied Memory marker;
 - Core-owned NPC Memory retrieval through `MemoryNpcConsumer`;
+- synchronous, read-only `readCoreEvidence` and `readProviderEvidence` callbacks invoked while Gateway owns the shared Coordinator lease. Core evidence must bind World/Actor/purpose, readiness, inventory status, accepted head and source lineage; Provider evidence must bind World/Actor/purpose, grant/readiness, accepted head, sources and exact candidates including authorization generation and `source_version`;
+- the Provider observer must not run startup reconciliation or invalidate readiness. The existing normal `SQLiteMemoryProvider` constructor marks ready index rows stale on process start, so a second normal instance is not a safe observer;
 - a same-context prompt projection API (for example `projectDispatchHandoff(handoff)`) that returns Lane A + Lane B `contentBlocks` without exposing or duplicating the one-shot handoff capability. It must be derived from the exact issued context later consumed by Gateway;
 - authenticated World/Actor/conversation scope and the existing retrieval Result Envelope. These are inputs to the in-process NPC Generation Context Builder, not a serialized Final-Send handoff.
 
