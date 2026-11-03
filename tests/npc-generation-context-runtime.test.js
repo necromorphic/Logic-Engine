@@ -31,6 +31,8 @@ const memoryResult = () => ({
 function setup() {
   let currentScope = scope;
   let visible = true;
+  let visibilityCalls = 0;
+  let denyOnVisibilityCall = Number.POSITIVE_INFINITY;
   let memoryCurrent = true;
   let revokeAtFinalFence = false;
   let readAuthorizationRef = 'core-read-1';
@@ -49,14 +51,16 @@ function setup() {
       };
     },
     npcKnowledgeVisibilityAuthorizer(input) {
+      visibilityCalls += 1;
+      const allowed = visible && visibilityCalls < denyOnVisibilityCall;
       return {
-        status: visible ? 'allowed' : 'denied',
+        status: allowed ? 'allowed' : 'denied',
         world_id: input.world_id, conversation_id: input.conversation_id,
         adapter_id: input.adapter_id, actor_id: input.actor_id,
         recipient: input.recipient, purpose: input.purpose,
         world_revision: input.world_revision, commit_sequence: input.commit_sequence,
         acquisition_id: input.acquisition_id,
-        authorization_ref: visible ? 'visibility-1' : 'visibility-denied-1',
+        authorization_ref: allowed ? 'visibility-1' : 'visibility-denied-1',
       };
     },
   };
@@ -75,6 +79,7 @@ function setup() {
     runtime,
     setScope: value => { currentScope = value; },
     setVisible: value => { visible = value; },
+    setDenyOnVisibilityCall: value => { denyOnVisibilityCall = value; },
     setMemoryCurrent: value => { memoryCurrent = value; },
     setRevokeAtFinalFence: value => { revokeAtFinalFence = value; },
     setReadAuthorizationRef: value => { readAuthorizationRef = value; },
@@ -102,24 +107,19 @@ test('omits per-acquisition denied Lane A records without leaking their values',
   assert.doesNotMatch(JSON.stringify(built.context), /private-to-npc-1/);
 });
 
-test('fails closed when Lane A visibility is revoked during context construction', async () => {
-  const { runtime, setVisible } = setup();
-  const originalBuild = runtime.build;
-  // Revoke after both lanes have been read but before the builder's final evidence fence.
-  let firstRead = true;
-  const built = await originalBuild(request);
-  assert.equal(built.status, 'ready');
-  setVisible(false);
-  const received = await runtime.receive(built.context, request);
-  assert.equal(received.status, 'non_ready');
-  assert.equal(received.context, null);
+test('fails closed when Lane A visibility is revoked at the final build fence', async () => {
+  const { runtime, setDenyOnVisibilityCall } = setup();
+  setDenyOnVisibilityCall(2);
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'non_ready');
+  assert.equal(built.context, null);
 });
 
 test('receiver rejects an issued context after a Lane A acquisition is revoked', async () => {
-  const { runtime, setVisible } = setup();
+  const { runtime, setDenyOnVisibilityCall } = setup();
   const built = await runtime.build(request);
   assert.equal(built.status, 'ready');
-  setVisible(false);
+  setDenyOnVisibilityCall(3);
   const received = await runtime.receive(built.context, request);
   assert.equal(received.status, 'non_ready');
   assert.equal(received.reason, 'context_evidence_changed');
