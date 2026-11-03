@@ -38,12 +38,13 @@ const mutationPaths = [
   'src/endpoints/thumbnails.js',
   'src/endpoints/stats.js',
 ];
-const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, lifecyclePatch, rootMutationPatch, ...mutationContents] = await Promise.all([
+const [events, script, groupChats, chatBackups, serverMain, pluginLoader, hostRoutePatch, lifecyclePatch, rootMutationPatch, ...mutationContents] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8'),
   readFile(resolve(root, 'public/scripts/chat-backups.js'), 'utf8'),
   readFile(resolve(root, 'src/server-main.js'), 'utf8'),
+  readFile(resolve(root, 'src/plugin-loader.js'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-source-inventory-route.patch'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8'),
   readFile(resolve(process.cwd(), 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8'),
@@ -80,6 +81,20 @@ test('every endpoint module with direct filesystem mutation primitives is in the
     'Add each newly discovered mutating endpoint to mutationPaths, SOURCE_FILE_PATHS, and an explicit route disposition');
 });
 
+test('server plugin loader rejects unreviewed plugins before update or import', () => {
+  assert.match(pluginLoader, /await updatePlugins\(pluginsPath\)/);
+  assert.match(pluginLoader, /await loadFromDirectory\(app, pluginFilePath, exitHooks\)/);
+  const start = rootMutationPatch.indexOf('diff --git a/src/plugin-loader.js ');
+  assert.ok(start >= 0, 'root mutation patch must include the server plugin loader');
+  const end = rootMutationPatch.indexOf('\ndiff --git ', start + 10);
+  const section = rootMutationPatch.slice(start, end < 0 ? undefined : end);
+  const files = section.indexOf('const files = fs.readdirSync(pluginsPath)');
+  const allowlist = section.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
+  const update = section.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
+  assert.ok(files >= 0 && allowlist > files && update > allowlist,
+    'server plugin allowlist must run before automatic updates and plugin imports');
+});
+ 
 test('audit input is the exact pinned SillyTavern commit', async () => {
   if (existsSync(resolve(root, '.git'))) {
     const { execFileSync } = await import('node:child_process');
