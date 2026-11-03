@@ -50,7 +50,7 @@ The canonical registry contains 29 sender identities. Unknown sender identities 
 
 ## Remaining production blockers
 
-The root server plugin currently composes the Host Adapter, NPC Context Receiver and Final-Send adapter, but intentionally supplies a non-transport Gateway stub. Therefore a non-empty protected result is denied before native egress. The plugin status reports NOT_WIRED_FAIL_CLOSED; LOGIC_ENGINE_MEMORY_NPC_ENABLED defaults off.
+The current `host-adapter/extension-gateway/server-plugin/index.mjs` composes and registers only the Host Adapter's public routes. It does not import `receiveNpcContext()`, create `createSillyTavernFinalSendAdapter()`, or register an adapter through `registerLogicEngineFinalSendAdapter()` in the patched SillyTavern hook. The NPC receiver and Final-Send adapter exist as separate tested modules, but their production server-plugin composition is not wired. Consequently the managed hook reports adapter unavailable if installed without the separate #855 fail-closed registration path; the current #855 registration path preserves ordinary unprotected generation but does not provide protected Memory dispatch or final-write authorization. This gap must be closed with one server-plugin registration owner before claiming a connected NPC→Gateway→Final-Send path. The production Gateway must still remain NON_READY until real Core/Provider/Host readers are composed under the shared Coordinator.
 
 The real Gateway cannot be activated until all of the following are implemented and proven on one exact commit:
 
@@ -70,12 +70,12 @@ The real Gateway cannot be activated until all of the following are implemented 
 | Five pinned native handlers and 29 sender identities | Exact pinned-source audit and fake-provider harness | PASS at source/test level |
 | Host conversation locator attached to native generation data | Pinned ST awaited event hooks and Extension source | Implemented; exact-head CI pending |
 | Server-side Host request binding | Host authentication gate + inventory-backed resolver on actual Express request | Implemented; exact-head CI pending |
-| NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Implemented; exact-head CI pending |
-| Exact provider body serialization | Route-specific context injection and Host metadata scrubbing | Implemented; exact-head CI pending |
+| NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Module implemented; server-plugin composition NOT WIRED |
+| Exact provider body serialization | Route-specific context injection and Host metadata scrubbing | Adapter module implemented; production registration NOT WIRED |
 | Durable DISPATCH_STARTED, crash/replay handling | Gateway unit and child-process tests | PASS at Gateway unit level |
 | Host inventory revalidation under Coordinator | New required readHostEvidence callback and pre-start denial test | Contract/test seam added; production reader BLOCKED |
 | Core/Provider evidence readers | No production composition supplied | BLOCKED |
-| Real shared Coordinator Gateway in ST plugin | Plugin deliberately uses non-transport fail-closed stub | BLOCKED |
+| Real shared Coordinator Gateway in ST plugin | No production Gateway composition or Final-Send adapter registration in current server-plugin entrypoint | BLOCKED |
 | Live SillyTavern/provider/revoke/cancellation acceptance | No live deployment evidence | BLOCKED |
 
 **Safety state:** NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. PR merge, production route enrollment and activation are not authorized by this candidate.
