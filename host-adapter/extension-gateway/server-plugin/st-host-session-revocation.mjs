@@ -20,6 +20,7 @@ function configuredTarget(env) {
   let url;
   try { url = new URL(coreUrl); } catch { return null; }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+    || (url.protocol === 'http:' && !['127.0.0.1', '::1', 'localhost'].includes(url.hostname))
     || url.search || url.hash || !['', '/'].includes(url.pathname)) return null;
   url.pathname = '/v1/host/session/revoke';
   return { url, apiToken, adapterId, adapterToken };
