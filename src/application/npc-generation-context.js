@@ -389,11 +389,15 @@ function createNpcGenerationContextReceiver({
     const laneB = context?.lanes?.lane_b;
     if (!plainDataRecord(laneA, ['lane', 'items'], [
       'lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items',
-    ]) || laneA.lane !== 'A' || !densePlainArray(laneA.items)
+    ]) || laneA.lane !== 'A' || laneA.purpose !== PURPOSE
+      || !validId(laneA.authorization_ref) || !validId(laneA.visibility_authorization_ref)
+      || !densePlainArray(laneA.items)
       || !plainDataRecord(laneB, ['lane', 'candidates', 'admitted'], [
         'lane', 'core_purpose', 'provider_purpose', 'status', 'admitted',
         'candidates', 'reason', 'snapshot',
-      ]) || laneB.lane !== 'B' || laneB.status !== 'ready'
+      ]) || laneB.lane !== 'B' || laneB.core_purpose !== PURPOSE
+      || laneB.provider_purpose !== 'npc_decision' || laneB.status !== 'ready'
+      || laneB.reason !== null || !sameSnapshot(context.snapshot, laneB.snapshot)
       || !densePlainArray(laneB.candidates) || !densePlainArray(laneB.admitted)
       || laneB.candidates.length !== laneB.admitted.length) {
       return nonReady('dispatch_projection_invalid');
