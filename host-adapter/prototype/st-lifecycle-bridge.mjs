@@ -627,8 +627,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || inventory.authority !== 'NON_AUTHORITATIVE'
       || inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
       || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
-      || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
-      || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
+      || inventory.host_source_identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+      || inventory.root_inventory_reconciliation?.status !== 'AUTHORITATIVE_COMPLETE'
+      || inventory.root_inventory_reconciliation?.integrity_status !== 'INTEGRITY_OK'
+      || inventory.filesystem_inventory?.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
       || !HOST_UUID.test(inventory.host_session_id ?? '')
       || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
       || typeof inventory.host_user_handle !== 'string'
@@ -636,7 +638,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || inventory.requested_conversation_uuid !== parts[2]
       || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
       || !Array.isArray(inventory.files)) {
-      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
+      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to an attested current conversation snapshot' };
     }
 
     const matches = inventory.files.filter(file =>
@@ -688,11 +690,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
 
     return Object.freeze({
-      status: 'MATCHED_NON_AUTHORITATIVE',
-      authority: 'NON_AUTHORITATIVE',
+      status: 'MATCHED_AUTHORITATIVE',
+      authority: 'AUTHORITATIVE_COMPLETE',
       completeness: inventory.completeness,
       host_session_bound: true,
-      installation_attestation: false,
+      installation_attestation: true,
+      root_inventory_integrity: 'INTEGRITY_OK',
+      source_identity_status: inventory.host_source_identity_status,
       conversation_uuid: parts[2],
       message_count: chat.length,
       version_count: versionCount,
@@ -705,7 +709,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     if (getPersistedInventory) {
       const persisted = await verifyPersistedInventory(conversationId);
-      if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
+      if (persisted.status !== 'MATCHED_AUTHORITATIVE') return persisted;
     }
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
