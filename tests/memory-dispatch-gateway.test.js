@@ -393,6 +393,46 @@ test('startup migrates an existing dispatch ledger to include CometAPI without l
   }
 });
 
+test('Gateway refuses ledger migration when completed generation identities collide', async () => {
+  const fixture = await createFixture();
+  try {
+    const completed = validRequest('generation-identity-collision-original');
+    await dispatchAndRelease(fixture.gateway, completed);
+    fixture.gateway.close();
+
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      db.exec(`
+        DROP INDEX dispatch_ledger_generation_digest;
+        CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+          ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+      `);
+      db.prepare(`
+        INSERT INTO dispatch_ledger
+        SELECT ?,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+          sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+          policy_fingerprint,'COMPLETED',NULL,started_at,finished_at
+        FROM dispatch_ledger WHERE request_id=?
+      `).run('generation-identity-collision-duplicate', completed.requestId);
+    } finally {
+      db.close();
+    }
+
+    assert.throws(
+      () => fixture.reopenGateway(),
+      /DISPATCH_LEDGER_GENERATION_IDENTITY_COLLISION/,
+    );
+    const verify = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(verify.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 2);
+    } finally {
+      verify.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
