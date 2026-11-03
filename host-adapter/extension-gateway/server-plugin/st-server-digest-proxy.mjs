@@ -460,6 +460,14 @@ function normalizeRootInventoryResponse(upstream) {
     ...(typeof reconciliation.source_manifest_sha256 === 'string'
       && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256)
       ? { source_manifest_sha256: reconciliation.source_manifest_sha256 } : {}),
+    ...(typeof reconciliation.attestation_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.attestation_sha256)
+      ? { attestation_sha256: reconciliation.attestation_sha256 } : {}),
+    ...(Number.isSafeInteger(reconciliation.lifecycle_sequence)
+      ? { lifecycle_sequence: reconciliation.lifecycle_sequence } : {}),
+    ...(typeof reconciliation.lifecycle_head_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256)
+      ? { lifecycle_head_sha256: reconciliation.lifecycle_head_sha256 } : {}),
     ...(reconciliation.reason ? { reason: reconciliation.reason } : {}),
     ...(reconciliation.counts ? { counts: reconciliation.counts } : {}),
     ...(reconciliation.duplicate ? { duplicate: true } : {}),
