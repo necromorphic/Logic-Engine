@@ -413,6 +413,45 @@ test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', asyn
   }
 });
 
+test('Gateway rejects bound and prototype-spoofed async Lane A revalidators before dispatch-start', async () => {
+  const laneA = {
+    lane: 'A', purpose: 'npc_turn_context',
+    authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+    items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+      predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+      provenance_ref: 'source-1', provenance_digest: digestA,
+      acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+  };
+  const variants = [
+    () => (async () => ({ status: 'ready' })).bind(null),
+    () => {
+      const callback = async () => ({ status: 'ready' });
+      Object.setPrototypeOf(callback, Function.prototype);
+      return callback;
+    },
+  ];
+
+  for (let index = 0; index < variants.length; index += 1) {
+    const fixture = await createFixture();
+    try {
+      await assert.rejects(
+        fixture.gateway.dispatchProtectedRequest(validRequest('invalid-lane-a-revalidator-' + index, {
+          laneA,
+          revalidateLaneA: variants[index](),
+        })),
+        /MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED/,
+      );
+      assert.equal(fixture.calls.length, 0);
+      assert.equal(
+        fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+        0,
+      );
+    } finally {
+      await fixture.close();
+    }
+  }
+});
+
 test('Lane A revoke during model execution blocks final response release', async () => {
   let laneAReads = 0;
   const fixture = await createFixture({
