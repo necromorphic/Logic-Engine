@@ -69,8 +69,8 @@ export class HostAssertionNonceStore {
     }
     mkdirSync(dirname(noncePath), { recursive: true });
     this.#coordinatorDb = openCoordinatorDatabase(coordinatorPath);
-    this.#db = new DatabaseSync(noncePath);
     try {
+      this.#db = new DatabaseSync(noncePath);
       this.#db.exec(`
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=FULL;
@@ -95,7 +95,7 @@ export class HostAssertionNonceStore {
         ) WITHOUT ROWID;
       `);
     } catch (error) {
-      this.#db.close();
+      try { this.#db?.close(); } catch {}
       this.#coordinatorDb.close();
       throw error;
     }
