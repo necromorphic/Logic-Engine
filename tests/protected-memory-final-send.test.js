@@ -291,6 +291,75 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
   assert.doesNotMatch(prompt, /visibility-auth-1/);
 });
 
+test('Final-Send projection is independent of mutable Array prototype methods', async () => {
+  const laneAItem = {
+    acquisition_id: 'acquisition-poison',
+    fact_id: 'fact-poison',
+    subject_ref: 'subject-poison',
+    predicate: 'knows_location',
+    value: 'north gate',
+    acquisition_kind: 'direct_observation',
+    provenance_ref: 'provenance-poison',
+    provenance_digest: 'c'.repeat(64),
+    acquisition_authorization_ref: 'auth-poison',
+    source_event_ids: ['event-poison'],
+    visibility_authorization_ref: 'visibility-poison',
+  };
+  const protectedContext = {
+    ...context,
+    laneA: { items: [laneAItem] },
+    revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'Lane B evidence' },
+    }],
+  };
+  let outbound;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: request => request.transport() },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async (_url, request) => {
+      outbound = JSON.parse(request.body);
+      return { status: 200 };
+    },
+  });
+  const names = ['map', 'filter', 'includes', 'some', 'push', 'join', 'splice', Symbol.iterator];
+  const descriptors = new Array(names.length);
+  const poison = () => { throw new Error('POISONED_ARRAY_METHOD_CALLED'); };
+  let failure = null;
+  try {
+    for (let index = 0; index < names.length; index += 1) {
+      const key = names[index];
+      descriptors[index] = Object.getOwnPropertyDescriptor(Array.prototype, key);
+      Object.defineProperty(Array.prototype, key, { value: poison, writable: true, configurable: true });
+    }
+    try {
+      await finalSend({
+        senderRoute: 'google-ai-studio',
+        endpointUrl: 'https://provider.example/generate',
+        requestInit: init(JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] })),
+        hostRequestContext: { trusted: true },
+      });
+    } catch (error) {
+      failure = error;
+    }
+  } finally {
+    for (let index = 0; index < names.length; index += 1) {
+      const key = names[index];
+      const descriptor = descriptors[index];
+      if (descriptor) Object.defineProperty(Array.prototype, key, descriptor);
+      else delete Array.prototype[key];
+    }
+  }
+  if (failure) throw new Error('Final-Send called a poisoned Array prototype method: ' + failure.message);
+  assert.ok(outbound);
+  const prompt = outbound.messages[0].content;
+  assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
+  assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
+  assert.match(prompt, /Lane B evidence/);
+});
+
 test('Lane A projection rejects accessors instead of invoking them', async () => {
   let calls = 0;
   const item = {
