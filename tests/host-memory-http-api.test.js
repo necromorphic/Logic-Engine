@@ -687,3 +687,61 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
   assert.equal(calls, 12);
 });
+
+
+test('Core waits for asynchronous durable session revocation before acknowledging logout', async t => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  let releaseRevocation;
+  let markRevocationStarted;
+  const started = new Promise(resolveStarted => { markRevocationStarted = resolveStarted; });
+  const pending = new Promise(resolvePending => { releaseRevocation = resolvePending; });
+  const nonceStore = {
+    consume: () => true,
+    isSessionRevoked: () => false,
+    async revokeSession() {
+      markRevocationStarted();
+      await pending;
+      return true;
+    },
+  };
+  const server = createApiServer({
+    engine,
+    token: API_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    hostAssertionNonceStore: nonceStore,
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(async () => {
+    releaseRevocation();
+    await new Promise(resolveClose => server.close(resolveClose));
+    store.close();
+  });
+
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const event = {
+    protocol_version: 1,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    host_session_id: SESSION,
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: '77777777-7777-4777-8777-777777777777',
+    reason: 'logout',
+  };
+  const responsePromise = post(base, '/v1/host/session/revoke', {
+    authorization: 'Bearer ' + API_TOKEN,
+    'x-adapter-id': ADAPTER_ID,
+    'x-adapter-token': ADAPTER_TOKEN,
+  }, { ...event, signature: signRevocation(event) });
+
+  await started;
+  let responseSettled = false;
+  responsePromise.then(() => { responseSettled = true; });
+  await new Promise(resolveTurn => setImmediate(resolveTurn));
+  assert.equal(responseSettled, false, 'Core must not acknowledge revocation before durable storage completes');
+
+  releaseRevocation();
+  const response = await responsePromise;
+  assert.equal(response.status, 204);
+});
