@@ -22,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const SILLYTAVERN_INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const verifySourceIdentity = () => verifyPinnedSourceIdentity({ installRoot: SILLYTAVERN_INSTALL_ROOT });
+const verifySourceIdentity = ({ userExtensionsPath } = {}) => verifyPinnedSourceIdentity({
+  installRoot: SILLYTAVERN_INSTALL_ROOT,
+  userExtensionsPath,
+});
 
 function unavailable(code) {
   return (_request, response) => response.status(503).json({ status: 'NON_READY', code });
@@ -116,7 +119,7 @@ export function createSillyTavernHostAdapter({
         // request can acquire a Host context. A local scan or baseline alone
         // is not proof of completeness and must remain NON_READY.
         let sourceIdentity;
-        try { sourceIdentity = await injectedVerifySourceIdentity(); }
+        try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
         const rootProof = await persistRootInventory({
           userHandle,
