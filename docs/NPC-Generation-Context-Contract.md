@@ -8,7 +8,7 @@ Convert two separately authorized Core evidence envelopes into one immutable, re
 
 ## Trust boundary
 
-`createNpcGenerationContextBuilder` is composed inside Core with four deployment-owned callbacks:
+`createNpcGenerationContextBuilder` is composed inside Core with five deployment-owned callbacks:
 
 - `resolveScope(requestMetadata)`: derive the authenticated World, Actor, conversation, adapter, recipient, purpose and current Core snapshot. The request metadata contains only `request_id`, `generation_id`, and `generation_type`.
 - `readLaneA(scope)`: perform the Core Lane A read and per-acquisition visibility authorization; return only a complete, visibility-filtered Lane A envelope.
