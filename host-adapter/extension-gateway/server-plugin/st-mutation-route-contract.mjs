@@ -114,6 +114,7 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
     'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED',
     'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED',
     'HOST_USER_ROOT_RESET_UNSUPPORTED',
+    'revokeHostSessionBeforeLogout(request)',
     'HOST_USER_DATA_MIGRATION_INCOMPLETE',
     'HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE',
     'Skipping unreceipted startup group metadata migration while Host inventory is enabled.',
