@@ -156,3 +156,21 @@ test('Windows role manifest permits the metadata root to be the database parent,
   assert.equal(validate(posixMissingParentChain), false,
     'POSIX enrollment must retain its explicit directory identity chain');
 });
+
+
+test('Windows role manifest schema permits only the tested NTFS service-identity policy', () => {
+  const unsupportedFilesystem = manifest('windows', windowsIdentity);
+  unsupportedFilesystem.filesystemPolicy.filesystem = 'ReFS';
+  assert.equal(validate(unsupportedFilesystem), false,
+    'Windows manifest schema must reject filesystems without VFS evidence');
+
+  const unsupportedBoundary = manifest('windows', windowsIdentity);
+  unsupportedBoundary.filesystemPolicy.directoryMutationBoundary = 'broker-exclusive-owner';
+  assert.equal(validate(unsupportedBoundary), false,
+    'Windows manifest schema must require the dedicated service identity boundary');
+
+  const supported = manifest('windows', windowsIdentity);
+  supported.filesystemPolicy.filesystem = 'NTFS';
+  supported.filesystemPolicy.directoryMutationBoundary = 'dedicated-service-identity';
+  assert.equal(validate(supported), true, JSON.stringify(validate.errors));
+});
