@@ -240,7 +240,7 @@ export function createSillyTavernHostAdapter({
       if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
       }
-      const generationBody = hostRoute === 'horde-text'
+      const generationBody = hostRoute === 'horde-text' && !request?.body?.logic_engine_request_id
         ? request?.body?.params
         : request?.body;
       const conversationUuid = generationBody?.logic_engine_conversation_uuid;
