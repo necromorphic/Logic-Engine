@@ -94,10 +94,11 @@ export async function createMemoryDispatchGatewayServer({
       return;
     }
 
-    // Protected dispatch requires a non-serializable, request-scoped Host
-    // transport capability. A JSON/HTTP payload cannot carry that capability,
-    // so this endpoint is authentication/signature validation only and always
-    // fails closed. Host integrations must call the Gateway in-process.
+    // Protected dispatch requires both a non-serializable, request-scoped Host
+    // transport capability and a Core-issued one-shot NPC handoff. A JSON/HTTP
+    // payload cannot carry either capability, so this endpoint is only an
+    // authentication/signature check and always fails closed. Host integrations
+    // must call the Gateway in-process.
     response.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     response.end(JSON.stringify({ error: 'IN_PROCESS_TRANSPORT_REQUIRED' }));
   });
