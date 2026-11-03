@@ -119,6 +119,11 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         assert.ok(read(relativePath).includes(required), relativePath + ' missing route guard: ' + required);
     }
 
+    const thumbnails = read('src/endpoints/thumbnails.js');
+    assert.ok(thumbnails.includes('hostCacheWritesDisabled'),
+        'thumbnail cache writes must be suppressed while Host authority is active');
+    assert.ok(thumbnails.includes('if (hostCacheWritesDisabled && !fs.existsSync(pathToCachedFile)) return serveOriginal();'),
+        'thumbnail cache misses must serve the original without creating an unreceipted account-root file');
     const stableDiffusion = read('src/endpoints/stable-diffusion.js');
     for (const route of ['save-workflow', 'delete-workflow', 'rename-workflow']) {
         assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
