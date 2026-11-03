@@ -46,3 +46,16 @@ test('Windows service environment file ACL is reset, restricted and verified', (
   assert.match(installer, /AreAccessRulesProtected/);
   assert.match(installer, /Unexpected environment-file ACL principal or deny rule remains/);
 });
+
+test('Windows service installer rejects reparse-point ancestors before creating state or service', () => {
+  assert.match(installer, /function Assert-NoReparsePointAncestors/);
+  assert.match(installer, /Assert-NoReparsePointAncestors \$InstallDirectory/);
+  assert.match(installer, /Assert-NoReparsePointAncestors \$StateDirectory/);
+  assert.match(installer, /Assert-NoReparsePointAncestors \$NodePath/);
+  assert.match(installer, /if \(\$EnvironmentFile\) \{ Assert-NoReparsePointAncestors \$EnvironmentFile \}/);
+  const preflight = installer.indexOf('Assert-NoReparsePointAncestors $InstallDirectory');
+  const stateCreate = installer.indexOf('New-Item -ItemType Directory -Path $StateDirectory');
+  const serviceCreate = installer.indexOf('Invoke-Sc @("create", $ServiceName');
+  assert.ok(preflight >= 0 && preflight < stateCreate, 'path-chain validation must precede state-directory creation');
+  assert.ok(preflight < serviceCreate, 'path-chain validation must precede service creation');
+});
