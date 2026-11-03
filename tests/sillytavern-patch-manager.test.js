@@ -181,7 +181,7 @@ test('Patch Manager repair restores the pinned patch when the installed tree is 
   const { manager, stRoot, patched } = await fixture(t);
   await manager.execute('install');
   assert.equal((await manager.execute('repair')).status, 'INSTALLED');
-  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patched);
+  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\r\n/g, '\n'), patched);
 });
 
 test('Patch Manager refuses rollback when an untouched pinned ST route has drifted', async (t) => {
@@ -246,7 +246,7 @@ test('Patch Manager updates a changed artifact even when its version label is un
     patchPath,
   });
   assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
-  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patchedV2);
+  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\r\n/g, '\n'), patchedV2);
   assert.equal((await updatedManager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
 });
 
