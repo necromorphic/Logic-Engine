@@ -115,6 +115,19 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 - Revocation ordered after dispatch-start cannot recall the upstream call, but blocks every subsequent Host response write.
 - A crash with a stranded `DISPATCH_STARTED` row converts it to `UNKNOWN` on startup and blocks replay of the same logical generation ID/type and Host scope, even if a caller changes request ID, sender family, model, or provider-specific body serialization.
 
+## Host request bridge and dual-lane projection
+
+The in-process `createNpcGenerationContextHostBridge()` stores the exact Host request/response pair, immutable request metadata, opaque handoff and non-authorizing projection in WeakMaps. `prepare()` does not expose the context or handoff. `takeForDispatch()` transfers the exact handoff and projection once but does **not** consume the handoff; the Gateway remains the only component allowed to call `consumeDispatchHandoff()` while holding the shared Coordinator lease.
+
+The projection is derived from that exact handoff and includes:
+- Lane A Core acquisitions as `unassessed` evidence blocks, retaining their acquisition kind and subject/predicate/value;
+- Lane B Memory records with their original epistemic/evidence assessment;
+- deduplicated canonical Provider source versions and exact record candidate tuples;
+- the World/Actor/conversation/adapter/purpose/snapshot binding.
+
+`createSillyTavernFinalSendAdapter()` can now be configured with this bridge. It passes the one-time transfer to the protected-memory resolver and rejects a protected resolution unless its handoff, request metadata, sources, candidates, prompt blocks and Host scope are the exact objects/values from the bridge projection. A configured bridge cannot be bypassed by returning a ready protected resolution without a bridge transfer.
+
+This is an integration seam, not production activation: root `index.mjs` still registers the fail-closed adapter and does not yet instantiate the local Core runtime, non-mutating Provider observer, evidence readers or Gateway.
 ## Current acceptance evidence and blockers
 
 | Requirement | Evidence | State |
