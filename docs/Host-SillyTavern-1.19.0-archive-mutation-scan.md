@@ -44,6 +44,7 @@ This is a static candidate scan, not a route-level proof. It searched endpoint m
 - The pinned Host source audit currently has explicit chat/account mutation anchors and a narrower route-guard matrix. This archive scan adds candidates that require source-level disposition before a complete route-coverage attestation can be signed.
 - The remaining write primitives in `src/endpoints/openai.js`, `src/endpoints/speech.js`, and `src/endpoints/backends/kobold.js` remove request-upload temporary files; they do not write into the authenticated account root.
 - `src/endpoints/tokenizers.js` writes its shared `DATA_ROOT/_cache` directory, outside the per-account root being attested. It is a global derived cache, not account conversation state; this boundary must remain explicit if the SillyTavern data-root layout changes.
+- Server startup also runs content seeding, disk-cache verification, flat-secret migration, settings backup initialization, and stats initialization. These can write account-root files without an HTTP mutation route, so the pinned Host patch now skips those operations while Host authority is configured. Temporary upload cleanup and global access-log maintenance remain outside the per-account root.
 - `src/endpoints/data-maid.js` `POST /finalize` and password-recovery step 1 update only in-memory, short-lived tokens; the filesystem deletion/password mutation routes are separately guarded.
 - No candidate route in this document is claimed to be safe merely because a later root scan might detect a changed file.
 
