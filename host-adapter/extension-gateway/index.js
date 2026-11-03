@@ -9,10 +9,10 @@ function assertGenerationEnvelope(data) {
     return data;
 }
 
-async function attachHostConversationLocator(data, getHostContext) {
+export async function attachHostConversationLocator(data, getHostContext, resolveHostContext = resolveGatewayHostContext) {
     assertGenerationEnvelope(data);
     try {
-        const host = await resolveGatewayHostContext({ getHostContext });
+        const host = await resolveHostContext({ getHostContext });
         const requestId = globalThis.crypto?.randomUUID?.();
         if (!UUID.test(host.conversationUuid ?? '') || !UUID.test(requestId ?? '')) return data;
         // These are untrusted locators/correlation metadata only. The server-side
@@ -31,12 +31,12 @@ async function attachHostConversationLocator(data, getHostContext) {
     return data;
 }
 
-export async function registerHostGenerationIdentity(context = null) {
+export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
     const hostContext = context ?? (await import('../../../st-context.js')).getContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
         throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
     }
-    const attach = data => attachHostConversationLocator(data, hostContext);
+    const attach = data => attachHostConversationLocator(data, hostContext, resolveHostContext);
     // ST awaits each listener before serializing the generation request.
     // CHAT_COMPLETION_SETTINGS_READY is the last mutable point for Chat
     // Completions; GENERATE_AFTER_DATA covers Text Completions, Kobold,
@@ -49,5 +49,7 @@ export async function registerHostGenerationIdentity(context = null) {
     };
 }
 
-const unregister = await registerHostGenerationIdentity();
-globalThis.addEventListener?.('pagehide', unregister, { once: true });
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    const unregister = await registerHostGenerationIdentity();
+    globalThis.addEventListener?.('pagehide', unregister, { once: true });
+}
