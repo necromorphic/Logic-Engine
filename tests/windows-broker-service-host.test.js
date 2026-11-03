@@ -16,6 +16,7 @@ test('Windows broker keeps filesystem operations disabled without backend',()=>{
 });
 
 const store = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store.c', import.meta.url), 'utf8');
+const storeHeader = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store.h', import.meta.url), 'utf8');
 
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
@@ -45,6 +46,9 @@ test('Windows broker metadata store uses a pinned directory and durable handle-r
   assert.match(store, /validate_manifest/);
   assert.match(store, /validate_intent/);
   assert.match(store, /LE_STORE_MAX_BYTES/);
+  assert.match(storeHeader, /le_win_store_open/);
+  assert.match(storeHeader, /le_win_store_write_manifest/);
+  assert.match(storeHeader, /le_win_store_remove_intent/);
   assert.match(store, /le_store_acl_is_private/);
   assert.match(store, /SE_DACL_PROTECTED/);
   assert.match(store, /GetSecurityInfo/);
