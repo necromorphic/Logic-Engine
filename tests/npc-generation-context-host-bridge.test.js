@@ -53,7 +53,7 @@ test('Host bridge transfers exact handoff and dual-lane projection without consu
   const { bridge, handoff, projection, wasConsumed } = setup();
   const hostRequest = {};
   const hostResponse = {};
-  assert.equal((await bridge.prepare(hostRequest, hostResponse)).status, 'ready');
+  assert.equal((await bridge.prepare(hostRequest, hostResponse, { conversation_id: 'conversation-1' })).status, 'ready');
   assert.equal(wasConsumed(), false);
   const transfer = bridge.takeForDispatch(hostRequest, hostResponse);
   assert.equal(transfer.status, 'ready');
@@ -68,7 +68,7 @@ test('Host bridge rejects a different response without consuming the valid reque
   const { bridge, handoff } = setup();
   const hostRequest = {};
   const hostResponse = {};
-  await bridge.prepare(hostRequest, hostResponse);
+  await bridge.prepare(hostRequest, hostResponse, { conversation_id: 'conversation-1' });
   assert.equal(bridge.takeForDispatch(hostRequest, {}).status, 'non_ready');
   const transfer = bridge.takeForDispatch(hostRequest, hostResponse);
   assert.equal(transfer.status, 'ready');
@@ -79,7 +79,7 @@ test('Host bridge does not transfer preparation to a cloned Host request object'
   const { bridge } = setup();
   const hostRequest = {};
   const hostResponse = {};
-  await bridge.prepare(hostRequest, hostResponse);
+  await bridge.prepare(hostRequest, hostResponse, { conversation_id: 'conversation-1' });
   assert.equal(bridge.takeForDispatch({ ...hostRequest }, hostResponse).status, 'non_ready');
   assert.equal(bridge.takeForDispatch(hostRequest, hostResponse).status, 'ready');
 });
@@ -88,13 +88,13 @@ test('Host bridge rejects duplicate prepare and non-ready context without issuin
   const ready = setup();
   const hostRequest = {};
   const hostResponse = {};
-  assert.equal((await ready.bridge.prepare(hostRequest, hostResponse)).status, 'ready');
-  assert.equal((await ready.bridge.prepare(hostRequest, hostResponse)).status, 'non_ready');
+  assert.equal((await ready.bridge.prepare(hostRequest, hostResponse, { conversation_id: 'conversation-1' })).status, 'ready');
+  assert.equal((await ready.bridge.prepare(hostRequest, hostResponse, { conversation_id: 'conversation-1' })).status, 'non_ready');
 
   const blocked = setup({ prepareStatus: 'non_ready' });
   const blockedRequest = {};
   const blockedResponse = {};
-  assert.equal((await blocked.bridge.prepare(blockedRequest, blockedResponse)).status, 'non_ready');
+  assert.equal((await blocked.bridge.prepare(blockedRequest, blockedResponse, { conversation_id: 'conversation-1' })).status, 'non_ready');
   assert.equal(blocked.bridge.takeForDispatch(blockedRequest, blockedResponse).status, 'non_ready');
 });
 
@@ -110,7 +110,7 @@ test('Host bridge rejects mutable request metadata before asking Core to prepare
     createRequestMetadata: () => ({ ...requestMetadata }),
     runWithAuthenticatedHostSession: (_request, _conversationId, callback) => callback(),
   });
-  const result = await bridge.prepare({}, {});
+  const result = await bridge.prepare({}, {}, { conversation_id: 'conversation-1' });
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'request_metadata_not_immutable');
   assert.equal(prepareCalls, 0);
@@ -118,8 +118,8 @@ test('Host bridge rejects mutable request metadata before asking Core to prepare
 
 test('Host bridge rejects reuse of one frozen request-metadata object across Host requests', async () => {
   const bridge = setup().bridge;
-  assert.equal((await bridge.prepare({}, {})).status, 'ready');
-  const second = await bridge.prepare({}, {});
+  assert.equal((await bridge.prepare({}, {}, { conversation_id: 'conversation-1' })).status, 'ready');
+  const second = await bridge.prepare({}, {}, { conversation_id: 'conversation-1' });
   assert.equal(second.status, 'non_ready');
   assert.equal(second.reason, 'request_metadata_reused');
 });
