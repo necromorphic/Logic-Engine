@@ -3367,8 +3367,18 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
           FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL,
           NULL, NULL);
       if (observed != INVALID_HANDLE_VALUE) {
+        LogicEngineWinFileIdentity actual, active_identity;
+        int has_active = probe_win_sidecar_identity_lookup(
+          role_index, suffix, &active_identity);
+        /* A retired historical identity must be absent from the live name.
+           The name may nevertheless exist for the separately enrolled active
+           generation of this same role/kind; accept only that exact identity. */
+        if (!has_active
+            || !logic_engine_win_identity(observed, &actual, NULL)
+            || !logic_engine_win_identity_equal(&actual, &active_identity)) {
+          reject = 1;
+        }
         CloseHandle(observed);
-        reject = 1;
       } else {
         DWORD error = GetLastError();
         if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
