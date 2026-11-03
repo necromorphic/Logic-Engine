@@ -124,12 +124,14 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: { consume() { return true; } },
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   }), /must expose atomic consume\(\), revokeSession\(\), and isSessionRevoked\(\)/);
   assert.throws(() => createApiServer({
     engine, token: API_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   }), /requires a durable Host assertion nonce and revocation store/);
 
   let server = createApiServer({
@@ -138,6 +140,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -366,6 +369,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -534,6 +538,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -560,6 +565,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); }, revokeSession() { throw new Error('simulated SQLite I/O failure'); }, isSessionRevoked() { throw new Error('simulated SQLite I/O failure'); } },
     resolveHostLifecycleIdentity,
+    resolveHostMemoryIdentity: resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
