@@ -31,6 +31,16 @@ let dataMaidRouter;
 let settingsRouter;
 let usersPrivateRouter;
 let usersAdminRouter;
+let avatarsRouter;
+let filesRouter;
+let worldInfoRouter;
+let presetsRouter;
+let quickRepliesRouter;
+let themesRouter;
+let backgroundsRouter;
+let assetsRouter;
+let vectorsRouter;
+let extensionsRouter;
 if (runPinnedSTHarness) {
   const requireFromST = createRequire(resolve(stRoot, 'package.json'));
   express = requireFromST('express');
@@ -44,6 +54,16 @@ if (runPinnedSTHarness) {
   ({ router: settingsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/settings.js')).href));
   ({ router: usersPrivateRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users-private.js')).href));
   ({ router: usersAdminRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/users-admin.js')).href));
+  ({ router: avatarsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/avatars.js')).href));
+  ({ router: filesRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/files.js')).href));
+  ({ router: worldInfoRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/worldinfo.js')).href));
+  ({ router: presetsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/presets.js')).href));
+  ({ router: quickRepliesRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/quick-replies.js')).href));
+  ({ router: themesRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/themes.js')).href));
+  ({ router: backgroundsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backgrounds.js')).href));
+  ({ router: assetsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/assets.js')).href));
+  ({ router: vectorsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/vectors.js')).href));
+  ({ router: extensionsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/extensions.js')).href));
   const pluginRoot = resolve(stRoot, 'plugins/logic-engine-extension-gateway');
   const [inventoryHandlers, digestProxy, identityStoreModule, receiptStoreModule, hostInventoryModule, filesystemModule] = await Promise.all([
     import(pathToFileURL(join(pluginRoot, 'st-host-inventory-handler.mjs')).href),
@@ -184,6 +204,16 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   app.use('/api/settings', settingsRouter);
   app.use('/api/users-private', usersPrivateRouter);
   app.use('/api/users-admin', usersAdminRouter);
+  app.use('/api/avatars', avatarsRouter);
+  app.use('/api/files', filesRouter);
+  app.use('/api/worldinfo', worldInfoRouter);
+  app.use('/api/presets', presetsRouter);
+  app.use('/api/quick-replies', quickRepliesRouter);
+  app.use('/api/themes', themesRouter);
+  app.use('/api/backgrounds', backgroundsRouter);
+  app.use('/api/assets', assetsRouter);
+  app.use('/api/vectors', vectorsRouter);
+  app.use('/api/extensions', extensionsRouter);
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -462,6 +492,35 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     return response;
   }, 'added');
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
+
+  // Exercise real pinned ST route registrations. Each representative mutation
+  // route must fail closed before its handler can touch the enrolled user root.
+  const protectedMutationRoutes = [
+    '/api/avatars/delete',
+    '/api/files/upload',
+    '/api/worldinfo/import',
+    '/api/presets/restore',
+    '/api/quick-replies/save',
+    '/api/themes/save',
+    '/api/backgrounds/rename',
+    '/api/assets/delete',
+    '/api/vectors/purge',
+    '/api/settings/make-snapshot',
+  ];
+  for (const route of protectedMutationRoutes) {
+    const blocked = await post(route, {});
+    assert.equal(blocked.status, 409, route + ' must reject before persistence: ' + JSON.stringify(blocked));
+    assert.equal(blocked.result.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED', route);
+  }
+  const accountMutationBlocked = await post('/api/users-admin/disable', { handle: 'other-user' });
+  assert.equal(accountMutationBlocked.status, 503);
+  assert.equal(accountMutationBlocked.result.error.code, 'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED');
+  const rootResetBlocked = await post('/api/users-private/reset-step2', {});
+  assert.equal(rootResetBlocked.status, 503);
+  assert.equal(rootResetBlocked.result.error.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
+  const extensionMutationBlocked = await post('/api/extensions/update', { extensionName: 'example' });
+  assert.equal(extensionMutationBlocked.status, 503);
+  assert.equal(extensionMutationBlocked.result.error.code, 'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED');
 
   const sentUser = identifiedMessage({
     mes: 'second user message',
