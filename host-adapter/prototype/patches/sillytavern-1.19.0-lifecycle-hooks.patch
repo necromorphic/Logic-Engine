@@ -1050,13 +1050,15 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -11,7 +11,11 @@
+@@ -11,7 +11,13 @@
  import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
  
 +
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
@@ -1069,6 +1071,18 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
 +        }
 +
+@@ -68 +72 @@
+-router.post('/change-avatar', async (request, response) => {
++router.post('/change-avatar', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -103 +109 @@
+-router.post('/change-password', async (request, response) => {
++router.post('/change-password', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -156 +164 @@
+-router.post('/backup', async (request, response) => {
++router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -204 +214 @@
+-router.post('/change-name', async (request, response) => {
++router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
 @@ -181,7 +184,7 @@
      }
  });
