@@ -751,7 +751,7 @@ export class MemoryDispatchGateway {
 
   async dispatchProtectedRequest({
     requestId, generationRequest, npcContextHandoff, contentBlocks,
-    route, senderRoute, model, stream, body, worldId, actorId, purpose,
+    route, senderRoute, hostRoute: suppliedHostRoute, model, stream, body, worldId, actorId, purpose,
     sources, candidates, hostContext, transport, forwardResponse,
     hostTransformsStream = false, signal,
   }) {
@@ -777,7 +777,7 @@ export class MemoryDispatchGateway {
     const contentBlockSet = normalizeNpcContentBlocks(contentBlocks);
     const hostContextSnapshot = normalizeHostContext(hostContext);
     const hostRoute = HOST_ROUTE_BY_SENDER.get(senderRoute);
-    if (!hostRoute || hostContextSnapshot.world_id !== worldId
+    if (!hostRoute || suppliedHostRoute !== hostRoute || hostContextSnapshot.world_id !== worldId
       || hostContextSnapshot.actor_id !== actorId
       || hostContextSnapshot.adapter_id.length === 0) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
