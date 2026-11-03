@@ -860,9 +860,11 @@ export class SQLiteMemoryProvider {
   withAuthorizedReadLease(scope, candidates, callback) {
     if (!isPlainDataRecord(scope) || !Array.isArray(candidates) || isProxy(candidates)
       || candidates.length > 50 || !isPlainDataArray(candidates)
-      || typeof callback !== 'function' || isProxy(callback)
-      || Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
+      || typeof callback !== 'function' || isProxy(callback)) {
       throw new TypeError('Invalid Provider authorized-read lease input');
+    }
+    if (Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
+      throw new TypeError('Provider authorized-read callback must be synchronous');
     }
     scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
     if (!validId(scope.world_id) || !validId(scope.subject_id) || !validId(scope.purpose)
