@@ -26,6 +26,7 @@ This is a static candidate scan, not a route-level proof. It searched endpoint m
 | `src/endpoints/vectors.js` | `POST /insert`, `/delete`, `/purge`, `/purge-all` | Trace vector-store mutations and whether they touch the enrolled root |
 | `src/endpoints/extensions.js` | `POST /install`, `/update`, `/switch`, `/move`, `/delete` | Source/runtime mutation; must invalidate source attestation or be disabled while Host authority is active |
 | `src/endpoints/users-private.js` | `POST /change-avatar`, `/change-password`, `/backup`, `/change-name`, `/reset-settings`, `/reset-step1`, `/reset-step2` | Account/session/root lifecycle; retain explicit fail-closed treatment for root reset |
+| `src/endpoints/users-public.js` | `POST /recover-step2` | Password recovery writes account credentials; blocked while Host authority is active |
 | `src/endpoints/users-admin.js` | `POST /create`, `/delete`, `/disable`, `/enable`, `/promote`, `/demote` | Account-directory and authorization lifecycle; deletion must remain blocked until a receipt/revocation contract exists |
 | `src/endpoints/backgrounds.js` | `POST /delete`, `/rename`, `/upload` | Trace background file mutations |
 | `src/endpoints/avatars.js` | `POST /delete`, `/upload` | Trace avatar file mutations |
