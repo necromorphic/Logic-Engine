@@ -144,14 +144,71 @@ function normalizeHostContext(value) {
   return Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])));
 }
 
+function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 }) {
+  if (depth > 32 || ++budget.nodes > 20_000) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || seen.has(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1 || !keys.includes('length')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const copy = new Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        copy[index] = cloneLaneAData(descriptor.value, seen, depth + 1, budget);
+      }
+      return copy;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const keys = Reflect.ownKeys(value);
+    const copy = {};
+    for (const key of keys) {
+      if (typeof key !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      Object.defineProperty(copy, key, {
+        value: cloneLaneAData(descriptor.value, seen, depth + 1, budget),
+        enumerable: true, writable: true, configurable: true,
+      });
+    }
+    return copy;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function freezeLaneAData(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const key of Reflect.ownKeys(value)) freezeLaneAData(value[key]);
+  return Object.freeze(value);
+}
+
 function normalizeLaneA(value) {
   // Lane A is part of the complete Core-issued NPC context. Missing Lane A is
   // not equivalent to a verified empty lane and must never be defaulted away.
   const keys = ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'];
-  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
-    || Object.getPrototypeOf(value) !== Object.prototype
-    || Reflect.ownKeys(value).length !== keys.length
-    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  let ownKeys;
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    ownKeys = Reflect.ownKeys(value);
+  } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== 'string' || !keys.includes(key))) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   for (const key of keys) {
@@ -164,20 +221,15 @@ function normalizeLaneA(value) {
     || !Array.isArray(value.items) || value.items.length > 200) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  // Lane A is already a Core-issued immutable projection. Reject accessors,
-  // proxies and non-JSON values before binding it into the dispatch digest.
-  const serialized = JSON.stringify(value);
-  if (typeof serialized !== 'string' || serialized.length > 2_000_000) {
-    throw new Error('MEMORY_DISPATCH_NOT_READY');
-  }
-  const copied = JSON.parse(serialized);
-  return Object.freeze({
-    lane: 'A',
-    purpose: 'npc_turn_context',
-    authorization_ref: value.authorization_ref,
-    visibility_authorization_ref: value.visibility_authorization_ref,
-    items: Object.freeze(copied.items.map(item => Object.freeze(item))),
-  });
+  // Clone every nested item using property descriptors. JSON.stringify on an
+  // untrusted nested object can execute getters or Proxy traps before signing.
+  let copied;
+  try { copied = cloneLaneAData(value); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  let serialized;
+  try { serialized = JSON.stringify(copied); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (typeof serialized !== 'string' || serialized.length > 2_000_000
+    || copied.items.length > 200) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  return freezeLaneAData(copied);
 }
 
 function normalizeProviderEvidenceCursor(value) {
