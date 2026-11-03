@@ -68,7 +68,7 @@ No browser-to-Core call, second generation ingress, relay, extra API port or Bas
 
 - Once protected `DISPATCH_STARTED` is committed, a second protected model handoff for the same Express response is terminal. It cannot mint a fresh request ID to retry.
 - A sender retry after a completed or ambiguous protected handoff is denied; no automatic resend is allowed.
-- A cancellation signal is passed to the single transport capability. If transport outcome cannot be established, ledger status remains or becomes `UNKNOWN`; cancellation does not authorize replay.
+- The request-scoped `AbortSignal`, when the native sender provides one, is checked before durable dispatch-start and again at final response revalidation / each Host write; it is also passed to the single transport. Abort before start produces zero egress and no ledger row. Abort after `DISPATCH_STARTED` is terminal and becomes `UNKNOWN`; it never authorizes replay. Bytes already written to a streaming response cannot be recalled.
 - Revocation ordered before dispatch-start means zero provider calls.
 - Revocation ordered after dispatch-start cannot recall the upstream call, but blocks every subsequent Host response write.
 - A crash with a stranded `DISPATCH_STARTED` row converts it to `UNKNOWN` on startup and blocks same-digest replay, including a different sender family.
