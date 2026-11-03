@@ -33,18 +33,21 @@ function aliasesSameFile(left, right) {
 export class HostAssertionNonceStore {
   #db;
 
-  constructor({ path, coreDatabasePath, coordinatorPath } = {}) {
+  constructor({ path, coreDatabasePath, coordinatorPath, providerDatabasePath = null } = {}) {
     if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
       throw new TypeError('Host assertion nonce store requires a durable file path.');
     }
     if (typeof coreDatabasePath !== 'string' || !coreDatabasePath.trim()
-      || typeof coordinatorPath !== 'string' || !coordinatorPath.trim()) {
-      throw new TypeError('Host assertion nonce store requires Core and Coordinator database paths.');
+      || typeof coordinatorPath !== 'string' || !coordinatorPath.trim()
+      || (providerDatabasePath !== null
+        && (typeof providerDatabasePath !== 'string' || !providerDatabasePath.trim()))) {
+      throw new TypeError('Host assertion nonce store requires Core, Coordinator, and optional Provider database paths.');
     }
     const noncePath = resolve(path);
     if (aliasesSameFile(noncePath, coreDatabasePath)
-      || aliasesSameFile(noncePath, coordinatorPath)) {
-      throw new Error('Host assertion nonce database must be separate from Core and Coordinator databases.');
+      || aliasesSameFile(noncePath, coordinatorPath)
+      || (providerDatabasePath !== null && aliasesSameFile(noncePath, providerDatabasePath))) {
+      throw new Error('Host assertion nonce database must be separate from Core, Coordinator, and Provider databases.');
     }
     mkdirSync(dirname(noncePath), { recursive: true });
     this.#db = new DatabaseSync(noncePath);
