@@ -9,7 +9,7 @@ The Core Memory NPC adapter exposes `npcGenerationContext` only when the deploym
 ## Lane separation
 
 - Lane A: complete Core knowledge-acquisition read, independently filtered by per-acquisition visibility authorization.
-- Lane B: MemoryNpcConsumer result, retaining Core purpose `npc_turn_context`, Provider purpose `npc_decision`, admission, grants and canonical source-version lineage.
+- Lane B: MemoryNpcConsumer result, retaining Core purpose `npc_turn_context`, Provider purpose `npc_decision`, admission, grants and canonical source-version lineage. It also retains the Provider's complete-result cursor (`data_version` + `candidate_digest`) through immutable context, revalidation and `HostBridge.consume()` as `laneB.provider_evidence_cursor`.
 - The Builder freezes copied data and keeps both lanes separate. Memory evidence is not promoted to canonical truth.
 
 ## Handoff
@@ -18,7 +18,7 @@ The Builder/Receiver issues a private, one-shot, object-identity handoff. The Ho
 
 ## Remaining Gateway contract
 
-The Gateway must consume the handoff and, while holding the shared Coordinator/revocation-ordering boundary, synchronously:
+The Gateway must consume the handoff, pass `laneB.provider_evidence_cursor` unchanged as `providerEvidenceCursor` to its Provider reader, and, while holding the shared Coordinator/revocation-ordering boundary, synchronously compare the live Provider cursor and revalidate grants/source versions:
 1. revalidate Lane A acquisition visibility;
 2. independently validate Lane B admission, Provider grants, index/reconciliation state and source versions;
 3. bind both purpose namespaces separately;
