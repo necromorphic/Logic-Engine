@@ -788,7 +788,8 @@ test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke duri
 test('client disconnect before response finish records UNKNOWN and prevents replay', async () => {
   const fixture = await createFixture();
   try {
-    await fixture.gateway.dispatchProtectedRequest(validRequest('client-close-unknown'));
+    const originalRequest = validRequest('client-close-unknown');
+    await fixture.gateway.dispatchProtectedRequest(originalRequest);
     const response = new EventEmitter();
     response.writableEnded = false;
     response.destroyed = false;
@@ -805,7 +806,13 @@ test('client disconnect before response finish records UNKNOWN and prevents repl
       db.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('client-close-unknown-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('client-close-unknown-new-id', {
+        generationRequest: {
+          request_id: 'client-close-unknown-new-id',
+          generation_id: originalRequest.generationRequest.generation_id,
+          generation_type: originalRequest.generationRequest.generation_type,
+        },
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(fixture.calls.length, 1);
@@ -1001,8 +1008,9 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     },
   });
   try {
+    const originalRequest = validRequest('ambiguous-request');
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request')),
+      fixture.gateway.dispatchProtectedRequest(originalRequest),
       /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
     );
     assert.equal(sends, 1);
@@ -1024,12 +1032,23 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id', {
+        generationRequest: {
+          request_id: 'ambiguous-request-new-id',
+          generation_id: originalRequest.generationRequest.generation_id,
+          generation_type: originalRequest.generationRequest.generation_type,
+        },
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
         senderRoute: 'openai',
+        generationRequest: {
+          request_id: 'ambiguous-request-other-sender',
+          generation_id: originalRequest.generationRequest.generation_id,
+          generation_type: originalRequest.generationRequest.generation_type,
+        },
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing sender family must not bypass the unresolved request digest',
@@ -1192,7 +1211,8 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
     }),
   });
   try {
-    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch'));
+    const originalRequest = validRequest('cancelled-dispatch');
+    const pending = fixture.gateway.dispatchProtectedRequest(originalRequest);
     await transportStarted;
     controller.abort();
     await assert.rejects(pending, /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
@@ -1214,7 +1234,13 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id', {
+        generationRequest: {
+          request_id: 'cancelled-dispatch-new-id',
+          generation_id: originalRequest.generationRequest.generation_id,
+          generation_type: originalRequest.generationRequest.generation_type,
+        },
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(sends, 1, 'same-ID and new-ID retries must both remain blocked');
@@ -1371,7 +1397,13 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       ledger.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id', {
+        generationRequest: {
+          request_id: 'process-crash-replay-new-id',
+          generation_id: JSON.parse(requestJson).generationRequest.generation_id,
+          generation_type: JSON.parse(requestJson).generationRequest.generation_type,
+        },
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
   } finally {
@@ -1399,7 +1431,13 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
       verify.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id', {
+        generationRequest: {
+          request_id: 'crash-replay-new-id',
+          generation_id: request.generationRequest.generation_id,
+          generation_type: request.generationRequest.generation_type,
+        },
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(fixture.calls.length, 1);
