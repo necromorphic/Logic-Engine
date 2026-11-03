@@ -6,7 +6,7 @@ const docs=await readFile(new URL('../native/windows-namespace-broker/README.md'
 test('Windows broker authenticates local pipe clients by configured SID',()=>{
  assert.match(source,/ImpersonateNamedPipeClient/);assert.match(source,/OpenThreadToken/);
  assert.match(source,/EqualSid\(u->User\.Sid,allowed_sid\)/);
- assert.match(source,/PIPE_REJECT_REMOTE_CLIENTS/);
+ assert.match(source,/PIPE_REJECT_REMOTE_CLIENTS/);\n assert.match(source,/OpenProcessToken/);\n assert.match(source,/PROCESS_DUP_HANDLE/);
 });
 test('Windows broker keeps filesystem operations disabled without backend',()=>{
  assert.match(source,/q\.operation>=2&&q\.operation<=8\)r\.flags=3/);
