@@ -147,14 +147,14 @@ function validateLaneB(envelope, scope) {
     || envelope.recipient !== RECIPIENT || envelope.core_purpose !== PURPOSE
     || envelope.provider_purpose !== 'npc_decision'
     || !exactRecord(envelope.snapshot, ['world_revision', 'commit_sequence'])
-    || !sameSnapshot(envelope.snapshot, scope.snapshot)) return false;
+    || !sameSnapshot(envelope.snapshot, scope.snapshot)) return 'lane_b_envelope_invalid';
   const result = envelope.result;
   if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
     || result.status !== 'ready' || result.reason !== null
     || !densePlainArray(result.admitted) || !densePlainArray(result.candidates)
     || !exactRecord(result.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(result.snapshot, scope.snapshot)
-    || result.admitted.length !== result.candidates.length) return false;
+    || result.admitted.length !== result.candidates.length) return 'lane_b_result_invalid';
   try {
     const identities = new Set();
     for (let i = 0; i < result.candidates.length; i += 1) {
@@ -175,14 +175,14 @@ function validateLaneB(envelope, scope) {
         || (Object.hasOwn(admitted, 'epistemic_kind')
           && admitted.epistemic_kind !== candidate.epistemic_kind)
         || (Object.hasOwn(admitted, 'evidence_assessment')
-          && admitted.evidence_assessment !== candidate.evidence_assessment)) return false;
+          && admitted.evidence_assessment !== candidate.evidence_assessment)) return 'lane_b_candidate_invalid';
       const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
-      if (identities.has(identity)) return false;
+      if (identities.has(identity)) return 'lane_b_candidate_identity_duplicated';
       identities.add(identity);
       immutableCopy(candidate.content);
     }
-    return true;
-  } catch { return false; }
+    return null;
+  } catch { return 'lane_b_candidate_content_invalid'; }
 }
 
 /**
@@ -230,7 +230,8 @@ export function createNpcGenerationContextBuilder({
     } catch { return nonReady('lane_b_evidence_unavailable'); }
 
     if (!validateLaneA(laneA, scope)) return nonReady('lane_a_evidence_not_current_or_authorized');
-    if (!validateLaneB(laneB, scope)) return nonReady('lane_b_evidence_not_current_or_authorized');
+    const laneBFailure = validateLaneB(laneB, scope);
+    if (laneBFailure !== null) return nonReady(laneBFailure);
 
     let evidenceCurrent;
     try { evidenceCurrent = await revalidateEvidence(scope, Object.freeze({ laneA, laneB })); }
