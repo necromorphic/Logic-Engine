@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <strsafe.h>
+
+#ifndef _countof
+#define _countof(array) (sizeof(array) / sizeof((array)[0]))
+#endif
 #define PIPE_NAME L"\\\\.\\pipe\\LogicEngine.SqliteBroker.v1"
 #define MAGIC 0x4c454256u
 #define VERSION 2u
