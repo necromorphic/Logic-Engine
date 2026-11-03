@@ -4,7 +4,7 @@ import { createSillyTavernFinalSendAdapter } from '../sillytavern-final-send-ada
 
 const sourceKeys = [
   'CLAUDE', 'AI21', 'MAKERSUITE', 'VERTEXAI', 'MISTRALAI', 'COHERE',
-  'DEEPSEEK', 'AIMLAPI', 'XAI', 'CHUTES', 'MINIMAX', 'ELECTRONHUB',
+  'COMETAPI', 'DEEPSEEK', 'AIMLAPI', 'XAI', 'CHUTES', 'MINIMAX', 'ELECTRONHUB',
   'AZURE_OPENAI', 'OPENAI', 'OPENROUTER', 'CUSTOM', 'PERPLEXITY', 'GROQ',
   'FIREWORKS', 'NANOGPT', 'POLLINATIONS', 'MOONSHOT', 'ZAI', 'SILICONFLOW',
   'WORKERS_AI',
@@ -35,15 +35,35 @@ test('adapter maps all pinned non-Chat-Completions route families', () => {
   assert.equal(adapter.resolveSenderRoute({}, 'horde-text'), 'horde-text');
 });
 
-test('unregistered SillyTavern sender remains native for explicitly unprotected generation', async () => {
+test('CometAPI is registered and protected generation reaches the sole Gateway', async () => {
+  const protectedContext = {
+    requestId: 'request-cometapi',
+    model: 'test-model',
+    worldId: 'world-1',
+    actorId: 'actor-1',
+    purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+  };
+  const gatewayRoutes = [];
   let transportCalls = 0;
-  const adapter = createAdapter({ resolveProtectedMemory: () => null });
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => protectedContext,
+    gateway: {
+      dispatchProtectedRequest(request) {
+        gatewayRoutes.push(request.senderRoute);
+        return request.transport();
+      },
+    },
+  });
   const request = { body: { chat_completion_source: 'COMETAPI', stream: false } };
   const senderRoute = adapter.resolveSenderRoute(request);
 
-  assert.equal(senderRoute, 'unregistered');
+  assert.equal(senderRoute, 'cometapi');
   const result = await adapter.dispatch({
     request,
+    response: {},
     senderRoute,
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit,
@@ -52,10 +72,11 @@ test('unregistered SillyTavern sender remains native for explicitly unprotected 
   });
 
   assert.equal(result.status, 200);
+  assert.deepEqual(gatewayRoutes, ['cometapi']);
   assert.equal(transportCalls, 1);
 });
 
-test('unregistered SillyTavern sender is denied for protected Memory generation', () => {
+test('unknown SillyTavern sender is denied for protected Memory generation', () => {
   const protectedContext = {
     requestId: 'request-1',
     model: 'test-model',
@@ -67,7 +88,7 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   };
   const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext });
-  const request = { body: { chat_completion_source: 'COMETAPI', stream: false } };
+  const request = { body: { chat_completion_source: 'UNKNOWN_SOURCE', stream: false } };
 
   assert.throws(() => adapter.dispatch({
     request,
