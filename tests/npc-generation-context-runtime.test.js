@@ -254,3 +254,28 @@ test('synchronous dispatch fence rejects copied contexts and unconsumed handoff 
   const copied = { ...built.context };
   assert.equal(runtime.revalidateLaneAForDispatch(copied, request).status, 'non_ready');
 });
+
+
+test('prepareForDispatch completes async build and receiver checks but exposes only an opaque handoff', async () => {
+  const { runtime } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.reason, null);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
+  assert.equal(Object.keys(prepared.handoff).length, 0);
+  assert.equal(Object.isFrozen(prepared.handoff), true);
+
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context.lanes.lane_a.items.length, 1);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
+});
+
+test('prepareForDispatch returns no handoff when either lane is not ready', async () => {
+  const { runtime, setMemoryCurrent } = setup();
+  setMemoryCurrent(false);
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.handoff, null);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
+});
