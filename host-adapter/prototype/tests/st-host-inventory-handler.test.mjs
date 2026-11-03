@@ -400,7 +400,7 @@ test('Host inventory cannot promote Core baseline without signed lifecycle attes
   await handler({
     user: { profile: { handle: 'alice' }, directories: {
       root: '/srv/st/data', chats: '/srv/st/data/chats',
-      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats', extensions: '/srv/st/data/extensions',
     } },
     session: {
       handle: 'alice',
@@ -448,7 +448,7 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
   await handler({
     user: { profile: { handle: 'alice' }, directories: {
       root: '/srv/st/data', chats: '/srv/st/data/chats',
-      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats', extensions: '/srv/st/data/extensions',
     } },
     session: {
       handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
