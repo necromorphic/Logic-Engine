@@ -24,8 +24,13 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       return Object.freeze({ status: 'non_ready', reason: 'host_request_not_preparable' });
     }
     let requestMetadata;
-    try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
-    catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
+    try {
+      requestMetadata = createRequestMetadata(hostRequest, hostResponse);
+      if (!requestMetadata || typeof requestMetadata !== 'object'
+        || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)) {
+        return Object.freeze({ status: 'non_ready', reason: 'request_metadata_not_immutable' });
+      }
+    } catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
     let prepared;
     try { prepared = await runtime.prepareForDispatch(requestMetadata); }
     catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
