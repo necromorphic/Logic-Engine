@@ -34,6 +34,49 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
     return data;
 }
 
+const PROTECTED_GENERATION_PATHS = new Set([
+    '/api/backends/chat-completions/generate',
+    '/api/backends/text-completions/generate',
+    '/api/backends/kobold/generate',
+    '/api/novelai/generate',
+    '/api/horde/generate-text',
+]);
+
+function installGenerationFetchEnvelope(hostContext, resolveHostContext) {
+    const originalFetch = globalThis.fetch;
+    if (typeof originalFetch !== 'function') throw new Error('HOST_GENERATION_FETCH_UNAVAILABLE');
+    const origin = globalThis.location?.origin || 'http://localhost';
+    const wrappedFetch = async function (input, init = {}) {
+        let url;
+        try {
+            url = typeof input === 'string' || input instanceof URL ? String(input) : input?.url;
+            const parsed = new URL(url, origin);
+            if (parsed.origin !== origin || !PROTECTED_GENERATION_PATHS.has(parsed.pathname)
+                || String(init?.method || input?.method || 'GET').toUpperCase() !== 'POST'
+                || typeof init?.body !== 'string') {
+                return originalFetch.call(this, input, init);
+            }
+            const payload = JSON.parse(init.body);
+            assertGenerationEnvelope(payload);
+            const alreadyBound = UUID.test(payload.logic_engine_conversation_uuid ?? '')
+                && UUID.test(payload.logic_engine_request_id ?? '')
+                && UUID.test(payload.logic_engine_generation_id ?? '');
+            if (alreadyBound) return originalFetch.call(this, input, init);
+            const enriched = await attachHostConversationLocator(payload, hostContext, resolveHostContext);
+            return originalFetch.call(this, input, { ...init, body: JSON.stringify(enriched) });
+        } catch {
+            // Preserve the original request only when envelope preparation itself
+            // is unavailable. The server-side Host Adapter then rejects it as
+            // NON_READY while protected Memory is enabled; it never falls back.
+            return originalFetch.call(this, input, init);
+        }
+    };
+    globalThis.fetch = wrappedFetch;
+    return () => {
+        if (globalThis.fetch === wrappedFetch) globalThis.fetch = originalFetch;
+    };
+}
+
 export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
     const hostContext = context ?? (await import('../../../st-context.js')).getContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
@@ -46,9 +89,11 @@ export async function registerHostGenerationIdentity(context = null, { resolveHo
     // NovelAI and Horde before their request payloads are serialized.
     hostContext.eventSource.on(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
     hostContext.eventSource.on(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
+    const unregisterFetch = installGenerationFetchEnvelope(hostContext, resolveHostContext);
     return () => {
         hostContext.eventSource.removeListener(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
         hostContext.eventSource.removeListener(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
+        unregisterFetch();
     };
 }
 
