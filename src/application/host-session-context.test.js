@@ -137,3 +137,73 @@ test('signed Host assertion requires World and Actor identity in the HMAC envelo
   const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
   assert.throws(()=>runner.run({...assertion,actor_id:undefined},signature,()=>{}),/HOST_SESSION_ASSERTION_INVALID/);
 });
+
+
+test('in-process Host capability is invalidated immediately by logout, session rotation, account change, and binding change during an async read', async () => {
+  const request={session:{logicEngineSessionId:session,logicEngineSessionHandle:userHandle,handle:userHandle},user:{profile:{handle:userHandle}}};
+  let authenticated=true;
+  let activeConversationId=conversationId;
+  let activeIdentity={host_installation_id:installation,authenticated_account_id:account};
+  let activeBindings={world_id:worldId,actor_id:actorId};
+  const isAuthenticated=()=>authenticated;
+  const resolveConversation=()=>activeConversationId;
+  const resolveCurrentIdentity=()=>activeIdentity;
+  const resolveCurrentBindings=()=>activeBindings;
+
+  await runWithAuthenticatedHostSession(
+    request,conversationId,async()=>{
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      request.session.logicEngineSessionId='99999999-9999-4999-8999-999999999999';
+      assert.equal(getAuthenticatedHostSessionContext(),null);
+      request.session.logicEngineSessionId=session;
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      activeIdentity={host_installation_id:installation,authenticated_account_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
+      assert.equal(getAuthenticatedHostSessionContext(),null);
+      activeIdentity={host_installation_id:installation,authenticated_account_id:account};
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      activeBindings={world_id:worldId,actor_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'};
+      assert.equal(getAuthenticatedHostSessionContext(),null);
+      activeBindings={world_id:worldId,actor_id:actorId};
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      activeConversationId=null;
+      assert.equal(getAuthenticatedHostSessionContext(),null);
+      activeConversationId=conversationId;
+      assert.ok(getAuthenticatedHostSessionContext());
+
+      authenticated=false;
+      assert.equal(getAuthenticatedHostSessionContext(),null);
+    },
+    isAuthenticated,resolveConversation,resolveCurrentBindings,resolveCurrentIdentity,
+  );
+
+  assert.equal(getAuthenticatedHostSessionContext(),null);
+});
+
+test('cross-process Host assertion capability expires during an asynchronous Provider read and is revoked after callback completion', async () => {
+  const secret='adapter-secret-that-is-long-enough';
+  let nowMs=1_800_000_000_000;
+  const runner=createHostSessionAssertionRunner({secret,now:()=>nowMs});
+  const assertion={
+    protocol_version:1,host_installation_id:installation,authenticated_account_id:account,
+    host_session_id:session,conversation_id:conversationId,world_id:worldId,actor_id:actorId,
+    issued_at:1_800_000_000,nonce:'99999999-9999-4999-8999-999999999999',
+  };
+  const canonical=JSON.stringify([
+    assertion.protocol_version,assertion.host_installation_id,assertion.authenticated_account_id,
+    assertion.host_session_id,assertion.conversation_id,assertion.world_id,assertion.actor_id,
+    assertion.issued_at,assertion.nonce,
+  ]);
+  const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
+
+  await runner.run(assertion,signature,async()=>{
+    assert.ok(getAuthenticatedHostSessionContext());
+    await Promise.resolve();
+    nowMs+=31_000;
+    assert.equal(getAuthenticatedHostSessionContext(),null);
+  });
+  assert.equal(getAuthenticatedHostSessionContext(),null);
+});
