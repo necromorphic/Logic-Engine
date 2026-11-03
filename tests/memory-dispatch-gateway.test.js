@@ -636,6 +636,44 @@ test('request-scoped transport capability must be dormant and synchronous before
   }
 });
 
+test('Gateway rejects bound and prototype-spoofed async transport capabilities before invocation', async () => {
+  const variants = [
+    {
+      id: 'bound-async-transport',
+      create: (started) => (async () => { started.count += 1; return { status: 200 }; }).bind(null),
+    },
+    {
+      id: 'prototype-spoofed-async-transport',
+      create: (started) => {
+        const transport = async () => { started.count += 1; return { status: 200 }; };
+        Object.setPrototypeOf(transport, Function.prototype);
+        return transport;
+      },
+    },
+  ];
+
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
+    const started = { count: 0 };
+    const fixture = await createFixture({ createTransport: () => variant.create(started) });
+    try {
+      await assert.rejects(
+        fixture.gateway.dispatchProtectedRequest(validRequest(variant.id)),
+        /MEMORY_DISPATCH_NOT_READY/,
+      );
+      assert.equal(started.count, 0, 'rejected transport must remain dormant');
+      assert.equal(fixture.calls.length, 0, 'rejected transport must not produce upstream egress');
+      assert.equal(
+        fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+        0,
+        'invalid transport must be rejected before durable DISPATCH_STARTED',
+      );
+    } finally {
+      await fixture.close();
+    }
+  }
+});
+
 test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
   const fixture = await createFixture({
     providerCandidatesOverride: [{
