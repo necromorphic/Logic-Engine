@@ -189,10 +189,23 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
   }),
 });
 
-const PINNED_ST_ALL_MUTATION_ROUTES = Object.freeze({
-  ...PINNED_ST_MUTATION_ROUTES,
-  ...PINNED_ST_UNSUPPORTED_MUTATION_ROUTES,
-});
+const PINNED_ST_ALL_MUTATION_ROUTES = Object.freeze(Object.fromEntries(
+  [...new Set([
+    ...Object.keys(PINNED_ST_MUTATION_ROUTES),
+    ...Object.keys(PINNED_ST_UNSUPPORTED_MUTATION_ROUTES),
+  ])].sort().map(relative => {
+    const primary = PINNED_ST_MUTATION_ROUTES[relative] ?? {};
+    const unsupported = PINNED_ST_UNSUPPORTED_MUTATION_ROUTES[relative] ?? {};
+    const routes = [...new Set([...Object.keys(primary), ...Object.keys(unsupported)])].sort();
+    return [relative, Object.freeze(Object.fromEntries(routes.map(route => [
+      route,
+      Object.freeze([...new Set([
+        ...(primary[route] === undefined ? [] : [primary[route]]),
+        ...(unsupported[route] === undefined ? [] : [unsupported[route]]),
+      ])]),
+    ])))];
+  }),
+));
 
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
@@ -201,7 +214,7 @@ const canonical = value => Array.isArray(value)
     : JSON.stringify(value);
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const routeCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
-  .reduce((count, routes) => count + Object.keys(routes).length, 0);
+  .reduce((count, routes) => count + Object.values(routes).reduce((total, guards) => total + guards.length, 0), 0);
 
 export const PINNED_ST_MUTATION_ROUTE_COUNT = routeCount;
 export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
@@ -243,13 +256,15 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const bytes = await readFile(join(sourceRoot, relative));
     const source = bytes.toString('utf8');
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
-    for (const [route, guard] of Object.entries(expectedRoutes)) {
+    for (const [route, guards] of Object.entries(expectedRoutes)) {
       const expression = new RegExp("(?:router|comfy)\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
       const match = source.match(expression);
-      if (!match || !match[1].includes(guard)) {
-        throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route);
+      for (const guard of guards) {
+        if (!match || !match[1].includes(guard)) {
+          throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route + ':' + guard);
+        }
+        checkedRoutes++;
       }
-      checkedRoutes++;
     }
   }
 
