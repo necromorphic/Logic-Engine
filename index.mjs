@@ -90,6 +90,12 @@ function createFailClosedAdapter({ memoryNpcEnabled }) {
       if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
       return route;
     },
+    authorizeResponseWrite(_response, write) {
+      if (typeof write !== 'function') throw new TypeError('Final-Send writer is required.');
+      // This adapter is deliberately fail-closed for protected Memory. It only
+      // passes through ordinary responses or the 503 emitted by prepare().
+      return write();
+    },
     dispatch({ transport }) {
       // This is the only non-protected path. A future server-owned Memory
       // context must be handed to the in-process Core Gateway; it must never
