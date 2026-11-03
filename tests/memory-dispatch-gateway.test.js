@@ -819,6 +819,21 @@ test('local Core or Provider head mismatch prevents dispatch before transport', 
   }
 });
 
+test('missing Lane A is NON_READY and cannot be treated as an empty Core projection', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('missing-lane-a');
+    delete request.laneA;
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('unsupported route, denied Provider grant, and pending authority all produce zero upstream calls', async () => {
   const fixture = await createFixture();
   try {
