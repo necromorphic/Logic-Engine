@@ -3,10 +3,12 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import { HostSessionRevocationReader } from '../src/application/host-assertion-nonce-store.js';
 import {
   parseHostRootIdentityRegistry,
   resolveRegisteredHostRootIdentity,
 } from '../src/application/host-root-inventory-identity.js';
+import { verifySignedRootInventoryAttestation } from './extension-gateway/server-plugin/st-source-attestation.mjs';
 import { loadTrustedWorldPackCatalog } from '../src/application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import {
@@ -57,6 +59,10 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
     throw new Error('EMBEDDED_GATEWAY_ADAPTER_NOT_CONFIGURED');
   }
 
+  if (process.env.LOGIC_ENGINE_ADAPTER_TOKEN !== adapterTokens[adapterId]) {
+    throw new Error('EMBEDDED_GATEWAY_HOST_ATTESTATION_KEY_MISMATCH');
+  }
+
   const corePath = resolve(process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite');
   const providerRaw = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
   const providerPath = typeof providerRaw === 'string' && providerRaw.trim() ? resolve(providerRaw) : null;
@@ -69,14 +75,21 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
     || './data/logic-engine-memory-dispatch.sqlite');
   const hostLifecyclePath = resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
     || './data/logic-engine-host-lifecycle.sqlite');
+  const assertionNonceRaw = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH;
+  if (typeof assertionNonceRaw !== 'string' || !isAbsolute(assertionNonceRaw)) {
+    throw new Error('EMBEDDED_GATEWAY_HOST_SESSION_REVOCATION_DB_REQUIRED');
+  }
+  const assertionNoncePath = resolve(assertionNonceRaw);
 
   for (const [leftName, left] of [
     ['Core', corePath], ['Provider', providerPath], ['Coordinator', coordinatorPath],
     ['Dispatch ledger', ledgerPath], ['Host lifecycle', hostLifecyclePath],
+    ['Host assertion/revocation ledger', assertionNoncePath],
   ]) {
     for (const [rightName, right] of [
       ['Core', corePath], ['Provider', providerPath], ['Coordinator', coordinatorPath],
       ['Dispatch ledger', ledgerPath], ['Host lifecycle', hostLifecyclePath],
+      ['Host assertion/revocation ledger', assertionNoncePath],
     ]) {
       if (leftName < rightName && aliasesSameFile(left, right)) {
         throw new Error('EMBEDDED_GATEWAY_DATABASE_ALIAS: ' + leftName + '/' + rightName);
@@ -114,6 +127,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
   let store;
   let providerAdapter;
   let hostJournal;
+  let hostSessionRevocationReader;
   let gateway;
   try {
     // This Core connection is read-only. It refuses an unaccepted head or an
@@ -153,9 +167,11 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       throw new Error('EMBEDDED_GATEWAY_NPC_CONTEXT_RUNTIME_UNAVAILABLE');
     }
 
-    // Host root inventory is currently review-only. The read-only journal
-    // adapter intentionally returns NON_READY until Host publishes an
-    // authoritative-complete root inventory contract.
+    // Host root inventory is read-only here. Its signed attestation must match
+    // the deployment-owned root registry; session revocation is read from the
+    // separate Core nonce ledger under the same Coordinator ordering boundary.
+    hostSessionRevocationReader = new HostSessionRevocationReader({ path: assertionNoncePath });
+
     hostJournal = new HostLifecycleJournal({
       path: hostLifecyclePath,
       coordinatorPath,
@@ -163,6 +179,21 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       resolveIdentity: () => ({ authorized: false }),
       resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
       verifyMutationReceipt: () => false,
+      verifyRootInventoryAttestation: ({ attestation, identity }) => {
+        const trusted = resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, {
+          host_installation_id: identity?.host_installation_id,
+          authenticated_account_id: identity?.authenticated_account_id,
+          root_id: identity?.root_id,
+        });
+        return trusted.authorized === true
+          && trusted.adapter_id === adapterId
+          && trusted.source_manifest_sha256 === attestation?.source_manifest_sha256
+          && verifySignedRootInventoryAttestation({
+            attestation,
+            identity: { ...identity, adapter_id: adapterId },
+            adapterToken: adapterTokens[adapterId],
+          });
+      },
     });
 
     gateway = new MemoryDispatchGateway({
@@ -171,13 +202,24 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       authorityPort,
       readToken,
       readCoreEvidence: input => providerAdapter.consumer.readDispatchEvidenceSync(input),
-      readProviderEvidence: input => providerAdapter.readProviderEvidenceSync(input),
+      readProviderEvidence: input => providerAdapter.readDispatchEvidenceSync(input),
       readHostEvidence: ({ hostContext, coordinatorLease }) => {
+        try {
+          if (hostSessionRevocationReader.isSessionRevoked(adapterId, {
+            host_installation_id: hostContext.host_installation_id,
+            authenticated_account_id: hostContext.authenticated_account_id,
+            host_session_id: hostContext.host_session_id,
+          })) {
+            return { status: 'NON_READY', reason: 'HOST_SESSION_REVOKED' };
+          }
+        } catch {
+          return { status: 'NON_READY', reason: 'HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE' };
+        }
         if (typeof hostAuthorityId !== 'string' || !hostAuthorityId.trim()
           || !Number.isSafeInteger(hostAuthorityGeneration) || hostAuthorityGeneration < 1) {
           return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_AUTHORITY_UNCONFIGURED' };
         }
-        return hostJournal.readAuthoritySnapshotUnderLease({
+        const hostEvidence = hostJournal.readAuthoritySnapshotUnderLease({
           authority_id: hostAuthorityId.trim(),
           generation: hostAuthorityGeneration,
           adapter_id: adapterId,
@@ -185,6 +227,13 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
           authenticated_account_id: hostContext.authenticated_account_id,
           root_id: hostContext.root_id,
         }, coordinatorLease);
+        if (hostEvidence.status !== 'READY') return hostEvidence;
+        return {
+          ...hostEvidence,
+          core_conversation_id: hostContext.core_conversation_id,
+          world_id: hostContext.world_id,
+          actor_id: hostContext.actor_id,
+        };
       },
     });
 
@@ -194,10 +243,13 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       engine,
       store,
       hostJournal,
+      hostSessionRevocationReader,
       close() {
         try { gateway?.close?.(); } finally {
           try { hostJournal?.close?.(); } finally {
-            try { providerAdapter?.close?.(); } finally { store?.close?.(); }
+            try { hostSessionRevocationReader?.close?.(); } finally {
+              try { providerAdapter?.close?.(); } finally { store?.close?.(); }
+            }
           }
         }
       },
@@ -205,6 +257,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
   } catch (error) {
     try { gateway?.close?.(); } catch {}
     try { hostJournal?.close?.(); } catch {}
+    try { hostSessionRevocationReader?.close?.(); } catch {}
     try { providerAdapter?.close?.(); } catch {}
     try { store?.close?.(); } catch {}
     throw error;
