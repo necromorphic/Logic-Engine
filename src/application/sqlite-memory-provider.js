@@ -1468,6 +1468,12 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
+    const dataVersion = this.#dataVersion();
+    if (!Number.isSafeInteger(dataVersion) || dataVersion < 0) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const candidateDigest = createHash('sha256')
+      .update(JSON.stringify(normalizedCandidates), 'utf8').digest('hex');
     return Object.freeze({
       world_id: worldId,
       actor_id: actorId,
@@ -1477,6 +1483,10 @@ export class SQLiteMemoryProvider {
       head: head.head,
       sources: Object.freeze(normalizedSources.map(source => Object.freeze(source))),
       candidates: Object.freeze(normalizedCandidates.map(candidate => Object.freeze(candidate))),
+      provider_evidence_cursor: Object.freeze({
+        data_version: dataVersion,
+        candidate_digest: candidateDigest,
+      }),
     });
   }
 
