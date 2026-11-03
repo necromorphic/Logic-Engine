@@ -18,7 +18,8 @@ function snapshotSignatureInput(request) {
     const prototype = Object.getPrototypeOf(request);
     if (prototype !== Object.prototype && prototype !== null) throw new TypeError('Invalid signed dispatch request.');
     const snapshot = Object.create(null);
-    for (const key of keys) {
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
       const descriptor = Object.getOwnPropertyDescriptor(request, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new TypeError('Invalid signed dispatch request.');
