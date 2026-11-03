@@ -201,6 +201,7 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
 test('legacy user-data migration cannot run under Host authority and system-prompt migration is skipped', () => {
   const users = mutationSources['src/users.js'];
   assert.match(users, /HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED/);
+  assert.match(users, /HOST_LIFECYCLE_USER_DIRECTORY_MISSING/);
   assert.match(users, /Skipping system prompt migration while Host authority is active/);
   assert.match(users, /delete request\.session\.logicEngineSessionId;/);
   assert.match(users, /delete request\.session\.logicEngineSessionHandle;/);
