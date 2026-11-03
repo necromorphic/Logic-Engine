@@ -256,10 +256,7 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
 }));
 
 function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-');
 }
 
 export function hasPinnedPostRouteGuards(source, route, guards) {
