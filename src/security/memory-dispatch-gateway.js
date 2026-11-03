@@ -292,10 +292,12 @@ function readDispatchInput(value) {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
     const keys = Reflect.ownKeys(value);
-    if (keys.some(key => typeof key !== 'string' || (!required.includes(key) && !optional.includes(key)))
-      || required.some(key => !keys.includes(key))) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    for (const key of required) {
+      if (!keys.includes(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
     const snapshot = Object.create(null);
-    for (const key of keys) {
+    for (const key of required.concat(optional)) {
+      if (!keys.includes(key)) continue;
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
