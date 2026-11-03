@@ -484,9 +484,36 @@ export class MemoryNpcConsumer {
       recipient: 'model',
       purpose: 'npc_turn_context',
     });
+    // Provider retrieval is asynchronous. Re-resolve the canonical Host→World
+    // and adapter→Actor bindings on every later authorization fence; the values
+    // captured before retrieval are not sufficient after a possible revoke/rebind.
+    const coreBindingsStillCurrent = () => {
+      try {
+        if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+          || hostSessionContext.world_id !== worldId
+          || hostSessionContext.actor_id !== actorEntityId) return false;
+        const currentConversation = this.hostConversationWorldBindingService.resolve({
+          adapterId, conversationId,
+        });
+        if (!object(currentConversation) || currentConversation.world_id !== worldId) return false;
+        const currentActor = this.actorBindingService.resolveForAdapter(worldId, adapterId);
+        if (!object(currentActor) || currentActor.actor?.entity_id !== actorEntityId) return false;
+        const exactActor = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+        return object(exactActor)
+          && exactActor.world_id === worldId
+          && exactActor.adapter_id === adapterId
+          && exactActor.actor?.entity_id === actorEntityId;
+      } catch {
+        return false;
+      }
+    };
     const coreQueryAllowed = () => {
-      try { return this.coreQueryAuthorizer(coreQueryScope, hostSessionContext) === true; }
-      catch { return false; }
+      try {
+        return coreBindingsStillCurrent()
+          && this.coreQueryAuthorizer(coreQueryScope, hostSessionContext) === true;
+      } catch {
+        return false;
+      }
     };
 
     let queryAllowed = false;
@@ -604,6 +631,12 @@ export class MemoryNpcConsumer {
       || memoryResult.scope?.purpose !== scope.purpose) {
       return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
+
+    // Do this before the first post-retrieval Core source read. If a Host
+    // conversation or Actor binding was revoked while Provider was awaited,
+    // report unconfirmed query access rather than leaking a lower-level read
+    // failure that would obscure the authorization transition.
+    if (!coreBindingsStillCurrent()) return nonReady('query_access_unconfirmed');
 
     if (memoryResult.candidates.length === 0) {
       // Empty is meaningful only when the provider's complete-result snapshot
