@@ -225,7 +225,13 @@ export function registerWindowsManifestRole(database, manifest, roleName, databa
   if (result?.registered !== 1) {
     throw new Error('Secure VFS rejected persistent-manifest role enrollment');
   }
-  for (const sidecar of role.sidecars) {
+  // Register the current live identity before replaying retired history.
+  // Native validation of a retired generation must distinguish an absent
+  // pathname from the same basename occupied by this role's active generation.
+  const sidecarsByRegistrationOrder = [...role.sidecars].sort(
+    (left, right) => Number(right.state === 'active') - Number(left.state === 'active'),
+  );
+  for (const sidecar of sidecarsByRegistrationOrder) {
     const enrolled = database.prepare(
       'SELECT logic_engine_vfs_probe_register_manifest_sidecar(?, ?, ?, ?, ?) AS registered'
     ).get(
