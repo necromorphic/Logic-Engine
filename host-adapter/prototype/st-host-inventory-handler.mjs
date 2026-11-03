@@ -244,6 +244,32 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
   };
 }
 
+/**
+ * Fail-closed guard for ST mutation routes that do not yet have an operation-
+ * specific persisted lifecycle receipt. These routes may change the enrolled
+ * account root or the installed source, so they cannot run while Host authority
+ * is configured. This is a route guard, not an inventory completeness proof.
+ */
+export function createHostUnsupportedMutationGuard({
+  code = 'HOST_MUTATION_ROUTE_UNSUPPORTED',
+} = {}) {
+  if (typeof code !== 'string' || !/^[A-Z0-9_]{1,96}$/.test(code)) {
+    throw new TypeError('Host unsupported mutation guard code is invalid.');
+  }
+  return function hostUnsupportedMutationGuard(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
+      && request.session.logicEngineSessionId.length > 0;
+    if (!hostConfigured && !hostSessionActive) return next();
+    return response.status(503).json({
+      status: 'NON_READY',
+      code,
+    });
+  };
+}
+
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
   pinnedHostCommit,
