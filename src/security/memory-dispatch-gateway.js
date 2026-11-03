@@ -533,6 +533,7 @@ export class MemoryDispatchGateway {
 
       const core = assertSyncResult(this.readCoreEvidence({
         worldId, actorId, purpose, sources: sourceSet, laneA: laneASnapshot,
+        hostContext: hostContextSnapshot,
         coordinatorLease: release,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
@@ -729,7 +730,7 @@ export class MemoryDispatchGateway {
     }
     const currentCore = assertSyncResult(this.readCoreEvidence({
       worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
-      sources: context.sources, laneA: context.laneA, coordinatorLease,
+      sources: context.sources, laneA: context.laneA, hostContext: context.hostContext, coordinatorLease,
     }));
     const currentProvider = assertSyncResult(this.readProviderEvidence({
       worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
