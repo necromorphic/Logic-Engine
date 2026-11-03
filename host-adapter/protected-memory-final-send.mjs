@@ -87,10 +87,19 @@ function projectLaneAItems(items) {
       }
     }
     if (typeof item.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(item.provenance_digest)
-      || !Array.isArray(item.source_event_ids) || item.source_event_ids.length === 0
-      || item.source_event_ids.length > 200
-      || item.source_event_ids.some(id => typeof id !== 'string' || !id || id.length > 200)) {
+      || !Array.isArray(item.source_event_ids) || isProxy(item.source_event_ids)
+      || Object.getPrototypeOf(item.source_event_ids) !== Array.prototype
+      || item.source_event_ids.length === 0 || item.source_event_ids.length > 200) {
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+    }
+    const sourceEventIds = [];
+    for (let eventIndex = 0; eventIndex < item.source_event_ids.length; eventIndex += 1) {
+      const event = Object.getOwnPropertyDescriptor(item.source_event_ids, String(eventIndex));
+      if (!event || !event.enumerable || !Object.hasOwn(event, 'value')
+        || typeof event.value !== 'string' || !event.value || event.value.length > 200) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
+      }
+      sourceEventIds.push(event.value);
     }
     const record = {
       acquisition_id: item.acquisition_id,
@@ -101,7 +110,7 @@ function projectLaneAItems(items) {
       acquisition_kind: item.acquisition_kind,
       provenance_ref: item.provenance_ref,
       provenance_digest: item.provenance_digest,
-      source_event_ids: [...item.source_event_ids],
+      source_event_ids: sourceEventIds,
     };
     const serialized = JSON.stringify(record);
     if (typeof serialized !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
