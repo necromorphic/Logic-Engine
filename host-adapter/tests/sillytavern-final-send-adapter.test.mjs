@@ -433,6 +433,17 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
   });
   assert.equal(result.status, 200);
   assert.equal(resolvedContext, trustedHostContext);
+  await assert.rejects(
+    adapter.dispatch({
+      request,
+      senderRoute: 'openai',
+      endpointUrl: 'https://provider.example/v1/chat/completions',
+      requestInit,
+      stream: false,
+      transport: async () => ({ status: 200 }),
+    }),
+    /MEMORY_DISPATCH_HOST_PREPARATION_REQUIRED/,
+  );
 });
 
 function makeNpcProtectedMemory(overrides = {}) {
