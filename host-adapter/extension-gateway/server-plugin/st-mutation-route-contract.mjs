@@ -96,20 +96,118 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
   }),
 });
 
+export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
+  'src/endpoints/content-manager.js': Object.freeze({
+    '/importURL': 'hostUnsupportedMutationGuard',
+    '/importUUID': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/image-metadata.js': Object.freeze({
+    '/folders/create': 'hostUnsupportedMutationGuard',
+    '/folders/set-thumbnails': 'hostUnsupportedMutationGuard',
+    '/folders/update': 'hostUnsupportedMutationGuard',
+    '/folders/delete': 'hostUnsupportedMutationGuard',
+    '/folders/assign': 'hostUnsupportedMutationGuard',
+    '/folders/unassign': 'hostUnsupportedMutationGuard',
+    '/': 'hostUnsupportedMutationGuard',
+    '/cleanup': 'hostUnsupportedMutationGuard',
+    '/all': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/images.js': Object.freeze({
+    '/upload': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/moving-ui.js': Object.freeze({
+    '/save': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/presets.js': Object.freeze({
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/restore': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/quick-replies.js': Object.freeze({
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/secrets.js': Object.freeze({
+    '/write': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/rotate': 'hostUnsupportedMutationGuard',
+    '/rename': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/sprites.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/upload-zip': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/stats.js': Object.freeze({
+    '/recreate': 'hostUnsupportedMutationGuard',
+    '/update': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/themes.js': Object.freeze({
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/worldinfo.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/import': 'hostUnsupportedMutationGuard',
+    '/edit': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/vectors.js': Object.freeze({
+    '/insert': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/purge-all': 'hostUnsupportedMutationGuard',
+    '/purge': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/extensions.js': Object.freeze({
+    '/install': 'hostUnsupportedMutationGuard',
+    '/update': 'hostUnsupportedMutationGuard',
+    '/switch': 'hostUnsupportedMutationGuard',
+    '/move': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/backgrounds.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/rename': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/avatars.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/assets.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/character': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/files.js': Object.freeze({
+    '/upload': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/stable-diffusion.js': Object.freeze({
+    '/save-workflow': 'hostUnsupportedMutationGuard',
+    '/delete-workflow': 'hostUnsupportedMutationGuard',
+    '/rename-workflow': 'hostUnsupportedMutationGuard',
+  }),
+});
+
+const PINNED_ST_ALL_MUTATION_ROUTES = Object.freeze({
+  ...PINNED_ST_MUTATION_ROUTES,
+  ...PINNED_ST_UNSUPPORTED_MUTATION_ROUTES,
+});
+
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
-const routeCount = Object.values(PINNED_ST_MUTATION_ROUTES)
+const routeCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
   .reduce((count, routes) => count + Object.keys(routes).length, 0);
 
 export const PINNED_ST_MUTATION_ROUTE_COUNT = routeCount;
 export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
   version: 1,
   source_commit: PINNED_ST_COMMIT,
-  routes: PINNED_ST_MUTATION_ROUTES,
+  routes: PINNED_ST_ALL_MUTATION_ROUTES,
   source_guards: [
     'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED',
     'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED',
@@ -141,7 +239,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
   }
   const files = new Map();
   let checkedRoutes = 0;
-  for (const [relative, expectedRoutes] of Object.entries(PINNED_ST_MUTATION_ROUTES)) {
+  for (const [relative, expectedRoutes] of Object.entries(PINNED_ST_ALL_MUTATION_ROUTES)) {
     const bytes = await readFile(join(sourceRoot, relative));
     const source = bytes.toString('utf8');
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
