@@ -137,3 +137,22 @@ test('receiver rejects accessor, Proxy, nested object and oversized content valu
     hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
 });
+
+test('receiver preserves bounded JSON-safe nested NPC content', () => {
+  const nested = candidate({
+    content: {
+      'attributes.public_note': 'A report with structured evidence.',
+      'attributes.tags': ['bridge', 'closed'],
+      'attributes.source_summary': { confidence: 0.8, corroborated: true },
+    },
+  });
+  const result = receiveNpcContext({
+    retrieval: retrieval({ candidates: [nested] }),
+    hostContext,
+    hostBinding,
+    requestId,
+    model: 'google/gemini-test',
+  });
+  assert.deepEqual(result.contentBlocks[0].content, nested.content);
+});
+
