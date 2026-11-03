@@ -425,6 +425,7 @@ export function createCoreNpcGenerationContextRuntime({
     prepareForDispatch,
     issueDispatchHandoff: receiver.issueDispatchHandoff,
     consumeDispatchHandoff,
+    projectDispatchHandoff: receiver.projectDispatchHandoff,
     revalidateLaneAForDispatch,
   });
 }
