@@ -2028,6 +2028,18 @@ test('Gateway rejects NPC handoffs bound to another conversation or Provider can
   }
 });
 
+test('Gateway rejects NPC candidates without source-version lineage', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('npc-source-version-missing');
+    delete request.npcContextHandoff.context.lanes.lane_b.candidates[0].source_version;
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Gateway fails closed while Lane A facts have no approved prompt projection', async () => {
   const fixture = await createFixture();
   try {
