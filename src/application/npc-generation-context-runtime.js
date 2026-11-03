@@ -351,10 +351,60 @@ export function createCoreNpcGenerationContextRuntime({
     revalidateEvidence: revalidateIssuedContext,
     revalidateScope: resolveScope,
   });
+  const dispatchableContexts = new WeakSet();
+
+  function consumeDispatchHandoff(handoff, request) {
+    const result = receiver.consumeDispatchHandoff(handoff, request);
+    if (result.status === 'accepted') dispatchableContexts.add(result.context);
+    return result;
+  }
+
+  // Synchronous Lane A fence for the Gateway's shared-Coordinator critical
+  // section. Lane B admission/grant/source freshness remains the Gateway's
+  // independent synchronous Provider responsibility.
+  function revalidateLaneAForDispatch(context, request) {
+    if (!context || typeof context !== 'object' || !dispatchableContexts.has(context)
+      || !request || context.request_id !== request.request_id
+      || context.generation_id !== request.generation_id
+      || context.generation_type !== request.generation_type
+      || context.purpose !== PURPOSE || context.recipient !== RECIPIENT) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_context_mismatch' });
+    }
+    let scope;
+    try { scope = resolveScope(); } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_scope_unavailable' });
+    }
+    if (scope.world_id !== context.world_id || scope.actor_id !== context.actor_id
+      || scope.conversation_id !== context.conversation_id || scope.adapter_id !== context.adapter_id
+      || scope.purpose !== context.purpose || scope.recipient !== context.recipient
+      || scope.snapshot.world_revision !== context.snapshot.world_revision
+      || scope.snapshot.commit_sequence !== context.snapshot.commit_sequence) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_scope_changed' });
+    }
+    const freshA = readLaneA({
+      world_id: scope.world_id, actor_id: scope.actor_id,
+      conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
+      recipient: RECIPIENT, purpose: PURPOSE,
+      expected_revision: scope.snapshot.world_revision,
+      expected_commit_sequence: scope.snapshot.commit_sequence,
+    });
+    const laneAContext = context.lanes?.lane_a;
+    if (freshA.status !== 'ready'
+      || freshA.read_authorization_ref !== laneAContext?.authorization_ref
+      || freshA.visibility_authorization_ref !== laneAContext?.visibility_authorization_ref
+      || JSON.stringify(freshA.items) !== JSON.stringify(laneAContext?.items)
+      || freshA.snapshot.world_revision !== context.snapshot.world_revision
+      || freshA.snapshot.commit_sequence !== context.snapshot.commit_sequence) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_a_changed' });
+    }
+    return Object.freeze({ status: 'ready', reason: null });
+  }
+
   return Object.freeze({
     build: builder.build,
     receive: receiver.receive,
     issueDispatchHandoff: receiver.issueDispatchHandoff,
-    consumeDispatchHandoff: receiver.consumeDispatchHandoff,
+    consumeDispatchHandoff,
+    revalidateLaneAForDispatch,
   });
 }
