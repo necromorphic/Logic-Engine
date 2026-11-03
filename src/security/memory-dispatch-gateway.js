@@ -643,6 +643,7 @@ export class MemoryDispatchGateway {
     // The signed envelope and ledger still bind the exact sender route.
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
+      sender_route: senderRoute,
       model,
       stream,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
