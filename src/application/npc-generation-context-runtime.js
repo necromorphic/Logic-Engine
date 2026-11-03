@@ -92,6 +92,13 @@ function validSourceVersion(value) {
   return typeof value === 'string' && /^core-entity-v1:[1-9][0-9]*$/.test(value);
 }
 
+function validProviderEvidenceCursor(value) {
+  return exactDataRecord(value, ['data_version', 'candidate_digest'])
+    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+    && typeof value.candidate_digest === 'string'
+    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
+}
+
 function stripCanonicalSourceLineage(result) {
   if (!result || result.status !== 'ready' || !Array.isArray(result.candidates)) return null;
   return {
@@ -530,6 +537,7 @@ export function createCoreNpcGenerationContextRuntime({
       || laneB.core_purpose !== PURPOSE || !validSnapshot(laneB.snapshot)
       || laneB.snapshot.world_revision !== context.snapshot.world_revision
       || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence
+      || !validProviderEvidenceCursor(laneB.provider_evidence_cursor)
       || !densePlainArray(laneB.candidates) || laneB.candidates.length > 50) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
     }
@@ -577,6 +585,7 @@ export function createCoreNpcGenerationContextRuntime({
       core_purpose: PURPOSE,
       provider_purpose: 'npc_decision',
       snapshot: context.snapshot,
+      provider_evidence_cursor: laneB.provider_evidence_cursor,
       sources: Object.freeze(sources),
       candidates: Object.freeze(candidates),
     });
