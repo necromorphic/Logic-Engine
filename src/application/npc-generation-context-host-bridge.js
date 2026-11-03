@@ -45,6 +45,8 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
         handoff: prepared.handoff,
       }));
       return Object.freeze({ status: 'ready', reason: null });
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' });
     }
   }
 
