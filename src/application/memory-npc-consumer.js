@@ -583,6 +583,7 @@ export class MemoryNpcConsumer {
           authorization_generation: candidate.authorization_generation,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch (error) {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
@@ -677,6 +678,7 @@ export class MemoryNpcConsumer {
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         content_kind: candidate.content_kind,
         epistemic_kind: candidate.epistemic_kind,
         producer_kind: candidate.producer?.kind,
