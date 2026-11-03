@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -82,6 +82,24 @@ const within = (root, candidate) => {
   return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
 };
 
+async function exactDirectoryFiles(root, relativeDirectory, expectedNames) {
+  try {
+    const directory = path.resolve(root, relativeDirectory);
+    if (!within(root, directory)) return false;
+    const stat = await lstat(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    const actualPath = await realpath(directory);
+    if (!within(root, actualPath)) return false;
+    const entries = await readdir(directory, { withFileTypes: true });
+    if (entries.length !== expectedNames.length || entries.some(entry => !entry.isFile())) return false;
+    const actual = entries.map(entry => entry.name).sort();
+    const expected = [...expectedNames].sort();
+    return actual.every((name, index) => name === expected[index]);
+  } catch {
+    return false;
+  }
+}
+
 function validManifestShape(manifest) {
   return manifest && typeof manifest === 'object' && !Array.isArray(manifest)
     && Object.keys(manifest).sort().join(',') === [
@@ -125,6 +143,19 @@ export async function verifyPinnedSourceIdentity({
     const manifest = JSON.parse(await readFile(manifestFile, 'utf8'));
     if (!validManifestShape(manifest)) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_MANIFEST_INVALID' };
+    }
+    const pluginPrefix = 'plugins/logic-engine-extension-gateway/';
+    const clientPrefix = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/';
+    const pluginNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(pluginPrefix))
+      .map(file => file.slice(pluginPrefix.length));
+    const manifestIsInstalled = path.resolve(manifestFile)
+      === path.resolve(root, pluginPrefix, 'pinned-source-manifest.json');
+    if (manifestIsInstalled) pluginNames.push('pinned-source-manifest.json');
+    const clientNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(clientPrefix))
+      .map(file => file.slice(clientPrefix.length));
+    if (!await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
+      || !await exactDirectoryFiles(root, 'public/scripts/extensions/third-party/logic-engine-extension-gateway', clientNames)) {
+      return { status: 'NON_READY', code: 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH' };
     }
     const { manifest_sha256, ...proof } = manifest;
     if (manifest_sha256 !== sha256(Buffer.from(canonical(proof), 'utf8'))) {
