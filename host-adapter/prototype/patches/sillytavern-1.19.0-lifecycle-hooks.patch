@@ -620,7 +620,7 @@ diff --git a/src/server-main.js b/src/server-main.js
  app.use(bodyParser.json({ limit: '500mb' }));
  app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
  
-@@ -301,13 +307,19 @@
+@@ -301,13 +307,20 @@
      const directories = await getUserDirectoriesList();
      await migrateGroupChatsMetadataFormat(directories);
 -    await checkForNewContent(directories);
