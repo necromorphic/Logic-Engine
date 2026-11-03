@@ -92,6 +92,29 @@ const intrinsicStringEndsWith = String.prototype.endsWith;
 const isProxy = utilTypes.isProxy;
 const isAsyncFunction = utilTypes.isAsyncFunction;
 const isGeneratorFunction = utilTypes.isGeneratorFunction;
+const abortSignalPrototype = typeof AbortSignal === 'function' ? AbortSignal.prototype : null;
+const abortSignalAbortedGetter = abortSignalPrototype
+  ? Object.getOwnPropertyDescriptor(abortSignalPrototype, 'aborted')?.get
+  : null;
+
+function assertDispatchNotAborted(signal) {
+  if (signal === undefined || signal === null) return;
+  if (typeof signal !== 'object' || isProxy(signal)
+    || !abortSignalPrototype || typeof abortSignalAbortedGetter !== 'function') {
+    throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  }
+  let aborted;
+  try {
+    if (Object.getPrototypeOf(signal) !== abortSignalPrototype) {
+      throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+    }
+    aborted = Reflect.apply(abortSignalAbortedGetter, signal, []);
+  } catch {
+    throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  }
+  if (aborted === true) throw new Error('MEMORY_DISPATCH_CANCELLED_BEFORE_START');
+  if (aborted !== false) throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+}
 
 function isSynchronousCallable(callback) {
   if (typeof callback !== 'function' || isProxy(callback)
@@ -742,6 +765,8 @@ export class MemoryDispatchGateway {
       || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
+    // A cancelled generation must not create DISPATCH_STARTED or open a provider connection.
+    assertDispatchNotAborted(signal);
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
     const providerCursorSnapshot = normalizeProviderEvidenceCursor(providerEvidenceCursor);
