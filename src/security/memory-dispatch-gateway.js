@@ -155,42 +155,40 @@ function normalizeHostContext(value) {
     'host_conversation_id', 'conversation_uuid', 'root_id',
     'root_inventory_sequence', 'root_manifest_sha256',
   ];
-  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)
-    || Object.getPrototypeOf(value) !== Object.prototype
-    || Reflect.ownKeys(value).length !== keys.length) {
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  const ownKeys = Reflect.ownKeys(value);
+  let ownKeys;
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    ownKeys = Reflect.ownKeys(value);
+  } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
   for (let index = 0; index < ownKeys.length; index += 1) {
     if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
-  const uuid = item => typeof item === 'string'
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
-  for (let index = 0; index < keys.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
-    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
-  }
-  if (!validText(value.adapter_id) || !validText(value.world_id) || !validText(value.actor_id)
-    || !validText(value.actor_type) || !uuid(value.host_installation_id)
-    || !uuid(value.authenticated_account_id) || !uuid(value.host_session_id)
-    || !uuid(value.conversation_uuid) || !validText(value.core_conversation_id)
-    || !validText(value.host_conversation_id)
-    || value.core_conversation_id !== [
-      value.host_session_id + ':' + value.host_installation_id + ':' + value.conversation_uuid
-    || value.host_conversation_id !== value.host_installation_id + ':' + value.authenticated_account_id + ':' + value.conversation_uuid
-    || !/^[a-f0-9]{64}$/.test(value.root_id ?? '')
-    || !Number.isSafeInteger(value.root_inventory_sequence) || value.root_inventory_sequence < 1
-    || !/^[a-f0-9]{64}$/.test(value.root_manifest_sha256 ?? '')) {
-    throw new Error('MEMORY_DISPATCH_NOT_READY');
-  }
-  const snapshot = {};
+  const snapshot = Object.create(null);
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index];
-    Object.defineProperty(snapshot, key, {
-      value: value[key], enumerable: true, writable: false, configurable: false,
-    });
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    snapshot[key] = descriptor.value;
+  }
+  const uuid = item => typeof item === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
+  if (!validText(snapshot.adapter_id) || !validText(snapshot.world_id) || !validText(snapshot.actor_id)
+    || !validText(snapshot.actor_type) || !uuid(snapshot.host_installation_id)
+    || !uuid(snapshot.authenticated_account_id) || !uuid(snapshot.host_session_id)
+    || !uuid(snapshot.conversation_uuid) || !validText(snapshot.core_conversation_id)
+    || !validText(snapshot.host_conversation_id)
+    || snapshot.core_conversation_id !== snapshot.host_session_id + ':' + snapshot.host_installation_id + ':' + snapshot.conversation_uuid
+    || snapshot.host_conversation_id !== snapshot.host_installation_id + ':' + snapshot.authenticated_account_id + ':' + snapshot.conversation_uuid
+    || !/^[a-f0-9]{64}$/.test(snapshot.root_id ?? '')
+    || !Number.isSafeInteger(snapshot.root_inventory_sequence) || snapshot.root_inventory_sequence < 1
+    || !/^[a-f0-9]{64}$/.test(snapshot.root_manifest_sha256 ?? '')) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   return Object.freeze(snapshot);
 }
@@ -270,8 +268,8 @@ function normalizeLaneA(value) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
-  for (const key of keys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  for (let index = 0; index < keys.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   if (value.lane !== 'A' || value.purpose !== 'npc_turn_context'
