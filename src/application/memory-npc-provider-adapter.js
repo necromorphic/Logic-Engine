@@ -164,6 +164,7 @@ export function createMemoryNpcProviderAdapter({
     const consumerFacade = Object.freeze({
       retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
       revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
+      readDispatchEvidenceSync: (...args) => consumer.readDispatchEvidenceSync(...args),
     });
 
     const adapter = {
