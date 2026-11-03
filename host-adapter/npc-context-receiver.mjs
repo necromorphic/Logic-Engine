@@ -34,6 +34,41 @@ function denseArray(value, max) {
   return true;
 }
 
+function copyJsonValue(value, depth = 0, seen = new WeakSet()) {
+  if (value === null || typeof value === 'boolean') return { ok: true, value };
+  if (typeof value === 'string') return value.length <= 32768
+    ? { ok: true, value } : { ok: false };
+  if (typeof value === 'number') return Number.isFinite(value)
+    ? { ok: true, value } : { ok: false };
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || depth >= 4
+    || seen.has(value)) return { ok: false };
+  seen.add(value);
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype || value.length > 64
+      || !denseArray(value, 64)) return { ok: false };
+    const output = [];
+    for (const item of value) {
+      const copied = copyJsonValue(item, depth + 1, seen);
+      if (!copied.ok) return { ok: false };
+      output.push(copied.value);
+    }
+    return { ok: true, value: Object.freeze(output) };
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return { ok: false };
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 32) return { ok: false };
+  const output = {};
+  for (const key of keys) {
+    if (typeof key !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(key)) return { ok: false };
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return { ok: false };
+    const copied = copyJsonValue(descriptor.value, depth + 1, seen);
+    if (!copied.ok) return { ok: false };
+    output[key] = copied.value;
+  }
+  return { ok: true, value: Object.freeze(output) };
+}
+
 function copyContent(content) {
   if (!content || typeof content !== 'object' || utilTypes.isProxy(content) || Array.isArray(content)
     || Object.getPrototypeOf(content) !== Object.prototype) return null;
@@ -44,15 +79,9 @@ function copyContent(content) {
     if (typeof key !== 'string' || !/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(key)) return null;
     const descriptor = Object.getOwnPropertyDescriptor(content, key);
     if (!descriptor || !Object.hasOwn(descriptor, 'value')) return null;
-    const value = descriptor.value;
-    if (typeof value === 'string') {
-      if (value.length > 32768) return null;
-    } else if (typeof value === 'number') {
-      if (!Number.isFinite(value)) return null;
-    } else if (typeof value !== 'boolean' && value !== null) {
-      return null;
-    }
-    output[key] = value;
+    const copied = copyJsonValue(descriptor.value);
+    if (!copied.ok) return null;
+    output[key] = copied.value;
   }
   return Object.freeze(output);
 }
