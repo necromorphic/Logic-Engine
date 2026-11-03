@@ -27,6 +27,8 @@ node scripts/sillytavern-patch-manager.mjs uninstall --st-root "C:\path\to\Silly
 
 The native lifecycle Hook accepts only the server-derived Extension path, checks the exact manifest marker, validates the canonical HTTPS GitHub origin, and dynamically imports Patch Manager from that Extension. The browser-side Extension is not trusted to perform filesystem operations.
 
+The server-plugin `init()` runs after SillyTavern has imported its native generation routers. It therefore performs read-only verification only; it never applies or updates the source patch during startup. The patch must be installed by the deployment entrypoint or Extension lifecycle before a SillyTavern restart. If the exact patch and backups are not already verified, plugin startup refuses adapter registration and requires a restart after repair. Normal server shutdown does not uninstall the patch; only the explicit Extension delete lifecycle restores the original Host files.
+
 ## Lifecycle guarantees implemented
 
 - Preflight checks the exact ST version, source-file fingerprints, patch artifact digest, and `git apply --check`.
