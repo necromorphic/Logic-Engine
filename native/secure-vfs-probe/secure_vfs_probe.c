@@ -113,6 +113,8 @@ typedef struct ProbeDatabaseRole {
   int manifest_bound;
 #ifdef _WIN32
   int manifest_ready;
+  int manifest_expected_sidecars;
+  int manifest_enrolled_sidecars;
 
   LogicEngineWinFileIdentity identity;
   LogicEngineWinDirectoryAnchor anchor;
@@ -3359,7 +3361,8 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
     }
   }
   if (role_index < 0 || !g_database_roles[role_index].manifest_bound
-      || g_database_roles[role_index].manifest_ready) {
+      || g_database_roles[role_index].manifest_ready
+      || g_database_roles[role_index].manifest_expected_sidecars < 0) {
     reject = 1;
   }
   if (!reject) {
@@ -3439,12 +3442,46 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
         entry->kind = kind;
         entry->retired = retired;
         entry->identity = expected;
+        g_database_roles[role_index].manifest_enrolled_sidecars += 1;
       }
     }
   }
   probe_registry_unlock();
   if (reject) {
     sqlite3_result_error(context, "manifest sidecar identity conflicts with role registry", -1);
+    return;
+  }
+  sqlite3_result_int(context, 1);
+}
+
+static void probe_set_manifest_sidecar_count(sqlite3_context *context, int argc,
+                                              sqlite3_value **argv) {
+  const unsigned char *role_name = argc == 2 ? sqlite3_value_text(argv[0]) : NULL;
+  sqlite3_int64 expected = argc == 2 ? sqlite3_value_int64(argv[1]) : -1;
+  int role_index = -1;
+  if (!role_name || !role_name[0] || expected < 0
+      || expected > PROBE_MAX_SIDECAR_IDENTITIES) {
+    sqlite3_result_error(context, "invalid expected manifest sidecar count", -1);
+    return;
+  }
+  probe_registry_lock();
+  for (int i = 0; i < g_database_role_count; ++i) {
+    if (strcmp(g_database_roles[i].role, (const char *)role_name) == 0) {
+      role_index = i;
+      break;
+    }
+  }
+  if (role_index >= 0 && g_database_roles[role_index].manifest_bound
+      && !g_database_roles[role_index].manifest_ready
+      && g_database_roles[role_index].manifest_expected_sidecars == -1
+      && g_database_roles[role_index].manifest_enrolled_sidecars == 0) {
+    g_database_roles[role_index].manifest_expected_sidecars = (int)expected;
+  } else {
+    role_index = -1;
+  }
+  probe_registry_unlock();
+  if (role_index < 0) {
+    sqlite3_result_error(context, "manifest role cannot accept a sidecar count", -1);
     return;
   }
   sqlite3_result_int(context, 1);
@@ -3465,9 +3502,13 @@ static void probe_activate_manifest_role(sqlite3_context *context, int argc,
       break;
     }
   }
-  if (role_index >= 0 && g_database_roles[role_index].manifest_bound) {
+  if (role_index >= 0 && g_database_roles[role_index].manifest_bound
+      && g_database_roles[role_index].manifest_expected_sidecars >= 0
+      && g_database_roles[role_index].manifest_enrolled_sidecars
+        == g_database_roles[role_index].manifest_expected_sidecars) {
     /* Idempotent finalization is safe; sidecar enrollment itself is closed
-       once this bit is set. The role becomes visible to SQLite only here. */
+       once this bit is set. The role becomes visible only after the declared
+       number of sidecar identities has been checked against opened handles. */
     g_database_roles[role_index].manifest_ready = 1;
   } else {
     role_index = -1;
@@ -3647,6 +3688,8 @@ static void probe_register_database_role(sqlite3_context *context, int argc, sql
      * identity has been enrolled and the adapter explicitly finalizes them. */
     entry->manifest_bound = manifest_persisted;
     entry->manifest_ready = !manifest_persisted;
+    entry->manifest_expected_sidecars = manifest_persisted ? -1 : 0;
+    entry->manifest_enrolled_sidecars = 0;
 #endif
     g_database_role_count += 1;
   }
@@ -3819,6 +3862,9 @@ static int probe_auto_extension(sqlite3 *db, char **error, const sqlite3_api_rou
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_register_manifest_sidecar", 5,
     SQLITE_UTF8, 0, probe_register_manifest_sidecar, 0, 0);
+  if (rc != SQLITE_OK) return rc;
+  rc = sqlite3_create_function(db, "logic_engine_vfs_probe_set_manifest_sidecar_count", 2,
+    SQLITE_UTF8, 0, probe_set_manifest_sidecar_count, 0, 0);
   if (rc != SQLITE_OK) return rc;
   rc = sqlite3_create_function(db, "logic_engine_vfs_probe_activate_manifest_role", 1,
     SQLITE_UTF8, 0, probe_activate_manifest_role, 0, 0);
