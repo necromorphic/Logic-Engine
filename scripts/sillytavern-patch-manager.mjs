@@ -38,8 +38,10 @@ async function syncDirectory(directory) {
   try {
     handle = await open(directory, 'r');
     await handle.sync();
-  } catch {
-    // Some Windows filesystems do not support directory fsync.
+  } catch (error) {
+    // Some Windows filesystems do not support directory fsync; other I/O
+    // failures must abort the transaction and leave its journal recoverable.
+    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM', 'EBADF'].includes(error?.code)) throw error;
   } finally {
     await handle?.close().catch(() => {});
   }
@@ -152,6 +154,13 @@ export class SillyTavernPatchManager {
 
   async initialize() {
     this.stRoot = await realpath(this.stRootInput);
+    // Resolve all durable state paths against the canonical Host root, not a
+    // possibly symlinked caller spelling of the installation directory.
+    this.managerDir = resolve(this.stRoot, 'data', 'logic-engine', 'final-send-patch');
+    this.statePath = resolve(this.managerDir, 'state.json');
+    this.journalPath = resolve(this.managerDir, 'transaction.json');
+    this.lockPath = resolve(this.managerDir, 'manager.lock');
+    this.backupsRoot = resolve(this.managerDir, 'backups');
     const rootInfo = await lstat(this.stRoot);
     if (!rootInfo.isDirectory()) throw new Error('SILLYTAVERN_ROOT_INVALID');
     if (!isWithin(this.stRoot, this.managerDir)) throw new Error('PATCH_MANAGER_STATE_PATH_INVALID');
