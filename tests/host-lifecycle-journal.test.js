@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import { beginCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
 const installation = '11111111-1111-4111-8111-111111111111';
 const account = '22222222-2222-4222-8222-222222222222';
@@ -451,6 +452,50 @@ test('Core re-resolves the deployment-pinned source manifest when checking an ex
     authenticated_account_id: account,
     root_id: rootId,
   }).authority_status, 'REVIEW_ONLY');
+});
+
+test('Final-Send root evidence is READY only with a current signed attestation under the Coordinator lease', t => {
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput());
+  const trusted = {
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  };
+
+  assert.throws(() => journal.readAuthoritySnapshotUnderLease(trusted, () => {}), /HOST_FINAL_SEND_EVIDENCE_NOT_READY/);
+  let release = beginCoordinatorLock(journal.coordinator);
+  try {
+    assert.equal(journal.readAuthoritySnapshotUnderLease(trusted, release).status, 'NON_READY');
+  } finally {
+    release();
+  }
+
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: makeRootAttestation(baseline),
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+
+  release = beginCoordinatorLock(journal.coordinator);
+  try {
+    const evidence = journal.readAuthoritySnapshotUnderLease(trusted, release);
+    assert.equal(evidence.status, 'READY');
+    assert.equal(evidence.adapter_id, 'test-adapter');
+    assert.equal(evidence.root_id, rootId);
+    assert.equal(evidence.root_inventory_sequence, baseline.sequence);
+    assert.equal(evidence.root_manifest_sha256, baseline.manifest_sha256);
+    assert.equal(evidence.source_manifest_sha256, sourceManifestSha256);
+    assert.match(evidence.attestation_sha256, /^[a-f0-9]{64}$/);
+  } finally {
+    release();
+  }
 });
 
 test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {
