@@ -126,6 +126,7 @@ test('Host bridge blocks concurrent prepare calls for the same Host request', as
       consumeDispatchHandoff: () => ({ status: 'non_ready' }),
       getLaneBDispatchEvidence: () => ({ status: 'non_ready' }),
       revalidateLaneAForDispatch: () => ({ status: 'non_ready' }),
+      revalidateLaneAForDispatchUnderCoordinatorLease: () => ({ status: 'non_ready' }),
     },
     createRequestMetadata: () => requestMetadata,
   });
