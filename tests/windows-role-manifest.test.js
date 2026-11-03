@@ -371,9 +371,9 @@ test('Windows manifest enrollment rejects unverified filesystem policies', () =>
       fakeDatabase(), unsupported, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
     ), /filesystem trust policy/);
   }
-  const caseVariant = manifest();
-  caseVariant.filesystemPolicy.filesystem = 'ntfs';
-  assert.equal(registerWindowsManifestRole(
-    fakeDatabase(), caseVariant, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
-  ), 1, 'filesystem labels are compared case-insensitively');
+  const nonCanonical = manifest();
+  nonCanonical.filesystemPolicy.filesystem = 'ntfs';
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), nonCanonical, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /filesystem trust policy/, 'the manifest filesystem label must be canonical');
 });
