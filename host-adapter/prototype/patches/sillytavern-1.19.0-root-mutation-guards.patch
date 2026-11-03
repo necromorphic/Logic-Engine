@@ -272,3 +272,19 @@ diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.
 @@ -534 +536 @@
 -comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
 +comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
+
+diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
+--- a/src/endpoints/thumbnails.js
++++ b/src/endpoints/thumbnails.js
+@@ -285,6 +285,10 @@
+         const thumbnailFolder = getThumbnailFolder(request.user.directories, type);
+         const pathToCachedFile = path.join(thumbnailFolder, file);
+ 
++        const hostCacheWritesDisabled = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)
++            || (typeof request?.session?.logicEngineSessionId === 'string'
++                && request.session.logicEngineSessionId.length > 0);
++        if (hostCacheWritesDisabled && !fs.existsSync(pathToCachedFile)) return serveOriginal();
++
+         // Try to generate thumbnail if it doesn't exist
+         if (!fs.existsSync(pathToCachedFile)) {
+             const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
