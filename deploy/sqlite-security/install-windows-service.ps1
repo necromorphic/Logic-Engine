@@ -42,6 +42,41 @@ function Assert-NoReparsePoints([string]$Path) {
     }
   }
 }
+function Set-PrivateFileAcl([string]$Path, [string]$ServiceSid) {
+  $item = Get-Item -LiteralPath $Path -Force
+  if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Environment file must not be a reparse point: $Path"
+  }
+  & icacls.exe $Path /reset /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to reset environment-file ACL: $Path" }
+  & icacls.exe $Path /inheritance:r /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to remove inherited environment-file ACL: $Path" }
+  & icacls.exe $Path /grant:r "*$($ServiceSid):R" "*S-1-5-18:F" "*S-1-5-32-544:F" /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to apply environment-file ACL: $Path" }
+  $acl = Get-Acl -LiteralPath $Path
+  if (-not $acl.AreAccessRulesProtected) { throw "Environment-file inherited ACLs remain enabled: $Path" }
+  $rules = $acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier])
+  $allowed = @($ServiceSid, "S-1-5-18", "S-1-5-32-544")
+  foreach ($rule in $rules) {
+    if ($rule.IdentityReference.Value -notin $allowed -or
+        $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+      throw "Unexpected environment-file ACL principal or deny rule remains: $Path"
+    }
+  }
+  foreach ($sid in $allowed) {
+    $required = if ($sid -eq $ServiceSid) {
+      [Security.AccessControl.FileSystemRights]::Read
+    } else {
+      [Security.AccessControl.FileSystemRights]::FullControl
+    }
+    $present = $rules | Where-Object {
+      $_.IdentityReference.Value -eq $sid -and
+      $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+      (([int]$_.FileSystemRights -band [int]$required) -eq [int]$required)
+    }
+    if (-not $present) { throw "Required environment-file ACL is missing for $sid: $Path" }
+  }
+}
 function Set-PrivateTreeAcl([string]$Path, [string]$ServiceSid, [string]$ServiceRights) {
   # Reset every existing child first; root-only ACL edits leave stale explicit
   # grants on pre-existing descendants and do not establish a tree boundary.
@@ -99,8 +134,7 @@ if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-accou
     Set-PrivateTreeAcl $InstallDirectory $sid "RX"
     Set-PrivateTreeAcl $StateDirectory $sid "F"
     if ($EnvironmentFile) {
-      & icacls.exe $EnvironmentFile /inheritance:r /grant:r "*$($sid):R" "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Host
-      if ($LASTEXITCODE -ne 0) { throw "Failed to protect environment file ACL." }
+      Set-PrivateFileAcl $EnvironmentFile $sid
     }
     Invoke-Sc @("config", $ServiceName, "start=", "auto")
   } catch {
