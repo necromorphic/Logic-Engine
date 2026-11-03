@@ -34,6 +34,50 @@ function hasExactOwnDataKeys(value, expectedKeys) {
   }
 }
 
+function projectNpcGenerationContext(context) {
+  if (!context || context.schema !== 'npc-generation-context/v1'
+    || !context.lanes?.lane_a || !context.lanes?.lane_b) {
+    throw new Error('NPC_GENERATION_CONTEXT_PROJECTION_INVALID');
+  }
+  const laneA = context.lanes.lane_a;
+  const laneB = context.lanes.lane_b;
+  // This is a fresh data-transfer projection created only after Core's
+  // object-identity Receiver accepted the exact issued context. The issued
+  // capability itself is never serialized or returned over HTTP.
+  return {
+    schema: 'npc-generation-context-projection/v1',
+    request_id: context.request_id,
+    generation_id: context.generation_id,
+    generation_type: context.generation_type,
+    world_id: context.world_id,
+    actor_id: context.actor_id,
+    conversation_id: context.conversation_id,
+    adapter_id: context.adapter_id,
+    recipient: context.recipient,
+    purpose: context.purpose,
+    snapshot: { ...context.snapshot },
+    lanes: {
+      lane_a: {
+        lane: 'A',
+        purpose: laneA.purpose,
+        authorization_ref: laneA.authorization_ref,
+        visibility_authorization_ref: laneA.visibility_authorization_ref,
+        items: structuredClone(laneA.items),
+      },
+      lane_b: {
+        lane: 'B',
+        core_purpose: laneB.core_purpose,
+        provider_purpose: laneB.provider_purpose,
+        status: laneB.status,
+        admitted: structuredClone(laneB.admitted),
+        candidates: structuredClone(laneB.candidates),
+        reason: laneB.reason,
+        snapshot: { ...laneB.snapshot },
+      },
+    },
+  };
+}
+
 function validMemoryNpcResult(retrieval) {
   if (!retrieval || typeof retrieval !== 'object' || Array.isArray(retrieval)) return false;
   try {
@@ -105,7 +149,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, memoryNpcConsumers = {}, memoryNpcGenerationContexts = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -165,6 +209,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
       || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
+  }
+  if (!memoryNpcGenerationContexts || typeof memoryNpcGenerationContexts !== 'object'
+    || Array.isArray(memoryNpcGenerationContexts)
+    || Object.entries(memoryNpcGenerationContexts).some(([id, runtime]) =>
+      !Object.hasOwn(adapterTokens, id) || typeof runtime?.build !== 'function'
+        || typeof runtime?.receive !== 'function' || !Object.hasOwn(memoryNpcConsumers, id))) {
+    throw new TypeError('NPC generation-context runtimes must be trusted, adapter-pinned Core builder/receiver instances paired with their Memory consumer.');
   }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
@@ -676,23 +727,62 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         let consumerFailed = false;
         try {
-          const retrieval = await hostAssertionRunners[adapterId].run(
+          const result = await hostAssertionRunners[adapterId].run(
             body.assertion, body.signature,
             async () => {
               try {
-                return await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
+                const generationContext = memoryNpcGenerationContexts[adapterId];
+                if (!generationContext) {
+                  return {
+                    retrieval: await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id }),
+                    npc_context: null,
+                  };
+                }
+                // The request ID is also the generation ID: one Host request
+                // may issue exactly one immutable context and one receiver use.
+                const generationRequest = Object.freeze({
+                  request_id: body.request_id,
+                  generation_id: body.request_id,
+                  generation_type: body.generation_type,
+                });
+                const built = await generationContext.build(generationRequest);
+                if (built?.status !== 'ready' || !built.context) {
+                  consumerFailed = true;
+                  throw new Error('NPC_GENERATION_CONTEXT_NON_READY');
+                }
+                const received = await generationContext.receive(built.context, generationRequest);
+                if (received?.status !== 'accepted' || received.context !== built.context) {
+                  consumerFailed = true;
+                  throw new Error('NPC_GENERATION_CONTEXT_RECEIVER_REJECTED');
+                }
+                const laneB = received.context.lanes.lane_b;
+                const retrieval = {
+                  status: laneB.status,
+                  admitted: structuredClone(laneB.admitted),
+                  candidates: structuredClone(laneB.candidates),
+                  reason: laneB.reason,
+                  snapshot: { ...laneB.snapshot },
+                };
+                return {
+                  retrieval,
+                  npc_context: projectNpcGenerationContext(received.context),
+                };
               } catch (error) {
-                // Keep Consumer/runtime failures distinct from assertion
+                // Keep context-builder/receiver failures distinct from assertion
                 // verification failures even when their messages collide.
                 consumerFailed = true;
                 throw error;
               }
             },
           );
-          if (!validMemoryNpcResult(retrieval)) {
-            return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory returned an invalid result envelope.' } });
+          if (!result || !validMemoryNpcResult(result.retrieval)
+            || (memoryNpcGenerationContexts[adapterId]
+              && result.npc_context?.schema !== 'npc-generation-context-projection/v1')) {
+            return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory/NPC context returned an invalid result envelope.' } });
           }
-          return send(res, 200, { retrieval });
+          return send(res, 200, result.npc_context
+            ? { retrieval: result.retrieval, npc_context: result.npc_context }
+            : { retrieval: result.retrieval });
         } catch (error) {
           // The signed assertion has already been verified before the callback
           // runs. Never misreport a Consumer/runtime exception as an auth error.
