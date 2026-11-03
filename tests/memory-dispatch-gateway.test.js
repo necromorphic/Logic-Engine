@@ -104,7 +104,7 @@ function createFakeNpcContextRuntime(isLaneAReady = () => true) {
   };
 }
 
-async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride, readCoreEvidenceOverride, readProviderEvidenceOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -136,7 +136,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
     coordinatorPath,
     authorityPort: service.port,
     readToken,
-    readCoreEvidence: ({ worldId, actorId, sources }) => ({
+    readCoreEvidence: readCoreEvidenceOverride ?? (({ worldId, actorId, sources }) => ({
       head: coreHead,
       world_id: worldId,
       actor_id: actorId,
@@ -144,9 +144,9 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       inventory_status: 'READY',
       policy_authority,
       sources,
-    }),
+    })),
     npcContextRuntime,
-    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
+    readProviderEvidence: readProviderEvidenceOverride ?? (({ worldId, actorId, purpose, sources, candidates }) => ({
       head: providerHead,
       world_id: worldId,
       actor_id: actorId,
@@ -155,7 +155,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       readiness: 'READY',
       sources,
       candidates: currentProviderCandidatesOverride ?? candidates,
-    }),
+    })),
   }), (request) => createTransport
     ? createTransport(request)
     : () => {
@@ -1529,6 +1529,30 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
     assert.equal(fixture.calls.length, 1);
   } finally {
     await fixture.close();
+  }
+});
+
+test('Gateway rejects asynchronous Core or Provider evidence readers under the Coordinator lease', async () => {
+  for (const overrides of [
+    { readCoreEvidenceOverride: async () => ({}) },
+    { readProviderEvidenceOverride: async () => ({}) },
+  ]) {
+    const fixture = await createFixture(overrides);
+    try {
+      await assert.rejects(
+        () => fixture.gateway.dispatchProtectedRequest(validRequest('async-evidence-reader')),
+        /MEMORY_DISPATCH_NOT_READY/,
+      );
+      assert.equal(fixture.calls.length, 0);
+      const ledger = new DatabaseSync(fixture.ledgerPath);
+      try {
+        assert.equal(ledger.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
+      } finally {
+        ledger.close();
+      }
+    } finally {
+      await fixture.close();
+    }
   }
 });
 
