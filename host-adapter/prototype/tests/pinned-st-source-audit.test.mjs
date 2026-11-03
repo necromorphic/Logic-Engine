@@ -157,6 +157,18 @@ test('account switching and version invalidation revoke the old Host capability 
     const autoSwitchCalls = users.match(/await revokeHostSessionBeforeAccountSwitch\(request,/g) ?? [];
     assert.equal(autoSwitchCalls.length, 3,
         'single-user, trusted-header SSO, and Basic Auth account switches must all revoke the old capability');
+    for (const [startMarker, nextMarker, accountAssignment] of [
+        ['async function singleUserLogin', 'async function autheliaUserLogin', 'request.session.handle = userHandles[0];'],
+        ['async function headerUserLogin', 'async function basicUserLogin', 'request.session.handle = userHandle;'],
+        ['async function basicUserLogin', 'export function getAccountVersion', 'request.session.handle = userHandle;'],
+    ]) {
+        const start = users.indexOf(startMarker);
+        const end = users.indexOf(nextMarker, start);
+        const body = users.slice(start, end < 0 ? users.length : end);
+        assert.ok(start >= 0 && body.indexOf('await revokeHostSessionBeforeAccountSwitch(request,') >= 0
+            && body.indexOf('await revokeHostSessionBeforeAccountSwitch(request,') < body.indexOf(accountAssignment),
+            startMarker + ' must revoke the old capability before assigning the new account');
+    }
     assert.ok(users.includes("response.status(503).send('Host session revocation unavailable; account was not switched.')"),
         'automatic login must fail closed instead of serving the login page after revocation failure');
     const login = read('src/endpoints/users-public.js');
