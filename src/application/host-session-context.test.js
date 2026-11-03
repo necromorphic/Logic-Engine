@@ -137,3 +137,56 @@ test('signed Host assertion requires World and Actor identity in the HMAC envelo
   const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
   assert.throws(()=>runner.run({...assertion,actor_id:undefined},signature,()=>{}),/HOST_SESSION_ASSERTION_INVALID/);
 });
+
+
+test('live Host capability is permanently invalidated by logout, account switch, or session rotation', async () => {
+  const request = {
+    session: { logicEngineSessionId: session, logicEngineSessionHandle: userHandle },
+    user: { profile: { handle: userHandle } },
+  };
+  let authenticated = true;
+  let accountId = account;
+  const isAuthenticated = candidate => candidate === request && authenticated;
+  const resolveConversation = candidate => candidate === request ? conversationId : null;
+  const resolveLiveBindings = candidate => candidate === request ? { world_id: worldId, actor_id: actorId } : null;
+  const resolveLiveIdentity = candidate => candidate === request
+    ? { host_installation_id: installation, authenticated_account_id: accountId } : null;
+
+  await runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.equal(getAuthenticatedHostSessionContext()?.authenticated_account_id, account);
+
+      // Logout invalidates the in-flight capability and restoring the request
+      // object cannot revive it within the same async operation.
+      authenticated = false;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      authenticated = true;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+    }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+  );
+
+  await runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.equal(getAuthenticatedHostSessionContext()?.authenticated_account_id, account);
+      request.user.profile.handle = 'other-account';
+      request.session.logicEngineSessionHandle = 'other-account';
+      accountId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+    }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+  ).catch(error => {
+    // The first capability was invalidated by the account switch; the runner
+    // rejects only if identity is already inconsistent at entry.
+    if (error.message !== 'HOST_SESSION_AUTHENTICATION_REQUIRED') throw error;
+  });
+
+  request.user.profile.handle = userHandle;
+  request.session.logicEngineSessionHandle = userHandle;
+  request.session.logicEngineSessionId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  await assert.rejects(
+    runWithAuthenticatedHostSession(
+      request, conversationId, async () => getAuthenticatedHostSessionContext(),
+      isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+    ),
+    /HOST_SESSION_AUTHENTICATION_REQUIRED/,
+  );
+});
