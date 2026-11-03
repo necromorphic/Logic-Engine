@@ -49,12 +49,16 @@ The 25 sender-family registry in Core is the acceptance inventory. The disabled 
 
 ## Current implementation boundary
 
-The root plugin currently registers a fail-closed Host Adapter that:
+The root plugin now uses the shared `SillyTavernPatchManager` from `scripts/sillytavern-patch-manager.mjs` as the sole patch owner. It calls `manager.execute('update')` at server-plugin startup, then registers the fail-closed Host Adapter against the installed Hook. The native Extension lifecycle Hook uses the same manager implementation and the same `.logic-engine-patch-manager/` state, lock, journal, backup set, and rollback procedure. The former independent `host-adapter/patch-manager` implementation has been removed. Startup detects state from the former `plugins/logic-engine/data/final-send-patch` manager and refuses an automatic migration; restore that legacy patch with the pre-consolidation plugin version before upgrading. This prevents two managers' backup formats from being mixed.
+
+The root plugin registers a fail-closed Host Adapter that:
 - validates that the native request carries SillyTavern's authenticated user/session context;
 - rejects browser-supplied reserved Memory marker fields;
 - resolves only the pinned 25 sender-family mapping;
 - passes ordinary non-Memory chat requests to SillyTavern's original native fetch;
 - does not create or inject Memory context and does not authorize protected dispatch.
+
+The fail-closed adapter's `resolveSenderRoute(request, hostRoute)` accepts the shared route-aware Hook signature and maps the four additional route identifiers used by the broader Final-Send contract (`text-completions`, `kobold`, `novelai-text`, `horde-text`). This is interface compatibility only: this PR's own managed patch still wraps Chat Completions only. Those four routes are intercepted only when the broader #844 patch is installed. The #844 Hook also supports an optional `authorizeResponseWrite` capability; this fail-closed adapter does not expose it because it never inserts protected Memory or claims a Core release authorization.
 
 The production Core Gateway + real Provider consumer is not yet registered as the dispatch adapter. Therefore this patch proves the managed native interception seam and preserves ordinary generation while protected Memory remains disabled. It does not claim P0.4 E2E completion or production Memory→NPC readiness.
 
