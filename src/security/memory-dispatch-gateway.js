@@ -660,6 +660,8 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let policyAuthority;
+    let npcContext;
+    let normalizedContentBlocks;
     let release = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
@@ -685,8 +687,8 @@ export class MemoryDispatchGateway {
       if (handoffResult.status !== 'accepted' || !handoffResult.context) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
-      const npcContext = handoffResult.context;
-      const normalizedContentBlocks = normalizeNpcContentBlocks(contentBlocks);
+      npcContext = handoffResult.context;
+      normalizedContentBlocks = normalizeNpcContentBlocks(contentBlocks);
       assertNpcContextBinding({
         context: npcContext,
         generationRequest,
