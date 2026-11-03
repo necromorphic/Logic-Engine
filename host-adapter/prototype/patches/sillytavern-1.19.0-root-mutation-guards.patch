@@ -290,7 +290,7 @@ diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
 diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 --- a/src/plugin-loader.js
 +++ b/src/plugin-loader.js
-@@ -55,8 +55,15 @@
+@@ -55,8 +55,16 @@
          const files = fs.readdirSync(pluginsPath);
 +        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
 +        if (hostAuthorityConfigured) {
