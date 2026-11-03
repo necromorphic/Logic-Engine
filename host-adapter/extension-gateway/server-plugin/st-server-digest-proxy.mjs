@@ -447,12 +447,19 @@ function normalizeRootInventoryResponse(upstream) {
   const hasAcceptedManifest = Number.isSafeInteger(reconciliation.sequence)
     && reconciliation.sequence > 0
     && /^[a-f0-9]{64}$/.test(reconciliation.manifest_sha256 ?? '');
+  const hasAcceptedLifecycleAttestation = /^[a-f0-9]{64}$/.test(reconciliation.attestation_sha256 ?? '')
+    && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256 ?? '')
+    && Number.isSafeInteger(reconciliation.lifecycle_sequence)
+    && reconciliation.lifecycle_sequence > 0
+    && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256 ?? '');
   return {
-    status: reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest
+    status: reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest && hasAcceptedLifecycleAttestation
       ? 'AUTHORITATIVE_COMPLETE'
-      : reconciliation.status === 'BASELINED_REVIEW_ONLY' ? 'BASELINED_REVIEW_ONLY'
-        : reconciliation.status === 'UNCHANGED_REVIEW_ONLY' || reconciliation.status === 'duplicate'
-          ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
+      : reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest
+        ? 'BASELINED_REVIEW_ONLY'
+        : reconciliation.status === 'BASELINED_REVIEW_ONLY' ? 'BASELINED_REVIEW_ONLY'
+          : reconciliation.status === 'UNCHANGED_REVIEW_ONLY' || reconciliation.status === 'duplicate'
+            ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
     integrity_status: reconciliation.integrity_status,
     ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
     ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
