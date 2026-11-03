@@ -754,7 +754,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || trustedHostIdentity.conversation_uuid !== assertionConversation[2]
           || typeof trustedHostIdentity.root_id !== 'string'
           || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.root_id)
-          || trustedHostIdentity.authority_id === undefined
+          || typeof trustedHostIdentity.authority_id !== 'string' || !trustedHostIdentity.authority_id.trim()
           || !Number.isSafeInteger(trustedHostIdentity.generation)
           || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
           return send(res, 401, { error: { code: 'HOST_ROOT_IDENTITY_UNAUTHORIZED', message: 'Host installation/account identity is not authorized.' } });
