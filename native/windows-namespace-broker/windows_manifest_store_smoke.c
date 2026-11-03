@@ -8,7 +8,7 @@
 #include "windows_manifest_store.c"
 
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
-  static const unsigned char expected[] = "{"ok":true}";
+  static const unsigned char expected[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   (void)context;
   return length == sizeof(expected) - 1 && memcmp(bytes, expected, sizeof(expected) - 1) == 0;
 }
@@ -18,7 +18,7 @@ int main(void) {
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
   DWORD manifest_length = 0, intent_length = 0;
-  static const unsigned char document[] = "{"ok":true}";
+  static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   int result = 1;
   HANDLE token = NULL;
   TOKEN_USER *user = NULL;
