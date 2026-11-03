@@ -111,6 +111,17 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
       return authorizeCandidate;
     },
     checkCandidateGrant: () => true,
+    withAuthorizedReadLease(_scope, candidates, callback) {
+      if (this.authorizeQuery() !== true) throw new Error('MEMORY_QUERY_DENIED');
+      for (const item of candidates) {
+        if (this.checkCandidateGrant(item) !== true) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+      }
+      const result = callback();
+      if (result && typeof result.then === 'function') {
+        throw new TypeError('Provider authorized-read callback must be synchronous');
+      }
+      return result;
+    },
   };
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
