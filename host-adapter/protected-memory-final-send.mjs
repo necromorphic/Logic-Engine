@@ -18,6 +18,8 @@ function arrayContains(values, expected) {
   return false;
 }
 
+const ASYNC_FUNCTION_CONSTRUCTOR = Object.getPrototypeOf(async function asyncResolverMarker() {}).constructor;
+
 const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
 
 function snapshotDataRecord(value, errorCode, maxKeys = 64) {
@@ -283,7 +285,7 @@ function assertRequest(endpointUrl, requestInit) {
 export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory, fetchImpl = globalThis.fetch }) {
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
     || typeof resolveProtectedMemory !== 'function'
-    || resolveProtectedMemory.constructor?.name === 'AsyncFunction'
+    || resolveProtectedMemory instanceof ASYNC_FUNCTION_CONSTRUCTOR
     || typeof fetchImpl !== 'function') {
     throw new TypeError('Invalid protected Memory final-send configuration.');
   }
