@@ -450,8 +450,9 @@ function normalizeRootInventoryResponse(upstream) {
   const hasAcceptedLifecycleAttestation = /^[a-f0-9]{64}$/.test(reconciliation.attestation_sha256 ?? '')
     && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256 ?? '')
     && Number.isSafeInteger(reconciliation.lifecycle_sequence)
-    && reconciliation.lifecycle_sequence > 0
-    && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256 ?? '');
+    && reconciliation.lifecycle_sequence >= 0
+    && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256 ?? '')
+    && (reconciliation.lifecycle_sequence !== 0 || reconciliation.lifecycle_head_sha256 === '0'.repeat(64));
   return {
     status: reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest && hasAcceptedLifecycleAttestation
       ? 'AUTHORITATIVE_COMPLETE'
