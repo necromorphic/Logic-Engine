@@ -111,11 +111,8 @@ function validateLaneA(envelope, scope) {
     || envelope.recipient !== RECIPIENT || envelope.purpose !== PURPOSE
     || envelope.completeness !== 'complete'
     || !validId(envelope.read_authorization_ref) || !validId(envelope.visibility_authorization_ref)
-    || !sameSnapshot(envelope.snapshot, scope.snapshot) || !Array.isArray(envelope.items)
-    || utilTypes.isProxy(envelope.items)) return false;
+    || !sameSnapshot(envelope.snapshot, scope.snapshot) || !densePlainArray(envelope.items)) return false;
   try {
-    if (Object.getPrototypeOf(envelope.items) !== Array.prototype
-      || Reflect.ownKeys(envelope.items).length !== envelope.items.length + 1) return false;
     const ids = new Set();
     for (let i = 0; i < envelope.items.length; i += 1) {
       const d = Object.getOwnPropertyDescriptor(envelope.items, String(i));
@@ -129,8 +126,8 @@ function validateLaneA(envelope, scope) {
         || !validId(item.acquisition_kind) || !validId(item.provenance_ref)
         || !validId(item.acquisition_authorization_ref) || !validId(item.visibility_authorization_ref)
         || typeof item.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(item.provenance_digest)
-        || !Array.isArray(item.source_event_ids) || item.source_event_ids.length === 0
-        || item.source_event_ids.some(id => !validId(id))) return false;
+        || !densePlainArray(item.source_event_ids) || item.source_event_ids.length === 0
+        || immutableCopy(item.source_event_ids).some(id => !validId(id))) return false;
       ids.add(item.acquisition_id);
       immutableCopy(item.value);
     }
@@ -149,7 +146,7 @@ function validateLaneB(envelope, scope) {
   const result = envelope.result;
   if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
     || result.status !== 'ready' || result.reason !== null
-    || !Array.isArray(result.admitted) || !Array.isArray(result.candidates)
+    || !densePlainArray(result.admitted) || !densePlainArray(result.candidates)
     || !sameSnapshot(result.snapshot, scope.snapshot)
     || result.admitted.length !== result.candidates.length) return false;
   try {
@@ -157,9 +154,9 @@ function validateLaneB(envelope, scope) {
     for (let i = 0; i < result.candidates.length; i += 1) {
       const candidate = result.candidates[i];
       const admitted = result.admitted[i];
-      if (!plainDataRecord(candidate, ['record_ref', 'record_version', 'authorization_generation',
+      if (!exactRecord(candidate, ['record_ref', 'record_version', 'authorization_generation',
         'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content'])
-        || !plainDataRecord(admitted, ['record_ref', 'record_version'])
+        || !plainDataRecord(admitted, ['record_ref', 'record_version'], ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
         || !validId(candidate.source_entity_id) || !validId(candidate.epistemic_kind)
