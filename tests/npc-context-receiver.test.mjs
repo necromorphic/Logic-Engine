@@ -9,6 +9,16 @@ const hostContext = Object.freeze({
   actor_id: 'actor-npc',
   actor_type: 'npc',
 });
+const hostBinding = Object.freeze({
+  host_installation_id: '11111111-1111-4111-8111-111111111111',
+  authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+  host_session_id: '55555555-5555-4555-8555-555555555555',
+  conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  conversation_uuid: '33333333-3333-4333-8333-333333333333',
+  root_id: 'a'.repeat(64),
+  root_inventory_sequence: 1,
+  root_manifest_sha256: 'b'.repeat(64),
+});
 const requestId = '44444444-4444-4444-8444-444444444444';
 const candidate = (overrides = {}) => ({
   record_ref: 'memory:record-1',
@@ -39,6 +49,7 @@ test('receiver converts only matching Core-admitted candidates into Gateway meta
   const result = receiveNpcContext({
     retrieval: retrieval(),
     hostContext,
+    hostBinding,
     requestId,
     model: 'google/gemini-test',
   });
@@ -69,6 +80,7 @@ test('authorized complete-empty result is preserved as an empty ready context', 
   const result = receiveNpcContext({
     retrieval: retrieval({ admitted: [], candidates: [] }),
     hostContext,
+    hostBinding,
     requestId,
     model: 'google/gemini-test',
   });
@@ -80,26 +92,27 @@ test('authorized complete-empty result is preserved as an empty ready context', 
 test('NON_READY and malformed result envelopes are rejected', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: { status: 'non_ready', admitted: [], candidates: [], reason: 'provider_unavailable' },
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
 });
 
 test('receiver rejects source-version, admission and scope mismatches', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ source_version: '' })] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ admitted: [] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval(),
     hostContext: { ...hostContext, actor_id: 'attacker-actor' },
+    hostBinding,
     requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_SCOPE_INVALID/);
 });
@@ -109,18 +122,18 @@ test('receiver rejects accessor, Proxy, nested object and oversized content valu
   Object.defineProperty(accessor, 'source_version', { enumerable: true, get() { throw new Error('getter executed'); } });
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [accessor] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CANDIDATE_INVALID/);
   assert.throws(() => receiveNpcContext({
     retrieval: new Proxy(retrieval(), {}),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ content: { nested: { secret: true } } })] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ content: { note: 'x'.repeat(32769) } })] }),
-    hostContext, requestId, model: 'google/gemini-test',
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
 });
