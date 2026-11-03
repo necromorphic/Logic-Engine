@@ -125,6 +125,13 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     ).registered, 1);
     assert.throws(() => new DatabaseSync(pendingManifestDbPath),
       'a manifest-bound role must not open before explicit finalization');
+    assert.throws(() => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_activate_manifest_role(?) AS activated'
+    ).get('manifest-pending'),
+    'activation must fail until the manifest declares its expected sidecar count');
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_set_manifest_sidecar_count(?, ?) AS registered'
+    ).get('manifest-pending', 0).registered, 1);
     assert.equal(roleRegistrar.prepare(
       'SELECT logic_engine_vfs_probe_activate_manifest_role(?) AS activated'
     ).get('manifest-pending').activated, 1);
