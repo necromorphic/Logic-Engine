@@ -86,27 +86,28 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
     coordinatorPath,
     providerDatabasePath: providerPath,
   });
-  const coordinator = openCoordinatorDatabase(coordinatorPath);
-  const release = beginCoordinatorLock(coordinator);
   const moduleUrl = pathToFileURL(resolve('src/application/host-assertion-nonce-store.js')).href;
   const script = `
     import { HostAssertionNonceStore } from ${JSON.stringify(moduleUrl)};
-    process.stdout.write('STARTED\\n');
     const store = new HostAssertionNonceStore({
       path: process.env.TEST_NONCE_PATH,
       coreDatabasePath: process.env.TEST_CORE_PATH,
       coordinatorPath: process.env.TEST_COORDINATOR_PATH,
       providerDatabasePath: process.env.TEST_PROVIDER_PATH,
     });
-    const result = store.revokeSession(
-      'st-adapter',
-      {"host_installation_id":"11111111-1111-4111-8111-111111111111","authenticated_account_id":"22222222-2222-4222-8222-222222222222","host_session_id":"33333333-3333-4333-8333-333333333333"},
-      '55555555-5555-4555-8555-555555555555',
-      1800000010,
-      'logout',
-    );
-    process.stdout.write('REVOKED:' + result);
-    store.close();
+    process.stdout.write('READY\\n');
+    process.stdin.setEncoding('utf8').once('data', chunk => {
+      if (chunk.trim() !== 'REVOKE') process.exit(2);
+      const result = store.revokeSession(
+        'st-adapter',
+        {"host_installation_id":"11111111-1111-4111-8111-111111111111","authenticated_account_id":"22222222-2222-4222-8222-222222222222","host_session_id":"33333333-3333-4333-8333-333333333333"},
+        '55555555-5555-4555-8555-555555555555',
+        1800000010,
+        'logout',
+      );
+      process.stdout.write('REVOKED:' + result);
+      store.close();
+    });
   `;
   const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
     env: {
@@ -116,7 +117,7 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
       TEST_COORDINATOR_PATH: coordinatorPath,
       TEST_PROVIDER_PATH: providerPath,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stdout = '';
   let stderr = '';
@@ -124,13 +125,18 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
   const exitPromise = once(child, 'exit').then(result => { exited = true; return result; });
   child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
   child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  let coordinator;
+  let release;
   try {
     await Promise.race([
       once(child.stdout, 'data'),
-      exitPromise.then(() => { throw new Error('Revocation worker exited before acquiring the shared Coordinator.'); }),
+      exitPromise.then(() => { throw new Error('Revocation worker exited before initialization.'); }),
     ]);
+    assert.match(stdout, /READY/);
+    coordinator = openCoordinatorDatabase(coordinatorPath);
+    release = beginCoordinatorLock(coordinator);
+    child.stdin.write('REVOKE\\n');
     await new Promise(resolveTimer => setTimeout(resolveTimer, 150));
-    assert.match(stdout, /STARTED/);
     assert.doesNotMatch(stdout, /REVOKED/);
     assert.equal(exited, false);
     release();
@@ -138,8 +144,9 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
     assert.equal(code, 0, stderr);
     assert.match(stdout, /REVOKED:true/);
   } finally {
-    try { release(); } catch {}
-    coordinator.close();
+    try { release?.(); } catch {}
+    try { coordinator?.close(); } catch {}
+    try { child.kill(); } catch {}
     setup.close();
     rmSync(directory, { recursive: true, force: true });
   }
