@@ -1299,8 +1299,12 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       'import { appendFileSync } from "node:fs";',
       'import { MemoryDispatchGateway } from ' + JSON.stringify(moduleUrl) + ';',
       'const [ledgerPath, coordinatorPath, authorityPort, readToken, counterPath, requestJson] = process.argv.slice(1);',
+      'const npcContextRuntime = {',
+      '  consumeDispatchHandoff(handoff, request) { return handoff?.context && JSON.stringify(handoff.generationRequest) === JSON.stringify(request) ? { status: "accepted", context: handoff.context } : { status: "non_ready" }; },',
+      '  revalidateLaneAForDispatch(context, request) { return context?.request_id === request.request_id ? { status: "ready" } : { status: "non_ready" }; },',
+      '};',
       'const gateway = new MemoryDispatchGateway({',
-      '  ledgerPath, coordinatorPath, authorityPort: Number(authorityPort), readToken,',
+      '  ledgerPath, coordinatorPath, authorityPort: Number(authorityPort), readToken, npcContextRuntime,',
       '  readCoreEvidence: ({ worldId, actorId, sources }) => ({ head: 1, world_id: worldId, actor_id: actorId, readiness: "READY", inventory_status: "READY", policy_authority: { authority_id: "test-memory-policy", generation: 1, fingerprint: "' + 'd'.repeat(64) + '" }, sources }),',
       '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
       '});',
@@ -1391,6 +1395,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
+      npcContextRuntime: createFakeNpcContextRuntime(),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -1517,6 +1522,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       coordinatorPath,
       authorityPort: service.port,
       readToken,
+      npcContextRuntime: createFakeNpcContextRuntime(),
       readCoreEvidence: ({ worldId, actorId, sources }) => ({
         head: 1, world_id: worldId, actor_id: actorId,
         readiness: 'READY', inventory_status: 'READY',
@@ -1710,6 +1716,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
       coordinatorPath: fixture.coordinatorPath,
       authorityPort: fixture.port,
       readToken,
+      npcContextRuntime: createFakeNpcContextRuntime(),
       readCoreEvidence,
       readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
         head: 1,
