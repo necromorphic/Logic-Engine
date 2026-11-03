@@ -150,9 +150,7 @@ static int le_store_parent_acl_safe(HANDLE directory) {
   SECURITY_DESCRIPTOR_CONTROL control = 0;
   DWORD revision = 0, index;
   BOOL valid = FALSE;
-  DWORD mutation_mask = FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD
-      | DELETE | WRITE_DAC | WRITE_OWNER | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA
-      | GENERIC_WRITE | GENERIC_ALL;
+  DWORD mutation_mask = FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
   GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
   if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !token_bytes || token_bytes > 65536) goto done;
@@ -167,7 +165,7 @@ static int le_store_parent_acl_safe(HANDLE directory) {
       OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
       &owner, NULL, &dacl, NULL, &descriptor) != ERROR_SUCCESS) goto done;
   if (!GetSecurityDescriptorControl(descriptor, &control, &revision)
-      || (control & SE_DACL_PRESENT) == 0 || !dacl
+      || (control & SE_DACL_PRESENT) == 0 || !owner || !dacl
       || !le_store_sid_trusted(owner, service_sid, system_sid, admins_sid, trusted_installer_sid)) goto done;
   for (index = 0; index < dacl->AceCount; ++index) {
     ACE_HEADER *header = NULL;
