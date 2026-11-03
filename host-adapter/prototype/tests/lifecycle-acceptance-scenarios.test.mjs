@@ -316,8 +316,12 @@ test('pinned patch guards Data Maid, settings restore, account reset and account
     "+router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
     "+router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {",
     "+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {",
+    "+router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {",
     "HOST_USER_ROOT_RESET_UNSUPPORTED",
     "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
+    "comfy.post('/save-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name')",
     "assertHostStartupMigrationAllowed",
     "Skipping startup group metadata migration:",
   ]) {
