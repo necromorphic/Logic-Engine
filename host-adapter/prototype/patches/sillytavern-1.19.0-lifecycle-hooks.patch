@@ -972,7 +972,7 @@ diff --git a/src/users.js b/src/users.js
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -990,4 +991,10 @@
+@@ -990,5 +991,12 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && request.session.logicEngineSessionId !== undefined) {
@@ -992,7 +992,7 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
  import { color, Cache, getConfigValue } from '../util.js';
  import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -91,3 +92,12 @@
+@@ -91,4 +92,13 @@
  
          await loginLimiter.delete(ip);
 +        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR
