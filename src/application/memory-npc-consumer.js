@@ -723,7 +723,8 @@ export class MemoryNpcConsumer {
     if (!isPlainDataRecord(sourceRead, sourceReadKeys)
       || sourceRead.world_id !== worldId
       || !validSnapshot({ world_revision: sourceRead.world_revision, commit_sequence: sourceRead.commit_sequence })
-      || !isDensePlainDataArray(sourceRead.entities)) {
+      || !isDensePlainDataArray(sourceRead.entities)
+    ) {
       return nonReady('authorized_source_read_invalid');
     }
 
@@ -871,7 +872,8 @@ export class MemoryNpcConsumer {
         world_revision: finalSourceSnapshotRead.world_revision,
         commit_sequence: finalSourceSnapshotRead.commit_sequence,
       })
-      || !isDensePlainDataArray(finalSourceSnapshotRead.entities)) {
+      || !isDensePlainDataArray(finalSourceSnapshotRead.entities)
+    ) {
       return nonReady('authorized_source_read_invalid');
     }
     if (!sameSnapshot(sourceRead, {
@@ -907,9 +909,10 @@ export class MemoryNpcConsumer {
         Object.fromEntries(this.contentFields.map((field) => [field, source[field]])));
     }
 
-    // Recheck exact Provider record grants after the final field-bearing read.
-    // SQLite checks are synchronous, so no event-loop yield occurs between the
-    // final Core authorization fence and envelope construction.
+    // Check Core authorization immediately after the final field-bearing read.
+    if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
+    // Recheck exact Provider record grants. These checks are synchronous, so
+    // no event-loop yield occurs before the final Core authorization fence.
     for (const item of admitted) {
       try {
         if (this.#memoryProvider.checkCandidateGrant({
@@ -924,8 +927,7 @@ export class MemoryNpcConsumer {
     }
     // Core conversation/world and actor bindings are checked last, after the
     // Provider fence, so a revoke during that synchronous fence cannot slip
-    // through to a ready envelope. This remains a cross-database freshness
-    // fence, not an atomic lease with a later model transport.
+    // through to a ready envelope.
     if (!queryStillAllowedSynchronously()) return nonReady('query_access_unconfirmed');
 
     return Object.freeze({

@@ -26,6 +26,7 @@ let express;
 let chatsRouter;
 let backupsRouter;
 let groupsRouter;
+let migrateGroupChatsMetadataFormat;
 let charactersRouter;
 let dataMaidRouter;
 let settingsRouter;
@@ -38,7 +39,7 @@ if (runPinnedSTHarness) {
   stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
   ({ router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href));
   ({ router: backupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backups.js')).href));
-  ({ router: groupsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/groups.js')).href));
+  ({ router: groupsRouter, migrateGroupChatsMetadataFormat } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/groups.js')).href));
   ({ router: charactersRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/characters.js')).href));
   ({ router: dataMaidRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/data-maid.js')).href));
   ({ router: settingsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/settings.js')).href));
@@ -145,6 +146,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     chats: join(root, 'chats'),
     groups: join(root, 'groups'),
     groupChats: join(root, 'group chats'),
+    extensions: join(root, 'extensions'),
     backups: join(root, 'backups'),
     characters: join(root, 'characters'),
   };
@@ -152,6 +154,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     mkdir(directories.chats, { recursive: true }),
     mkdir(directories.groups, { recursive: true }),
     mkdir(directories.groupChats, { recursive: true }),
+    mkdir(directories.extensions, { recursive: true }),
     mkdir(directories.backups, { recursive: true }),
     mkdir(directories.characters, { recursive: true }),
     mkdir(uploads, { recursive: true }),
@@ -731,6 +734,26 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   }, 'added');
   assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
   assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.json')));
+
+  // SillyTavern runs this metadata migration during startup, outside an HTTP
+  // request. It must not rewrite enrolled chat files without a lifecycle receipt.
+  const legacyGroupMetadata = {
+    id: 'group-harness',
+    chats: ['group-harness'],
+    chat_id: 'group-harness',
+    chat_metadata: { legacy: true },
+    past_metadata: {},
+  };
+  await writeFile(groupMetadataPath, JSON.stringify(legacyGroupMetadata));
+  const groupMetadataBeforeMigration = await readFile(groupMetadataPath, 'utf8');
+  const groupChatBeforeMigration = await readFile(groupChatPath, 'utf8');
+  await migrateGroupChatsMetadataFormat([directories]);
+  assert.equal(await readFile(groupMetadataPath, 'utf8'), groupMetadataBeforeMigration,
+    'startup migration must not rewrite enrolled group metadata');
+  assert.equal(await readFile(groupChatPath, 'utf8'), groupChatBeforeMigration,
+    'startup migration must not rewrite enrolled group chat JSONL');
+  await assert.rejects(stat(join(directories.backups, '_group_metadata_update')), { code: 'ENOENT' },
+    'blocked startup migration must not create a backup directory or partially write');
 
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {

@@ -6,6 +6,7 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 const contexts = new WeakSet();
+const contextBindings = new WeakMap();
 const validBindingId = value => {
   if (typeof value !== 'string' || value !== value.trim()
     || value.length === 0 || value.length > 200) return false;
@@ -108,29 +109,89 @@ export function createAuthenticatedHostSessionContext(
       identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
     });
     contexts.add(context);
+    contextBindings.set(context, {
+      kind: 'request',
+      request,
+      conversationId,
+      hostSessionId: sessionId,
+      hostUserHandle: userHandle,
+      isAuthenticatedHostRequest,
+      resolveHostConversationId,
+      resolveHostBindings,
+      resolveHostIdentity,
+    });
     return context;
   } catch {
     return null;
   }
 }
 
+function isLiveAuthenticatedHostContext(context, conversationId) {
+  try {
+    const binding = contextBindings.get(context);
+    if (!binding || binding.conversationId !== conversationId) return false;
+    if (binding.kind === 'assertion') {
+      const currentSeconds = Math.floor(binding.now() / 1000);
+      return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt
+        && binding.isSessionRevoked(binding.adapterId, binding.identity) === false;
+    }
+    if (binding.kind !== 'request') return false;
+    const {
+      request, hostSessionId, hostUserHandle, isAuthenticatedHostRequest,
+      resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+    } = binding;
+    if (isAuthenticatedHostRequest(request) !== true
+      || resolveHostConversationId(request) !== conversationId) return false;
+    const session = request?.session;
+    const currentUserHandle = request?.user?.profile?.handle;
+    if (currentUserHandle !== hostUserHandle
+      || session?.logicEngineSessionId !== hostSessionId
+      || session?.logicEngineSessionHandle !== hostUserHandle
+      || (session?.handle !== undefined && session.handle !== hostUserHandle)) return false;
+    const identity = resolveHostIdentity(request, conversationId);
+    if (!isExactPlainDataRecord(identity, ['host_installation_id', 'authenticated_account_id'])
+      || identity.host_installation_id !== context.host_installation_id
+      || identity.authenticated_account_id !== context.authenticated_account_id) return false;
+    const bindings = resolveHostBindings(request, conversationId);
+    return isExactPlainDataRecord(bindings, ['world_id', 'actor_id'])
+      && bindings.world_id === context.world_id && bindings.actor_id === context.actor_id;
+  } catch {
+    return false;
+  }
+}
+
+function invalidateHostContext(context) {
+  try {
+    contexts.delete(context);
+    contextBindings.delete(context);
+  } catch {}
+}
+
 export function isAuthenticatedHostSessionContext(context, conversationId) {
   try {
-    return context !== null && typeof context === 'object'
-      && contexts.has(context)
-      && (context.identity === 'SIGNED_AUTHENTICATED_ST_SESSION'
-        || context.identity === 'SIGNED_HOST_SESSION_ASSERTION')
-      && context.conversation_id === conversationId
-      && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
-      && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
-      && context.conversation_id.slice(0, context.conversation_id.indexOf(':')) === context.host_session_id
-      && context.conversation_id.slice(
+    if (context === null || typeof context !== 'object' || !contexts.has(context)
+      || (context.identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
+        && context.identity !== 'SIGNED_HOST_SESSION_ASSERTION')
+      || context.conversation_id !== conversationId
+      || !HOST_SESSION_UUID.test(context.host_installation_id ?? '')
+      || !HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
+      || context.conversation_id.slice(0, context.conversation_id.indexOf(':')) !== context.host_session_id
+      || context.conversation_id.slice(
         context.conversation_id.indexOf(':') + 1,
         context.conversation_id.lastIndexOf(':'),
-      ) === context.host_installation_id
-      && HOST_SESSION_UUID.test(context.host_session_id ?? '')
-      && validBindingId(context.world_id) && validBindingId(context.actor_id);
+      ) !== context.host_installation_id
+      || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
+      || !validBindingId(context.world_id) || !validBindingId(context.actor_id)) {
+      invalidateHostContext(context);
+      return false;
+    }
+    if (!isLiveAuthenticatedHostContext(context, conversationId)) {
+      invalidateHostContext(context);
+      return false;
+    }
+    return true;
   } catch {
+    invalidateHostContext(context);
     return false;
   }
 }
@@ -148,7 +209,29 @@ export function runWithAuthenticatedHostSession(
     request, conversationId, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
   );
   if (!context) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-  return requestContext.run(context, callback);
+  const revokeContext = () => {
+    contexts.delete(context);
+    contextBindings.delete(context);
+  };
+  try {
+    const result = requestContext.run(context, callback);
+    if (result && typeof result.then === 'function') {
+      return Promise.resolve(result).then(value => {
+        if (!isAuthenticatedHostSessionContext(context, conversationId)) {
+          throw new Error('HOST_SESSION_REVOKED');
+        }
+        return value;
+      }).finally(revokeContext);
+    }
+    if (!isAuthenticatedHostSessionContext(context, conversationId)) {
+      throw new Error('HOST_SESSION_REVOKED');
+    }
+    revokeContext();
+    return result;
+  } catch (error) {
+    revokeContext();
+    throw error;
+  }
 }
 
 export function getAuthenticatedHostSessionContext() {
@@ -214,8 +297,9 @@ function validHostSessionAssertion(assertion) {
 /**
  * Verifies a short-lived Host assertion signed by the server-held adapter
  * secret, then creates the same non-serializable Core capability used by the
- * in-process Host gate. The nonce cache is process-local; expired assertions
- * cannot be replayed after restart.
+ * in-process Host gate. Production Memory retrieval must inject durable nonce
+ * consumption and session-revocation callbacks; the local Map fallback is only
+ * for isolated callers and must never authorize the production Memory route.
  */
 export function createHostSessionAssertionRunner({
   secret,
@@ -224,13 +308,18 @@ export function createHostSessionAssertionRunner({
   maxFutureSkewSeconds = 5,
   maxRememberedNonces = 10000,
   consumeNonce = null,
+  adapterId = null,
+  isSessionRevoked = null,
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 16
     || typeof now !== 'function'
     || !Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 1 || maxAgeSeconds > 120
     || !Number.isInteger(maxFutureSkewSeconds) || maxFutureSkewSeconds < 0 || maxFutureSkewSeconds > 30
     || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000
-    || (consumeNonce !== null && typeof consumeNonce !== 'function')) {
+    || (consumeNonce !== null && typeof consumeNonce !== 'function')
+    || (adapterId !== null && (typeof adapterId !== 'string' || !adapterId.trim()))
+    || (isSessionRevoked !== null && typeof isSessionRevoked !== 'function')
+    || ((adapterId === null) !== (isSessionRevoked === null))) {
     throw new TypeError('Host session assertion runner configuration is invalid.');
   }
   const usedNonces = new Map();
@@ -268,6 +357,18 @@ export function createHostSessionAssertionRunner({
         if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
         usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
       }
+      const identity = Object.freeze({
+        host_installation_id: assertion.host_installation_id,
+        authenticated_account_id: assertion.authenticated_account_id,
+        host_session_id: assertion.host_session_id,
+      });
+      if (isSessionRevoked !== null) {
+        let revoked;
+        try { revoked = isSessionRevoked(adapterId, identity); }
+        catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+        if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+        if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
+      }
       const context = Object.freeze({
         host_installation_id: assertion.host_installation_id,
         authenticated_account_id: assertion.authenticated_account_id,
@@ -278,7 +379,56 @@ export function createHostSessionAssertionRunner({
         identity: 'SIGNED_HOST_SESSION_ASSERTION',
       });
       contexts.add(context);
-      return requestContext.run(context, callback);
+      contextBindings.set(context, {
+        kind: 'assertion',
+        conversationId: assertion.conversation_id,
+        expiresAt: assertion.issued_at + maxAgeSeconds,
+        now,
+        adapterId,
+        identity,
+        isSessionRevoked: isSessionRevoked || (() => false),
+      });
+      const revokeContext = () => {
+        contexts.delete(context);
+        contextBindings.delete(context);
+      };
+      try {
+        const result = requestContext.run(context, callback);
+        if (result && typeof result.then === 'function') {
+          return Promise.resolve(result).then(value => {
+            if (!isAuthenticatedHostSessionContext(context, assertion.conversation_id)) {
+              const currentSeconds = Math.floor(now() / 1000);
+              if (!Number.isSafeInteger(currentSeconds) || currentSeconds > assertion.issued_at + maxAgeSeconds) {
+                throw new Error('HOST_SESSION_ASSERTION_EXPIRED');
+              }
+              let revoked;
+              try { revoked = isSessionRevoked === null ? false : isSessionRevoked(adapterId, identity); }
+              catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+              if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+              if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
+              throw new Error('HOST_SESSION_REVOKED');
+            }
+            return value;
+          }).finally(revokeContext);
+        }
+        if (!isAuthenticatedHostSessionContext(context, assertion.conversation_id)) {
+          const currentSeconds = Math.floor(now() / 1000);
+          if (!Number.isSafeInteger(currentSeconds) || currentSeconds > assertion.issued_at + maxAgeSeconds) {
+            throw new Error('HOST_SESSION_ASSERTION_EXPIRED');
+          }
+          let revoked;
+          try { revoked = isSessionRevoked === null ? false : isSessionRevoked(adapterId, identity); }
+          catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+          if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+          if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
+          throw new Error('HOST_SESSION_REVOKED');
+        }
+        revokeContext();
+        return result;
+      } catch (error) {
+        revokeContext();
+        throw error;
+      }
     },
   });
 }

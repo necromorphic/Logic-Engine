@@ -5,6 +5,7 @@ import {
   createHostRequestAuthenticationGate,
   createHostSessionHandler,
   resolveHostDataDirectories,
+  CORE_ATTESTED_SOURCE_BLOCKERS,
 } from './st-host-inventory-handler.mjs';
 import {
   createHostDigestProxyHandler,
@@ -15,8 +16,16 @@ import {
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
+import { verifyPinnedSourceIdentity } from './st-source-attestation.mjs';
+import { fileURLToPath } from 'node:url';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+const SILLYTAVERN_INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const verifySourceIdentity = ({ userExtensionsPath } = {}) => verifyPinnedSourceIdentity({
+  installRoot: SILLYTAVERN_INSTALL_ROOT,
+  userExtensionsPath,
+});
 
 function unavailable(code) {
   return (_request, response) => response.status(503).json({ status: 'NON_READY', code });
@@ -36,9 +45,11 @@ export function createSillyTavernHostAdapter({
   enumerate = enumerateHostDataInventory,
   fetchImpl = globalThis.fetch,
   persistRootInventory: injectedPersistRootInventory = null,
+  verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
+    || typeof injectedVerifySourceIdentity !== 'function'
     || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
@@ -51,7 +62,10 @@ export function createSillyTavernHostAdapter({
     ? injectedPersistRootInventory ?? createHostRootInventoryPersistence({ identityStore, env, fetchImpl })
     : null;
 
-  const session = createHostSessionHandler();
+  const revokeSession = identityStore
+    ? createHostSessionRevocationClient({ env, fetchImpl, identityStore })
+    : null;
+  const session = createHostSessionHandler({ revokeSession });
   const identity = identityStore
     ? createHostIdentityHandler({ identityStore })
     : unavailable('HOST_IDENTITY_STORE_UNCONFIGURED');
@@ -59,6 +73,7 @@ export function createSillyTavernHostAdapter({
     enumerate,
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
     hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
+    verifySourceIdentity: injectedVerifySourceIdentity,
     persistRootInventory,
   });
 
@@ -89,12 +104,18 @@ export function createSillyTavernHostAdapter({
         if (typeof dataRoot !== 'string' || !path.isAbsolute(dataRoot)) {
           return { status: 'NON_READY', code: 'HOST_IDENTITY_DATA_ROOT_UNAVAILABLE' };
         }
-        await identityStore.assertOutsideRoot(dataRoot);
-        const identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
-        const hostInventory = await enumerate({
-          directories,
-          hostCommit: PINNED_SILLYTAVERN_COMMIT,
-        });
+        let identityRecord;
+        let hostInventory;
+        try {
+          await identityStore.assertOutsideRoot(dataRoot);
+          identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
+          hostInventory = await enumerate({
+            directories,
+            hostCommit: PINNED_SILLYTAVERN_COMMIT,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
         if (hostInventory?.filesystem?.status !== 'complete'
           || !Array.isArray(hostInventory?.filesystem?.entries)) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
@@ -103,24 +124,58 @@ export function createSillyTavernHostAdapter({
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
         // is not proof of completeness and must remain NON_READY.
-        const rootProof = await persistRootInventory({
-          userHandle,
-          rootPath: directories.root,
-          entries: hostInventory.filesystem.entries,
-        });
+        let sourceIdentity;
+        try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
+        catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
+        let rootProof;
+        try {
+          if (typeof persistRootInventory !== 'function') {
+            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+          }
+          rootProof = await persistRootInventory({
+            userHandle,
+            rootPath: directories.root,
+            entries: hostInventory.filesystem.entries,
+            snapshotAlignment: hostInventory.snapshot_alignment,
+            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            sourceIdentity,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
         if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
           || rootProof.integrity_status !== 'INTEGRITY_OK'
-          || !Number.isSafeInteger(rootProof.sequence)
-          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')) {
+          || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
+          || !/^[a-f0-9]{64}$/.test(rootProof.attestation_sha256 ?? '')
+          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.lifecycle_head_sha256 ?? '')
+          || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+          || rootProof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
+          || hostInventory.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT') {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
-        if (hostInventory?.source?.status !== 'AUTHORITATIVE_COMPLETE'
-          || hostInventory?.authority?.status !== 'AUTHORITATIVE_COMPLETE'
-          || !/^[a-f0-9]{64}$/.test(hostInventory?.authority?.manifest_sha256 ?? '')
-          || !Array.isArray(hostInventory?.source?.files)
-          || hostInventory.source.files.filter(file =>
-            file?.logical_identity?.conversation_uuid === conversationUuid).length !== 1) {
+        const source = hostInventory.source;
+        const sourceFiles = Array.isArray(source?.files) ? source.files : null;
+        const unresolvedSourceBlockers = Array.isArray(source?.blockers)
+          ? source.blockers.filter(code => !CORE_ATTESTED_SOURCE_BLOCKERS.includes(code))
+          : null;
+        const conversationFiles = sourceFiles?.filter(file =>
+          file?.logical_identity?.conversation_uuid === conversationUuid) ?? [];
+        if (source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+          || source?.authority !== 'NON_AUTHORITATIVE'
+          || source?.host_commit !== PINNED_SILLYTAVERN_COMMIT
+          || source?.scope !== 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS'
+          || source?.historical_boundary !== 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED'
+          || source?.logical_identity_status !== 'CURRENT_FILE_IDENTITIES_VERIFIED'
+          || unresolvedSourceBlockers === null || unresolvedSourceBlockers.length !== 0
+          || !sourceFiles || conversationFiles.length !== 1
+          || conversationFiles[0]?.logical_identity?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || source.snapshot_id !== hostInventory.filesystem.snapshot_id
+          || source.snapshot_provider !== 'windows-vss-client-accessible'
+          || source.snapshot_consistency !== 'VSS_POINT_IN_TIME_READ_ONLY') {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 

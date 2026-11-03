@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
 
 function makeResponse() {
   return {
@@ -24,6 +25,7 @@ const absoluteTestDirectories = {
   chats: resolve('/tmp/st-root/chats'),
   groups: resolve('/tmp/st-root/groups'),
   groupChats: resolve('/tmp/st-root/groupChats'),
+  extensions: resolve('/tmp/st-root/extensions'),
 };
 
 test('relative ST account directories are resolved against the server working directory', () => {
@@ -32,89 +34,59 @@ test('relative ST account directories are resolved against the server working di
     chats: './data/default-user/chats',
     groups: './data/default-user/groups',
     groupChats: './data/default-user/group chats',
+    extensions: './data/default-user/extensions',
   });
   assert.deepEqual(resolved, {
     root: resolve('./data/default-user'),
     chats: resolve('./data/default-user/chats'),
     groups: resolve('./data/default-user/groups'),
     groupChats: resolve('./data/default-user/group chats'),
+    extensions: resolve('./data/default-user/extensions'),
   });
   assert.equal(Object.isFrozen(resolved), true);
+  assert.equal(resolveHostDataDirectories({
+    root: './data/default-user',
+    chats: './data/default-user/chats',
+    groups: './data/default-user/groups',
+    groupChats: './data/default-user/group chats',
+    extensions: '../shared/extensions',
+  }), null, 'the authenticated user extension directory must remain inside the inventoried account root');
 });
 
-test('server bulk mutation guard blocks imports when any enrolled conversation exists', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
+test('server bulk mutation guard blocks unreceipted mutations for an active Host session', () => {
   let nextCalls = 0;
+  let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
-    enumerate: async input => {
-      assert.deepEqual(input.directories, directories);
-      return {
-        filesystem: { status: 'complete' },
-        source: {
-          status: 'DOUBLE_SCAN_CANDIDATE',
-          files: [{
-            logical_identity: {
-              conversation_uuid: '11111111-1111-4111-8111-111111111111',
-            },
-          }],
-        },
-      };
-    },
-  });
-  const blocked = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, blocked, () => { nextCalls++; });
-  assert.equal(blocked.statusCode, 409);
-  assert.equal(blocked.body.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
-  assert.equal(nextCalls, 0);
-});
-
-test('server bulk mutation guard permits imports only when a complete scan finds no enrolled chats', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard-empty');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
-  let nextCalls = 0;
-  const guard = createHostBulkMutationGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{ logical_identity: null }] },
-    }),
+    enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
   const response = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, null);
-  assert.equal(nextCalls, 1);
-});
-
-test('server bulk mutation guard fails closed when inventory is incomplete', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard-incomplete');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
-  let nextCalls = 0;
-  const guard = createHostBulkMutationGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({ filesystem: { status: 'incomplete' }, source: { status: 'NON_READY', files: [] } }),
-  });
-  const response = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
+  guard({
+    method: 'POST',
+    session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111' },
+  }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE');
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   assert.equal(nextCalls, 0);
+  assert.equal(enumerateCalls, 0);
+});
+
+test('server bulk mutation guard does not let an empty pre-mutation scan authorize a write', () => {
+  let nextCalls = 0;
+  let enumerateCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => { enumerateCalls++; return { filesystem: { status: 'complete' }, source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [] } }; },
+  });
+  const response = makeResponse();
+  guard({
+    method: 'POST',
+    session: { logicEngineSessionId: '22222222-2222-4222-8222-222222222222' },
+  }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  assert.equal(nextCalls, 0);
+  assert.equal(enumerateCalls, 0);
 });
 
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
@@ -149,12 +121,12 @@ test('host inventory route rejects an authenticated account whose signed session
   assert.equal(calls, 0);
 });
 
-test('host inventory route fails closed unless the deployment build claim matches the pinned target', async () => {
+test('host inventory route rejects a contradictory deployment build claim', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return {}; },
     pinnedHostCommit: pinned,
-    hostBuildClaim: '',
+    hostBuildClaim: 'not-the-pinned-commit',
   });
   const response = makeResponse();
   await handler({ user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
@@ -207,7 +179,10 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.headers.vary, 'Cookie');
   assert.deepEqual(observed, {
     directories: {
-      ...absoluteTestDirectories,
+      root: absoluteTestDirectories.root,
+      chats: absoluteTestDirectories.chats,
+      groups: absoluteTestDirectories.groups,
+      groupChats: absoluteTestDirectories.groupChats,
     },
     hostCommit: pinned,
   });
@@ -218,14 +193,14 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.body.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.ok(response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
   assert.ok(response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
-  assert.ok(response.body.blockers.includes('NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE'));
-  assert.ok(response.body.blockers.includes('NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_PINNED_SOURCE_IDENTITY'));
   assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'));
   assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE'));
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
   assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
-  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_ONLY');
+  assert.equal(response.body.host_source_identity_status, 'NON_READY');
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
 
@@ -262,6 +237,7 @@ test('host inventory persists the full root manifest server-side and removes onl
         integrity_status: 'INTEGRITY_OK',
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
+        source_manifest_sha256: 'e'.repeat(64),
         upstream_status: 200,
       };
     },
@@ -274,6 +250,7 @@ test('host inventory persists the full root manifest server-side and removes onl
     chats: '/srv/st/data/chats',
     groups: '/srv/st/data/groups',
     groupChats: '/srv/st/data/group chats',
+    extensions: '/srv/st/data/extensions',
   };
   await handler({
     user: { profile: { handle: 'alice' }, directories },
@@ -294,6 +271,150 @@ test('host inventory persists the full root manifest server-side and removes onl
   assert.equal(response.body.root_inventory_reconciliation.sequence, 1);
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(JSON.stringify(response.body).includes('chats/main.jsonl'), false);
+});
+
+test('host inventory clears only blockers covered by verified source and Core VSS attestation', async () => {
+  let persistedInput;
+  const coveredSourceBlockers = [
+    'NO_PRE_ENROLLMENT_DELETED_HISTORY',
+    'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+    'NO_HOST_INSTALLATION_BINDING',
+    'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
+    'NO_ACCEPTED_HEAD_AUTHORITY',
+    'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+    'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+    'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
+  ];
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        root: '/srv/st/data',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 1,
+        total_bytes: 64,
+        entries: [{
+          path: 'chats/main.jsonl',
+          identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+          sha256: 'c'.repeat(64),
+        }],
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        inventory_sha256: 'a'.repeat(64),
+        blockers: coveredSourceBlockers,
+        files: [],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    }),
+    persistRootInventory: async input => {
+      persistedInput = input;
+      return {
+        status: 'AUTHORITATIVE_COMPLETE',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: 1,
+        manifest_sha256: 'd'.repeat(64),
+        attestation_sha256: 'f'.repeat(64),
+        lifecycle_sequence: 1,
+        lifecycle_head_sha256: 'a'.repeat(64),
+        source_manifest_sha256: 'e'.repeat(64),
+        upstream_status: 200,
+      };
+    },
+    pinnedHostCommit: pinned,
+    hostBuildClaim: '',
+  });
+  const response = makeResponse();
+  const directories = {
+    root: '/srv/st/data',
+    chats: '/srv/st/data/chats',
+    groups: '/srv/st/data/groups',
+    groupChats: '/srv/st/data/group chats',
+    extensions: '/srv/st/data/extensions',
+  };
+  await handler({
+    user: { profile: { handle: 'alice' }, directories },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(persistedInput.snapshotAlignment, 'SHARED_VSS_SNAPSHOT');
+  assert.equal(persistedInput.snapshotSha256, 'b'.repeat(64));
+  assert.equal(persistedInput.sourceIdentity.status, 'CURRENT_IDENTITIES_VERIFIED');
+  assert.equal(response.body.host_source_identity_status, 'CURRENT_IDENTITIES_VERIFIED');
+  assert.equal(response.body.root_inventory_reconciliation.status, 'AUTHORITATIVE_COMPLETE');
+  assert.deepEqual(response.body.blockers, []);
+});
+
+test('Host inventory cannot promote Core baseline without signed lifecycle attestation', async () => {
+  const coveredSourceBlockers = [...CORE_ATTESTED_SOURCE_BLOCKERS];
+  const handler = createHostInventoryHandler({
+    enumerate: async () => ({
+      filesystem: {
+        status: 'complete',
+        root: '/srv/st/data',
+        snapshot_sha256: 'b'.repeat(64),
+        file_count: 1,
+        total_bytes: 64,
+        entries: [{
+          path: 'chats/main.jsonl',
+          identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 },
+          sha256: 'c'.repeat(64),
+        }],
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        inventory_sha256: 'a'.repeat(64),
+        blockers: coveredSourceBlockers,
+        files: [],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    }),
+    verifySourceIdentity: async () => ({
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: 'e'.repeat(64),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    }),
+    persistRootInventory: async () => ({
+      status: 'AUTHORITATIVE_COMPLETE',
+      integrity_status: 'INTEGRITY_OK',
+      sequence: 1,
+      manifest_sha256: 'd'.repeat(64),
+      source_manifest_sha256: 'e'.repeat(64),
+    }),
+    pinnedHostCommit: pinned,
+    hostBuildClaim: '',
+  });
+  const response = makeResponse();
+  await handler({
+    user: { profile: { handle: 'alice' }, directories: {
+      root: '/srv/st/data', chats: '/srv/st/data/chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats', extensions: '/srv/st/data/extensions',
+    } },
+    session: {
+      handle: 'alice',
+      logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.root_inventory_reconciliation.status, 'REVIEW_ONLY');
+  assert.ok(response.body.blockers.includes('UNVERIFIED_ROOT_INVENTORY_ATTESTATION'));
+  assert.deepEqual(response.body.blockers.filter(code => coveredSourceBlockers.includes(code)), coveredSourceBlockers);
 });
 
 test('persisted but unexplained root drift remains an explicit NON_READY blocker', async () => {
@@ -329,7 +450,7 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
   await handler({
     user: { profile: { handle: 'alice' }, directories: {
       root: '/srv/st/data', chats: '/srv/st/data/chats',
-      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats',
+      groups: '/srv/st/data/groups', groupChats: '/srv/st/data/group chats', extensions: '/srv/st/data/extensions',
     } },
     session: {
       handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
@@ -442,21 +563,50 @@ test('Host session identity is generated once inside the authenticated signed se
   assert.equal(second.body.host_session_id, id);
 });
 
-test('Host session identity rotates when the authenticated account changes', () => {
+test('Host session identity revokes the old session before rotating to another account', async () => {
   const ids = [
     '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
     '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
   ];
   const session = { handle: 'alice' };
-  const handler = createHostSessionHandler({ createId: () => ids.shift() });
+  const revocations = [];
+  const handler = createHostSessionHandler({
+    createId: () => ids.shift(),
+    revokeSession: async (request, reason) => {
+      revocations.push({ sessionId: request.session.logicEngineSessionId, accountHandle: request.session.logicEngineSessionHandle, reason });
+      return true;
+    },
+  });
   const first = makeResponse();
   handler({ session, user: { profile: { handle: 'alice' } } }, first);
   assert.equal(first.body.host_session_id, '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401');
   session.handle = 'bob';
   const second = makeResponse();
-  handler({ session, user: { profile: { handle: 'bob' } } }, second);
+  await handler({ session, user: { profile: { handle: 'bob' } } }, second);
+  assert.deepEqual(revocations, [{
+    sessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+    accountHandle: 'alice',
+    reason: 'session_rotation',
+  }]);
   assert.equal(second.body.host_session_id, '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402');
   assert.equal(session.logicEngineSessionHandle, 'bob');
+});
+
+test('Host session identity preserves the old session when rotation revocation fails', async () => {
+  const session = {
+    handle: 'bob',
+    logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+    logicEngineSessionHandle: 'alice',
+  };
+  const handler = createHostSessionHandler({
+    createId: () => '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
+    revokeSession: async () => { throw new Error('Core unavailable'); },
+  });
+  const response = makeResponse();
+  await handler({ session, user: { profile: { handle: 'bob' } } }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(session.logicEngineSessionId, '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401');
+  assert.equal(session.logicEngineSessionHandle, 'alice');
 });
 
 test('Host session identity rejects unauthenticated, mismatched, or malformed sessions', () => {
@@ -596,30 +746,31 @@ const lifecycleSavePermit = {
   mutation_digest: 'a'.repeat(64),
 };
 
-test('ordinary character-card edits bypass chat inventory guard', async () => {
+test('character-card edits are blocked while Host authority is active', () => {
   let enumerateCalls = 0;
   let nextCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
-    enumerate: async () => { enumerateCalls++; throw new Error('HOST_VSS_CREATE_FAILED:5'); },
+    enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
   const request = {
     method: 'POST',
     baseUrl: '/api/characters',
     path: '/edit',
     user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
-    session: { handle: 'alice' },
+    session: { handle: 'alice', logicEngineSessionId: '33333333-3333-4333-8333-333333333333' },
   };
   const response = makeResponse();
-  await guard(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, null);
-  assert.equal(nextCalls, 1);
+  guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  assert.equal(nextCalls, 0);
   assert.equal(enumerateCalls, 0);
 });
 
 test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
   const root = join(tmpdir(), 'st-host-save-guard');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const enumerate = async () => ({
     filesystem: { status: 'complete' },
     source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
@@ -651,7 +802,7 @@ test('enrolled chat save API requires a matching server PREPARED permit and cons
 
 test('group save resolves the extensionless group-chat inventory locator', async () => {
   const root = join(tmpdir(), 'st-host-group-save-guard');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const guard = createHostLifecycleSaveGuard({
     pinnedHostCommit: pinned,
     enumerate: async () => ({
@@ -677,7 +828,7 @@ test('group save resolves the extensionless group-chat inventory locator', async
 
 test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
   const root = join(tmpdir(), 'st-host-save-guard-scope');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
   const guard = createHostLifecycleSaveGuard({
     pinnedHostCommit: pinned,
     enumerate: async () => ({
@@ -737,6 +888,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
     chats: join(tmpdir(), 'st-default-user-root', 'chats'),
     groups: join(tmpdir(), 'st-default-user-root', 'groups'),
     groupChats: join(tmpdir(), 'st-default-user-root', 'groupChats'),
+    extensions: join(tmpdir(), 'st-default-user-root', 'extensions'),
   };
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
@@ -762,7 +914,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
   }, response);
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.host_user_handle, 'default-user');
-  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
+  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_ONLY');
 });
 
 test('default-user inventory rejects missing/mismatched signed session before scanning', async () => {
@@ -861,4 +1013,118 @@ test('request authentication gate returns NON_READY when authoritative inventory
   assert.equal(response.statusCode, 503);
   assert.equal(response.body.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.equal(nextCalls, 0);
+});
+
+
+test('startup group migration is permitted only when a complete scan finds no enrolled conversations', async () => {
+  const directories = { ...absoluteTestDirectories };
+  const accepted = await assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async input => {
+      assert.deepEqual(input, { directories, hostCommit: pinned });
+      return {
+        filesystem: { status: 'complete' },
+        source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{ logical_identity: null }] },
+      };
+    },
+  });
+  assert.equal(accepted, true);
+
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        files: [{ logical_identity: { conversation_uuid: '11111111-1111-4111-8111-111111111111' } }],
+      },
+    }),
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED/);
+});
+
+test('startup group migration is blocked whenever Host authority is configured', async () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
+  try {
+    let enumerateCalls = 0;
+    await assert.rejects(assertHostStartupMigrationAllowed({
+      directories: { ...absoluteTestDirectories },
+      pinnedHostCommit: pinned,
+      enumerate: async () => { enumerateCalls++; return { filesystem: { status: 'complete' }, source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [] } }; },
+    }), /HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED/);
+    assert.equal(enumerateCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
+});
+
+test('startup group migration fails closed when full inventory cannot be proven', async () => {
+  const directories = { ...absoluteTestDirectories };
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => ({
+      filesystem: { status: 'complete' },
+      source: { status: 'NON_READY', files: [] },
+    }),
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_NON_READY/);
+
+  await assert.rejects(assertHostStartupMigrationAllowed({
+    directories,
+    pinnedHostCommit: pinned,
+    enumerate: async () => { throw new Error('provider unavailable'); },
+  }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE/);
+});
+
+test('unsupported mutation guard blocks account-root and source mutations while Host authority is configured', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({ method: 'POST', session: {} }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
+    assert.equal(nextCalls, 0);
+    assert.equal(response.headers['cache-control'], 'no-store, private');
+    assert.equal(response.headers.vary, 'Cookie');
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
+});
+
+test('unsupported mutation guard blocks a Host-capability session even if deployment config disappears', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({
+      method: 'POST',
+      session: { logicEngineSessionId: 'host-session-id' },
+    }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
+    assert.equal(nextCalls, 0);
+  } finally {
+    if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
+});
+
+test('unsupported mutation guard leaves ordinary SillyTavern requests unchanged without Host authority', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  try {
+    let nextCalls = 0;
+    const response = makeResponse();
+    createHostUnsupportedMutationGuard()({ session: {} }, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, null);
+    assert.equal(nextCalls, 1);
+  } finally {
+    if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
 });

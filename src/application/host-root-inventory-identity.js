@@ -16,14 +16,15 @@ export function parseHostRootIdentityRegistry(serialized = '[]') {
   if (!Array.isArray(records)) throw new TypeError('ENGINE_HOST_ROOT_IDENTITIES must be a JSON array.');
   const seen = new Set();
   return Object.freeze(records.map(record => {
-    const allowed = ['adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id'];
+    const allowed = ['adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id', 'source_manifest_sha256'];
     if (!record || typeof record !== 'object' || Array.isArray(record)
       || Object.keys(record).length !== allowed.length
       || Object.keys(record).some(key => !allowed.includes(key))
       || !validText(record.adapter_id)
       || !UUID.test(record.host_installation_id ?? '')
       || !UUID.test(record.authenticated_account_id ?? '')
-      || !DIGEST.test(record.root_id ?? '')) {
+      || !DIGEST.test(record.root_id ?? '')
+      || !DIGEST.test(record.source_manifest_sha256 ?? '')) {
       throw new TypeError('ENGINE_HOST_ROOT_IDENTITIES contains an invalid adapter/installation/account/root binding.');
     }
     const normalized = Object.freeze({
@@ -31,6 +32,7 @@ export function parseHostRootIdentityRegistry(serialized = '[]') {
       host_installation_id: record.host_installation_id,
       authenticated_account_id: record.authenticated_account_id,
       root_id: record.root_id,
+      source_manifest_sha256: record.source_manifest_sha256,
     });
     const key = JSON.stringify(Object.values(normalized));
     if (seen.has(key)) throw new TypeError('ENGINE_HOST_ROOT_IDENTITIES contains a duplicate binding.');
@@ -49,9 +51,11 @@ export function resolveAdapterHostRootIdentity(registry, input) {
     && record.root_id === input.root_id);
   return match ? Object.freeze({
     authorized: true,
+    adapter_id: match.adapter_id,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
     root_id: match.root_id,
+    source_manifest_sha256: match.source_manifest_sha256,
   }) : Object.freeze({ authorized: false });
 }
 
@@ -64,9 +68,11 @@ export function resolveRegisteredHostRootIdentity(registry, input) {
     && record.root_id === input.root_id);
   return match ? Object.freeze({
     authorized: true,
+    adapter_id: match.adapter_id,
     host_installation_id: match.host_installation_id,
     authenticated_account_id: match.authenticated_account_id,
     root_id: match.root_id,
+    source_manifest_sha256: match.source_manifest_sha256,
   }) : Object.freeze({ authorized: false });
 }
 

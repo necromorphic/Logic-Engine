@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
+import { createSignedRootInventoryAttestation } from './st-source-attestation.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -309,7 +310,7 @@ export function createHostRootInventoryPersistence({
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
-  return async function persistHostRootInventory({ userHandle, rootPath, entries }) {
+  return async function persistHostRootInventory({ userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity }) {
     const target = configuredTarget(env);
     if (!target) return { status: 'NON_READY', reason: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' };
     if (!validId(userHandle) || typeof rootPath !== 'string' || !pathModule.isAbsolute(rootPath)
@@ -340,6 +341,9 @@ export function createHostRootInventoryPersistence({
         root_id,
         event_id: eventId,
         entries,
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+          ? { source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       };
       const serialized = JSON.stringify(body);
       if (Buffer.byteLength(serialized, 'utf8') > MAX_ROOT_INVENTORY_BYTES) {
@@ -364,13 +368,68 @@ export function createHostRootInventoryPersistence({
       return { status: upstream.status, payload };
     };
     try {
-      const first = await post('/v1/host-root-inventory/baseline', randomUUID());
-      if (first.status === 409
-        && first.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
-        const observed = await post('/v1/host-root-inventory/observe', randomUUID());
-        return normalizeRootInventoryResponse(observed);
+      let upstream = await post('/v1/host-root-inventory/baseline', randomUUID());
+      if (upstream.status === 409
+        && upstream.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
+        upstream = await post('/v1/host-root-inventory/observe', randomUUID());
       }
-      return normalizeRootInventoryResponse(first);
+      const normalized = normalizeRootInventoryResponse(upstream);
+      if (normalized.status === 'AUTHORITATIVE_COMPLETE') return normalized;
+      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+        || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
+        || !/^[a-f0-9]{64}$/.test(snapshotSha256 ?? '')) {
+        return normalized;
+      }
+      const reconciliation = upstream?.payload?.reconciliation;
+      let attestation;
+      try {
+        attestation = createSignedRootInventoryAttestation({
+          adapterId: target.adapterId,
+          adapterToken: target.adapterToken,
+          identity: {
+            host_installation_id: identity.host_installation_id,
+            authenticated_account_id: identity.authenticated_account_id,
+            root_id,
+          },
+          reconciliation,
+          snapshotAlignment,
+          snapshotSha256,
+          sourceIdentity,
+        });
+      } catch {
+        return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_ATTESTATION_INPUT_NON_READY' };
+      }
+      const attestationUrl = new URL(target.url);
+      attestationUrl.pathname = '/v1/host-root-inventory/attest';
+      const attestationResponse = await fetchImpl(attestationUrl, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          root_id,
+          attestation,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let attestationPayload;
+      try { attestationPayload = await attestationResponse.json(); }
+      catch { return { status: 'NON_READY', reason: 'LOGIC_ENGINE_INVALID_ATTESTATION_RESPONSE' }; }
+      if (!attestationResponse.ok
+        || attestationPayload?.inventory_status !== 'AUTHORITATIVE_COMPLETE'
+        || attestationPayload?.reconciliation?.integrity_status !== 'INTEGRITY_OK') {
+        return {
+          status: 'NON_READY',
+          reason: 'HOST_ROOT_INVENTORY_ATTESTATION_REJECTED',
+          upstream_status: attestationResponse.status,
+        };
+      }
+      return normalizeRootInventoryResponse({ status: attestationResponse.status, payload: attestationPayload });
     } catch {
       return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
     }
@@ -388,16 +447,34 @@ function normalizeRootInventoryResponse(upstream) {
   const hasAcceptedManifest = Number.isSafeInteger(reconciliation.sequence)
     && reconciliation.sequence > 0
     && /^[a-f0-9]{64}$/.test(reconciliation.manifest_sha256 ?? '');
+  const hasAcceptedLifecycleAttestation = /^[a-f0-9]{64}$/.test(reconciliation.attestation_sha256 ?? '')
+    && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256 ?? '')
+    && Number.isSafeInteger(reconciliation.lifecycle_sequence)
+    && reconciliation.lifecycle_sequence > 0
+    && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256 ?? '');
   return {
-    status: reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest
+    status: reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest && hasAcceptedLifecycleAttestation
       ? 'AUTHORITATIVE_COMPLETE'
-      : reconciliation.status === 'BASELINED_REVIEW_ONLY' ? 'BASELINED_REVIEW_ONLY'
-        : reconciliation.status === 'UNCHANGED_REVIEW_ONLY' || reconciliation.status === 'duplicate'
-          ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
+      : reconciliation.status === 'AUTHORITATIVE_COMPLETE' && hasAcceptedManifest
+        ? 'BASELINED_REVIEW_ONLY'
+        : reconciliation.status === 'BASELINED_REVIEW_ONLY' ? 'BASELINED_REVIEW_ONLY'
+          : reconciliation.status === 'UNCHANGED_REVIEW_ONLY' || reconciliation.status === 'duplicate'
+            ? 'UNCHANGED_REVIEW_ONLY' : 'NON_READY',
     integrity_status: reconciliation.integrity_status,
     ...(Number.isSafeInteger(reconciliation.sequence) ? { sequence: reconciliation.sequence } : {}),
     ...(typeof reconciliation.manifest_sha256 === 'string' ? { manifest_sha256: reconciliation.manifest_sha256 } : {}),
     ...(typeof reconciliation.delta_sha256 === 'string' ? { delta_sha256: reconciliation.delta_sha256 } : {}),
+    ...(typeof reconciliation.source_manifest_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.source_manifest_sha256)
+      ? { source_manifest_sha256: reconciliation.source_manifest_sha256 } : {}),
+    ...(typeof reconciliation.attestation_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.attestation_sha256)
+      ? { attestation_sha256: reconciliation.attestation_sha256 } : {}),
+    ...(Number.isSafeInteger(reconciliation.lifecycle_sequence)
+      ? { lifecycle_sequence: reconciliation.lifecycle_sequence } : {}),
+    ...(typeof reconciliation.lifecycle_head_sha256 === 'string'
+      && /^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256)
+      ? { lifecycle_head_sha256: reconciliation.lifecycle_head_sha256 } : {}),
     ...(reconciliation.reason ? { reason: reconciliation.reason } : {}),
     ...(reconciliation.counts ? { counts: reconciliation.counts } : {}),
     ...(reconciliation.duplicate ? { duplicate: true } : {}),

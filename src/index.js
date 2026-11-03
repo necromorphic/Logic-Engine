@@ -132,6 +132,7 @@ if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
 if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
   throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
 }
+const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
   ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
   : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
@@ -147,6 +148,7 @@ const hostAssertionNonceStore = new HostAssertionNonceStore({
   path: assertionNoncePath,
   coreDatabasePath,
   coordinatorPath,
+  providerDatabasePath: memoryProviderPath === undefined ? null : resolve(memoryProviderPath),
 });
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
@@ -169,6 +171,17 @@ const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORIT
 const canonicalHostReceiptProof = value => value && typeof value === 'object'
   ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
   : JSON.stringify(value);
+function verifyHostRootInventoryAttestation({ attestation, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(attestation?.signature ?? '')) return false;
+  const { signature, ...proof } = attestation;
+  const expected = createHmac('sha256', secret)
+    .update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
 function verifyHostLifecycleReceipt({ event, identity }) {
   const secret = adapterTokens?.[identity?.adapter_id];
   if (typeof secret !== 'string' || secret.length < 16
@@ -193,7 +206,7 @@ function verifyHostLifecycleReceipt({ event, identity }) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-function bindHostLifecycleAuthority(resolved) {
+function bindHostLifecycleAuthority(resolved, { requireComplete = false } = {}) {
   if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
     || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
     || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
@@ -206,13 +219,17 @@ function bindHostLifecycleAuthority(resolved) {
       generation: hostLifecycleAuthorityGeneration,
     });
   } catch { return { authorized: false }; }
-  if (snapshot?.status !== 'INTEGRITY_OK' || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+  const authorityStatus = snapshot?.authority_status ?? 'REVIEW_ONLY';
+  if (snapshot?.status !== 'INTEGRITY_OK'
+    || (requireComplete && authorityStatus !== 'AUTHORITATIVE_COMPLETE')
+    || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
     return { authorized: false };
   }
   return {
     ...resolved,
     authority_id: hostLifecycleAuthorityId.trim(),
     generation: hostLifecycleAuthorityGeneration,
+    authority_status: authorityStatus,
     snapshot_fingerprint: snapshot.snapshot_fingerprint,
   };
 }
@@ -253,6 +270,7 @@ if (hostRootIdentityRegistry.length > 0) {
     },
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
     verifyMutationReceipt: verifyHostLifecycleReceipt,
+    verifyRootInventoryAttestation: verifyHostRootInventoryAttestation,
   });
   if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
     && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
@@ -268,7 +286,6 @@ const logicEngine = new LogicEngine(store, {
 });
 const memoryProviderAdapters = [];
 const memoryNpcConsumers = {};
-const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
 if (memoryProviderPath !== undefined) {
   let contentFields;
   try {
@@ -302,7 +319,13 @@ const server = createApiServer({
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
-  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input)),
+  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+  ),
+  resolveHostMemoryIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+    { requireComplete: true },
+  ),
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
   memoryNpcConsumers,

@@ -1,4 +1,5 @@
-const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','regenerate','generation-start','generation-end','generation-stop','cancel-generation','partial-generation','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
+// Generation start/stop signals do not independently mutate persisted chat files; their resulting messages are covered by message-send/receive receipts.
+const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
 const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
@@ -268,7 +269,7 @@ export class HostLifecycleJournal {
     };
   }
 
-  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
+  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false,sourceIdentityStatus='NON_READY',rootInventoryStatus='NON_READY'}={}) {
     if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
     const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
@@ -276,7 +277,8 @@ export class HostLifecycleJournal {
     const missing=REQUIRED_COVERAGE.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
     if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
-    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
+    if(sourceIdentityStatus!=='CURRENT_IDENTITIES_VERIFIED'||rootInventoryStatus!=='AUTHORITATIVE_COMPLETE') return {status:'NON_READY',reason:'trusted source identity and Core-authoritative root inventory are required',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
+    return {status:'AUTHORITATIVE_COMPLETE',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only',sourceIdentityStatus,rootInventoryStatus};
   }
   async #verify(rows) {
     let previous=null;

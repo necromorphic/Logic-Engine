@@ -1,0 +1,309 @@
+diff --git a/src/endpoints/content-manager.js b/src/endpoints/content-manager.js
+--- a/src/endpoints/content-manager.js
++++ b/src/endpoints/content-manager.js
+@@ -6,0 +7,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -978 +980 @@
+-router.post('/importURL', async (request, response) => {
++router.post('/importURL', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -1071 +1073 @@
+-router.post('/importUUID', async (request, response) => {
++router.post('/importUUID', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
+--- a/src/endpoints/image-metadata.js
++++ b/src/endpoints/image-metadata.js
+@@ -11,0 +12,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -499 +501 @@
+-router.post('/folders/create', async function (request, response) {
++router.post('/folders/create', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -517 +519 @@
+-router.post('/folders/set-thumbnails', async function (request, response) {
++router.post('/folders/set-thumbnails', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -535 +537 @@
+-router.post('/folders/update', async function (request, response) {
++router.post('/folders/update', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -556 +558 @@
+-router.post('/folders/delete', async function (request, response) {
++router.post('/folders/delete', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -577 +579 @@
+-router.post('/folders/assign', async function (request, response) {
++router.post('/folders/assign', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -601 +603 @@
+-router.post('/folders/unassign', async function (request, response) {
++router.post('/folders/unassign', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -622 +624 @@
+-router.post('/', async function (request, response) {
++router.post('/', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -732 +734 @@
+-router.post('/cleanup', async function (request, response) {
++router.post('/cleanup', hostUnsupportedMutationGuard, async function (request, response) {
+diff --git a/src/endpoints/images.js b/src/endpoints/images.js
+--- a/src/endpoints/images.js
++++ b/src/endpoints/images.js
+@@ -5,0 +6,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -39 +41 @@
+-router.post('/upload', async (request, response) => {
++router.post('/upload', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -133 +135 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/moving-ui.js b/src/endpoints/moving-ui.js
+--- a/src/endpoints/moving-ui.js
++++ b/src/endpoints/moving-ui.js
+@@ -2,0 +3,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -8 +10 @@
+-router.post('/save', (request, response) => {
++router.post('/save', hostUnsupportedMutationGuard, (request, response) => {
+diff --git a/src/endpoints/presets.js b/src/endpoints/presets.js
+--- a/src/endpoints/presets.js
++++ b/src/endpoints/presets.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -42 +44 @@
+-router.post('/save', function (request, response) {
++router.post('/save', hostUnsupportedMutationGuard, function (request, response) {
+@@ -60 +62 @@
+-router.post('/delete', function (request, response) {
++router.post('/delete', hostUnsupportedMutationGuard, function (request, response) {
+@@ -83 +85 @@
+-router.post('/restore', function (request, response) {
++router.post('/restore', hostUnsupportedMutationGuard, function (request, response) {
+diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
+--- a/src/endpoints/quick-replies.js
++++ b/src/endpoints/quick-replies.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -10 +12 @@
+-router.post('/save', (request, response) => {
++router.post('/save', hostUnsupportedMutationGuard, (request, response) => {
+@@ -21 +23 @@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
+diff --git a/src/endpoints/secrets.js b/src/endpoints/secrets.js
+--- a/src/endpoints/secrets.js
++++ b/src/endpoints/secrets.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -511 +513 @@
+-router.post('/write', (request, response) => {
++router.post('/write', hostUnsupportedMutationGuard, (request, response) => {
+@@ -588 +590 @@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
+@@ -606 +608 @@
+-router.post('/rotate', (request, response) => {
++router.post('/rotate', hostUnsupportedMutationGuard, (request, response) => {
+@@ -624 +626 @@
+-router.post('/rename', (request, response) => {
++router.post('/rename', hostUnsupportedMutationGuard, (request, response) => {
+diff --git a/src/endpoints/sprites.js b/src/endpoints/sprites.js
+--- a/src/endpoints/sprites.js
++++ b/src/endpoints/sprites.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -152 +154 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -186 +188 @@
+-router.post('/upload-zip', async (request, response) => {
++router.post('/upload-zip', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -239 +241 @@
+-router.post('/upload', async (request, response) => {
++router.post('/upload', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
+--- a/src/endpoints/stats.js
++++ b/src/endpoints/stats.js
+@@ -5,0 +6,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -452 +454 @@
+-router.post('/recreate', async function (request, response) {
++router.post('/recreate', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -465 +467 @@
+-router.post('/update', function (request, response) {
++router.post('/update', hostUnsupportedMutationGuard, function (request, response) {
+diff --git a/src/endpoints/themes.js b/src/endpoints/themes.js
+--- a/src/endpoints/themes.js
++++ b/src/endpoints/themes.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -10 +12 @@
+-router.post('/save', (request, response) => {
++router.post('/save', hostUnsupportedMutationGuard, (request, response) => {
+@@ -21 +23 @@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
+diff --git a/src/endpoints/worldinfo.js b/src/endpoints/worldinfo.js
+--- a/src/endpoints/worldinfo.js
++++ b/src/endpoints/worldinfo.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -81 +83 @@
+-router.post('/delete', (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
+@@ -99 +101 @@
+-router.post('/import', (request, response) => {
++router.post('/import', hostUnsupportedMutationGuard, (request, response) => {
+@@ -134 +136 @@
+-router.post('/edit', (request, response) => {
++router.post('/edit', hostUnsupportedMutationGuard, (request, response) => {
+diff --git a/src/endpoints/vectors.js b/src/endpoints/vectors.js
+--- a/src/endpoints/vectors.js
++++ b/src/endpoints/vectors.js
+@@ -5,0 +6,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -512 +514 @@
+-router.post('/insert', async (req, res) => {
++router.post('/insert', hostUnsupportedMutationGuard, async (req, res) => {
+@@ -547 +549 @@
+-router.post('/delete', async (req, res) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (req, res) => {
+@@ -565 +567 @@
+-router.post('/purge-all', async (req, res) => {
++router.post('/purge-all', hostUnsupportedMutationGuard, async (req, res) => {
+@@ -583 +585 @@
+-router.post('/purge', async (req, res) => {
++router.post('/purge', hostUnsupportedMutationGuard, async (req, res) => {
+diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
+--- a/src/endpoints/extensions.js
++++ b/src/endpoints/extensions.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -92 +94 @@
+-router.post('/install', async (request, response) => {
++router.post('/install', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -169 +171 @@
+-router.post('/update', async (request, response) => {
++router.post('/update', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -266 +268 @@
+-router.post('/switch', async (request, response) => {
++router.post('/switch', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -329 +331 @@
+-router.post('/move', async (request, response) => {
++router.post('/move', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -442 +444 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -480,1 +482,2 @@
+ router.get('/discover', function (request, response) {
++    const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+@@ -515,2 +518,3 @@
+         .readdirSync(path.join(request.user.directories.extensions))
++        .filter(f => !hostAuthorityConfigured)
+         .filter(f => fs.statSync(path.join(request.user.directories.extensions, f)).isDirectory())
+@@ -524,2 +528,3 @@
+         .readdirSync(PUBLIC_DIRECTORIES.globalExtensions)
++        .filter(f => !hostAuthorityConfigured || f === 'logic-engine-extension-gateway')
+         .filter(f => fs.statSync(path.join(PUBLIC_DIRECTORIES.globalExtensions, f)).isDirectory())
+
+diff --git a/src/endpoints/backgrounds.js b/src/endpoints/backgrounds.js
+--- a/src/endpoints/backgrounds.js
++++ b/src/endpoints/backgrounds.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -68 +70 @@
+-router.post('/delete', getFileNameValidationFunction('bg'), async function (request, response) {
++router.post('/delete', hostUnsupportedMutationGuard, getFileNameValidationFunction('bg'), async function (request, response) {
+@@ -100 +102 @@
+-router.post('/rename', async function (request, response) {
++router.post('/rename', hostUnsupportedMutationGuard, async function (request, response) {
+@@ -135 +137 @@
+-router.post('/upload', async function (request, response) {
++router.post('/upload', hostUnsupportedMutationGuard, async function (request, response) {
+diff --git a/src/endpoints/avatars.js b/src/endpoints/avatars.js
+--- a/src/endpoints/avatars.js
++++ b/src/endpoints/avatars.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -22 +24 @@
+-router.post('/delete', getFileNameValidationFunction('avatar'), function (request, response) {
++router.post('/delete', hostUnsupportedMutationGuard, getFileNameValidationFunction('avatar'), function (request, response) {
+@@ -41 +43 @@
+-router.post('/upload', getFileNameValidationFunction('overwrite_name'), async (request, response) => {
++router.post('/upload', hostUnsupportedMutationGuard, getFileNameValidationFunction('overwrite_name'), async (request, response) => {
+diff --git a/src/endpoints/assets.js b/src/endpoints/assets.js
+--- a/src/endpoints/assets.js
++++ b/src/endpoints/assets.js
+@@ -6,0 +7,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -269 +271 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -315 +317 @@
+-router.post('/character', async (request, response) => {
++router.post('/character', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/files.js b/src/endpoints/files.js
+--- a/src/endpoints/files.js
++++ b/src/endpoints/files.js
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -28 +30 @@
+-router.post('/upload', async (request, response) => {
++router.post('/upload', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -54 +56 @@
+-router.post('/delete', async (request, response) => {
++router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
+diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
+--- a/src/endpoints/image-metadata.js
++++ b/src/endpoints/image-metadata.js
+@@ -704 +706 @@
+-router.post('/all', async function (request, response) {
++router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
+diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.js
+--- a/src/endpoints/stable-diffusion.js
++++ b/src/endpoints/stable-diffusion.js
+@@ -15,0 +16,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -509 +511 @@
+-comfy.post('/save-workflow', async (request, response) => {
++comfy.post('/save-workflow', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -521 +523 @@
+-comfy.post('/delete-workflow', async (request, response) => {
++comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -534 +536 @@
+-comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
++comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
+diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
+--- a/src/endpoints/thumbnails.js
++++ b/src/endpoints/thumbnails.js
+@@ -285,6 +285,11 @@
+         const thumbnailFolder = getThumbnailFolder(request.user.directories, type);
+         const pathToCachedFile = path.join(thumbnailFolder, file);
+ 
++        const hostCacheWritesDisabled = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)
++            || (typeof request?.session?.logicEngineSessionId === 'string'
++                && request.session.logicEngineSessionId.length > 0);
++        if (hostCacheWritesDisabled && !fs.existsSync(pathToCachedFile)) return serveOriginal();
++
+         // Try to generate thumbnail if it doesn't exist
+         if (!fs.existsSync(pathToCachedFile)) {
+             const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
+diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
+--- a/src/endpoints/users-admin.js
++++ b/src/endpoints/users-admin.js
+@@ -18,0 +19,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -219 +221 @@
+-router.post('/delete', requireAdminMiddleware, async (request, response) => {
++router.post('/delete', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {

@@ -63,6 +63,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       chats: join(dataRoot, 'default-user', 'chats'),
       groups: join(dataRoot, 'default-user', 'groups'),
       groupChats: join(dataRoot, 'default-user', 'groupChats'),
+      extensions: join(dataRoot, 'default-user', 'extensions'),
     };
     for (const directoryPath of Object.values(directories)) mkdirSync(directoryPath, { recursive: true });
     store = new SQLiteStore(corePath);
@@ -139,6 +140,32 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
       memoryNpcConsumers: { [ADAPTER_ID]: providerAdapter.consumer },
       hostAssertionNonceStore: nonceStore,
+    resolveHostLifecycleIdentity: input => ({
+      authorized: true,
+      adapter_id: ADAPTER_ID,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      root_id: 'a'.repeat(64),
+      authority_id: 'host-core-sqlite-e2e-authority',
+      authority_status: 'REVIEW_ONLY',
+      generation: 1,
+      snapshot_fingerprint: 'b'.repeat(64),
+    }),
+    resolveHostMemoryIdentity: input => ({
+      authorized: true,
+      adapter_id: ADAPTER_ID,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      root_id: 'a'.repeat(64),
+      authority_id: 'host-core-sqlite-e2e-authority',
+      authority_status: 'AUTHORITATIVE_COMPLETE',
+      generation: 1,
+      snapshot_fingerprint: 'b'.repeat(64),
+    }),
     });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');

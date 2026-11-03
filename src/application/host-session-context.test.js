@@ -137,3 +137,136 @@ test('signed Host assertion requires World and Actor identity in the HMAC envelo
   const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
   assert.throws(()=>runner.run({...assertion,actor_id:undefined},signature,()=>{}),/HOST_SESSION_ASSERTION_INVALID/);
 });
+
+
+test('in-process Host capability is invalidated immediately by logout, session rotation, account change, and binding change during an async read', async () => {
+  const request = {
+    session: { logicEngineSessionId: session, logicEngineSessionHandle: userHandle, handle: userHandle },
+    user: { profile: { handle: userHandle } },
+  };
+  let authenticated = true;
+  let activeConversationId = conversationId;
+  let activeIdentity = { host_installation_id: installation, authenticated_account_id: account };
+  let activeBindings = { world_id: worldId, actor_id: actorId };
+  const isAuthenticated = () => authenticated;
+  const resolveConversation = () => activeConversationId;
+  const resolveCurrentIdentity = () => activeIdentity;
+  const resolveCurrentBindings = () => activeBindings;
+
+  const verifyInvalidation = async mutate => {
+    authenticated = true;
+    activeConversationId = conversationId;
+    activeIdentity = { host_installation_id: installation, authenticated_account_id: account };
+    activeBindings = { world_id: worldId, actor_id: actorId };
+    request.user.profile.handle = userHandle;
+    request.session.handle = userHandle;
+    request.session.logicEngineSessionHandle = userHandle;
+    request.session.logicEngineSessionId = session;
+    await assert.rejects(runWithAuthenticatedHostSession(
+      request, conversationId, async () => {
+        assert.ok(getAuthenticatedHostSessionContext());
+        mutate();
+        assert.equal(getAuthenticatedHostSessionContext(), null);
+      },
+      isAuthenticated, resolveConversation, resolveCurrentBindings, resolveCurrentIdentity,
+    ), /HOST_SESSION_REVOKED/);
+  };
+
+  await verifyInvalidation(() => { authenticated = false; });
+  await verifyInvalidation(() => {
+    request.session.logicEngineSessionId = '99999999-9999-4999-8999-999999999999';
+  });
+  await verifyInvalidation(() => {
+    request.user.profile.handle = 'other-account';
+    request.session.handle = 'other-account';
+    request.session.logicEngineSessionHandle = 'other-account';
+    activeIdentity = {
+      host_installation_id: installation,
+      authenticated_account_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    };
+  });
+  await verifyInvalidation(() => {
+    activeBindings = { world_id: worldId, actor_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
+  });
+  await verifyInvalidation(() => { activeConversationId = null; });
+  assert.equal(getAuthenticatedHostSessionContext(), null);
+});
+test('cross-process Host assertion capability expires during an asynchronous Provider read and is revoked after callback completion', async () => {
+  const secret='adapter-secret-that-is-long-enough';
+  let nowMs=1_800_000_000_000;
+  const runner=createHostSessionAssertionRunner({secret,now:()=>nowMs});
+  const assertion={
+    protocol_version:1,host_installation_id:installation,authenticated_account_id:account,
+    host_session_id:session,conversation_id:conversationId,world_id:worldId,actor_id:actorId,
+    issued_at:1_800_000_000,nonce:'99999999-9999-4999-8999-999999999999',
+  };
+  const canonical=JSON.stringify([
+    assertion.protocol_version,assertion.host_installation_id,assertion.authenticated_account_id,
+    assertion.host_session_id,assertion.conversation_id,assertion.world_id,assertion.actor_id,
+    assertion.issued_at,assertion.nonce,
+  ]);
+  const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
+
+  await assert.rejects(runner.run(assertion,signature,async()=>{
+    assert.ok(getAuthenticatedHostSessionContext());
+    await Promise.resolve();
+    nowMs+=31_000;
+    assert.equal(getAuthenticatedHostSessionContext(),null);
+  }), /HOST_SESSION_ASSERTION_EXPIRED/);
+  assert.equal(getAuthenticatedHostSessionContext(),null);
+});
+
+
+test('cross-process Host capability fails closed with a distinct error when durable revocation status becomes unavailable mid-read', async () => {
+  const secret='adapter-secret-that-is-long-enough';
+  let revocationStoreAvailable=true;
+  const runner=createHostSessionAssertionRunner({
+    secret, adapterId:'test-adapter', now:()=>1_800_000_000_000,
+    isSessionRevoked:()=> {
+      if (!revocationStoreAvailable) throw new Error('simulated database failure');
+      return false;
+    },
+  });
+  const assertion={
+    protocol_version:1,host_installation_id:installation,authenticated_account_id:account,
+    host_session_id:session,conversation_id:conversationId,world_id:worldId,actor_id:actorId,
+    issued_at:1_800_000_000,nonce:'16161616-1616-4616-8616-161616161616',
+  };
+  const canonical=JSON.stringify([
+    assertion.protocol_version,assertion.host_installation_id,assertion.authenticated_account_id,
+    assertion.host_session_id,assertion.conversation_id,assertion.world_id,assertion.actor_id,
+    assertion.issued_at,assertion.nonce,
+  ]);
+  const signature=createHmac('sha256',secret).update(canonical,'utf8').digest('hex');
+  await assert.rejects(runner.run(assertion,signature,async()=>{
+    assert.ok(getAuthenticatedHostSessionContext());
+    await Promise.resolve();
+    revocationStoreAvailable=false;
+  }), /HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE/);
+  assert.equal(getAuthenticatedHostSessionContext(),null);
+});
+
+test('a Host capability cannot be revived after one failed live revalidation', async () => {
+  const request = {
+    session: { logicEngineSessionId: session, logicEngineSessionHandle: userHandle },
+    user: { profile: { handle: userHandle } },
+  };
+  let authenticated = true;
+  const isAuthenticated = () => authenticated;
+  const resolveConversation = () => conversationId;
+  const resolveLiveBindings = () => ({ world_id: worldId, actor_id: actorId });
+  const resolveLiveIdentity = () => ({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+  });
+
+  await assert.rejects(runWithAuthenticatedHostSession(
+    request, conversationId, async () => {
+      assert.ok(getAuthenticatedHostSessionContext());
+      authenticated = false;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+      authenticated = true;
+      assert.equal(getAuthenticatedHostSessionContext(), null);
+    }, isAuthenticated, resolveConversation, resolveLiveBindings, resolveLiveIdentity,
+  ), /HOST_SESSION_REVOKED/);
+});

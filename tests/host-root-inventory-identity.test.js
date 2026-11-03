@@ -13,6 +13,7 @@ const binding = {
   host_installation_id: '11111111-1111-4111-8111-111111111111',
   authenticated_account_id: '22222222-2222-4222-8222-222222222222',
   root_id: 'a'.repeat(64),
+  source_manifest_sha256: 'b'.repeat(64),
 };
 
 test('root identity registry parses immutable exact deployment bindings', () => {
@@ -20,6 +21,12 @@ test('root identity registry parses immutable exact deployment bindings', () => 
   assert.equal(Object.isFrozen(registry), true);
   assert.equal(Object.isFrozen(registry[0]), true);
   assert.deepEqual(registry[0], binding);
+  assert.equal(resolveAdapterHostRootIdentity(registry, {
+    adapterId: binding.adapter_id,
+    host_installation_id: binding.host_installation_id,
+    authenticated_account_id: binding.authenticated_account_id,
+    root_id: binding.root_id,
+  }).source_manifest_sha256, binding.source_manifest_sha256);
 });
 
 test('root identity registry rejects malformed, duplicate and unsupported records', () => {
@@ -29,6 +36,7 @@ test('root identity registry rejects malformed, duplicate and unsupported record
     JSON.stringify([{ ...binding, extra: 'not-allowed' }]),
     JSON.stringify([binding, binding]),
     JSON.stringify([{ ...binding, root_id: 'not-a-digest' }]),
+    JSON.stringify([{ ...binding, source_manifest_sha256: undefined }]),
     JSON.stringify([{ ...binding, adapter_id: ' ' }]),
   ]) {
     assert.throws(() => parseHostRootIdentityRegistry(value));
@@ -62,7 +70,9 @@ test('adapter resolver requires the exact adapter, installation, account and roo
 
 test('journal resolver independently checks the registered installation/account/root tuple', () => {
   const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
-  assert.equal(resolveRegisteredHostRootIdentity(registry, binding).authorized, true);
+  const accepted = resolveRegisteredHostRootIdentity(registry, binding);
+  assert.equal(accepted.authorized, true);
+  assert.equal(accepted.source_manifest_sha256, binding.source_manifest_sha256);
   assert.equal(resolveRegisteredHostRootIdentity(registry, {
     ...binding, root_id: 'b'.repeat(64),
   }).authorized, false);

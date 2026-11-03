@@ -69,7 +69,12 @@ test('deployed server-plugin helper bundle is byte-identical to reviewed prototy
   for (const name of names) {
     const bundled = await readFile(new URL('../server-plugin/' + name, import.meta.url), 'utf8');
     const prototype = await readFile(new URL('../../prototype/' + name, import.meta.url), 'utf8');
-    assert.equal(bundled, prototype, 'server-plugin bundle drifted from prototype source: ' + name);
+    const normalizeRelativeImports = source => source.replace(
+      "from '../extension-gateway/server-plugin/st-source-attestation.mjs'",
+      "from './st-source-attestation.mjs'",
+    );
+    assert.equal(normalizeRelativeImports(bundled), normalizeRelativeImports(prototype),
+      'server-plugin bundle drifted from prototype source: ' + name);
   }
 });
 

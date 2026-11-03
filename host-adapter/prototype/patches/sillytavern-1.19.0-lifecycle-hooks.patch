@@ -255,7 +255,27 @@ diff --git a/public/script.js b/public/script.js
  export async function clearChat({ clearData = false } = {}) {
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1605,8 +1831,14 @@
+@@ -1604 +1830,18 @@
+-    if (clearData) chat.length = 0;
++    if (clearData) {
++        const lifecycleBridge = await getLogicEngineLifecycleBridge();
++        try {
++            while (chat.length > 0) {
++                const messageIndex = chat.length - 1;
++                const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', [messageIndex], { bulkClear: true });
++                chat.splice(messageIndex, 1);
++                if (lifecycleBefore.status !== 'NOT_ENROLLED') {
++                    await saveChatConditional();
++                    await lifecycleBridge.afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex });
++                }
++            }
++        } catch (error) {
++            await printMessages();
++            throw error;
++        }
++    }
++
+@@ -1605,8 +1848,14 @@
  }
  
  export async function deleteLastMessage() {
@@ -600,6 +620,32 @@ diff --git a/src/server-main.js b/src/server-main.js
  app.use(bodyParser.json({ limit: '500mb' }));
  app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
  
+@@ -301,13 +307,20 @@
+     const directories = await getUserDirectoriesList();
+     await migrateGroupChatsMetadataFormat(directories);
+-    await checkForNewContent(directories);
+-    await diskCache.verify(directories);
+-    migrateFlatSecrets(directories);
++    const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
++    if (hostAuthorityConfigured) {
++        console.warn('Skipping account-root startup mutations while Host authority is active.');
++    } else {
++        await checkForNewContent(directories);
++        await diskCache.verify(directories);
++        migrateFlatSecrets(directories);
++    }
+     cleanUploads();
+     migrateAccessLog();
+ 
+-    await settingsInit();
+-    await statsInit();
++    if (!hostAuthorityConfigured) {
++        await settingsInit();
++        await statsInit();
++    }
+ 
+     const pluginsDirectory = path.join(serverDirectory, 'plugins');
+     const cleanupPlugins = await loadPlugins(app, pluginsDirectory);
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
 +++ b/src/endpoints/backends/chat-completions.js
@@ -623,7 +669,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      isPathUnderParent,
  } from '../util.js';
  
-+import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +import { createHostLifecycleSaveGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostLifecycleSaveGuard = createHostLifecycleSaveGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
@@ -743,23 +789,28 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
  import { color, tryParse } from '../util.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
  
-+import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +
  export const router = express.Router();
  
  /**
-@@ -48,6 +51,10 @@
-                     const groupDataRaw = await fsPromises.readFile(groupFilePath, 'utf8');
-                     const groupData = tryParse(groupDataRaw) || {};
-                     const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
-+                    if (needsMigration && process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+                        console.warn(color.yellow('Skipping unreceipted startup group metadata migration while Host inventory is enabled.'));
-+                        continue;
-+                    }
-                     if (!needsMigration) {
-                         continue;
-                     }
+@@ -34,6 +37,15 @@
+ export async function migrateGroupChatsMetadataFormat(userDirectories) {
+     for (const userDirs of userDirectories) {
+         try {
++            try {
++                await assertHostStartupMigrationAllowed({
++                    directories: userDirs,
++                    pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
++                });
++            } catch (error) {
++                console.warn(color.yellow('Skipping startup group metadata migration: ' + error.message));
++                continue;
++            }
+             let anyDataMigrated = false;
+             const backupPath = path.join(userDirs.backups, '_group_metadata_update');
+             const groupFiles = await fsPromises.readdir(userDirs.groups, { withFileTypes: true });
 @@ -153,7 +160,7 @@
      return response.send(groups);
  });
@@ -908,10 +959,12 @@ diff --git a/src/endpoints/logic-engine-host-inventory-handler.mjs b/src/endpoin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-inventory-handler.mjs
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,6 @@
 +export {
++    assertHostStartupMigrationAllowed,
 +    createHostBulkMutationGuard,
 +    createHostLifecycleSaveGuard,
++    createHostUnsupportedMutationGuard,
 +} from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs';
 diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 --- a/src/endpoints/data-maid.js
@@ -939,18 +992,26 @@ diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 --- a/src/endpoints/settings.js
 +++ b/src/endpoints/settings.js
-@@ -10,7 +10,10 @@
+@@ -10,7 +10,12 @@
  import { getConfigValue, generateTimestamp, removeOldBackups } from '../util.js';
  import { getAllUserHandles, getUserDirectories } from '../users.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
  
 +
  const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
  const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
-@@ -347,7 +350,7 @@
+@@ -206 +211 @@
+-router.post('/save', function (request, response) {
++router.post('/save', hostUnsupportedMutationGuard, function (request, response) {
+@@ -340 +345 @@
+-router.post('/make-snapshot', async (request, response) => {
++router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -347,7 +352,7 @@
      }
  });
  
@@ -959,21 +1020,160 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
      try {
          const userFilesPattern = getSettingsBackupFilePrefix(request.user.profile.handle);
  
+diff --git a/src/users.js b/src/users.js
+--- a/src/users.js
++++ b/src/users.js
+@@ -24,2 +24,3 @@
+ import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
+ import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
++import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
+@@ -122,8 +123,11 @@
+     const directoriesList = userHandles.map(handle => getUserDirectories(handle));
+     for (const userDirectories of directoriesList) {
+         for (const dir of Object.values(userDirectories)) {
+             if (!fs.existsSync(dir)) {
++                if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                    throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING');
++                }
+                 fs.mkdirSync(dir, { recursive: true });
+             }
+         }
+     }
+@@ -232,7 +236,11 @@
+ export async function migrateUserData() {
+     const publicDirectory = path.join(process.cwd(), 'public');
+ 
+     // No need to migrate if the characters directory doesn't exists
+-    if (!fs.existsSync(path.join(publicDirectory, 'characters'))) {
++    const legacyCharactersDirectory = path.join(publicDirectory, 'characters');
++    if (!fs.existsSync(legacyCharactersDirectory)) {
+         return;
+     }
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
++    }
+@@ -434,2 +442,7 @@
+ export async function migrateSystemPrompts() {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        console.warn('Skipping system prompt migration while Host authority is active.');
++        return;
++    }
++
+     /**
+@@ -740,3 +752,11 @@
+ export function shouldRedirectToLogin(request) {
+     return ENABLE_ACCOUNTS && !request.user;
+ }
++async function revokeHostSessionBeforeAccountSwitch(request, nextHandle) {
++    const session = request?.session;
++    if (!session || session.logicEngineSessionId === undefined
++        || session.logicEngineSessionHandle === nextHandle) return;
++    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
++    delete session.logicEngineSessionId;
++    delete session.logicEngineSessionHandle;
++}
+@@ -789,5 +809,6 @@
+         const user = await storage.getItem(toKey(userHandles[0]));
+         if (user && !user.password) {
++            await revokeHostSessionBeforeAccountSwitch(request, userHandles[0]);
+             request.session.handle = userHandles[0];
+             request.session.version = getAccountVersion(user);
+             return true;
+@@ -884,5 +905,6 @@
+             const user = await storage.getItem(toKey(userHandle));
+             if (user && user.enabled) {
++                await revokeHostSessionBeforeAccountSwitch(request, userHandle);
+                 request.session.handle = userHandle;
+                 request.session.version = getAccountVersion(user);
+                 return true;
+@@ -925,6 +947,7 @@
+             const user = await storage.getItem(toKey(userHandle));
+             // Verify pass again here just to be sure
+             if (user && user.enabled && user.password && user.password === getPasswordHash(password, user.salt)) {
++                await revokeHostSessionBeforeAccountSwitch(request, userHandle);
+                 request.session.handle = userHandle;
+                 request.session.version = getAccountVersion(user);
+                 return true;
+@@ -994,5 +1017,12 @@
+         if (request.session.version !== getAccountVersion(user)) {
+             console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
++            if (request.session.logicEngineSessionId !== undefined) {
++                try {
++                    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
++                } catch {
++                    return response.status(503).json({ error: 'Host session revocation unavailable; session was not invalidated.' });
++                }
++            }
+             request.session.handle = null;
+             request.session.csrfToken = null;
+             request.session.version = null;
+@@ -1053,3 +1085,4 @@
+     } catch (error) {
+         console.error('Error during auto-login:', error);
++        if (['HOST_SESSION_REVOCATION_UNAVAILABLE', 'HOST_SESSION_REVOCATION_IDENTITY_INVALID'].includes(error?.message)) return response.status(503).send('Host session revocation unavailable; account was not switched.');
+     }
+diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
+--- a/src/endpoints/users-public.js
++++ b/src/endpoints/users-public.js
+@@ -7,2 +7,5 @@
+ import { color, Cache, getConfigValue } from '../util.js';
+ import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
++import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -93,4 +94,14 @@
+ 
+         await loginLimiter.delete(ip);
++        if (request.session.logicEngineSessionId !== undefined
++            && request.session.logicEngineSessionHandle !== user.handle) {
++            try {
++                await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
++            } catch {
++                return response.status(503).json({ error: 'Host session revocation unavailable; account was not switched.' });
++            }
++            delete request.session.logicEngineSessionId;
++            delete request.session.logicEngineSessionHandle;
++        }
+         request.session.handle = user.handle;
+         request.session.version = getAccountVersion(user);
+@@ -150 +153 @@
+-router.post('/recover-step2', async (request, response) => {
++router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -11,7 +11,10 @@
+@@ -11,7 +11,14 @@
  import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
 +import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++const hostRootResetGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' });
  
 +
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
  const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
  const RESET_CACHE = new Cache(5 * 60 * 1000);
-@@ -181,7 +184,7 @@
+@@ -34,0 +40,6 @@
++        try {
++            await revokeHostSessionBeforeLogout(request);
++        } catch {
++            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
++        }
++
+@@ -68 +80 @@
+-router.post('/change-avatar', async (request, response) => {
++router.post('/change-avatar', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -103 +115 @@
+-router.post('/change-password', async (request, response) => {
++router.post('/change-password', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -156 +168 @@
+-router.post('/backup', async (request, response) => {
++router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -181,6 +193,6 @@
      }
  });
  
@@ -981,39 +1181,43 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
      try {
          const password = request.body.password;
- 
-@@ -258,7 +261,12 @@
+@@ -204 +216 @@
+-router.post('/change-name', async (request, response) => {
++router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
+@@ -258,7 +271,7 @@
      }
  });
  
 -router.post('/reset-step2', async (request, response) => {
-+router.post('/reset-step2', (request, response, next) => {
-+    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+        return response.status(503).json({ error: { code: 'HOST_USER_ROOT_RESET_UNSUPPORTED' } });
-+    }
-+    return next();
-+}, async (request, response) => {
++router.post('/reset-step2', hostRootResetGuard, async (request, response) => {
      try {
          if (!request.body.code) {
              console.warn('Reset step 2 failed: Missing required fields');
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
-@@ -216,7 +216,12 @@
-     }
- });
- 
+@@ -4,0 +5,3 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
+@@ -66 +68 @@
+-router.post('/disable', requireAdminMiddleware, async (request, response) => {
++router.post('/disable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -95 +97 @@
+-router.post('/enable', requireAdminMiddleware, async (request, response) => {
++router.post('/enable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -119 +121 @@
+-router.post('/promote', requireAdminMiddleware, async (request, response) => {
++router.post('/promote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -143 +145 @@
+-router.post('/demote', requireAdminMiddleware, async (request, response) => {
++router.post('/demote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -172 +174 @@
+-router.post('/create', requireAdminMiddleware, async (request, response) => {
++router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -216 +218 @@
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
-+router.post('/delete', requireAdminMiddleware, (request, response, next) => {
-+    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+        return response.status(503).json({ error: { code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' } });
-+    }
-+    return next();
-+}, async (request, response) => {
-     try {
-         if (!request.body.handle) {
-             console.warn('Delete user failed: Missing required fields');
-
++router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 new file mode 100644
 --- /dev/null
@@ -1314,7 +1518,6 @@ new file mode 100644
 +  return digest({ sourceLocator: sourceLocator ?? null, projection });
 +}
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
-
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
 --- /dev/null
@@ -2190,7 +2393,6 @@ new file mode 100644
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
-
 diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
 new file mode 100644
 --- /dev/null
@@ -2355,3 +2557,53 @@ new file mode 100644
 +  locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
 +  authority: 'NON_AUTHORITATIVE',
 +});
+
+diff --git a/src/plugin-loader.js b/src/plugin-loader.js
+--- a/src/plugin-loader.js
++++ b/src/plugin-loader.js
+@@ -42,4 +42,5 @@
+         const exitHooks = [];
+         const emptyFn = () => { };
++        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+ 
+         // Server plugins are disabled.
+@@ -46,3 +47,4 @@
+         if (!enableServerPlugins) {
++            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGINS_DISABLED');
+             return emptyFn;
+         }
+@@ -50,4 +52,5 @@
+         // Plugins directory does not exist.
+         if (!fs.existsSync(pluginsPath)) {
++            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGIN_DIRECTORY_MISSING');
+             return emptyFn;
+         }
+@@ -57,4 +60,5 @@
+         // No plugins to load.
+         if (files.length === 0) {
++            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGIN_MISSING');
+             return emptyFn;
+         }
+@@ -62,1 +66,5 @@
+-        await updatePlugins(pluginsPath);
++        if (hostAuthorityConfigured) {
++            console.warn('Skipping server-plugin auto-update while Host authority is active.');
++        } else {
++            await updatePlugins(pluginsPath);
++        }
+@@ -64,2 +72,5 @@
+         for (const file of files) {
++            if (hostAuthorityConfigured && file !== 'logic-engine-extension-gateway') {
++                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
++            }
+             const pluginFilePath = path.join(pluginsPath, file);
+@@ -80,1 +92,4 @@
++        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine-extension-gateway')) {
++            throw new Error('HOST_SERVER_PLUGIN_NOT_LOADED');
++        }
+         if (loadedPlugins.size > 0) {
+@@ -86,3 +101,4 @@
+     } catch (error) {
+         console.error('Plugin loading failed.', error);
++        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) throw error;
+         return () => { };

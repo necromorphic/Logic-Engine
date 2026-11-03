@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,13 +15,15 @@ const conversation = '00000000-0000-4000-8000-000000000001';
 const message = '00000000-0000-4000-8000-000000000002';
 const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
+const sourceManifestSha256 = digest('test-source-manifest');
 
-function setup(t, authorize = () => true, authorizeRoot = () => true) {
+function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
     coordinatorPath: join(directory, 'coordinator.sqlite'),
     verifyMutationReceipt: () => true,
+    verifyRootInventoryAttestation: verifyRootAttestation,
     resolveIdentity: (input) => ({
       authorized: authorize(input) === true,
       host_installation_id: input.host_installation_id,
@@ -34,9 +36,11 @@ function setup(t, authorize = () => true, authorizeRoot = () => true) {
     }),
     resolveRootIdentity: (input) => ({
       authorized: authorizeRoot(input) === true,
+      adapter_id: 'test-adapter',
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
+      source_manifest_sha256: sourceManifestSha256,
     }),
   });
   t.after(() => {
@@ -202,6 +206,7 @@ test('durable lifecycle journal survives close/reopen and replay remains idempot
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   let first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
@@ -274,6 +279,204 @@ const rootInput = (overrides = {}) => ({
   ...overrides,
 });
 
+const canonicalAttestation = value => value && typeof value === 'object'
+  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalAttestation(value[key])).join(',') + '}'
+  : JSON.stringify(value);
+const ROOT_ATTESTATION_SECRET = 'host-root-attestation-test-secret-long-enough';
+const signRootAttestation = attestation => {
+  const { signature: _signature, ...proof } = attestation;
+  return createHmac('sha256', ROOT_ATTESTATION_SECRET)
+    .update(canonicalAttestation(proof), 'utf8').digest('hex');
+};
+const makeRootAttestation = result => {
+  const attestation = {
+    protocol_version: 1,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    inventory_sequence: result.sequence,
+    manifest_sha256: result.manifest_sha256,
+    inventory_head_sha256: result.event_sha256 ?? result.journal_head_sha256,
+    covered_delta_sha256: result.delta_sha256 ?? null,
+    coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
+    pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patch_blob_sha: '812c250791bfbd1adb8d547b11d597393557024e52cbd37381d51aca807e9f30',
+    host_handler_blob_sha: 'dea9ad6acf7aa7c4bfa04f25a90aeb0db9e242a6',
+    source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+    source_manifest_sha256: sourceManifestSha256,
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    snapshot_sha256: digest('verified-vss-snapshot-' + result.sequence),
+    lifecycle_sequence: result.lifecycle_sequence ?? 0,
+    lifecycle_head_sha256: result.lifecycle_head_sha256 ?? '0'.repeat(64),
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: result.sequence === 1
+      ? '55555555-5555-4555-8555-555555555555'
+      : '66666666-6666-4666-8666-666666666666',
+    signature: '',
+  };
+  attestation.signature = signRootAttestation(attestation);
+  return attestation;
+};
+
+test('root inventory paths use locale-independent code-unit ordering', t => {
+  const { journal } = setup(t);
+  const entries = [
+    rootFile('chats/a.jsonl', '102', 'a'),
+    rootFile('chats/z.jsonl', '103', 'z'),
+    rootFile('chats/ä.jsonl', '104', 'umlaut'),
+  ];
+  const accepted = journal.enrollRootInventory(rootInput({ entries }));
+  assert.equal(accepted.status, 'BASELINED_REVIEW_ONLY');
+});
+
+test('Core requires a signed pinned-source completeness attestation before root inventory becomes authoritative', t => {
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput());
+  assert.equal(baseline.status, 'BASELINED_REVIEW_ONLY');
+  const trusted = {
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  };
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
+
+  const baselineAttestation = makeRootAttestation(baseline);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: { ...baselineAttestation, signature: '0'.repeat(64) },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID/);
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: baselineAttestation,
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(accepted.integrity_status, 'INTEGRITY_OK');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
+
+  const changed = journal.observeRootInventory(rootInput({
+    event_id: 'root-event-2',
+    entries: rootEntries(digest('changed')),
+  }));
+  assert.equal(changed.status, 'NON_READY');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
+
+  const changedAttestation = makeRootAttestation(changed);
+  const restoredAuthority = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: changedAttestation,
+  });
+  assert.equal(restoredAuthority.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(restoredAuthority.integrity_status, 'INTEGRITY_OK');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'AUTHORITATIVE_COMPLETE');
+
+  assert.equal(journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: changedAttestation,
+  }).duplicate, true);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
+
+  const authorityBeforeMutation = journal.getAuthoritySnapshot(trusted);
+  authority.snapshot_fingerprint = authorityBeforeMutation.snapshot_fingerprint;
+  journal.append({
+    event_id: '77777777-7777-4777-8777-777777777777',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    snapshot_fingerprint: authority.snapshot_fingerprint,
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '88888888-8888-4888-8888-888888888888',
+    operation: 'edit-message',
+    mutation_digest: digest('mutation-after-inventory-attestation'),
+    occurred_at: new Date().toISOString(),
+  });
+  const authorityDuringMutation = journal.getAuthoritySnapshot(trusted);
+  assert.equal(authorityDuringMutation.authority_status, 'AUTHORITATIVE_COMPLETE',
+    'a signed root snapshot remains valid while the paired mutation receipt is being recorded');
+  assert.equal(authorityDuringMutation.snapshot_fingerprint, authorityBeforeMutation.snapshot_fingerprint);
+
+  const changedAgain = journal.observeRootInventory(rootInput({
+    event_id: 'root-event-3',
+    entries: rootEntries(digest('changed-again')),
+  }));
+  const replayedNonce = makeRootAttestation(changedAgain);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: replayedNonce,
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED/);
+});
+
+test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {
+  const { journal, directory } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput({ event_id: 'root-attestation-restart' }));
+  const attestation = makeRootAttestation(baseline);
+  journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation,
+  });
+  journal.close();
+
+  const reopened = new HostLifecycleJournal({
+    path: join(directory, 'host-journal.sqlite'),
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
+    resolveIdentity: input => ({
+      authorized: true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      adapter_id: 'test-adapter',
+      root_id: rootId,
+      ...authority,
+    }),
+    resolveRootIdentity: input => ({
+      authorized: true,
+      adapter_id: 'test-adapter',
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
+    verifyRootInventoryAttestation: ({ attestation: stored }) =>
+      stored.signature === signRootAttestation(stored),
+  });
+  t.after(() => { try { reopened.close(); } catch {} });
+  const snapshot = reopened.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  });
+  assert.equal(snapshot.status, 'INTEGRITY_OK');
+  assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+});
+
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-root-inventory-restart-'));
   const path = join(directory, 'host-journal.sqlite');
@@ -289,6 +492,7 @@ test('root inventory baseline is installation/account/root scoped and survives S
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   const enrolled = first.enrollRootInventory(rootInput());
@@ -427,6 +631,7 @@ test('root inventory delta chain survives close/reopen and rejects changed repla
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   const baseline = rootInput();
@@ -700,6 +905,7 @@ test('terminal receipt is rejected by default and leaves the mutation pending', 
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const journal = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity });
   journal.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,
@@ -770,6 +976,7 @@ test('prepared Core mutation survives SQLite restart and can be completed by ide
     host_installation_id: input.host_installation_id,
     authenticated_account_id: input.authenticated_account_id,
     root_id: input.root_id,
+  source_manifest_sha256: sourceManifestSha256,
   });
   const first = new HostLifecycleJournal({ path, coordinatorPath, resolveIdentity, resolveRootIdentity, verifyMutationReceipt: () => true });
   first.enrollRootInventory({ host_installation_id: installation, authenticated_account_id: account,

@@ -57,6 +57,14 @@ const anchors = [
         "router.post('/reset-step2'",
         'fsPromises.rm(request.user.directories.root',
     ]],
+    ['src/users.js', [
+        'export async function setUserDataMiddleware',
+        "await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })",
+    ]],
+    ['src/endpoints/users-public.js', [
+        "router.post('/login'",
+        "await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })",
+    ]],
     ['public/script.js', [
         'export function saveChatDebounced()',
         'event_types.MESSAGE_DELETED',
@@ -79,3 +87,202 @@ for (const [relativePath, required] of anchors) {
         }
     });
 }
+
+
+test('pinned ST chat-history mutation routes are guarded or explicitly unsupported', { skip: !root }, () => {
+    const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+    const requirements = [
+        ['src/endpoints/chats.js', "router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard"],
+        ['src/endpoints/chats.js', "router.post('/rename', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/delete', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/import', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/import', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/delete', hostBulkMutationGuard"],
+        ['src/endpoints/chats.js', "router.post('/group/save', hostLifecycleSaveGuard"],
+        ['src/endpoints/groups.js', "router.post('/create', hostBulkMutationGuard"],
+        ['src/endpoints/groups.js', "router.post('/edit', hostBulkMutationGuard"],
+        ['src/endpoints/groups.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/rename', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/import', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/duplicate', hostBulkMutationGuard"],
+        ['src/endpoints/backups.js', "router.post('/chat/delete', hostBulkMutationGuard"],
+        ['src/endpoints/data-maid.js', "router.post('/delete', hostBulkMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/make-snapshot', hostUnsupportedMutationGuard"],
+        ['src/endpoints/settings.js', "router.post('/restore-snapshot', hostBulkMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/reset-settings', hostBulkMutationGuard"],
+        ['src/endpoints/users-public.js', "router.post('/recover-step2', hostUnsupportedMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/create', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/edit', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/edit-avatar', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/edit-attribute', hostBulkMutationGuard"],
+        ['src/endpoints/characters.js', "router.post('/merge-attributes', hostBulkMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/change-avatar', hostUnsupportedMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/change-password', hostUnsupportedMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/backup', hostUnsupportedMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/change-name', hostUnsupportedMutationGuard"],
+        ['src/endpoints/users-private.js', "router.post('/reset-step2', hostRootResetGuard"],
+        ['src/endpoints/content-manager.js', "router.post('/importURL', hostUnsupportedMutationGuard"],
+        ['src/endpoints/content-manager.js', "router.post('/importUUID', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/create', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/set-thumbnails', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/update', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/assign', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/folders/unassign', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/all', hostUnsupportedMutationGuard"],
+        ['src/endpoints/image-metadata.js', "router.post('/cleanup', hostUnsupportedMutationGuard"],
+        ['src/endpoints/images.js', "router.post('/upload', hostUnsupportedMutationGuard"],
+        ['src/endpoints/images.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/moving-ui.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/presets.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/presets.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/presets.js', "router.post('/restore', hostUnsupportedMutationGuard"],
+        ['src/endpoints/quick-replies.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/quick-replies.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/secrets.js', "router.post('/write', hostUnsupportedMutationGuard"],
+        ['src/endpoints/secrets.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/secrets.js', "router.post('/rotate', hostUnsupportedMutationGuard"],
+        ['src/endpoints/secrets.js', "router.post('/rename', hostUnsupportedMutationGuard"],
+        ['src/endpoints/sprites.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/sprites.js', "router.post('/upload-zip', hostUnsupportedMutationGuard"],
+        ['src/endpoints/sprites.js', "router.post('/upload', hostUnsupportedMutationGuard"],
+        ['src/endpoints/stats.js', "router.post('/recreate', hostUnsupportedMutationGuard"],
+        ['src/endpoints/stats.js', "router.post('/update', hostUnsupportedMutationGuard"],
+        ['src/endpoints/themes.js', "router.post('/save', hostUnsupportedMutationGuard"],
+        ['src/endpoints/themes.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/worldinfo.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/worldinfo.js', "router.post('/import', hostUnsupportedMutationGuard"],
+        ['src/endpoints/worldinfo.js', "router.post('/edit', hostUnsupportedMutationGuard"],
+        ['src/endpoints/vectors.js', "router.post('/insert', hostUnsupportedMutationGuard"],
+        ['src/endpoints/vectors.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/vectors.js', "router.post('/purge-all', hostUnsupportedMutationGuard"],
+        ['src/endpoints/vectors.js', "router.post('/purge', hostUnsupportedMutationGuard"],
+        ['src/endpoints/extensions.js', "router.post('/install', hostUnsupportedMutationGuard"],
+        ['src/endpoints/extensions.js', "router.post('/update', hostUnsupportedMutationGuard"],
+        ['src/endpoints/extensions.js', "router.post('/switch', hostUnsupportedMutationGuard"],
+        ['src/endpoints/extensions.js', "router.post('/move', hostUnsupportedMutationGuard"],
+        ['src/endpoints/extensions.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/backgrounds.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/backgrounds.js', "router.post('/rename', hostUnsupportedMutationGuard"],
+        ['src/endpoints/backgrounds.js', "router.post('/upload', hostUnsupportedMutationGuard"],
+        ['src/endpoints/avatars.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/avatars.js', "router.post('/upload', hostUnsupportedMutationGuard"],
+        ['src/endpoints/assets.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+        ['src/endpoints/assets.js', "router.post('/character', hostUnsupportedMutationGuard"],
+        ['src/endpoints/files.js', "router.post('/upload', hostUnsupportedMutationGuard"],
+        ['src/endpoints/files.js', "router.post('/delete', hostUnsupportedMutationGuard"],
+    ];
+    for (const [relativePath, required] of requirements) {
+        assert.ok(read(relativePath).includes(required), relativePath + ' missing route guard: ' + required);
+    }
+
+    const thumbnails = read('src/endpoints/thumbnails.js');
+    assert.ok(thumbnails.includes('hostCacheWritesDisabled'),
+        'thumbnail cache writes must be suppressed while Host authority is active');
+    assert.ok(thumbnails.includes('if (hostCacheWritesDisabled && !fs.existsSync(pathToCachedFile)) return serveOriginal();'),
+        'thumbnail cache misses must serve the original without creating an unreceipted account-root file');
+    const stableDiffusion = read('src/endpoints/stable-diffusion.js');
+    for (const route of ['save-workflow', 'delete-workflow', 'rename-workflow']) {
+        assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
+            `ComfyUI workflow mutation /${route} must be fail-closed while Host authority is active`);
+    }
+    const usersSource = read('src/users.js');
+    assert.ok(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'),
+        'legacy public user data must not be moved outside the attested root while Host is active');
+    assert.ok(usersSource.includes('HOST_LIFECYCLE_USER_DIRECTORY_MISSING'),
+        'Host must not create missing account directories after root authority is enabled');
+    assert.ok(usersSource.includes('Skipping system prompt migration while Host authority is active.'),
+        'system-prompt migration must not mutate account-root files while Host is active');
+    assert.ok(usersSource.includes('delete session.logicEngineSessionId;'),
+        'revoked Host session identifiers must be cleared after account-version invalidation');
+    assert.ok(usersSource.includes('delete session.logicEngineSessionHandle;'),
+        'revoked Host account binding must be cleared after account-version invalidation');
+    const serverMain = read('src/server-main.js');
+    assert.ok(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'),
+        'startup account-root migration gate must be installed');
+    assert.ok(serverMain.includes('Skipping account-root startup mutations while Host authority is active.'),
+        'startup account-root migrations must be skipped while Host authority is active');
+    const privateUsers = read('src/endpoints/users-private.js');
+    assert.ok(privateUsers.includes('HOST_USER_ROOT_RESET_UNSUPPORTED'),
+        'full user-root reset must remain explicitly fail-closed');
+    assert.ok(privateUsers.includes('revokeHostSessionBeforeLogout(request)'),
+        'native ST logout must revoke the old Core session before clearing the session');
+    assert.ok(privateUsers.indexOf('revokeHostSessionBeforeLogout(request)')
+        < privateUsers.indexOf('request.session.handle = null;'),
+        'Core revocation must complete before ST clears the old session');
+    const groups = read('src/endpoints/groups.js');
+    assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
+        'startup group metadata migration must be gated by full Host inventory');
+    const adminUsers = read('src/endpoints/users-admin.js');
+    assert.ok(adminUsers.includes("const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });"),
+        'account deletion must use its explicit fail-closed guard');
+    for (const route of ['disable', 'enable', 'promote', 'demote', 'create', 'delete']) {
+        const expectedGuard = route === 'delete' ? 'hostAccountDeleteGuard' : 'hostUnsupportedMutationGuard';
+        assert.ok(adminUsers.includes(`router.post('/${route}', requireAdminMiddleware, ${expectedGuard}`),
+            `administrative account mutation /${route} must be fail-closed while Host authority is active`);
+    }
+});
+
+
+test('native logout must fail closed before clearing the session', { skip: !root }, () => {
+    const source = fs.readFileSync(path.join(root, 'src/endpoints/users-private.js'), 'utf8');
+    const start = source.indexOf("router.post('/logout'");
+    const end = source.indexOf("router.get('/me'", start);
+    assert.ok(start >= 0 && end > start, 'native logout route must exist');
+    const route = source.slice(start, end);
+    const revoke = route.indexOf('await revokeHostSessionBeforeLogout(request)');
+    const clear = route.indexOf('request.session.handle = null;');
+    assert.ok(revoke >= 0 && clear > revoke,
+        'native logout must revoke the Core session before clearing the ST session');
+    assert.ok(route.includes("return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });"),
+        'native logout must leave the ST session intact when Core revocation fails');
+});
+
+test('account switching and version invalidation revoke the old Host capability before session mutation', { skip: !root }, () => {
+    const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+    const users = read('src/users.js');
+    const invalidationCall = users.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
+    const invalidationClear = users.indexOf('request.session.handle = null;', invalidationCall);
+    assert.ok(invalidationCall >= 0 && invalidationClear > invalidationCall,
+        'account-version invalidation must revoke Core capability before clearing the ST session');
+    const accountSwitchHelperStart = users.indexOf('async function revokeHostSessionBeforeAccountSwitch');
+    const accountSwitchHelperEnd = users.indexOf('export async function tryAutoLogin', accountSwitchHelperStart);
+    const accountSwitchHelper = users.slice(accountSwitchHelperStart, accountSwitchHelperEnd);
+    assert.ok(accountSwitchHelperStart >= 0 && accountSwitchHelper.includes('session.logicEngineSessionId === undefined'),
+        'account-switch helper must distinguish sessions without a Host capability');
+    assert.equal(accountSwitchHelper.includes('LOGIC_ENGINE_HOST_IDENTITY_DIR'), false,
+        'an existing Host capability must not bypass revocation when deployment configuration disappears');
+    const autoSwitchCalls = users.match(/await revokeHostSessionBeforeAccountSwitch\(request,/g) ?? [];
+    assert.equal(autoSwitchCalls.length, 3,
+        'single-user, trusted-header SSO, and Basic Auth account switches must all revoke the old capability');
+    for (const [startMarker, nextMarker, accountAssignment] of [
+        ['async function singleUserLogin', 'async function autheliaUserLogin', 'request.session.handle = userHandles[0];'],
+        ['async function headerUserLogin', 'async function basicUserLogin', 'request.session.handle = userHandle;'],
+        ['async function basicUserLogin', 'export function getAccountVersion', 'request.session.handle = userHandle;'],
+    ]) {
+        const start = users.indexOf(startMarker);
+        const end = users.indexOf(nextMarker, start);
+        const body = users.slice(start, end < 0 ? users.length : end);
+        assert.ok(start >= 0 && body.indexOf('await revokeHostSessionBeforeAccountSwitch(request,') >= 0
+            && body.indexOf('await revokeHostSessionBeforeAccountSwitch(request,') < body.indexOf(accountAssignment),
+            startMarker + ' must revoke the old capability before assigning the new account');
+    }
+    assert.ok(users.includes("response.status(503).send('Host session revocation unavailable; account was not switched.')"),
+        'automatic login must fail closed instead of serving the login page after revocation failure');
+    const login = read('src/endpoints/users-public.js');
+    const loginCall = login.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
+    const loginMutation = login.indexOf('request.session.handle = user.handle;', loginCall);
+    assert.ok(loginCall >= 0 && loginMutation > loginCall,
+        'account switching must revoke Core capability before changing the authenticated account');
+    const loginReset = login.indexOf('delete request.session.logicEngineSessionId;', loginCall);
+    assert.ok(loginReset > loginCall && loginReset < loginMutation,
+        'account switching must clear the revoked Host identity before issuing a new session');
+    assert.ok(users.includes('Host session revocation unavailable; session was not invalidated.'),
+        'version invalidation must fail closed when Core revocation is unavailable');
+    assert.ok(login.includes('Host session revocation unavailable; account was not switched.'),
+        'account switching must fail closed when Core revocation is unavailable');
+});

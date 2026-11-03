@@ -64,6 +64,42 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
 });
 
+test('lifecycle authority requires complete mutation coverage plus verified source and Core root proof', async () => {
+  const f = fixture();
+  await f.bridge.enrollCurrentConversation();
+  const completeCoverage = [
+    'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
+    'delete-swipe', 'delete-message', 'delete-chat', 'delete-group-chat',
+    'delete-character-chat-recursive', 'edit-message', 'persistence-ordering',
+    'clear-chat', 'import', 'import-character-chat', 'import-group-chat', 'export',
+    'copy-branch', 'restore', 'backup-restore', 'create-branch',
+    'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay',
+  ];
+  const incomplete = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage.slice(0, -1),
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(incomplete.status, 'NON_READY');
+  assert.ok(incomplete.missingPaths.includes('replay'));
+  const ready = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(ready.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(ready.baselineBoundary, 'enrollment-forward-only');
+  const untrustedSource = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'NON_READY',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(untrustedSource.status, 'NON_READY');
+});
+
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
@@ -75,18 +111,18 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('clear-chat is rejected before source mutation because no native deletion hook exists', async () => {
+test('clear-chat is implemented as sequential delete-message receipts in the pinned ST patch', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  assert.ok(patch.includes('while (chat.length > 0)'), 'clear-chat must remove messages one at a time');
+  assert.ok(patch.includes("beforeMutation('delete-message', [messageIndex], { bulkClear: true })"));
+  assert.ok(patch.includes("afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex })"));
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
-  const before = f.chat.map(m => m._logicEngineLifecycle.messageId);
-  await assert.rejects(
-    f.bridge.beforeMutation('clear-chat', [0, 1]),
-    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
-  );
-  assert.deepEqual(f.chat.map(m => m._logicEngineLifecycle.messageId), before);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(!readiness.missingPaths?.includes('clear-chat'));
+  assert.match(readiness.reason ?? '', /trusted source identity and Core-authoritative root inventory are required/);
 });
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
@@ -275,18 +311,24 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
 test('pinned patch guards Data Maid, settings restore, account reset and account deletion', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const rootMutationPatch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8');
+  const reviewedPatches = patch + '\\n' + rootMutationPatch;
   for (const required of [
     "+router.post('/delete', hostBulkMutationGuard, async (req, res) => {",
     "+router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
     "+router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {",
     "+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {",
-    "if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {",
+    "+router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {",
     "HOST_USER_ROOT_RESET_UNSUPPORTED",
     "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
-    "Skipping unreceipted startup group metadata migration while Host inventory is enabled.",
+    "comfy.post('/save-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name')",
+    "assertHostStartupMigrationAllowed",
+    "Skipping startup group metadata migration:",
   ]) {
-    assert.ok(patch.includes(required), `missing fail-closed lifecycle protection: ${required}`);
+    assert.ok(reviewedPatches.includes(required), `missing fail-closed lifecycle protection: ${required}`);
   }
-  assert.equal(patch.includes('/api/logic-engine'), false,
+  assert.equal(reviewedPatches.includes('/api/logic-engine'), false,
     'additional mutation guards must not add a separate public Host API route');
 });

@@ -12,6 +12,8 @@ import { createApiServer } from '../../../src/api/server.js';
 import { getAuthenticatedHostSessionContext } from '../../../src/application/host-session-context.js';
 import { HostAssertionNonceStore } from '../../../src/application/host-assertion-nonce-store.js';
 import { createSillyTavernHostAdapter } from '../server-plugin/host-adapter.mjs';
+import { CORE_ATTESTED_SOURCE_BLOCKERS } from '../server-plugin/st-host-inventory-handler.mjs';
+import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../server-plugin/st-source-attestation.mjs';
 
 const API_TOKEN = 'core-api-token-long-enough-123456';
 const ADMIN_TOKEN = 'core-admin-token-long-enough-123456';
@@ -20,6 +22,8 @@ const ADAPTER_ID = 'st-host-adapter';
 const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const UUID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_HANDLE = 'default-user';
+const TEST_SOURCE_MANIFEST_SHA = 'f'.repeat(64);
+const TEST_SNAPSHOT_ID = '{57115DD3-F8D9-4CA2-84C2-4076FBB7D962}';
 
 function responseRecorder() {
   return {
@@ -50,8 +54,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'groupChats');
+  const extensions = join(root, 'extensions');
   const identityDirectory = join(directory, 'host-identity');
-  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
+  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true }), mkdir(extensions, { recursive: true })]);
   const corePath = join(directory, 'core.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
   const store = new SQLiteStore(':memory:');
@@ -89,6 +94,20 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     expected_revision: 0,
     effects: [{ kind: 'entity.create', entity_id: 'host-e2e-actor', entity_type: 'character' }],
   });
+  const resolveHostMemoryIdentity = input => ({
+    authorized: true,
+    adapter_id: ADAPTER_ID,
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    host_session_id: input.host_session_id,
+    conversation_uuid: input.conversation_uuid,
+    root_id: 'a'.repeat(64),
+    authority_id: 'host-e2e-authority',
+    authority_status: 'AUTHORITATIVE_COMPLETE',
+    generation: 1,
+    snapshot_fingerprint: 'b'.repeat(64),
+  });
+
   const core = createApiServer({
     engine,
     token: API_TOKEN,
@@ -96,6 +115,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: memoryConsumer },
     hostAssertionNonceStore: nonceStore,
+    resolveHostMemoryIdentity,
   });
   core.listen(0, '127.0.0.1');
   await once(core, 'listening');
@@ -170,32 +190,69 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     chats: pathRelative(process.cwd(), chats),
     groups: pathRelative(process.cwd(), groups),
     groupChats: pathRelative(process.cwd(), groupChats),
+    extensions: pathRelative(process.cwd(), extensions),
   };
   const authoritativeFixture = async ({ directories }) => {
-    assert.deepEqual(directories, { root, chats, groups, groupChats });
+    assert.deepEqual(directories, { root, chats, groups, groupChats, extensions });
     return {
-    filesystem: { status: 'complete', entries: rootEntries },
-    source: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      files: [{ logical_identity: { conversation_uuid: UUID } }],
-    },
-    authority: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      manifest_sha256: 'a'.repeat(64),
-    },
+      filesystem: {
+        status: 'complete',
+        entries: rootEntries,
+        snapshot_sha256: 'b'.repeat(64),
+        snapshot_id: TEST_SNAPSHOT_ID,
+        snapshot_provider: 'windows-vss-client-accessible',
+        snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
+        reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        host_commit: PINNED_HOST_COMMIT,
+        scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
+        historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
+        logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+        snapshot_id: TEST_SNAPSHOT_ID,
+        snapshot_provider: 'windows-vss-client-accessible',
+        snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
+        blockers: [...CORE_ATTESTED_SOURCE_BLOCKERS],
+        files: [{ logical_identity: {
+          conversation_uuid: UUID,
+          identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        } }],
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    };
   };
-  };
-  // This proof stub is test-only. Production uses the Core root-inventory
-  // response and must reject its current REVIEW_ONLY result.
-  const testOnlyAuthoritativeRootProof = async ({ userHandle, rootPath, entries }) => {
+  const testSourceIdentity = async () => ({
+    status: 'CURRENT_IDENTITIES_VERIFIED',
+    manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
+    patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+    host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  });
+  // This proof stub is test-only. Production uses the signed Core root-inventory
+  // response; a local candidate scan without that proof must remain NON_READY.
+  let includeLifecycleProof = true;
+  const testOnlyAuthoritativeRootProof = async ({
+    userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity,
+  }) => {
     assert.equal(typeof userHandle, 'string');
     assert.equal(rootPath, root);
     assert.deepEqual(entries, rootEntries);
+    assert.equal(snapshotAlignment, 'SHARED_VSS_SNAPSHOT');
+    assert.equal(snapshotSha256, 'b'.repeat(64));
+    assert.equal(sourceIdentity.status, 'CURRENT_IDENTITIES_VERIFIED');
+    assert.equal(sourceIdentity.manifest_sha256, TEST_SOURCE_MANIFEST_SHA);
     return {
       status: 'AUTHORITATIVE_COMPLETE',
       integrity_status: 'INTEGRITY_OK',
       sequence: 1,
       manifest_sha256: 'c'.repeat(64),
+      source_manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
+      attestation_sha256: 'd'.repeat(64),
+      ...(includeLifecycleProof ? {
+        lifecycle_sequence: 1,
+        lifecycle_head_sha256: 'e'.repeat(64),
+      } : {}),
     };
   };
   const adapter = createSillyTavernHostAdapter({
@@ -203,6 +260,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     enumerate: authoritativeFixture,
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
+    verifySourceIdentity: testSourceIdentity,
   });
 
   const request = {
@@ -223,6 +281,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const productionAdapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
+    // Keep the production Core proof path real while pinning the source
+    // manifest fixture; the default verifier cannot inspect this test ST root.
+    verifySourceIdentity: testSourceIdentity,
     fetchImpl: async (url, options) => {
       const response = await fetch(url, options);
       productionCoreCalls.push(new URL(url).pathname);
@@ -246,7 +307,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(productionPassedGate, false);
   assert.equal(productionGateResponse.statusCode, 503);
   assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
-  assert.ok(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')));
+  assert.equal(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')), false,
+    'an unverified installed source manifest must fail before any Core inventory attestation request');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
   const sessionResponse = responseRecorder();
@@ -267,10 +329,20 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   });
   assert.equal(worldBinding.status, 201);
 
+  includeLifecycleProof = false;
+  const incompleteLifecycleGate = responseRecorder();
+  let incompleteLifecyclePassed = false;
+  await adapter.dispatchMiddleware(request, incompleteLifecycleGate, () => { incompleteLifecyclePassed = true; });
+  assert.equal(incompleteLifecyclePassed, false);
+  assert.equal(incompleteLifecycleGate.statusCode, 503);
+  assert.equal(incompleteLifecycleGate.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  assert.equal(coreCalls.includes('/v1/host-context/resolve'), false);
+  includeLifecycleProof = true;
+
   const gateResponse = responseRecorder();
   let passedGate = false;
   await adapter.dispatchMiddleware(request, gateResponse, () => { passedGate = true; });
-  assert.equal(passedGate, true);
+  assert.equal(passedGate, true, JSON.stringify(gateResponse.payload));
   const dispatchResponse = responseRecorder();
   await adapter.dispatch(request, dispatchResponse);
   assert.equal(coreCalls[0], '/v1/host-context/resolve');
@@ -369,6 +441,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     enumerate: authoritativeFixture,
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
+    verifySourceIdentity: testSourceIdentity,
   });
   const restartedRequest = {
     user: request.user,
@@ -441,5 +514,46 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(deniedGateResponse.statusCode, 503);
   assert.equal(deniedGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.equal(deniedCoreCalls, 0);
+
+  // Exercise the actual adapter session-rotation path against Core. The old
+  // assertion is captured before rotation and must be rejected afterwards.
+  const rotationGateResponse = responseRecorder();
+  let rotationPassedGate = false;
+  await adapter.dispatchMiddleware(request, rotationGateResponse, () => { rotationPassedGate = true; });
+  assert.equal(rotationPassedGate, true);
+  const rotationDispatchResponse = responseRecorder();
+  await adapter.dispatch(request, rotationDispatchResponse);
+  assert.equal(rotationDispatchResponse.statusCode, 200);
+  const assertionFromOldSession = structuredClone(capturedSuccessfulDispatchBody);
+  assertionFromOldSession.assertion.nonce = '88888888-8888-4888-8888-888888888888';
+  assertionFromOldSession.request_id = '99999999-9999-4999-8999-999999999999';
+  const oldAssertion = assertionFromOldSession.assertion;
+  const oldCanonical = JSON.stringify([
+    oldAssertion.protocol_version, oldAssertion.host_installation_id,
+    oldAssertion.authenticated_account_id, oldAssertion.host_session_id,
+    oldAssertion.conversation_id, oldAssertion.world_id, oldAssertion.actor_id,
+    oldAssertion.issued_at, oldAssertion.nonce,
+  ]);
+  assertionFromOldSession.signature = createHmac('sha256', ADAPTER_TOKEN)
+    .update(oldCanonical, 'utf8').digest('hex');
+  const oldSessionId = request.session.logicEngineSessionId;
+  const oldAccountHandle = request.session.logicEngineSessionHandle;
+  request.user.profile.handle = 'rotated-account';
+  const rotationSessionResponse = responseRecorder();
+  await adapter.session(request, rotationSessionResponse);
+  assert.equal(rotationSessionResponse.statusCode, 200);
+  assert.notEqual(rotationSessionResponse.payload.host_session_id, oldSessionId);
+  assert.equal(request.session.logicEngineSessionHandle, 'rotated-account');
+  assert.ok(coreCalls.includes('/v1/host/session/revoke'));
+  assert.equal(oldAccountHandle, ACCOUNT_HANDLE);
+
+  const oldSessionRead = await post(
+    coreUrl + '/v1/host/memory-npc/retrieve',
+    { ...coreHeaders, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN },
+    assertionFromOldSession,
+  );
+  assert.equal(oldSessionRead.status, 401);
+  assert.equal((await oldSessionRead.json()).error.code, 'HOST_SESSION_REVOKED');
+  assert.equal(retrievalContexts.length, 4);
 
 });

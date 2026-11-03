@@ -5,15 +5,31 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export const CORE_ATTESTED_SOURCE_BLOCKERS = Object.freeze([
+  'NO_PRE_ENROLLMENT_DELETED_HISTORY',
+  'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+  'NO_HOST_INSTALLATION_BINDING',
+  'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
+  'NO_ACCEPTED_HEAD_AUTHORITY',
+  'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+  'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+  'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
+]);
+
 export function resolveHostDataDirectories(directories) {
   if (!directories || typeof directories !== 'object' || Array.isArray(directories)) return null;
   const resolved = {};
-  for (const key of ['root', 'chats', 'groups', 'groupChats']) {
+  for (const key of ['root', 'chats', 'groups', 'groupChats', 'extensions']) {
     const value = directories[key];
     if (typeof value !== 'string' || !value.trim()) return null;
     const absolute = path.resolve(value);
     if (!path.isAbsolute(absolute)) return null;
     resolved[key] = absolute;
+  }
+  for (const key of ['chats', 'groups', 'groupChats', 'extensions']) {
+    const relative = path.relative(resolved.root, resolved[key]);
+    if (!relative || relative === '..' || relative.startsWith('..' + path.sep)
+      || path.isAbsolute(relative)) return null;
   }
   return Object.freeze(resolved);
 }
@@ -42,11 +58,13 @@ export function createHostInventoryHandler({
   enumerate,
   pinnedHostCommit,
   hostBuildClaim,
+  verifySourceIdentity = null,
   persistRootInventory = null,
 }) {
   if (typeof enumerate !== 'function'
     || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)
     || typeof hostBuildClaim !== 'string'
+    || (verifySourceIdentity !== null && typeof verifySourceIdentity !== 'function')
     || (persistRootInventory !== null && typeof persistRootInventory !== 'function')) {
     throw new TypeError('Host inventory handler configuration is invalid.');
   }
@@ -60,7 +78,7 @@ export function createHostInventoryHandler({
     const sessionId = session.logicEngineSessionId;
 
     // This is an operator-supplied deployment claim, not runtime source attestation.
-    if (hostBuildClaim !== pinnedHostCommit) {
+    if (hostBuildClaim && hostBuildClaim !== pinnedHostCommit) {
       return response.status(503).json({
         status: 'NON_READY',
         code: 'HOST_BUILD_NOT_PINNED',
@@ -94,6 +112,10 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
+      let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
+      if (typeof verifySourceIdentity === 'function') {
+        try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
+      }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
         try {
@@ -101,6 +123,9 @@ export function createHostInventoryHandler({
             userHandle,
             rootPath: directories.root,
             entries: filesystem.entries,
+            snapshotAlignment: inventory.snapshot_alignment,
+            snapshotSha256: filesystem.snapshot_sha256,
+            sourceIdentity,
           });
         } catch {
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
@@ -111,18 +136,41 @@ export function createHostInventoryHandler({
         && rootInventory.sequence > 0
         && typeof rootInventory.manifest_sha256 === 'string'
         && /^[a-f0-9]{64}$/.test(rootInventory.manifest_sha256);
+      const rootInventoryAuthoritative = rootInventoryPersisted
+        && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
+        && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
+        && Number.isSafeInteger(rootInventory.lifecycle_sequence)
+        && rootInventory.lifecycle_sequence > 0
+        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '');
+      const sourceSnapshotAttested = rootInventoryAuthoritative
+        && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+        && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+        && rootInventory.source_manifest_sha256 === sourceIdentity.manifest_sha256
+        && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT';
+      const reportedRootInventoryStatus = rootInventoryAuthoritative
+        ? 'AUTHORITATIVE_COMPLETE'
+        : rootInventory?.status === 'AUTHORITATIVE_COMPLETE' ? 'REVIEW_ONLY' : rootInventory?.status ?? 'NON_READY';
+      const coveredSourceBlockers = new Set(CORE_ATTESTED_SOURCE_BLOCKERS);
+      const sourceBlockers = sourceSnapshotAttested
+        ? source.blockers.filter(code => !coveredSourceBlockers.has(code))
+        : source.blockers;
       const blockers = [
-        ...source.blockers,
+        ...sourceBlockers,
         ...(rootInventoryPersisted ? [] : [
           'NO_DURABLE_FULL_ROOT_BASELINE',
           'NO_FULL_ROOT_PER_FILE_DIFF',
         ]),
         ...(rootInventoryPersisted && rootInventory.status === 'NON_READY'
           ? ['ROOT_INVENTORY_DELTA_UNRESOLVED'] : []),
-        'NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE',
-        'NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY',
-        'UNVERIFIED_MUTATION_ROUTE_COVERAGE',
-        'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
+        ...(rootInventoryPersisted && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
+          && !rootInventoryAuthoritative ? ['UNVERIFIED_ROOT_INVENTORY_ATTESTATION'] : []),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+          ? [] : ['UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE']),
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
       ];
@@ -149,10 +197,15 @@ export function createHostInventoryHandler({
         requested_conversation_uuid: requestedConversationUuid,
         ...(rootInventoryPersisted ? {
           root_inventory_reconciliation: {
-            status: rootInventory.status,
+            status: reportedRootInventoryStatus,
             integrity_status: rootInventory.integrity_status,
             sequence: rootInventory.sequence,
             manifest_sha256: rootInventory.manifest_sha256,
+            ...(rootInventory.attestation_sha256 ? { attestation_sha256: rootInventory.attestation_sha256 } : {}),
+            ...(Number.isSafeInteger(rootInventory.lifecycle_sequence)
+              ? { lifecycle_sequence: rootInventory.lifecycle_sequence } : {}),
+            ...(rootInventory.lifecycle_head_sha256 ? { lifecycle_head_sha256: rootInventory.lifecycle_head_sha256 } : {}),
+            ...(rootInventory.source_manifest_sha256 ? { source_manifest_sha256: rootInventory.source_manifest_sha256 } : {}),
             ...(rootInventory.delta_sha256 ? { delta_sha256: rootInventory.delta_sha256 } : {}),
             ...(rootInventory.counts ? { counts: rootInventory.counts } : {}),
             ...(rootInventory.reason ? { reason: rootInventory.reason } : {}),
@@ -168,7 +221,9 @@ export function createHostInventoryHandler({
         ...responseInventory,
         host_user_handle: userHandle,
         host_build_claim: hostBuildClaim,
-        host_build_claim_type: 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION',
+        host_build_claim_type: hostBuildClaim ? 'DEPLOYMENT_ASSERTION_ONLY' : 'ABSENT',
+        host_source_identity_status: sourceIdentity?.status ?? 'NON_READY',
+        ...(sourceIdentity?.manifest_sha256 ? { host_source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       });
     } catch {
       // Never return absolute paths, chat IDs, file counts, or per-source failures on denial.
@@ -186,7 +241,7 @@ export function createHostInventoryHandler({
  * signed cookie session. It is stable for that login session and rotates when
  * the authenticated account changes. It is not an installation attestation.
  */
-export function createHostSessionHandler({ createId = randomUUID } = {}) {
+export function createHostSessionHandler({ createId = randomUUID, revokeSession = null } = {}) {
   if (typeof createId !== 'function') throw new TypeError('createId must be a function');
   return function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
@@ -203,9 +258,13 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
       });
     }
 
-    let sessionId = currentId;
-    if (!sessionId || session.logicEngineSessionHandle !== userHandle) {
-      sessionId = createId();
+    const sendSession = sessionId => response.status(200).json({
+      host_session_id: sessionId,
+      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+      host_user_handle: userHandle,
+    });
+    const issueReplacement = () => {
+      const sessionId = createId();
       if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) {
         return response.status(503).json({
           status: 'NON_READY',
@@ -214,16 +273,65 @@ export function createHostSessionHandler({ createId = randomUUID } = {}) {
       }
       session.logicEngineSessionId = sessionId;
       session.logicEngineSessionHandle = userHandle;
-    }
+      return sendSession(sessionId);
+    };
 
-    return response.status(200).json({
-      host_session_id: sessionId,
-      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
-      host_user_handle: userHandle,
+    let sessionId = currentId;
+    if (sessionId && session.logicEngineSessionHandle !== userHandle) {
+      if (typeof revokeSession !== 'function') {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
+      }
+      return Promise.resolve()
+        .then(() => revokeSession(request, 'session_rotation'))
+        .then(revoked => revoked === true
+          ? issueReplacement()
+          : response.status(503).json({
+            status: 'NON_READY',
+            code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
+          }))
+        .catch(() => response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
+        }));
+    }
+    if (!sessionId) return issueReplacement();
+    return sendSession(sessionId);
+  };
+}
+
+/**
+ * Fail-closed guard for ST mutation routes that do not yet have an operation-
+ * specific persisted lifecycle receipt. These routes may change the enrolled
+ * account root or the installed source, so they cannot run while Host authority
+ * is configured. This is a route guard, not an inventory completeness proof.
+ */
+export function createHostUnsupportedMutationGuard({
+  code = 'HOST_MUTATION_ROUTE_UNSUPPORTED',
+} = {}) {
+  if (typeof code !== 'string' || !/^[A-Z0-9_]{1,96}$/.test(code)) {
+    throw new TypeError('Host unsupported mutation guard code is invalid.');
+  }
+  return function hostUnsupportedMutationGuard(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
+      && request.session.logicEngineSessionId.length > 0;
+    if (!hostConfigured && !hostSessionActive) return next();
+    return response.status(503).json({
+      status: 'NON_READY',
+      code,
     });
   };
 }
 
+/**
+ * Fail-closed guard for bulk or non-lineage-aware mutations. A pre-mutation
+ * filesystem scan cannot authorize a write: it cannot prove route coverage,
+ * prevent a concurrent write, or produce a post-mutation receipt. Until the
+ * route has an operation-specific lifecycle receipt, reject it whenever Host
+ * authority is configured or a Host session is present.
+ */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
   pinnedHostCommit,
@@ -232,60 +340,55 @@ export function createHostBulkMutationGuard({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
-  return async function hostBulkMutationGuard(request, response, next) {
+  return function hostBulkMutationGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    // Character-card CRUD does not mutate chat files. Keep ordinary ST character editing
-    // independent of full-root VSS inventory; destructive character deletion remains guarded.
-    const route = `${request?.baseUrl ?? ''}${request?.path ?? ''}`.split('?')[0];
-    if (request?.method === 'POST'
-      && /\/characters\/(?:create|edit)$/.test(route)) {
-      return next();
-    }
-    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true });
-    if (!identity) return response.sendStatus(403);
-    const { directories } = identity;
-    if (!['root', 'chats', 'groups', 'groupChats'].every(key =>
-      typeof directories[key] === 'string' && path.isAbsolute(directories[key]))) {
-      return response.sendStatus(403);
-    }
-    let inventory;
-    try {
-      inventory = await enumerate({
-        directories: {
-          root: directories.root,
-          chats: directories.chats,
-          groups: directories.groups,
-          groupChats: directories.groupChats,
-        },
-        hostCommit: pinnedHostCommit,
-      });
-    } catch {
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_BULK_MUTATION_INVENTORY_UNAVAILABLE',
-      });
-    }
-    if (inventory?.filesystem?.status !== 'complete'
-      || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
-      || !Array.isArray(inventory?.source?.files)) {
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE',
-      });
-    }
-    const hasEnrolledConversation = inventory.source.files.some(file =>
-      typeof file?.logical_identity?.conversation_uuid === 'string'
-      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-        .test(file.logical_identity.conversation_uuid));
-    if (hasEnrolledConversation) {
-      return response.status(409).json({
-        status: 'NON_READY',
-        code: 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED',
-      });
-    }
-    return next();
+    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
+      && request.session.logicEngineSessionId.length > 0;
+    if (!hostConfigured && !hostSessionActive) return next();
+    return response.status(503).json({
+      status: 'NON_READY',
+      code: 'HOST_BULK_MUTATION_UNSUPPORTED',
+    });
   };
+}
+
+export async function assertHostStartupMigrationAllowed({
+  directories,
+  pinnedHostCommit,
+  enumerate = enumerateHostDataInventory,
+} = {}) {
+  if (typeof enumerate !== 'function'
+    || typeof pinnedHostCommit !== 'string'
+    || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_CONFIGURATION_INVALID');
+  }
+  if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');
+  }
+  const resolved = resolveHostDataDirectories(directories);
+  if (!resolved) throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_DIRECTORIES_INVALID');
+
+  let inventory;
+  try {
+    inventory = await enumerate({ directories: resolved, hostCommit: pinnedHostCommit });
+  } catch {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE');
+  }
+  if (inventory?.filesystem?.status !== 'complete'
+    || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE'
+    || !Array.isArray(inventory.source.files)) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_NON_READY');
+  }
+  const hasEnrolledConversation = inventory.source.files.some(file =>
+    typeof file?.logical_identity?.conversation_uuid === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      .test(file.logical_identity.conversation_uuid));
+  if (hasEnrolledConversation) {
+    throw new Error('HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED');
+  }
+  return true;
 }
 
 export function createHostIdentityHandler({

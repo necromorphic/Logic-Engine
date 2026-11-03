@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHmac } from 'node:crypto';
 import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -11,7 +12,7 @@ import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { mapMemoryEvidenceToNpcEpistemicStatus } from '../src/npc/epistemic-state.js';
-import { runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
+import { createHostSessionAssertionRunner, runWithAuthenticatedHostSession } from '../src/application/host-session-context.js';
 
 const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
@@ -86,6 +87,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   let triggerRace = false;
   let triggerQueryRevocation = false;
   let triggerCoreQueryRevocation = false;
+  let triggerCoreActorRevocation = false;
   let sourceValidatorOverride = null;
   let inventoryValidatorOverride = null;
   const snapshotReader = async (id) => {
@@ -110,6 +112,10 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
       hostConversationBindings.revoke({
         adapterId, conversationId: HOST_CONVERSATION_ID, reason: 'test revoke query access',
       });
+    }
+    if (triggerCoreActorRevocation && record.record_ref === 'memory:record-a') {
+      triggerCoreActorRevocation = false;
+      bindings.revoke(worldId, adapterId, actorId);
     }
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
@@ -145,6 +151,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   const authorizedReadService = new AuthorizedReadService(engine, bindings,
     (context, entity, field) => field === 'entity_id'
       || (field === 'attributes.public_note' && entity.entity_id.startsWith('source-')));
+  let rawConsumerInstance;
   const createConsumer = (memoryProvider = provider, coreQueryAuthorizer = coreAuthorizers.memoryQueryAuthorizer) => {
     const rawConsumer = new MemoryNpcConsumer({
       authorizedReadService, actorBindingService: bindings,
@@ -152,6 +159,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
       coreQueryAuthorizer,
       contentFields: ['attributes.public_note'],
     });
+    rawConsumerInstance = rawConsumer;
     return new Proxy(rawConsumer, {
       get(target, property) {
         if (property === 'retrieveForNpc') return (request) =>
@@ -177,7 +185,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     testDb.cleanup();
   });
   return {
-    engine, provider, consumer, scope, records, createConsumer, hostConversationBindings, coreAuthorizers,
+    engine, provider, consumer, scope, records, createConsumer, rawConsumer: rawConsumerInstance, hostConversationBindings, coreAuthorizers,
     createSiblingProvider() {
       const sibling = new SQLiteMemoryProvider({
         path: effectiveProviderPath,
@@ -197,6 +205,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
     triggerCoreQueryRevocation() { triggerCoreQueryRevocation = true; },
+    triggerCoreActorRevocation() { triggerCoreActorRevocation = true; },
     hostConversationBindings,
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
@@ -348,6 +357,47 @@ test('real Provider record revoke after Core source retrieval blocks disclosure'
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
 
+test('signed Host assertion cannot select a forged Core World or Actor', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const secret = 'memory-core-assertion-test-secret';
+  const runner = createHostSessionAssertionRunner({
+    secret,
+    adapterId: 'provider-e2e-adapter',
+    consumeNonce: () => true,
+    isSessionRevoked: () => false,
+  });
+  for (const [field, value, nonce] of [
+    ['world_id', 'attacker-selected-world', '51515151-5151-4151-8151-515151515151'],
+    ['actor_id', 'attacker-selected-actor', '52525252-5252-4252-8252-525252525252'],
+  ]) {
+    const assertion = {
+      protocol_version: 1,
+      host_installation_id: HOST_INSTALLATION_ID,
+      authenticated_account_id: HOST_ACCOUNT_ID,
+      host_session_id: HOST_SESSION_ID,
+      conversation_id: HOST_CONVERSATION_ID,
+      world_id: field === 'world_id' ? value : s.scope.world_id,
+      actor_id: field === 'actor_id' ? value : s.scope.subject_id,
+      issued_at: Math.floor(Date.now() / 1000),
+      nonce,
+    };
+    const proof = JSON.stringify([
+      assertion.protocol_version, assertion.host_installation_id,
+      assertion.authenticated_account_id, assertion.host_session_id,
+      assertion.conversation_id, assertion.world_id, assertion.actor_id,
+      assertion.issued_at, assertion.nonce,
+    ]);
+    const signature = createHmac('sha256', secret).update(proof, 'utf8').digest('hex');
+    const result = await runner.run(assertion, signature, () =>
+      s.rawConsumer.retrieveForNpc({ conversationId: HOST_CONVERSATION_ID }));
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'query_access_unconfirmed');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+  }
+});
+
 test('Core Host-conversation query authorization is required before Provider retrieval', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
@@ -365,15 +415,23 @@ test('Core Host-conversation revocation during record validation blocks disclosu
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   s.triggerCoreQueryRevocation();
-  const result = await s.consumer.retrieveForNpc({
+  await assert.rejects(() => s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
-  assert.deepEqual(result.candidates, []);
-  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  }), /HOST_SESSION_REVOKED/);
+});
+
+test('Core Actor binding revocation during candidate validation blocks disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerCoreActorRevocation();
+
+  await assert.rejects(() => s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  }), /HOST_SESSION_REVOKED/);
 });
 
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
@@ -788,17 +846,12 @@ test('Core Host-conversation revoke at the final authorization fence blocks resu
     return allowed;
   };
   const consumer = s.createConsumer(s.provider, coreQueryAuthorizer);
-  const result = await consumer.retrieveForNpc({
+  await assert.rejects(() => consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  });
+  }), /HOST_SESSION_REVOKED/);
   assert.equal(checks, 6);
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.candidates, []);
-  assert.doesNotMatch(JSON.stringify(result), /source text|record-a/);
 });
 
 test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {

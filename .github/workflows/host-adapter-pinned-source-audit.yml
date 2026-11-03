@@ -42,28 +42,55 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix does not apply cleanly' }
           git -C Sillytavern apply $deltaPatch
           if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix application failed' }
+          $rootMutationPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch).Path
+          git -C Sillytavern apply --unidiff-zero --check $rootMutationPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch does not apply cleanly' }
+          git -C Sillytavern apply --unidiff-zero $rootMutationPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch application failed' }
           git -C Sillytavern diff --check
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
           $expected = @(
             'public/script.js',
             'public/scripts/bookmarks.js',
+            'public/scripts/chat-backups.js',
             'public/scripts/group-chats.js',
             'public/scripts/logic-engine-lifecycle/conversation-identity.mjs',
             'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs',
             'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs',
-            'public/scripts/chat-backups.js',
             'public/scripts/slash-commands.js',
-            'src/server-main.js',
+            'src/endpoints/assets.js',
+            'src/endpoints/avatars.js',
             'src/endpoints/backends/chat-completions.js',
-            'src/endpoints/chats.js',
-            'src/endpoints/groups.js',
-            'src/endpoints/characters.js',
+            'src/endpoints/backgrounds.js',
             'src/endpoints/backups.js',
+            'src/endpoints/characters.js',
+            'src/endpoints/chats.js',
+            'src/endpoints/content-manager.js',
             'src/endpoints/data-maid.js',
+            'src/endpoints/extensions.js',
+            'src/endpoints/files.js',
+            'src/endpoints/groups.js',
+            'src/endpoints/image-metadata.js',
+            'src/endpoints/images.js',
+            'src/endpoints/logic-engine-host-inventory-handler.mjs',
+            'src/endpoints/moving-ui.js',
+            'src/endpoints/presets.js',
+            'src/endpoints/quick-replies.js',
+            'src/endpoints/secrets.js',
             'src/endpoints/settings.js',
-            'src/endpoints/users-private.js',
+            'src/endpoints/sprites.js',
+            'src/endpoints/stable-diffusion.js',
+            'src/endpoints/stats.js',
+            'src/endpoints/themes.js',
+            'src/endpoints/thumbnails.js',
             'src/endpoints/users-admin.js',
-            'src/endpoints/logic-engine-host-inventory-handler.mjs'
+            'src/endpoints/users-private.js',
+            'src/endpoints/users-public.js',
+            'src/endpoints/vectors.js',
+            'src/endpoints/worldinfo.js',
+            'src/plugin-loader.js',
+            'src/server-main.js',
+            'src/users.js'
           )
           $actual = @((git -C Sillytavern diff --name-only) + (git -C Sillytavern ls-files --others --exclude-standard) | Sort-Object)
           if (Compare-Object ($expected | Sort-Object) $actual) { throw 'Pinned Host patch changed files outside the reviewed allowlist' }
@@ -84,10 +111,13 @@ jobs:
           node --check Sillytavern/plugins/logic-engine-extension-gateway/fs-inventory.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
           node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/gateway-policy.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/conversation-identity.mjs
+          node --check host-adapter/prototype/generate-pinned-source-manifest.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-admin.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs')
+          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-public.js', 'src/endpoints/users-admin.js', 'src/users.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs', 'src/endpoints/content-manager.js', 'src/endpoints/image-metadata.js', 'src/endpoints/images.js', 'src/endpoints/moving-ui.js', 'src/endpoints/presets.js', 'src/endpoints/quick-replies.js', 'src/endpoints/secrets.js', 'src/endpoints/sprites.js', 'src/endpoints/stats.js', 'src/endpoints/themes.js', 'src/endpoints/worldinfo.js', 'src/endpoints/vectors.js', 'src/endpoints/extensions.js', 'src/endpoints/backgrounds.js', 'src/endpoints/avatars.js', 'src/endpoints/assets.js', 'src/endpoints/files.js', 'src/endpoints/stable-diffusion.js', 'src/endpoints/thumbnails.js', 'src/plugin-loader.js')
           foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
       - name: Run Host lifecycle and identity acceptance tests
         shell: pwsh
@@ -98,3 +128,17 @@ jobs:
         run: |
           node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs src/application/host-session-context.test.js
           node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
+          node --test experiments/host-adapter-source-audit/harness.mjs
+      - name: Generate pinned patched-source manifest
+        shell: pwsh
+        env:
+          SILLYTAVERN_DIR: Sillytavern
+        run: node host-adapter/prototype/generate-pinned-source-manifest.mjs
+      - name: Upload verified pinned-source manifest
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-pinned-source-manifest
+          path: Sillytavern/plugins/logic-engine-extension-gateway/pinned-source-manifest.json
+          if-no-files-found: error
+          retention-days: 14
