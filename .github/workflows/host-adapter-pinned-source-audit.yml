@@ -33,19 +33,19 @@ jobs:
           New-Item -ItemType Directory -Force Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway | Out-Null
           Copy-Item host-adapter/extension-gateway/index.js,host-adapter/extension-gateway/gateway-policy.mjs,host-adapter/extension-gateway/host-context.mjs,host-adapter/extension-gateway/conversation-identity.mjs,host-adapter/extension-gateway/manifest.json Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
           $patch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch).Path
-          git -C Sillytavern apply --unidiff-zero --check $patch
+          git -C Sillytavern -c core.autocrlf=false apply --unidiff-zero --check $patch
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
-          git -C Sillytavern apply --unidiff-zero $patch
+          git -C Sillytavern -c core.autocrlf=false apply --unidiff-zero $patch
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch application failed' }
           $deltaPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch).Path
-          git -C Sillytavern apply --check $deltaPatch
+          git -C Sillytavern -c core.autocrlf=false apply --check $deltaPatch
           if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix does not apply cleanly' }
-          git -C Sillytavern apply $deltaPatch
+          git -C Sillytavern -c core.autocrlf=false apply $deltaPatch
           if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix application failed' }
           $rootMutationPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch).Path
-          git -C Sillytavern apply --unidiff-zero --check $rootMutationPatch
+          git -C Sillytavern -c core.autocrlf=false apply --unidiff-zero --check $rootMutationPatch
           if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch does not apply cleanly' }
-          git -C Sillytavern apply --unidiff-zero $rootMutationPatch
+          git -C Sillytavern -c core.autocrlf=false apply --unidiff-zero $rootMutationPatch
           if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch application failed' }
           git -C Sillytavern diff --check
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
