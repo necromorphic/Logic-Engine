@@ -105,6 +105,10 @@ export function createSillyTavernFinalSendAdapter({
   }
   const sourceMap = assertSourceMap(chatCompletionSources);
   const requestIdByResponse = new WeakMap();
+  // A protected generation may hand off to the model only once per Host
+  // response. This closes retry loops that could otherwise mint a new request
+  // ID after a completed first dispatch and send the same prompt again.
+  const protectedDispatchByResponse = new WeakSet();
   const preparedContextByRequest = new WeakMap();
   const finalSend = createProtectedMemoryFinalSend({
     gateway,
@@ -188,6 +192,15 @@ export function createSillyTavernFinalSendAdapter({
         release.state = 'denied';
         throw terminalError(error);
       };
+      if (protectedMemory !== null && args.response) {
+        if (protectedDispatchByResponse.has(args.response)) {
+          return deny(new Error('MEMORY_DISPATCH_DUPLICATE_HOST_SEND'));
+        }
+        // Mark before entering Gateway: even a thrown/ambiguous result is
+        // terminal for this Host generation response and cannot be retried.
+        protectedDispatchByResponse.add(args.response);
+      }
+
       const hostRoute = args.hostRoute ?? 'chat-completions';
       const expectedRoute = hostRoute === 'chat-completions'
         ? sourceMap.get(args.request?.body?.chat_completion_source)
