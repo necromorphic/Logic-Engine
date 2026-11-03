@@ -968,11 +968,11 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/users.js b/src/users.js
 --- a/src/users.js
 +++ b/src/users.js
-@@ -23,6 +23,7 @@
+@@ -23,2 +23,3 @@
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -990,6 +991,12 @@
+@@ -990,4 +991,10 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && request.session.logicEngineSessionId !== undefined) {
@@ -985,16 +985,14 @@ diff --git a/src/users.js b/src/users.js
              request.session.handle = null;
              request.session.csrfToken = null;
              request.session.version = null;
-@@ -0,0 +1,2 @@
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
-@@ -10,6 +10,7 @@
+@@ -10,2 +10,3 @@
  import { color, Cache, getConfigValue } from '../util.js';
  import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -91,6 +92,12 @@
-         }
+@@ -91,3 +92,12 @@
  
          await loginLimiter.delete(ip);
 +        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR
