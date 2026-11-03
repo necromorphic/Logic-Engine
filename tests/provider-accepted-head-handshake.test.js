@@ -196,6 +196,39 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       sources: [],
       candidates: [],
     }), /MEMORY_DISPATCH_NOT_READY/);
+
+    // A durable revoke advances Provider state and must invalidate the
+    // previously admitted candidate before Gateway can write DISPATCH_STARTED.
+    const staleCandidate = {
+      record_ref: dispatchRecord.record_ref,
+      record_version: dispatchRecord.record_version,
+      authorization_generation: providerDb.prepare(
+        'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+      ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+      source_kind: 'canonical_entity',
+      source_entity_id: dispatchRecord.source_entity_id,
+      source_version: dispatchRecord.source_version,
+    };
+    provider.revokeRecord(scope, dispatchRecord.record_ref, dispatchRecord.record_version);
+    const revokeCoordinator = openCoordinatorDatabase(coordinatorPath);
+    const revokeLease = beginCoordinatorLock(revokeCoordinator);
+    try {
+      assert.throws(() => provider.readDispatchEvidenceSync({
+        worldId: scope.world_id,
+        actorId: scope.subject_id,
+        purpose: scope.purpose,
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        candidates: [staleCandidate],
+        coordinatorLease: revokeLease,
+      }), /MEMORY_DISPATCH_NOT_READY/);
+    } finally {
+      revokeLease();
+      revokeCoordinator.close();
+    }
     const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
