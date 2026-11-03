@@ -190,9 +190,7 @@ export function createHostInventoryHandler({
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
         ...(mutationCoverageVerified ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
-        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
-          && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
-          ? [] : ['UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE']),
+        'UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE',
         ...(inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['NO_SHARED_POINT_IN_TIME_SNAPSHOT']),
       ];
