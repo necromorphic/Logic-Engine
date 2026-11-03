@@ -596,6 +596,43 @@ const lifecycleSavePermit = {
   mutation_digest: 'a'.repeat(64),
 };
 
+test('ordinary unenrolled ST chat saves bypass lifecycle inventory and VSS checks', async () => {
+  let enumerateCalls = 0;
+  let nextCalls = 0;
+  const guard = createHostLifecycleSaveGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => { enumerateCalls++; throw new Error('HOST_VSS_CREATE_FAILED:5'); },
+  });
+  const request = lifecycleSaveRequest(absoluteTestDirectories);
+  request.body.chat = [{ mes: 'ordinary ST message' }];
+  const response = makeResponse();
+  await guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+  assert.equal(enumerateCalls, 0);
+});
+
+test('ordinary character-card edits bypass chat inventory guard', async () => {
+  let enumerateCalls = 0;
+  let nextCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => { enumerateCalls++; throw new Error('HOST_VSS_CREATE_FAILED:5'); },
+  });
+  const request = {
+    method: 'POST',
+    baseUrl: '/api/characters',
+    path: '/edit',
+    user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
+    session: { handle: 'alice' },
+  };
+  const response = makeResponse();
+  await guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+  assert.equal(enumerateCalls, 0);
+});
+
 test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
   const root = join(tmpdir(), 'st-host-save-guard');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats') };
