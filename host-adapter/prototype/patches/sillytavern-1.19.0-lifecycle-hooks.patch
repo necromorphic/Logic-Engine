@@ -972,7 +972,7 @@ diff --git a/src/users.js b/src/users.js
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -740,3 +740,12 @@
+@@ -740,3 +740,11 @@
  export function shouldRedirectToLogin(request) {
      return ENABLE_ACCOUNTS && !request.user;
  }
@@ -1031,7 +1031,7 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
  import { color, Cache, getConfigValue } from '../util.js';
  import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -93,4 +94,15 @@
+@@ -93,4 +94,14 @@
  
          await loginLimiter.delete(ip);
 +        if (request.session.logicEngineSessionId !== undefined
