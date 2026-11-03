@@ -202,6 +202,7 @@ function assertPlainDataRecordShallow(value) {
 
 function assertProtectedContext(context) {
   assertPlainDataRecordShallow(context);
+  assertPlainDataRecordShallow(context.generationRequest);
   if (typeof context.requestId !== 'string' || !context.requestId
     || typeof context.model !== 'string' || !context.model
     || typeof context.worldId !== 'string' || !context.worldId
