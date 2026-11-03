@@ -422,6 +422,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     enumerate: authoritativeFixture,
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
+    verifySourceIdentity: testSourceIdentity,
   });
   const restartedRequest = {
     user: request.user,
