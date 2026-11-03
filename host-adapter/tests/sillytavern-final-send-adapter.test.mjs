@@ -541,16 +541,16 @@ test('chat NPC context is inserted after existing system/developer instructions 
   assert.match(messages[2].content, /The bridge is closed\./);
 });
 
-test('an empty READY NPC context is explicit and does not invent records', async () => {
+test('empty protected NPC context fails closed before Gateway or provider egress', () => {
   const harness = makeNpcFinalSendHarness({ context: makeNpcProtectedMemory({ contentBlocks: [] }) });
-  await harness.finalSend({
+  assert.throws(() => harness.finalSend({
     senderRoute: 'openai',
     hostRoute: 'chat-completions',
     endpointUrl: 'https://provider.example/generate',
     requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
-  });
-  const promptText = npcBodyText('chat-completions', JSON.parse(harness.providerCalls[0].init.body));
-  assert.match(promptText, /No admitted NPC memory records are available/);
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(harness.providerCalls.length, 0);
+  assert.equal(harness.gatewayCalls.length, 0);
 });
 
 test('protected Horde text dispatch is denied before provider transport', async () => {
