@@ -21,6 +21,7 @@ const ADAPTER_TOKEN = 'host-root-adapter-token-0123456789';
 const SESSION_ID = '99999999-9999-4999-8999-999999999999';
 const CONVERSATION_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const digest = value => createHash('sha256').update(value, 'utf8').digest('hex');
+const SOURCE_MANIFEST_SHA256 = digest('host-root-api-harness-source-manifest');
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -87,6 +88,8 @@ test('Host inventory route persists digest-only root baselines and deltas throug
       && input.authenticated_account_id === identity.authenticated_account_id
       && input.root_id === rootId,
     ...rootIdentity,
+    adapter_id: ADAPTER_ID,
+    source_manifest_sha256: SOURCE_MANIFEST_SHA256,
   });
   const startCore = async () => {
     coreStore = new SQLiteStore(':memory:');
@@ -109,6 +112,8 @@ test('Host inventory route persists digest-only root baselines and deltas throug
           && input.authenticated_account_id === identity.authenticated_account_id
           && input.root_id === rootId,
         ...rootIdentity,
+        adapter_id: ADAPTER_ID,
+        source_manifest_sha256: SOURCE_MANIFEST_SHA256,
       }),
       verifyMutationReceipt: () => true,
     });
