@@ -45,14 +45,17 @@ export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'host-selected-chat-generation',
 ]);
 
-// One authoritative registry for every protected SillyTavern chat-completion
-// sender family audited against the pinned 1.19.0 release.
+// One authoritative registry for protected synchronous SillyTavern text senders.
+// Horde text is intentionally excluded: /generate-text creates an async task,
+// while /task-status later returns the model output without this request's
+// protected Final-Send context. The SQLite CHECK retains its legacy token only
+// so older durable ledgers can be opened without losing historical rows.
 export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
   'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'cometapi', 'minimax',
   'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
   'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
-  'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
+  'workers-ai', 'text-completions', 'kobold', 'novelai-text',
 ]);
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
