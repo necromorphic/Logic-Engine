@@ -280,7 +280,6 @@ test('pinned patch guards Data Maid, settings restore, account reset and account
     "+router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
     "+router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {",
     "+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {",
-    "if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {",
     "HOST_USER_ROOT_RESET_UNSUPPORTED",
     "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
     "assertHostStartupMigrationAllowed",
