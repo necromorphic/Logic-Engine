@@ -43,79 +43,40 @@ test('relative ST account directories are resolved against the server working di
   assert.equal(Object.isFrozen(resolved), true);
 });
 
-test('server bulk mutation guard blocks imports when any enrolled conversation exists', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
+test('server bulk mutation guard blocks unreceipted mutations for an active Host session', () => {
   let nextCalls = 0;
+  let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
-    enumerate: async input => {
-      assert.deepEqual(input.directories, directories);
-      return {
-        filesystem: { status: 'complete' },
-        source: {
-          status: 'DOUBLE_SCAN_CANDIDATE',
-          files: [{
-            logical_identity: {
-              conversation_uuid: '11111111-1111-4111-8111-111111111111',
-            },
-          }],
-        },
-      };
-    },
-  });
-  const blocked = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, blocked, () => { nextCalls++; });
-  assert.equal(blocked.statusCode, 409);
-  assert.equal(blocked.body.code, 'HOST_LIFECYCLE_BULK_MUTATION_BLOCKED');
-  assert.equal(nextCalls, 0);
-});
-
-test('server bulk mutation guard permits imports only when a complete scan finds no enrolled chats', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard-empty');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
-  let nextCalls = 0;
-  const guard = createHostBulkMutationGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{ logical_identity: null }] },
-    }),
+    enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
   const response = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, null);
-  assert.equal(nextCalls, 1);
-});
-
-test('server bulk mutation guard fails closed when inventory is incomplete', async () => {
-  const root = join(tmpdir(), 'st-host-bulk-guard-incomplete');
-  const directories = {
-    root,
-    chats: join(root, 'chats'),
-    groups: join(root, 'groups'),
-    groupChats: join(root, 'groupChats'),
-  };
-  let nextCalls = 0;
-  const guard = createHostBulkMutationGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({ filesystem: { status: 'incomplete' }, source: { status: 'NON_READY', files: [] } }),
-  });
-  const response = makeResponse();
-  await guard({ user: { profile: { handle: 'alice' }, directories }, session: { handle: 'alice' } }, response, () => { nextCalls++; });
+  guard({
+    method: 'POST',
+    session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111' },
+  }, response, () => { nextCalls++; });
   assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_INVENTORY_INCOMPLETE');
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   assert.equal(nextCalls, 0);
+  assert.equal(enumerateCalls, 0);
+});
+
+test('server bulk mutation guard does not let an empty pre-mutation scan authorize a write', () => {
+  let nextCalls = 0;
+  let enumerateCalls = 0;
+  const guard = createHostBulkMutationGuard({
+    pinnedHostCommit: pinned,
+    enumerate: async () => { enumerateCalls++; return { filesystem: { status: 'complete' }, source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [] } }; },
+  });
+  const response = makeResponse();
+  guard({
+    method: 'POST',
+    session: { logicEngineSessionId: '22222222-2222-4222-8222-222222222222' },
+  }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  assert.equal(nextCalls, 0);
+  assert.equal(enumerateCalls, 0);
 });
 
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
@@ -705,24 +666,25 @@ const lifecycleSavePermit = {
   mutation_digest: 'a'.repeat(64),
 };
 
-test('ordinary character-card edits bypass chat inventory guard', async () => {
+test('character-card edits are blocked while Host authority is active', () => {
   let enumerateCalls = 0;
   let nextCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
-    enumerate: async () => { enumerateCalls++; throw new Error('HOST_VSS_CREATE_FAILED:5'); },
+    enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
   const request = {
     method: 'POST',
     baseUrl: '/api/characters',
     path: '/edit',
     user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
-    session: { handle: 'alice' },
+    session: { handle: 'alice', logicEngineSessionId: '33333333-3333-4333-8333-333333333333' },
   };
   const response = makeResponse();
-  await guard(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, null);
-  assert.equal(nextCalls, 1);
+  guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  assert.equal(nextCalls, 0);
   assert.equal(enumerateCalls, 0);
 });
 
@@ -999,6 +961,23 @@ test('startup group migration is permitted only when a complete scan finds no en
       },
     }),
   }), /HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED/);
+});
+
+test('startup group migration is blocked whenever Host authority is configured', async () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
+  try {
+    let enumerateCalls = 0;
+    await assert.rejects(assertHostStartupMigrationAllowed({
+      directories: { ...absoluteTestDirectories },
+      pinnedHostCommit: pinned,
+      enumerate: async () => { enumerateCalls++; return { filesystem: { status: 'complete' }, source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [] } }; },
+    }), /HOST_LIFECYCLE_STARTUP_MIGRATION_BLOCKED/);
+    assert.equal(enumerateCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
+  }
 });
 
 test('startup group migration fails closed when full inventory cannot be proven', async () => {
