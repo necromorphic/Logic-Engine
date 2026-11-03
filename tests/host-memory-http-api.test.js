@@ -382,6 +382,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
     hostAssertionNonceStore: nonceStore,
+    resolveHostLifecycleIdentity,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
