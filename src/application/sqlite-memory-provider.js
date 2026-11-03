@@ -254,7 +254,9 @@ export class SQLiteMemoryProvider {
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path, observerOnly ? { readOnly: true } : undefined);
+      this.#db = observerOnly
+        ? new DatabaseSync(path, { readOnly: true })
+        : new DatabaseSync(path);
       const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
