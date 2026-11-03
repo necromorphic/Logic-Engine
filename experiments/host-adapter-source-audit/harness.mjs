@@ -66,7 +66,7 @@ async function listEndpointFiles(directory) {
 }
 const endpointFiles = await listEndpointFiles(endpointDirectory);
 const endpointMutationCandidates = [];
-const filesystemMutationPrimitive = /\b(?:fs|fsPromises|fs\.promises)\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\b|\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\s*\(/;
+const filesystemMutationPrimitive = /\b(?:fs|fsPromises|fs\.promises)\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|appendFile(?:Sync)?|copyFile(?:Sync)?|cp(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|rmdir(?:Sync)?|mkdir(?:Sync)?|truncate(?:Sync)?|createWriteStream)\b|\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\s*\(/;
 for (const fullPath of endpointFiles) {
   const relative = 'src/endpoints/' + fullPath.slice(endpointDirectory.length + 1).split(sep).join('/');
   const source = mutationSources[relative] ?? await readFile(fullPath, 'utf8');
