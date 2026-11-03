@@ -132,6 +132,7 @@ test('Host Adapter rejects a Core binding response for another adapter or conver
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
@@ -160,6 +161,7 @@ test('Host dispatch HTTP boundary rejects uppercase generation_type', async () =
       host_installation_id: installation,
       authenticated_account_id: account,
       host_session_id: session,
+      conversation_uuid: conversation,
       conversation_id: hostConversationKey,
     }),
     fetchImpl: async () => {
