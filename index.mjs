@@ -6,6 +6,7 @@ import { createSillyTavernHostAdapter } from './host-adapter/extension-gateway/s
 import { createSillyTavernFinalSendAdapter } from './host-adapter/sillytavern-final-send-adapter.mjs';
 import { createEmbeddedGatewayRuntime } from './host-adapter/embedded-gateway-runtime.mjs';
 import { createNpcGenerationContextHostBridge } from './src/application/npc-generation-context-host-bridge.js';
+import { createNpcGenerationRequestMetadata } from './host-adapter/npc-generation-request-metadata.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -34,13 +35,6 @@ function resolveRequestModel(request, prepared) {
   return candidate;
 }
 
-function generationBody(request) {
-  const body = request?.body;
-  if (body && typeof body === 'object' && typeof body.logic_engine_request_id === 'string') return body;
-  const params = body?.params;
-  if (params && typeof params === 'object') return params;
-  return null;
-}
 
 function createNpcBridge(providerAdapter) {
   if (typeof providerAdapter?.npcGenerationContext?.prepareForDispatch !== 'function'
@@ -49,14 +43,9 @@ function createNpcBridge(providerAdapter) {
   }
   return createNpcGenerationContextHostBridge({
     runtime: providerAdapter.npcGenerationContext,
-    createRequestMetadata: request => {
-      const body = generationBody(request);
-      return Object.freeze({
-        request_id: body?.logic_engine_request_id,
-        generation_id: body?.logic_engine_generation_id,
-        generation_type: body?.logic_engine_generation_type,
-      });
-    },
+    // Correlation IDs belong to the Host. Do not read them from browser JSON;
+    // Core independently resolves every authorization selector.
+    createRequestMetadata: () => createNpcGenerationRequestMetadata(),
   });
 }
 
