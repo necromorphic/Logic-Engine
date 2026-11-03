@@ -127,14 +127,18 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
 async function isEmptySafeDirectory(directoryPath) {
   try {
     if (typeof directoryPath !== 'string' || !path.isAbsolute(directoryPath)) return false;
-    const stat = await lstat(directoryPath);
+    const resolved = path.resolve(directoryPath);
+    const root = path.parse(resolved).root;
+    if (!root) return false;
+    let cursor = root;
+    for (const segment of resolved.slice(root.length).split(path.sep).filter(Boolean)) {
+      cursor = path.join(cursor, segment);
+      const component = await lstat(cursor);
+      if (component.isSymbolicLink()) return false;
+    }
+    const stat = await lstat(resolved);
     if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-    const actualPath = await realpath(directoryPath);
-    if (!path.isAbsolute(actualPath)) return false;
-    const normalizedRequested = process.platform === 'win32' ? path.resolve(directoryPath).toLowerCase() : path.resolve(directoryPath);
-    const normalizedActual = process.platform === 'win32' ? actualPath.toLowerCase() : actualPath;
-    if (normalizedRequested !== normalizedActual) return false;
-    return (await readdir(actualPath)).length === 0;
+    return (await readdir(resolved)).length === 0;
   } catch {
     return false;
   }
