@@ -30,6 +30,7 @@ const memoryResult = () => ({
 
 function setup() {
   let currentScope = scope;
+  let canonicalSourceVersion = 'core-entity-v1:1';
   let visible = true;
   let visibilityCalls = 0;
   let denyOnVisibilityCall = Number.POSITIVE_INFINITY;
@@ -40,7 +41,18 @@ function setup() {
   let memoryResultFactory = memoryResult;
   let afterMemoryRevalidation = null;
   const engine = {
-    getSnapshot: () => scope.snapshot,
+    getSnapshot: (_worldId, options = {}) => options.includeSourceVersions === true
+      ? {
+        world_id: scope.world_id,
+        world_revision: scope.snapshot.world_revision,
+        commit_sequence: scope.snapshot.commit_sequence,
+        entities: options.entityIds.map(entity_id => ({
+          entity_id, entity_type: 'character', status: 'active', attributes: {},
+          created_by_event_id: 'event-1', updated_revision: scope.snapshot.world_revision,
+          source_version: canonicalSourceVersion,
+        })),
+      }
+      : scope.snapshot,
     readNpcKnowledge(input) {
       assert.equal(input.actor_id, scope.actor_id);
       assert.equal(input.purpose, 'npc_turn_context');
@@ -84,6 +96,7 @@ function setup() {
   return {
     runtime,
     setScope: value => { currentScope = value; },
+    setCanonicalSourceVersion: value => { canonicalSourceVersion = value; },
     setVisible: value => { visible = value; },
     setDenyOnVisibilityCall: value => { denyOnVisibilityCall = value; },
     setMemoryCurrent: value => { memoryCurrent = value; },
@@ -102,6 +115,8 @@ test('composes the live Core acquisition visibility fence and Memory consumer in
   assert.equal(built.context.lanes.lane_a.items.length, 1);
   assert.equal(built.context.lanes.lane_a.items[0].visibility_authorization_ref, 'visibility-1');
   assert.equal(built.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
+  assert.equal(built.context.lanes.lane_b.candidates[0].source_kind, 'canonical_entity');
+  assert.equal(built.context.lanes.lane_b.candidates[0].source_version, 'core-entity-v1:1');
   assert.equal(built.context.lanes.lane_b.provider_purpose, 'npc_decision');
   assert.equal((await runtime.receive(built.context, request)).status, 'accepted');
 });
@@ -278,4 +293,40 @@ test('prepareForDispatch returns no handoff when either lane is not ready', asyn
   assert.equal(prepared.status, 'non_ready');
   assert.equal(prepared.handoff, null);
   assert.equal(Object.hasOwn(prepared, 'context'), false);
+});
+
+
+test('Lane B rejects a changed canonical source-version token at the receiver fence', async () => {
+  const { runtime, setCanonicalSourceVersion } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  setCanonicalSourceVersion('core-entity-v1:2');
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+  assert.equal(received.reason, 'context_evidence_changed');
+});
+
+test('dispatch handoff exposes a Lane B-only provider projection with exact source lineage', async () => {
+  const { runtime } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
+  assert.equal(evidence.status, 'ready');
+  assert.equal(evidence.lane, 'B');
+  assert.deepEqual(evidence.sources, [{
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'core-entity-v1:1',
+  }]);
+  assert.deepEqual(evidence.candidates, [{
+    record_ref: 'memory:1',
+    record_version: 'v1',
+    authorization_generation: 2,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'core-entity-v1:1',
+  }]);
+  assert.equal(Object.hasOwn(evidence, 'lane_a'), false);
 });
