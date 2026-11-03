@@ -40,6 +40,7 @@ function setup() {
   let readActorId = scope.actor_id;
   let memoryResultFactory = memoryResult;
   let afterMemoryRevalidation = null;
+  const coordinatorLease = Object.freeze({ id: 'test-coordinator-lease' });
   const engine = {
     getSnapshot: (_worldId, options = {}) => options.includeSourceVersions === true
       ? {
@@ -53,6 +54,10 @@ function setup() {
         })),
       }
       : scope.snapshot,
+    readNpcKnowledgeUnderCoordinatorLease(input, lease) {
+      if (lease !== coordinatorLease) throw new Error('COORDINATOR_LEASE_REQUIRED');
+      return this.readNpcKnowledge(input);
+    },
     readNpcKnowledge(input) {
       assert.equal(input.actor_id, scope.actor_id);
       assert.equal(input.purpose, 'npc_turn_context');
@@ -95,6 +100,7 @@ function setup() {
   });
   return {
     runtime,
+    coordinatorLease,
     setScope: value => { currentScope = value; },
     setCanonicalSourceVersion: value => { canonicalSourceVersion = value; },
     setVisible: value => { visible = value; },
@@ -260,6 +266,20 @@ test('synchronous dispatch fence revalidates Lane A visibility and exact Core sc
   setVisible(true);
   setScope({ ...scope, actor_id: 'npc-2', snapshot: scope.snapshot });
   assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
+});
+
+test('Gateway can revalidate Lane A under its already-held shared Coordinator lease', async () => {
+  const { runtime, coordinatorLease } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+    consumed.context, request, coordinatorLease,
+  ).status, 'ready');
+  assert.equal(runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+    consumed.context, request, {},
+  ).status, 'non_ready');
 });
 
 test('synchronous dispatch fence rejects copied contexts and unconsumed handoff contexts', async () => {
