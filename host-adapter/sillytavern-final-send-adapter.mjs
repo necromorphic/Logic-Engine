@@ -235,13 +235,14 @@ export function createSillyTavernFinalSendAdapter({
       try {
         result = finalSend({
           senderRoute: args.senderRoute,
+          hostRoute,
           endpointUrl: args.endpointUrl,
           requestInit: args.requestInit,
           hostRequestContext: args.request,
           stream: args.stream,
           forwardResponse: args.forwardResponse,
           transport: args.transport,
-          protectedMemoryOverride: protectedMemory,
+          protectedMemoryOverride: protectedMemory === null ? { status: 'unprotected' } : protectedMemory,
           hostTransformsStream: args.hostTransformsStream === true,
         });
       } catch (error) {
