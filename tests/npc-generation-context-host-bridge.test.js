@@ -130,3 +130,21 @@ test('Host bridge blocks concurrent prepare calls for the same Host request', as
   assert.equal((await first).status, 'ready');
   assert.equal(bridge.consume(hostRequest, hostResponse).status, 'non_ready');
 });
+
+
+test('Host bridge rejects reuse of one frozen request-metadata object across Host requests', async () => {
+  const handoff = Object.freeze({});
+  const bridge = createNpcGenerationContextHostBridge({
+    runtime: {
+      async prepareForDispatch() { return { status: 'ready', handoff }; },
+      consumeDispatchHandoff() { return { status: 'non_ready' }; },
+      getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+    },
+    createRequestMetadata: () => requestMetadata,
+  });
+  assert.equal((await bridge.prepare({}, {})).status, 'ready');
+  const second = await bridge.prepare({}, {});
+  assert.equal(second.status, 'non_ready');
+  assert.equal(second.reason, 'request_metadata_reused');
+});
