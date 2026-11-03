@@ -507,20 +507,19 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     throw new TypeError('A trusted Host conversation resolver is required.');
   }
   const authenticatedRequests = new WeakMap();
-  async function middleware(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const identity = getAuthenticatedHostIdentity(request, {
-      requireDirectories: true,
-      requireSessionIdentity: true,
-    });
-    if (!identity || (typeof request !== 'object' && typeof request !== 'function') || request === null) {
-      return response.sendStatus(403);
-    }
+
+  async function authenticate(request) {
+    if (request === null || (typeof request !== 'object' && typeof request !== 'function')
+      || authenticatedRequests.has(request)) return Object.freeze({ status: 'FORBIDDEN' });
     try {
+      const identity = getAuthenticatedHostIdentity(request, {
+        requireDirectories: true,
+        requireSessionIdentity: true,
+      });
+      if (!identity) return Object.freeze({ status: 'FORBIDDEN' });
       const binding = await resolveConversationId(request);
       if (binding === null || binding === undefined || binding?.status === 'NON_READY') {
-        return response.status(503).json({
+        return Object.freeze({
           status: 'NON_READY',
           code: binding?.code === 'HOST_INVENTORY_NOT_AUTHORITATIVE'
             ? binding.code : 'HOST_CONTEXT_UNAVAILABLE',
@@ -539,25 +538,39 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
         || binding.host_session_id !== sessionId
         || typeof binding.conversation_id !== 'string'
         || !HOST_CONVERSATION_ID.test(binding.conversation_id)) {
-        return response.sendStatus(403);
+        return Object.freeze({ status: 'FORBIDDEN' });
       }
       const parts = binding.conversation_id.split(':');
       if (parts[0] !== binding.host_installation_id
         || parts[1] !== binding.authenticated_account_id
-        || !validUuid(parts[2])) return response.sendStatus(403);
-      authenticatedRequests.set(request, Object.freeze({
+        || !validUuid(parts[2])) return Object.freeze({ status: 'FORBIDDEN' });
+      const context = Object.freeze({
         host_installation_id: binding.host_installation_id,
         authenticated_account_id: binding.authenticated_account_id,
         host_session_id: binding.host_session_id,
         conversation_id: binding.conversation_id,
-      }));
-      return next();
+      });
+      authenticatedRequests.set(request, context);
+      return Object.freeze({ status: 'AUTHENTICATED', context });
     } catch {
-      return response.sendStatus(403);
+      return Object.freeze({ status: 'FORBIDDEN' });
     }
   }
+
+  async function middleware(request, response, next) {
+    response.set('Cache-Control', 'no-store, private');
+    response.set('Vary', 'Cookie');
+    const result = await authenticate(request);
+    if (result.status === 'AUTHENTICATED') return next();
+    if (result.status === 'NON_READY') {
+      return response.status(503).json({ status: 'NON_READY', code: result.code });
+    }
+    return response.sendStatus(403);
+  }
+
   return Object.freeze({
     middleware,
+    authenticate,
     isAuthenticatedHostRequest(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         && authenticatedRequests.has(request);
