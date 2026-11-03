@@ -22,7 +22,7 @@ const memoryResult = () => ({
   admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
   candidates: [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
-    source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
+    source_entity_id: 'source-1', source_version: 'source-v1', epistemic_kind: 'acquired_report',
     evidence_assessment: 'disputed', content: { note: 'report' },
   }],
   reason: null, snapshot: { ...scope.snapshot },
@@ -269,6 +269,45 @@ test('prepareForDispatch completes async build and receiver checks but exposes o
   assert.equal(consumed.status, 'accepted');
   assert.equal(consumed.context.lanes.lane_a.items.length, 1);
   assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
+});
+
+test('dispatch projection preserves both lanes and does not consume the opaque handoff', async () => {
+  const { runtime } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const projected = runtime.projectDispatchHandoff(prepared.handoff, request);
+  assert.equal(projected.status, 'ready');
+  assert.equal(projected.projection.contentBlocks.length, 2);
+  assert.deepEqual(projected.projection.contentBlocks[0], {
+    epistemic_kind: 'author_initial',
+    evidence_assessment: 'unassessed',
+    content: {
+      subject_ref: 'entity:npc-1',
+      predicate: 'knows',
+      value: { fact: 'private-to-npc-1' },
+    },
+  });
+  assert.deepEqual(projected.projection.contentBlocks[1], {
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'disputed',
+    content: { note: 'report' },
+  });
+  assert.deepEqual(projected.projection.sources, [{
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'source-v1',
+  }]);
+  assert.deepEqual(projected.projection.candidates, [{
+    record_ref: 'memory:1',
+    record_version: 'v1',
+    authorization_generation: 2,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'source-v1',
+  }]);
+  assert.equal(runtime.projectDispatchHandoff(prepared.handoff, { ...request, request_id: 'other' }).status, 'non_ready');
+  assert.equal(runtime.consumeDispatchHandoff(prepared.handoff, request).status, 'accepted');
+  assert.equal(runtime.projectDispatchHandoff(prepared.handoff, request).status, 'non_ready');
 });
 
 test('prepareForDispatch returns no handoff when either lane is not ready', async () => {
