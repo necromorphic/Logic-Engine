@@ -546,16 +546,16 @@ export class MemoryDispatchGateway {
           );
           CREATE INDEX dispatch_ledger_status_started
             ON dispatch_ledger(status, started_at);
-          CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
-            ON dispatch_ledger(request_digest)
-            WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+          CREATE UNIQUE INDEX dispatch_ledger_generation_digest
+            ON dispatch_ledger(request_digest);
         `);
       } else {
         const objects = new Set(this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         ).all().map((row) => row.object_name));
         if (!objects.has('table:dispatch_ledger') || !objects.has('index:dispatch_ledger_status_started')
-          || !objects.has('index:dispatch_ledger_unresolved_digest')) {
+          || (!objects.has('index:dispatch_ledger_generation_digest')
+            && !objects.has('index:dispatch_ledger_unresolved_digest'))) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
@@ -575,6 +575,7 @@ export class MemoryDispatchGateway {
           this.db.exec(`
             BEGIN IMMEDIATE;
             DROP INDEX IF EXISTS dispatch_ledger_status_started;
+            DROP INDEX IF EXISTS dispatch_ledger_generation_digest;
             DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
             ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
             CREATE TABLE dispatch_ledger (
@@ -606,11 +607,26 @@ export class MemoryDispatchGateway {
             FROM dispatch_ledger_legacy;
             DROP TABLE dispatch_ledger_legacy;
             CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
-            CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
-              ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+            CREATE UNIQUE INDEX dispatch_ledger_generation_digest
+              ON dispatch_ledger(request_digest);
             COMMIT;
           `);
         }
+      }
+      const hasGenerationDigestIndex = this.db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='dispatch_ledger_generation_digest'",
+      ).get();
+      if (!hasGenerationDigestIndex) {
+        const duplicateGenerationIdentity = this.db.prepare(`
+          SELECT request_digest FROM dispatch_ledger GROUP BY request_digest HAVING COUNT(*) > 1 LIMIT 1
+        `).get();
+        if (duplicateGenerationIdentity) throw new Error('DISPATCH_LEDGER_GENERATION_IDENTITY_COLLISION');
+        this.db.exec(`
+          BEGIN IMMEDIATE;
+          DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
+          CREATE UNIQUE INDEX dispatch_ledger_generation_digest ON dispatch_ledger(request_digest);
+          COMMIT;
+        `);
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
@@ -699,7 +715,7 @@ export class MemoryDispatchGateway {
       ).get(requestId)) throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
       if (this.db.prepare(`
         SELECT request_id FROM dispatch_ledger
-        WHERE request_digest=? AND status IN ('DISPATCH_STARTED','UNKNOWN')
+        WHERE request_digest=?
         LIMIT 1
       `).get(requestDigest)) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
 
@@ -778,12 +794,12 @@ export class MemoryDispatchGateway {
           'SELECT request_id FROM dispatch_ledger WHERE request_id=? LIMIT 1',
         ).get(requestId);
         if (duplicateRequestId) throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
-        const unresolvedReplay = this.db.prepare(`
+        const generationReplay = this.db.prepare(`
           SELECT request_id FROM dispatch_ledger
-          WHERE request_digest=? AND status IN ('DISPATCH_STARTED','UNKNOWN')
+          WHERE request_digest=?
           LIMIT 1
         `).get(requestDigest);
-        if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
+        if (generationReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
