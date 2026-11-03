@@ -236,6 +236,19 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   );
 });
 
+test('CometAPI is accepted by the protected sender registry and durable ledger', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('cometapi-dispatch', { senderRoute: 'cometapi' });
+    const response = await fixture.gateway.dispatchProtectedRequest(request);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls[0].senderRoute, 'cometapi');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('read-only Gateway SQLite connection can read committed WAL state without write access', () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-gateway-readonly-wal-'));
   const path = join(directory, 'core.sqlite');
