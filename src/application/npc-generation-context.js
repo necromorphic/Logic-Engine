@@ -469,7 +469,17 @@ function createNpcGenerationContextReceiver({
           : a.source_entity_id > b.source_entity_id ? 1
             : a.source_version < b.source_version ? -1
               : a.source_version > b.source_version ? 1 : 0);
-      const projection = immutableCopy({ contentBlocks, sources, candidates });
+      const projection = immutableCopy({
+        world_id: context.world_id,
+        actor_id: context.actor_id,
+        conversation_id: context.conversation_id,
+        adapter_id: context.adapter_id,
+        purpose: context.purpose,
+        snapshot: context.snapshot,
+        contentBlocks,
+        sources,
+        candidates,
+      });
       return Object.freeze({ status: 'ready', projection, reason: null });
     } catch {
       return nonReady('dispatch_projection_invalid');
