@@ -385,14 +385,15 @@ function assertNpcContextBinding({
   }
   const candidateKey = (candidate) => JSON.stringify([
     candidate.record_ref, candidate.record_version,
-    candidate.authorization_generation, candidate.source_entity_id,
+    candidate.authorization_generation, candidate.source_entity_id, candidate.source_version,
   ]);
   const expectedKeys = candidateSet.map(candidateKey).sort();
   const actualKeys = laneB.candidates.map((candidate) => {
     if (!isPlainRecord(candidate) || !validText(candidate.record_ref, 200)
       || !validText(candidate.record_version, 200)
       || !Number.isSafeInteger(candidate.authorization_generation)
-      || !validText(candidate.source_entity_id, 200)) {
+      || !validText(candidate.source_entity_id, 200)
+      || !validText(candidate.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     return candidateKey(candidate);
