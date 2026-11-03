@@ -483,6 +483,11 @@ export class MemoryNpcConsumer {
     }
 
     let authorizedCandidates = [];
+    // Bind each stable record/version identity before filtering unsupported or
+    // malformed source metadata. Otherwise a conflicting duplicate could hide
+    // behind the unsupported-row filter and turn a poisoned complete result
+    // into ready-empty.
+    const observedIdentitySignatures = new Map();
     for (const candidate of memoryResult.candidates) {
       // A result declared complete must not silently turn malformed records
       // into an apparently valid empty result. Scope/identity/snapshot
@@ -505,6 +510,19 @@ export class MemoryNpcConsumer {
       if (!sameSnapshot(candidate.snapshot, memoryResult.snapshot)) {
         return nonReady('memory_snapshot_stale');
       }
+      const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
+      const identitySignature = JSON.stringify([
+        candidate.source?.kind ?? null,
+        candidate.source?.entity_id ?? null,
+        candidate.source?.source_version ?? null,
+        candidate.content_kind ?? null,
+        candidate.epistemic_kind ?? null,
+      ]);
+      const previousIdentitySignature = observedIdentitySignatures.get(identity);
+      if (previousIdentitySignature !== undefined && previousIdentitySignature !== identitySignature) {
+        return nonReady('memory_record_identity_conflict');
+      }
+      observedIdentitySignatures.set(identity, identitySignature);
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
         || !validId(candidate.source?.entity_id)
