@@ -85,7 +85,7 @@ function setup() {
 test('composes the live Core acquisition visibility fence and Memory consumer into separate lanes', async () => {
   const { runtime } = setup();
   const built = await runtime.build(request);
-  assert.equal(built.status, 'ready');
+  assert.equal(built.status, 'ready', built.reason);
   assert.equal(built.context.lanes.lane_a.items.length, 1);
   assert.equal(built.context.lanes.lane_a.items[0].visibility_authorization_ref, 'visibility-1');
   assert.equal(built.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
