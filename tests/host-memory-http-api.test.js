@@ -57,6 +57,13 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     coreDatabasePath: corePath,
     coordinatorPath,
   });
+  const providerDatabasePath = join(directory, 'provider.sqlite');
+  assert.throws(() => new HostAssertionNonceStore({
+    path: providerDatabasePath,
+    coreDatabasePath: corePath,
+    coordinatorPath,
+    providerDatabasePath,
+  }), /must be separate from Core, Coordinator, and Provider databases/);
   engine.createWorld({
     world_id: 'host-memory-world', world_pack_id: 'test.host-memory',
     world_pack_version: '1', game_time: '2026-01-01T00:00:00Z',
