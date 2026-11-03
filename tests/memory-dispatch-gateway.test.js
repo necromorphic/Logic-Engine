@@ -567,7 +567,7 @@ test('stream response is not released when Provider revoke wins during upstream 
   let hostWrites = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
-    resolveProtectedMemory: (hostRequestContext) => hostRequestContext,
+    resolveProtectedMemory: (hostRequestContext) => ({ status: 'ready', context: hostRequestContext }),
     fetchImpl: () => {
       upstreamCalls += 1;
       return transportGate;
