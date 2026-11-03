@@ -59,7 +59,7 @@ int le_win_namespace_open_sidecar(
     HANDLE *opened, LogicEngineWinFileIdentity *identity) {
   HANDLE file;
   LogicEngineWinFileIdentity observed;
-  if (!parent || parent == INVALID_HANDLE_VALUE || !opened || !identity
+  if (!parent || parent == INVALID_HANDLE_VALUE || !expected || !opened || !identity
       || !le_win_namespace_valid_sidecar(basename)) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
