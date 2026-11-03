@@ -133,7 +133,7 @@ function isLiveAuthenticatedHostContext(context, conversationId) {
     if (binding.kind === 'assertion') {
       const currentSeconds = Math.floor(binding.now() / 1000);
       return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt
-        && binding.isSessionRevoked(binding.adapterId, binding.identity) !== true;
+        && binding.isSessionRevoked(binding.adapterId, binding.identity) === false;
     }
     if (binding.kind !== 'request') return false;
     const {
@@ -372,12 +372,30 @@ export function createHostSessionAssertionRunner({
         if (result && typeof result.then === 'function') {
           return Promise.resolve(result).then(value => {
             if (!isAuthenticatedHostSessionContext(context, assertion.conversation_id)) {
+              const currentSeconds = Math.floor(now() / 1000);
+              if (!Number.isSafeInteger(currentSeconds) || currentSeconds > assertion.issued_at + maxAgeSeconds) {
+                throw new Error('HOST_SESSION_ASSERTION_EXPIRED');
+              }
+              let revoked;
+              try { revoked = isSessionRevoked === null ? false : isSessionRevoked(adapterId, identity); }
+              catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+              if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+              if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
               throw new Error('HOST_SESSION_REVOKED');
             }
             return value;
           }).finally(revokeContext);
         }
         if (!isAuthenticatedHostSessionContext(context, assertion.conversation_id)) {
+          const currentSeconds = Math.floor(now() / 1000);
+          if (!Number.isSafeInteger(currentSeconds) || currentSeconds > assertion.issued_at + maxAgeSeconds) {
+            throw new Error('HOST_SESSION_ASSERTION_EXPIRED');
+          }
+          let revoked;
+          try { revoked = isSessionRevoked === null ? false : isSessionRevoked(adapterId, identity); }
+          catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+          if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+          if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
           throw new Error('HOST_SESSION_REVOKED');
         }
         revokeContext();
