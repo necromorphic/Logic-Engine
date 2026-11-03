@@ -16,6 +16,7 @@ const SENDER_ROUTE_MAP = Object.freeze({
   ai21: 'ai21',
   mistralai: 'mistral',
   cohere: 'cohere',
+  cometapi: 'cometapi',
   deepseek: 'deepseek',
   xai: 'xai',
   aimlapi: 'aimlapi',
@@ -41,7 +42,6 @@ const HOST_ROUTE_MAP = Object.freeze({
   'text-completions': 'text-completions',
   kobold: 'kobold',
   'novelai-text': 'novelai-text',
-  'horde-text': 'horde-text',
 });
 
 function assertAuthenticatedStRequest(request) {
@@ -81,14 +81,10 @@ function createFailClosedAdapter({ memoryNpcEnabled }) {
     },
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
       if (hostRoute !== 'chat-completions') {
-        const route = HOST_ROUTE_MAP[hostRoute];
-        if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
-        return route;
+        return HOST_ROUTE_MAP[hostRoute] ?? 'unregistered';
       }
       const source = request?.body?.chat_completion_source;
-      const route = typeof source === 'string' ? SENDER_ROUTE_MAP[source] : null;
-      if (!route) throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
-      return route;
+      return typeof source === 'string' ? (SENDER_ROUTE_MAP[source] ?? 'unregistered') : 'unregistered';
     },
     authorizeResponseWrite(_response, write) {
       if (typeof write !== 'function') throw new TypeError('Final-Send writer is required.');
