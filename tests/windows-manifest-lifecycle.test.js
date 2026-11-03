@@ -340,4 +340,10 @@ test('reconcile fails closed on generation gaps and malformed intents', async ()
   await assert.rejects(h.coordinator.reconcile(), /generation does not match/);
   h.state.intent.operationId = '../invalid';
   await assert.rejects(h.coordinator.reconcile(), /Malformed Windows manifest lifecycle intent/);
+  h.state.intent.operationId = 'b'.repeat(32);
+  h.state.intent.unexpected = true;
+  await assert.rejects(h.coordinator.reconcile(), /unknown or missing fields/);
+  delete h.state.intent.unexpected;
+  h.state.intent.expectedIdentity.unexpected = true;
+  await assert.rejects(h.coordinator.reconcile(), /Invalid delete intent identity/);
 });
