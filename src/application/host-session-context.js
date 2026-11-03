@@ -160,24 +160,38 @@ function isLiveAuthenticatedHostContext(context, conversationId) {
   }
 }
 
+function invalidateHostContext(context) {
+  try {
+    contexts.delete(context);
+    contextBindings.delete(context);
+  } catch {}
+}
+
 export function isAuthenticatedHostSessionContext(context, conversationId) {
   try {
-    return context !== null && typeof context === 'object'
-      && contexts.has(context)
-      && (context.identity === 'SIGNED_AUTHENTICATED_ST_SESSION'
-        || context.identity === 'SIGNED_HOST_SESSION_ASSERTION')
-      && context.conversation_id === conversationId
-      && isLiveAuthenticatedHostContext(context, conversationId)
-      && HOST_SESSION_UUID.test(context.host_installation_id ?? '')
-      && HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
-      && context.conversation_id.slice(0, context.conversation_id.indexOf(':')) === context.host_session_id
-      && context.conversation_id.slice(
+    if (context === null || typeof context !== 'object' || !contexts.has(context)
+      || (context.identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
+        && context.identity !== 'SIGNED_HOST_SESSION_ASSERTION')
+      || context.conversation_id !== conversationId
+      || !HOST_SESSION_UUID.test(context.host_installation_id ?? '')
+      || !HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
+      || context.conversation_id.slice(0, context.conversation_id.indexOf(':')) !== context.host_session_id
+      || context.conversation_id.slice(
         context.conversation_id.indexOf(':') + 1,
         context.conversation_id.lastIndexOf(':'),
-      ) === context.host_installation_id
-      && HOST_SESSION_UUID.test(context.host_session_id ?? '')
-      && validBindingId(context.world_id) && validBindingId(context.actor_id);
+      ) !== context.host_installation_id
+      || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
+      || !validBindingId(context.world_id) || !validBindingId(context.actor_id)) {
+      invalidateHostContext(context);
+      return false;
+    }
+    if (!isLiveAuthenticatedHostContext(context, conversationId)) {
+      invalidateHostContext(context);
+      return false;
+    }
+    return true;
   } catch {
+    invalidateHostContext(context);
     return false;
   }
 }
