@@ -336,6 +336,7 @@ function createNpcGenerationContextReceiver({
     const accepted = Object.freeze({ status: 'accepted', context, reason: null });
     acceptedReceipts.set(accepted, Object.freeze({
       context,
+      request,
       request_id: request.request_id,
       generation_id: request.generation_id,
       generation_type: request.generation_type,
@@ -349,6 +350,7 @@ function createNpcGenerationContextReceiver({
   function issueDispatchHandoff(accepted, request) {
     const receipt = accepted && typeof accepted === 'object' ? acceptedReceipts.get(accepted) : null;
     if (!receipt || consumedReceipts.has(accepted) || !validateRequest(request)
+      || receipt.request !== request
       || receipt.request_id !== request.request_id
       || receipt.generation_id !== request.generation_id
       || receipt.generation_type !== request.generation_type
@@ -367,6 +369,7 @@ function createNpcGenerationContextReceiver({
   function consumeDispatchHandoff(handoff, request) {
     const receipt = handoff && typeof handoff === 'object' ? dispatchHandoffs.get(handoff) : null;
     if (!receipt || consumedHandoffs.has(handoff) || !validateRequest(request)
+      || receipt.request !== request
       || receipt.request_id !== request.request_id
       || receipt.generation_id !== request.generation_id
       || receipt.generation_type !== request.generation_type) {
