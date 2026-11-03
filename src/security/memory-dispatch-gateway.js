@@ -144,8 +144,43 @@ function normalizeHostContext(value) {
   return Object.freeze(Object.fromEntries(keys.map(key => [key, value[key]])));
 }
 
+function normalizeLaneA(value) {
+  if (value === undefined || value === null) return Object.freeze({ lane: 'A', purpose: 'npc_turn_context', items: Object.freeze([]) });
+  const keys = ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'];
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
+    || Object.getPrototypeOf(value) !== Object.prototype
+    || Reflect.ownKeys(value).length !== keys.length
+    || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (value.lane !== 'A' || value.purpose !== 'npc_turn_context'
+    || !validText(value.authorization_ref, 200)
+    || !validText(value.visibility_authorization_ref, 200)
+    || !Array.isArray(value.items) || value.items.length > 200) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  // Lane A is already a Core-issued immutable projection. Reject accessors,
+  // proxies and non-JSON values before binding it into the dispatch digest.
+  const serialized = JSON.stringify(value);
+  if (typeof serialized !== 'string' || serialized.length > 2_000_000) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const copied = JSON.parse(serialized);
+  return Object.freeze({
+    lane: 'A',
+    purpose: 'npc_turn_context',
+    authorization_ref: value.authorization_ref,
+    visibility_authorization_ref: value.visibility_authorization_ref,
+    items: Object.freeze(copied.items.map(item => Object.freeze(item))),
+  });
+}
+
 function normalizeSources(sources) {
-  if (!Array.isArray(sources) || sources.length === 0 || sources.length > 256) {
+  if (!Array.isArray(sources) || sources.length > 256) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const normalized = sources.map((source) => {
@@ -176,7 +211,7 @@ function normalizeSources(sources) {
 
 
 function normalizeCandidates(candidates) {
-  if (!Array.isArray(candidates) || candidates.length === 0 || candidates.length > 50) {
+  if (!Array.isArray(candidates) || candidates.length > 50) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
   const normalized = candidates.map((candidate) => {
@@ -439,7 +474,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, laneA, revalidateLaneA, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
@@ -452,6 +487,14 @@ export class MemoryDispatchGateway {
     }
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
+    const laneASnapshot = normalizeLaneA(laneA);
+    if (sourceSet.length === 0 && candidateSet.length === 0 && laneASnapshot.items.length === 0) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    if (laneASnapshot.items.length > 0
+      && (typeof revalidateLaneA !== 'function' || revalidateLaneA instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
+    }
     const hostContextSnapshot = normalizeHostContext(hostContext);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
     // Sender family is intentionally excluded from the replay digest:
@@ -467,6 +510,7 @@ export class MemoryDispatchGateway {
       purpose,
       sources: sourceSet,
       candidates: candidateSet,
+      lane_a: laneASnapshot,
       host_context: hostContextSnapshot,
     }), 'utf8').digest('hex');
     let coreHead;
@@ -488,13 +532,16 @@ export class MemoryDispatchGateway {
       }
 
       const core = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        worldId, actorId, purpose, sources: sourceSet, laneA: laneASnapshot,
+        coordinatorLease: release,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
         worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
+        coordinatorLease: release,
       }));
       const host = assertSyncResult(this.readHostEvidence({
         hostContext: hostContextSnapshot, worldId, actorId, purpose,
+        coordinatorLease: release,
       }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
@@ -616,12 +663,13 @@ export class MemoryDispatchGateway {
     let finalResponseAllowed = false;
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
-      sources: sourceSet, candidates: candidateSet, hostContext: hostContextSnapshot,
+      sources: sourceSet, candidates: candidateSet, laneA: laneASnapshot,
+      revalidateLaneA, hostContext: hostContextSnapshot,
       coreHead, providerHead, policyAuthority,
     };
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
-      this.#revalidateReleaseContext(releaseContext);
+      this.#revalidateReleaseContext(releaseContext, finalRelease);
       this.pendingReleases.set(requestId, releaseContext);
       finalResponseAllowed = true;
     } catch {
@@ -662,7 +710,7 @@ export class MemoryDispatchGateway {
     return response;
   }
 
-  #revalidateReleaseContext(context) {
+  #revalidateReleaseContext(context, coordinatorLease) {
     const currentAuthority = getAcceptedHeadStatusSync({
       port: this.authorityPort,
       token: this.readToken,
@@ -674,11 +722,12 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
     const currentCore = assertSyncResult(this.readCoreEvidence({
-      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose, sources: context.sources,
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
+      sources: context.sources, laneA: context.laneA, coordinatorLease,
     }));
     const currentProvider = assertSyncResult(this.readProviderEvidence({
       worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
-      sources: context.sources, candidates: context.candidates,
+      sources: context.sources, candidates: context.candidates, coordinatorLease,
     }));
     if (currentCore.world_id !== context.worldId || currentCore.actor_id !== context.actorId
       || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
@@ -692,11 +741,18 @@ export class MemoryDispatchGateway {
     assertSameSources(currentProvider.sources, context.sources);
     assertSameCandidates(currentProvider.candidates, context.candidates);
     assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
+    if (context.laneA.items.length > 0) {
+      const laneAResult = context.revalidateLaneA(coordinatorLease);
+      if (!laneAResult || laneAResult.status !== 'ready'
+        || typeof laneAResult.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
+      }
+    }
     const currentHost = assertSyncResult(this.readHostEvidence({
       hostContext: context.hostContext,
       worldId: context.worldId,
       actorId: context.actorId,
-      purpose: context.purpose,
+      purpose: context.purpose, coordinatorLease,
     }));
     if (currentHost.status !== 'READY'
       || currentHost.adapter_id !== context.hostContext.adapter_id
@@ -720,7 +776,7 @@ export class MemoryDispatchGateway {
     let release;
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
-      this.#revalidateReleaseContext(context);
+      this.#revalidateReleaseContext(context, release);
       const result = write();
       if (result !== null && (typeof result === 'object' || typeof result === 'function')
         && typeof result.then === 'function') {
