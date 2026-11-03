@@ -563,6 +563,8 @@ test('all protected sender families share one real Gateway and each causes exact
     purpose: 'recall',
     sources: sourceSet,
     candidates: validRequest().candidates,
+    contentBlocks: [{ epistemic_kind: 'acquired_report', evidence_assessment: 'supported',
+      content: { note: 'protected' } }],
   };
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
@@ -577,13 +579,20 @@ test('all protected sender families share one real Gateway and each causes exact
     for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
       routeIndex += 1;
       const requestId = 'sender-route-' + routeIndex;
+      const hostRoute = ['text-completions', 'kobold', 'novelai-text'].includes(senderRoute)
+        ? senderRoute
+        : 'chat-completions';
+      const providerBody = hostRoute === 'chat-completions'
+        ? { messages: [{ role: 'user', content: 'protected' }] }
+        : hostRoute === 'novelai-text' ? { input: 'protected' } : { prompt: 'protected' };
       await finalSend({
         senderRoute,
+        hostRoute,
         endpointUrl: 'https://provider.example/v1/chat/completions',
         requestInit: {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
+          body: JSON.stringify(providerBody),
         },
         hostRequestContext: { ...prepared, requestId },
       });
