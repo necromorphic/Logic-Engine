@@ -87,15 +87,19 @@ test('server and browser extension loaders reject unreviewed third-party code be
   assert.match(pluginLoader, /await loadFromDirectory\(app, pluginFilePath, exitHooks\)/);
   assert.match(extensionLoader, /fetch\('\/api\/extensions\/discover'\)/,
     'pinned browser loader must obtain extension names from the guarded server discovery route');
-  const pluginStart = rootMutationPatch.indexOf('diff --git a/src/plugin-loader.js ');
-  assert.ok(pluginStart >= 0, 'root mutation patch must include the server plugin loader');
-  const pluginEnd = rootMutationPatch.indexOf('\ndiff --git ', pluginStart + 10);
-  const pluginSection = rootMutationPatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
+  const pluginStart = lifecyclePatch.indexOf('diff --git a/src/plugin-loader.js ');
+  assert.ok(pluginStart >= 0, 'lifecycle patch must include the server plugin loader');
+  const pluginEnd = lifecyclePatch.indexOf('\ndiff --git ', pluginStart + 10);
+  const pluginSection = lifecyclePatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
   const files = pluginSection.indexOf('const files = fs.readdirSync(pluginsPath)');
-  const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
   const update = pluginSection.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
-  assert.ok(files >= 0 && allowlist > files && update > allowlist,
-    'server plugin allowlist must run before automatic updates and plugin imports');
+  const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
+  const firstImport = Math.min(
+    pluginSection.indexOf('await loadFromDirectory(app, pluginFilePath, exitHooks)'),
+    pluginSection.indexOf('await loadFromFile(app, pluginFilePath, exitHooks)'),
+  );
+  assert.ok(files >= 0 && update > files && allowlist > update && firstImport > allowlist,
+    'server plugin updates must be disabled in Host mode and unreviewed plugins rejected before import');
 
   const extensionStart = rootMutationPatch.indexOf('diff --git a/src/endpoints/extensions.js ');
   const extensionEnd = rootMutationPatch.indexOf('\ndiff --git ', extensionStart + 10);
