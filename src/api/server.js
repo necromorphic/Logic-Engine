@@ -746,7 +746,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                     conversation_uuid: assertionConversation[2],
                   });
                 } catch {
-                  trustedHostIdentity = null;
+                  throw new Error('HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE');
                 }
               }
               if (trustedHostIdentity?.authorized !== true
