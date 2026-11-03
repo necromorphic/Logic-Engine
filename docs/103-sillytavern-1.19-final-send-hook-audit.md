@@ -56,7 +56,7 @@ At the audited Gateway head:
 - streaming's first Host response write is invoked synchronously only after successful final revalidation while the lease is held;
 - integration tests exercise all 29 sender identities and assert one upstream handoff per request, alongside revoke-during-inference, stream ordering, and crash/restart replay-block tests.
 
-These prove the Gateway/helper contract. They do **not** prove native SillyTavern call-site interception, because no supported native hook exists in the inspected release.
+These prove the Gateway/helper contract only. The ordinary Extension API has no native Final-Send hook; the owner-authorized managed source patch now instruments five native handlers, but the current real-handler harness covers Chat Completions only. Exact-head patch apply and route-specific egress tests for Text Completions, Kobold, and NovelAI remain pending. Horde is deliberately not protected because `/task-status` is a separate asynchronous result route.
 
 ## Acceptance status
 
@@ -68,8 +68,8 @@ These prove the Gateway/helper contract. They do **not** prove native SillyTaver
 | Shared Coordinator lease with revoke ordering | Implemented in the Gateway primitive |
 | Final response revalidation before Host release | Implemented in the Gateway primitive |
 | Ambiguous crash/restart recovery and replay blocking | Implemented in the Gateway primitive |
-| Actual upstream call count | Asserted by Gateway integration tests (one handoff per family test) |
-| Native ST route interception for all provider senders | Implemented by the authorized managed patch across five native text-generation handlers; exact-head CI and live production evidence remain separate gates |
+| Gateway transport handoff count | Asserted by Gateway integration tests (one handoff per registered sender identity); this is not native provider call-count proof |
+| Native ST route instrumentation for protected senders | Patch wraps Chat Completions, Text Completions, Kobold, and NovelAI; Horde task creation is denied for protected Memory. Route-specific native egress tests and exact-head CI remain pending |
 | Real authenticated ST Host Adapter bound to session / installation / conversation / world / actor | **Not wired** |
 | Deployment-owned Core evidence reader and real policy fingerprint | **Not wired** |
 | End-to-end proof through actual ST native generation | **Not available; must not be claimed** |
