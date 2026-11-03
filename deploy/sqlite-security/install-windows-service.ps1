@@ -31,6 +31,58 @@ if (-not (Test-Path -LiteralPath (Join-Path $InstallDirectory 'src\index.js') -P
 if (-not (Test-Path -LiteralPath $NodePath -PathType Leaf)) { throw "Node executable not found." }
 if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) { New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null }
 if ($EnvironmentFile -and -not (Test-Path -LiteralPath $EnvironmentFile -PathType Leaf)) { throw "EnvironmentFile does not exist." }
+function Assert-NoReparsePoints([string]$Path) {
+  $root = Get-Item -LiteralPath $Path -Force
+  if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Security-sensitive tree root must not be a reparse point: $Path"
+  }
+  foreach ($item in (Get-ChildItem -LiteralPath $Path -Force -Recurse -ErrorAction Stop)) {
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Security-sensitive tree contains a reparse point: $($item.FullName)"
+    }
+  }
+}
+function Set-PrivateTreeAcl([string]$Path, [string]$ServiceSid, [string]$ServiceRights) {
+  # Reset every existing child first; root-only ACL edits leave stale explicit
+  # grants on pre-existing descendants and do not establish a tree boundary.
+  & icacls.exe $Path /reset /T /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to reset existing ACLs recursively: $Path" }
+  & icacls.exe $Path /inheritance:r /T /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to remove inherited ACLs recursively: $Path" }
+  & icacls.exe $Path /grant:r "*$($ServiceSid):(OI)(CI)$($ServiceRights)" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T /C | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "Failed to apply recursive private ACLs: $Path" }
+  $allowed = @($ServiceSid, "S-1-5-18", "S-1-5-32-544")
+  $required = if ($ServiceRights -eq "RX") {
+    [Security.AccessControl.FileSystemRights]::ReadAndExecute
+  } else {
+    [Security.AccessControl.FileSystemRights]::FullControl
+  }
+  $items = @((Get-Item -LiteralPath $Path -Force)) + @(Get-ChildItem -LiteralPath $Path -Force -Recurse -ErrorAction Stop)
+  foreach ($item in $items) {
+    $acl = Get-Acl -LiteralPath $item.FullName
+    if (-not $acl.AreAccessRulesProtected) {
+      throw "Inherited ACLs remain enabled after hardening: $($item.FullName)"
+    }
+    $rules = $acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier])
+    foreach ($rule in $rules) {
+      if ($rule.IdentityReference.Value -notin $allowed -or
+          $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) {
+        throw "Unexpected ACL principal or deny rule remains: $($item.FullName)"
+      }
+    }
+    foreach ($sid in $allowed) {
+      $requiredRights = if ($sid -eq $ServiceSid) { $required } else {
+        [Security.AccessControl.FileSystemRights]::FullControl
+      }
+      $present = $rules | Where-Object {
+        $_.IdentityReference.Value -eq $sid -and
+        $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+        (([int]$_.FileSystemRights -band [int]$requiredRights) -eq [int]$requiredRights)
+      }
+      if (-not $present) { throw "Required ACL is missing for $sid on $($item.FullName)" }
+    }
+  }
+}
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
 $account = "NT SERVICE\$ServiceName"
 $entry = Join-Path $InstallDirectory 'src\index.js'
@@ -40,11 +92,12 @@ if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-accou
   try {
     Invoke-Sc @("sidtype", $ServiceName, "unrestricted")
     $sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+    # Reject reparse points before recursive ACL changes; ancestors still must be admin-controlled.
+    Assert-NoReparsePoints $InstallDirectory
+    Assert-NoReparsePoints $StateDirectory
     # The service may execute/read application files but cannot replace its own code.
-    & icacls.exe $InstallDirectory /inheritance:r /grant:r "*$($sid):(OI)(CI)RX" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Failed to make the application install tree read-only to the service identity." }
-    & icacls.exe $StateDirectory /inheritance:r /grant:r "*$($sid):(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Failed to protect state directory ACL." }
+    Set-PrivateTreeAcl $InstallDirectory $sid "RX"
+    Set-PrivateTreeAcl $StateDirectory $sid "F"
     if ($EnvironmentFile) {
       & icacls.exe $EnvironmentFile /inheritance:r /grant:r "*$($sid):R" "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Host
       if ($LASTEXITCODE -ne 0) { throw "Failed to protect environment file ACL." }
