@@ -51,6 +51,9 @@ function validateProjection(value) {
     || !validId(value.conversation_id) || !validId(value.adapter_id)
     || value.purpose !== 'npc_turn_context'
     || !value.snapshot || typeof value.snapshot !== 'object'
+    || Reflect.ownKeys(value.snapshot).length !== 2
+    || !Object.hasOwn(value.snapshot, 'world_revision')
+    || !Object.hasOwn(value.snapshot, 'commit_sequence')
     || !Number.isSafeInteger(value.snapshot.world_revision) || value.snapshot.world_revision < 0
     || !Number.isSafeInteger(value.snapshot.commit_sequence) || value.snapshot.commit_sequence < 0
     || !Array.isArray(value.contentBlocks) || !Array.isArray(value.sources)
