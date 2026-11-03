@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
+import { createSignedRootInventoryAttestation } from './st-source-attestation.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -309,7 +310,7 @@ export function createHostRootInventoryPersistence({
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
-  return async function persistHostRootInventory({ userHandle, rootPath, entries }) {
+  return async function persistHostRootInventory({ userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity }) {
     const target = configuredTarget(env);
     if (!target) return { status: 'NON_READY', reason: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' };
     if (!validId(userHandle) || typeof rootPath !== 'string' || !pathModule.isAbsolute(rootPath)
@@ -364,13 +365,67 @@ export function createHostRootInventoryPersistence({
       return { status: upstream.status, payload };
     };
     try {
-      const first = await post('/v1/host-root-inventory/baseline', randomUUID());
-      if (first.status === 409
-        && first.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
-        const observed = await post('/v1/host-root-inventory/observe', randomUUID());
-        return normalizeRootInventoryResponse(observed);
+      let upstream = await post('/v1/host-root-inventory/baseline', randomUUID());
+      if (upstream.status === 409
+        && upstream.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
+        upstream = await post('/v1/host-root-inventory/observe', randomUUID());
       }
-      return normalizeRootInventoryResponse(first);
+      const normalized = normalizeRootInventoryResponse(upstream);
+      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+        || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
+        || !/^[a-f0-9]{64}$/.test(snapshotSha256 ?? '')) {
+        return normalized;
+      }
+      const reconciliation = upstream?.payload?.reconciliation;
+      let attestation;
+      try {
+        attestation = createSignedRootInventoryAttestation({
+          adapterId: target.adapterId,
+          adapterToken: target.adapterToken,
+          identity: {
+            host_installation_id: identity.host_installation_id,
+            authenticated_account_id: identity.authenticated_account_id,
+            root_id,
+          },
+          reconciliation,
+          snapshotAlignment,
+          snapshotSha256,
+          sourceIdentity,
+        });
+      } catch {
+        return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_ATTESTATION_INPUT_NON_READY' };
+      }
+      const attestationUrl = new URL(target.url);
+      attestationUrl.pathname = '/v1/host-root-inventory/attest';
+      const attestationResponse = await fetchImpl(attestationUrl, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          root_id,
+          attestation,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let attestationPayload;
+      try { attestationPayload = await attestationResponse.json(); }
+      catch { return { status: 'NON_READY', reason: 'LOGIC_ENGINE_INVALID_ATTESTATION_RESPONSE' }; }
+      if (!attestationResponse.ok
+        || attestationPayload?.inventory_status !== 'AUTHORITATIVE_COMPLETE'
+        || attestationPayload?.reconciliation?.integrity_status !== 'INTEGRITY_OK') {
+        return {
+          status: 'NON_READY',
+          reason: 'HOST_ROOT_INVENTORY_ATTESTATION_REJECTED',
+          upstream_status: attestationResponse.status,
+        };
+      }
+      return normalizeRootInventoryResponse(attestationPayload);
     } catch {
       return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
     }
