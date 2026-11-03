@@ -229,6 +229,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   });
   // This proof stub is test-only. Production uses the signed Core root-inventory
   // response; a local candidate scan without that proof must remain NON_READY.
+  let includeLifecycleProof = true;
   const testOnlyAuthoritativeRootProof = async ({
     userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity,
   }) => {
@@ -246,8 +247,10 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       manifest_sha256: 'c'.repeat(64),
       source_manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
       attestation_sha256: 'd'.repeat(64),
-      lifecycle_sequence: 1,
-      lifecycle_head_sha256: 'e'.repeat(64),
+      ...(includeLifecycleProof ? {
+        lifecycle_sequence: 1,
+        lifecycle_head_sha256: 'e'.repeat(64),
+      } : {}),
     };
   };
   const adapter = createSillyTavernHostAdapter({
@@ -319,6 +322,16 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     world_id: 'host-e2e-world',
   });
   assert.equal(worldBinding.status, 201);
+
+  includeLifecycleProof = false;
+  const incompleteLifecycleGate = responseRecorder();
+  let incompleteLifecyclePassed = false;
+  await adapter.dispatchMiddleware(request, incompleteLifecycleGate, () => { incompleteLifecyclePassed = true; });
+  assert.equal(incompleteLifecyclePassed, false);
+  assert.equal(incompleteLifecycleGate.statusCode, 503);
+  assert.equal(incompleteLifecycleGate.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  assert.equal(coreCalls.includes('/v1/host-context/resolve'), false);
+  includeLifecycleProof = true;
 
   const gateResponse = responseRecorder();
   let passedGate = false;
