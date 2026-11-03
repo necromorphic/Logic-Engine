@@ -148,6 +148,37 @@ This endpoint is distinct from the existing admin bind/rebind and adapter resolv
 
 ## 5. Core Memory retrieval API
 
+### 3.4 Durable logout and session-rotation revocation — P0
+
+A 30-second assertion lifetime is only an admission bound. It is not a substitute for logout/session-rotation revocation. Host MUST send a server-to-server revocation event before destroying or rotating the SillyTavern session.
+
+#### `POST /v1/host/session/revoke`
+
+The route requires the configured adapter credentials (`x-adapter-id`, `x-adapter-token`) and an exact signed body:
+
+```json
+{
+  "protocol_version": 1,
+  "host_installation_id": "<uuid>",
+  "authenticated_account_id": "<uuid>",
+  "host_session_id": "<uuid>",
+  "issued_at": 0,
+  "nonce": "<uuid>",
+  "reason": "logout",
+  "signature": "<64 lowercase hex characters>"
+}
+```
+
+Allowed reasons: `logout` and `session_rotation`. The signature is HMAC-SHA256 under the adapter secret over UTF-8 `JSON.stringify([...])` in this exact order:
+
+`protocol_version, adapter_id, host_installation_id, authenticated_account_id, host_session_id, issued_at, nonce, reason`.
+
+Events older than 30 seconds or more than 5 seconds in the future are rejected. Revocation is scoped to the exact `adapter_id + host_installation_id + authenticated_account_id + host_session_id` tuple. The event nonce and revocation row are committed atomically to the durable assertion SQLite database. Duplicate event nonce returns 409; invalid signature returns 401; durable storage failure returns 503. No request body field can select or override the adapter identity.
+
+Core checks this durable revocation status both when admitting an assertion and again after the asynchronous Consumer/Provider read completes. If a session is revoked while retrieval is in progress, Core MUST discard the result and return `401 HOST_SESSION_REVOKED`; it must never return a ready Result Envelope. Revocation survives Core restart. The existing Result Envelope and Provider contract are unchanged.
+
+Host integration requirement: invoke this route from the server-side logout and session-rotation lifecycle hooks before invalidating the old session. On transport failure, Host MUST fail closed for Memory retrieval and MUST NOT issue new assertions for the old session. Client-side logout signals are not an acceptable substitute.
+
 ### `POST /v1/host/memory-npc/retrieve`
 
 Purpose: consume one authenticated Host assertion and return the existing Core `MemoryNpcConsumer.retrieveForNpc()` result. It does not perform model dispatch and does not authorize a later transport.
