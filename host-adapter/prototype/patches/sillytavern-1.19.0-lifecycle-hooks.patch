@@ -1079,6 +1079,29 @@ diff --git a/src/users.js b/src/users.js
          console.error('Error during auto-login:', error);
 +        if (['HOST_SESSION_REVOCATION_UNAVAILABLE', 'HOST_SESSION_REVOCATION_IDENTITY_INVALID'].includes(error?.message)) return response.status(503).send('Host session revocation unavailable; account was not switched.');
      }
+@@ -232,7 +233,10 @@
+ export async function migrateUserData() {
+     const publicDirectory = path.join(process.cwd(), 'public');
+ 
+     // No need to migrate if the characters directory doesn't exists
+-    if (!fs.existsSync(path.join(publicDirectory, 'characters'))) {
++    const legacyCharactersDirectory = path.join(publicDirectory, 'characters');
++    if (!fs.existsSync(legacyCharactersDirectory)) {
+         return;
+     }
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
++    }
+
+@@ -434,6 +438,10 @@
+ export async function migrateSystemPrompts() {
++    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++        console.warn('Skipping system prompt migration while Host authority is active.');
++        return;
++    }
++
+     /**
+
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
