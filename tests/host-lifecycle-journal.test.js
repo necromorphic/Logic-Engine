@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import { PINNED_ST_COMMIT, PINNED_ST_MUTATION_COVERAGE_SHA256, PINNED_ST_MUTATION_ROUTE_COUNT } from '../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 
 const installation = '11111111-1111-4111-8111-111111111111';
 const account = '22222222-2222-4222-8222-222222222222';
@@ -272,6 +273,129 @@ const rootInput = (overrides = {}) => ({
   event_id: 'root-event-1',
   entries: rootEntries(digest('first')),
   ...overrides,
+});
+
+test('fresh completeness proofs re-attest changed root manifests and survive restart', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-root-completeness-refresh-'));
+  const path = join(directory, 'host-journal.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const resolveRootIdentity = input => ({
+    authorized: true,
+    adapter_id: 'test-adapter',
+    host_installation_id: input.host_installation_id,
+    authenticated_account_id: input.authenticated_account_id,
+    root_id: input.root_id,
+  });
+  const verifyCompletenessProof = () => true;
+  const makeProof = (sequence, manifestSha256, eventId) => ({
+    protocol_version: 1,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    event_id: eventId,
+    root_inventory_sequence: sequence,
+    manifest_sha256: manifestSha256,
+    source_commit: PINNED_ST_COMMIT,
+    coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+    snapshot_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    filesystem_scope: 'single-root-regular-files-only',
+    filesystem_status: 'complete',
+    scan_passes: 2,
+    reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+    file_count: 1,
+    total_bytes: 64,
+    source_status: 'DOUBLE_SCAN_CANDIDATE',
+    logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+    legacy_group_metadata_count: 0,
+    route_coverage_status: 'VERIFIED',
+    route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+    source_files_sha256: digest('verified-pinned-source-files'),
+    occurred_at: '2026-11-03T00:00:00.000Z',
+  });
+  const createJournal = () => new HostLifecycleJournal({
+    path,
+    coordinatorPath,
+    resolveRootIdentity,
+    resolveIdentity: () => ({ authorized: false }),
+    verifyCompletenessProof,
+  });
+  let journal = createJournal();
+  t.after(() => {
+    try { journal.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const baseline = rootInput();
+  const enrolled = journal.enrollRootInventory(baseline);
+  const firstProof = makeProof(1, enrolled.manifest_sha256, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+  const firstComplete = journal.completeRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    proof: firstProof,
+    proof_signature: 'a'.repeat(64),
+  });
+  assert.equal(firstComplete.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(firstComplete.sequence, 1);
+
+  const changed = rootInput({
+    event_id: 'root-completeness-refresh-delta',
+    entries: rootEntries(digest('after-supported-chat-save')),
+  });
+  const observed = journal.observeRootInventory(changed);
+  assert.equal(observed.status, 'NON_READY');
+  assert.equal(observed.sequence, 2);
+  assert.equal(journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  }).status, 'NON_READY');
+
+  const secondProof = makeProof(2, observed.manifest_sha256, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+  const secondComplete = journal.completeRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    proof: secondProof,
+    proof_signature: 'b'.repeat(64),
+  });
+  assert.equal(secondComplete.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(secondComplete.sequence, 2);
+  assert.equal(secondComplete.completeness_sequence, 2);
+  assert.equal(journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  }).status, 'INTEGRITY_OK');
+
+  journal.close();
+  journal = createJournal();
+  const afterRestart = journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  });
+  assert.equal(afterRestart.status, 'INTEGRITY_OK');
+  assert.equal(afterRestart.sequence, 2);
+  assert.equal(afterRestart.manifest_sha256, secondProof.manifest_sha256);
+  assert.equal(journal.completeRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    proof: secondProof,
+    proof_signature: 'b'.repeat(64),
+  }).duplicate, true);
 });
 
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
