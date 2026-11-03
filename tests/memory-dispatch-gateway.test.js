@@ -1365,10 +1365,11 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
       'setTimeout(() => process.exit(78), 5000);',
     ].join('\\n');
+    const crashRequest = validRequest('process-crash-after-handoff');
     const child = spawn(process.execPath, [
       '--input-type=module', '-e', script,
       fixture.ledgerPath, fixture.coordinatorPath, String(fixture.port), readToken,
-      counterPath, JSON.stringify(validRequest('process-crash-after-handoff')),
+      counterPath, JSON.stringify(crashRequest),
     ], {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -1400,8 +1401,8 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id', {
         generationRequest: {
           request_id: 'process-crash-replay-new-id',
-          generation_id: JSON.parse(requestJson).generationRequest.generation_id,
-          generation_type: JSON.parse(requestJson).generationRequest.generation_type,
+          generation_id: crashRequest.generationRequest.generation_id,
+          generation_type: crashRequest.generationRequest.generation_type,
         },
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
