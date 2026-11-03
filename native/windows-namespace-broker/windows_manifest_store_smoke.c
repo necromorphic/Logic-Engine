@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sddl.h>
+#include <strsafe.h>
+#define LE_COUNT_OF(value) (sizeof(value) / sizeof((value)[0]))
 #include "windows_manifest_store.c"
 
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
@@ -25,8 +27,8 @@ int main(void) {
   PSECURITY_DESCRIPTOR descriptor = NULL;
   SECURITY_ATTRIBUTES security_attributes;
   wchar_t sddl[512];
-  if (!GetTempPathW(_countof(temp), temp)) return 2;
-  if (FAILED(StringCchPrintfW(directory, _countof(directory),
+  if (!GetTempPathW(LE_COUNT_OF(temp), temp)) return 2;
+  if (FAILED(StringCchPrintfW(directory, LE_COUNT_OF(directory),
       L"%sLogicEngineBrokerStore-%lu-%llu", temp,
       GetCurrentProcessId(), GetTickCount64()))) return 3;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return 4;
@@ -35,7 +37,7 @@ int main(void) {
   user = (TOKEN_USER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, token_bytes);
   if (!user || !GetTokenInformation(token, TokenUser, user, token_bytes, &token_bytes)
       || !ConvertSidToStringSidW(user->User.Sid, &user_sid)) goto done;
-  if (FAILED(StringCchPrintfW(sddl, _countof(sddl),
+  if (FAILED(StringCchPrintfW(sddl, LE_COUNT_OF(sddl),
       L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;%s)", user_sid))
       || !ConvertStringSecurityDescriptorToSecurityDescriptorW(
           sddl, SDDL_REVISION_1, &descriptor, NULL)) goto done;
@@ -67,9 +69,9 @@ close_store:
 done:
   {
     wchar_t child[MAX_PATH];
-    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\manifest.json\", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\store.lock\", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, _countof(child), L\"%s\\intent.json\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\manifest.json\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\store.lock\", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L\"%s\\intent.json\", directory))) DeleteFileW(child);
   }
   RemoveDirectoryW(directory);
   if (descriptor) LocalFree(descriptor);
