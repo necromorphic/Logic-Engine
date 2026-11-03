@@ -69,9 +69,9 @@ close_store:
 done:
   {
     wchar_t child[MAX_PATH];
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\manifest.json", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\store.lock", directory))) DeleteFileW(child);
-    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\intent.json", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\manifest.json", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\store.lock", directory))) DeleteFileW(child);
+    if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\intent.json", directory))) DeleteFileW(child);
   }
   RemoveDirectoryW(directory);
   if (descriptor) LocalFree(descriptor);
