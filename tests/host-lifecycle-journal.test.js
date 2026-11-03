@@ -17,7 +17,7 @@ const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 const sourceManifestSha256 = digest('test-source-manifest');
 
-function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false) {
+function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false, resolveSourceManifest = () => sourceManifestSha256) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-journal.sqlite'),
@@ -40,7 +40,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRoot
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
-      source_manifest_sha256: sourceManifestSha256,
+      source_manifest_sha256: resolveSourceManifest(input),
     }),
   });
   t.after(() => {
@@ -426,6 +426,31 @@ test('Core requires a signed pinned-source completeness attestation before root 
     root_id: rootId,
     attestation: replayedNonce,
   }), /HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED/);
+});
+
+test('Core re-resolves the deployment-pinned source manifest when checking an existing attestation', t => {
+  let registeredManifest = sourceManifestSha256;
+  const { journal } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation), () => registeredManifest);
+  const baseline = journal.enrollRootInventory(rootInput());
+  const attestation = makeRootAttestation(baseline);
+  const accepted = journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation,
+  });
+  assert.equal(accepted.status, 'AUTHORITATIVE_COMPLETE');
+
+  registeredManifest = digest('rotated-deployment-source-manifest');
+  assert.equal(journal.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  }).authority_status, 'REVIEW_ONLY');
 });
 
 test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {
