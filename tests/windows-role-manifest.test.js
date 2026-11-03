@@ -98,6 +98,9 @@ test('Windows manifest enrollment passes exact DB and final-parent identities to
     'core', 'wal', '00000000000000A1',
     '55555555555555555555555555555555', 'active',
   ]);
+  assert.match(db.calls[5].sql, /activate_manifest_role/);
+  assert.deepEqual(db.calls[5].args, ['core'],
+    'the role must become available only after all sidecar identities are enrolled');
 });
 
 test('Windows manifest enrollment treats an empty parent chain as a metadata root at the DB parent', () => {
