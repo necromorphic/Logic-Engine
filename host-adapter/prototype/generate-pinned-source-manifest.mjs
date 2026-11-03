@@ -102,4 +102,4 @@ const proof = {
 const manifest = { ...proof, manifest_sha256: sha256(Buffer.from(canonical(proof), 'utf8')) };
 await mkdir(path.dirname(outputPath), { recursive: true });
 await writeFile(outputPath, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
-process.stdout.write('Pinned Host source manifest generated for ' + files.length + ' files.\n');
+process.stdout.write('Pinned Host source manifest generated for ' + files.length + ' files.\n' + 'Core deployment pin (ENGINE_HOST_ROOT_IDENTITIES.source_manifest_sha256): ' + manifest.manifest_sha256 + '\n');
