@@ -103,6 +103,7 @@ function stripCanonicalSourceLineage(result) {
     }),
     reason: result.reason,
     snapshot: result.snapshot,
+    provider_evidence_cursor: result.provider_evidence_cursor,
   };
 }
 
