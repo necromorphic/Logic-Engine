@@ -346,10 +346,15 @@ function assertNpcContextBody(body, hostRoute, contentBlocks) {
         memoryIndexes.push(index);
       }
     }
-    let expectedIndex = 0;
-    while (expectedIndex < payload.messages.length
-      && ['system', 'developer'].includes(payload.messages[expectedIndex]?.role)) expectedIndex += 1;
-    if (memoryIndexes.length !== 1 || memoryIndexes[0] !== expectedIndex) {
+    if (memoryIndexes.length !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const memoryIndex = memoryIndexes[0];
+    for (let index = 0; index < memoryIndex; index += 1) {
+      if (!['system', 'developer'].includes(payload.messages[index]?.role)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+    }
+    const nextMessage = payload.messages[memoryIndex + 1];
+    if (nextMessage && ['system', 'developer'].includes(nextMessage.role)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     return;
