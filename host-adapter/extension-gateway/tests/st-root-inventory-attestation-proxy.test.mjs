@@ -57,6 +57,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
         journal_head_sha256: 'b'.repeat(64),
         lifecycle_sequence: 0,
         lifecycle_head_sha256: '0'.repeat(64),
+        source_manifest_sha256: 'e'.repeat(64),
       } });
     }
     throw new Error('unexpected Core path');
@@ -89,6 +90,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
   });
   assert.equal(result.status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(result.integrity_status, 'INTEGRITY_OK');
+  assert.equal(result.source_manifest_sha256, 'e'.repeat(64));
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url.pathname, '/v1/host-root-inventory/attest');
   assert.equal(JSON.parse(calls[0].options.body).source_manifest_sha256, 'e'.repeat(64));
