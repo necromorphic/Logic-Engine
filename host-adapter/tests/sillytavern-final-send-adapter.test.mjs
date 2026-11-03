@@ -599,6 +599,20 @@ test('Horde task-status remains ordinary-only and receives no injected NPC conte
   assert.equal(harness.providerCalls[0].init.body, init.body);
 });
 
+test('null, unknown and NON_READY protection states never fall back to native transport', () => {
+  for (const resolution of [null, undefined, { status: 'non_ready' }, { status: 'ready' }]) {
+    const harness = makeNpcFinalSendHarness({ resolve: () => resolution });
+    assert.throws(() => harness.finalSend({
+      senderRoute: 'openai',
+      hostRoute: 'chat-completions',
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: makeNpcRequestInit(makeNpcProviderBody('chat-completions')),
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(harness.providerCalls.length, 0);
+    assert.equal(harness.gatewayCalls.length, 0);
+  }
+});
+
 test('protected dispatch fails closed when NPC content blocks are missing or malformed', async () => {
   for (const contentBlocks of [undefined, null, [{}], [{ epistemic_kind: 'report', evidence_assessment: 'supported', content: [] }]]) {
     const harness = makeNpcFinalSendHarness({ context: makeNpcProtectedMemory({ contentBlocks }) });
