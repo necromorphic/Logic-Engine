@@ -1484,3 +1484,23 @@ test('Host inventory revoke after upstream completion blocks the actual response
     await fixture.close();
   }
 });
+
+
+test('streaming stops the next chunk after Host inventory authority changes', async () => {
+  const fixture = await createFixture();
+  const hostChunks = [];
+  const request = validRequest('host-revoke-between-stream-chunks', { stream: true });
+  try {
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest({
+      ...request,
+      forwardResponse: async () => {
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-1'));
+        fixture.setHostInventoryReady(false);
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => hostChunks.push('chunk-2'));
+      },
+    }), /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.deepEqual(hostChunks, ['chunk-1'], 'no chunk after Host inventory authority changes may be written');
+  } finally {
+    await fixture.close();
+  }
+});
