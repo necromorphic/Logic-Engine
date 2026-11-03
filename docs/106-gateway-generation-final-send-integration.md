@@ -50,7 +50,7 @@ The canonical registry contains 29 sender identities. Unknown sender identities 
 
 ## Remaining production blockers
 
-The current `host-adapter/extension-gateway/server-plugin/index.mjs` composes and registers only the Host Adapter's public routes. It does not import `receiveNpcContext()`, create `createSillyTavernFinalSendAdapter()`, or register an adapter through `registerLogicEngineFinalSendAdapter()` in the patched SillyTavern hook. The NPC receiver and Final-Send adapter exist as separate tested modules, but their production server-plugin composition is not wired. Consequently the managed hook reports adapter unavailable if installed without the separate #855 fail-closed registration path; the current #855 registration path preserves ordinary unprotected generation but does not provide protected Memory dispatch or final-write authorization. This gap must be closed with one server-plugin registration owner before claiming a connected NPC→Gateway→Final-Send path. The production Gateway must still remain NON_READY until real Core/Provider/Host readers are composed under the shared Coordinator.
+The repository has two distinct server-plugin entrypoints. `host-adapter/extension-gateway/server-plugin/index.mjs` owns only the bounded public Host ingress routes. The actual SillyTavern native-hook owner is the repository-root `index.mjs` installed as `plugins/logic-engine/index.mjs`: it imports `receiveNpcContext()`, creates `createSillyTavernFinalSendAdapter()`, resolves the native SillyTavern sender registry/response writer, and registers that adapter through `registerLogicEngineFinalSendAdapter()`. This closes the prior adapter-unavailable gap and connects the NPC receiver to the managed native Hook. It does **not** activate protected model egress: the root plugin injects `unavailableGateway`, whose dispatch and response-write methods always deny. A complete-empty authorized retrieval can continue through the ordinary native sender; any non-empty protected result is terminally denied before upstream transport. The remaining blocker is replacing that deliberate stub with a production `MemoryDispatchGateway` composed from synchronous Core, Provider and Host evidence readers under the same shared Coordinator. Until those readers and the exact-head acceptance are present, the Gateway remains NON_READY / FAIL-CLOSED.
 
 The real Gateway cannot be activated until all of the following are implemented and proven on one exact commit:
 
@@ -70,12 +70,12 @@ The real Gateway cannot be activated until all of the following are implemented 
 | Five pinned native handlers and 29 sender identities | Exact pinned-source audit and fake-provider harness | PASS at source/test level |
 | Host conversation locator attached to native generation data | Pinned ST awaited event hooks and Extension source | Implemented; exact-head CI pending |
 | Server-side Host request binding | Host authentication gate + inventory-backed resolver on actual Express request | Implemented; exact-head CI pending |
-| NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Module implemented; server-plugin composition NOT WIRED |
-| Exact provider body serialization | Route-specific context injection and Host metadata scrubbing | Adapter module implemented; production registration NOT WIRED |
+| NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Root ST plugin imports and invokes receiver; protected non-empty result remains denied by Gateway stub |
+| Exact provider body serialization | Route-specific context injection and Host metadata scrubbing | Root ST plugin registers adapter; non-empty context cannot reach transport while Gateway is stubbed |
 | Durable DISPATCH_STARTED, crash/replay handling | Gateway unit and child-process tests | PASS at Gateway unit level |
 | Host inventory revalidation under Coordinator | New required readHostEvidence callback and pre-start denial test | Contract/test seam added; production reader BLOCKED |
 | Core/Provider evidence readers | No production composition supplied | BLOCKED |
-| Real shared Coordinator Gateway in ST plugin | No production Gateway composition or Final-Send adapter registration in current server-plugin entrypoint | BLOCKED |
+| Real shared Coordinator Gateway in ST plugin | Root ST plugin registers Final-Send adapter but supplies `unavailableGateway`; no production evidence-reader composition | BLOCKED |
 | Live SillyTavern/provider/revoke/cancellation acceptance | No live deployment evidence | BLOCKED |
 
 **Safety state:** NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. PR merge, production route enrollment and activation are not authorized by this candidate.
