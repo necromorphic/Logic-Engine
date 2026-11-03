@@ -105,7 +105,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, memoryNpcConsumers = {}, npcGenerationContextRuntimes = {}, hostAssertionNonceStore = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -165,12 +165,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
       || typeof consumer?.retrieveForNpc !== 'function')) {
     throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
-  }
-  if (!npcGenerationContextRuntimes || typeof npcGenerationContextRuntimes !== 'object'
-    || Array.isArray(npcGenerationContextRuntimes)
-    || Object.entries(npcGenerationContextRuntimes).some(([id, runtime]) => !Object.hasOwn(adapterTokens, id)
-      || typeof runtime?.build !== 'function' || typeof runtime?.receive !== 'function')) {
-    throw new TypeError('NPC generation context runtimes must be trusted, adapter-pinned builder/receiver instances.');
   }
   const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
     .map(([id, secret]) => [id, createHostSessionAssertionRunner({
@@ -662,47 +656,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           actor_id: actor.actor.entity_id,
           actor_type: actor.actor.entity_type,
         } });
-      }
-
-      if (url.pathname === '/v1/host/npc-generation-context') {
-        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host NPC generation-context operation.' } });
-        const adapterId = adapterIdFor(req);
-        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
-        const runtime = npcGenerationContextRuntimes[adapterId];
-        if (!runtime) return send(res, 503, { error: { code: 'NPC_GENERATION_CONTEXT_UNAVAILABLE', message: 'The trusted Core NPC generation-context runtime is not configured for this adapter.' } });
-        const body = await readBody(req, 64 * 1024);
-        const allowed = ['assertion', 'signature', 'request_id', 'context_size', 'generation_type'];
-        if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).length !== allowed.length || Object.keys(body).some(key => !allowed.includes(key))
-          || typeof body.request_id !== 'string' || !HOST_SESSION_UUID.test(body.request_id)
-          || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
-          || typeof body.generation_type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(body.generation_type)) {
-          throw new EngineError('INVALID_HOST_NPC_GENERATION_CONTEXT', 'Host NPC generation-context request metadata is invalid.', 400);
-        }
-        try {
-          const request = Object.freeze({
-            request_id: body.request_id, generation_id: body.request_id, generation_type: body.generation_type,
-          });
-          const result = await hostAssertionRunners[adapterId].run(
-            body.assertion, body.signature, () => runtime.build(request),
-          );
-          if (result?.status !== 'ready' || !result.context) {
-            return send(res, 409, {
-              generation_context: { status: 'non_ready', reason: result?.reason || 'generation_context_unavailable' },
-            });
-          }
-          return send(res, 200, { generation_context: result.context });
-        } catch (error) {
-          const code = typeof error?.message === 'string' ? error.message : '';
-          if (code === 'HOST_SESSION_ASSERTION_REPLAYED') return send(res, 409, { error: { code, message: 'Host assertion nonce was already consumed.' } });
-          if (code === 'HOST_SESSION_ASSERTION_EXPIRED' || code === 'HOST_SESSION_ASSERTION_INVALID') {
-            return send(res, 401, { error: { code, message: 'Host assertion could not be authenticated or is outside its acceptance window.' } });
-          }
-          if (code === 'HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED' || code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
-            return send(res, 503, { error: { code, message: 'Host assertion replay protection is unavailable.' } });
-          }
-          throw error;
-        }
       }
 
       if (url.pathname === '/v1/host/memory-npc/retrieve') {

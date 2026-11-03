@@ -61,27 +61,6 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   let calls = 0;
   let failConsumer = false;
   let consumerResultOverride = null;
-  const generationContextRuntime = {
-    async build(request) {
-      const context = getAuthenticatedHostSessionContext();
-      assert.equal(context.conversation_id, conversationId);
-      assert.equal(context.world_id, 'host-memory-world');
-      assert.equal(context.actor_id, 'host-memory-actor');
-      assert.equal(request.generation_id, request.request_id);
-      return {
-        status: 'ready',
-        context: Object.freeze({
-          schema: 'npc-generation-context/v1',
-          request_id: request.request_id,
-          generation_id: request.generation_id,
-          generation_type: request.generation_type,
-          world_id: context.world_id,
-          actor_id: context.actor_id,
-        }),
-      };
-    },
-    async receive() { return { status: 'accepted' }; },
-  };
   const consumer = {
     adapterId: ADAPTER_ID,
     async retrieveForNpc({ conversationId: requested }) {
@@ -101,7 +80,6 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
-    npcGenerationContextRuntimes: { [ADAPTER_ID]: generationContextRuntime },
     hostAssertionNonceStore: nonceStore,
   });
   server.listen(0, '127.0.0.1');
@@ -178,27 +156,6 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal(retrieved.status, 200);
   assert.deepEqual((await retrieved.json()).retrieval.status, 'ready');
   assert.equal(calls, 1);
-
-  const generationAssertion = {
-    ...assertion,
-    nonce: '99999999-9999-4999-8999-999999999995',
-    issued_at: Math.floor(Date.now() / 1000),
-  };
-  const generationBody = {
-    ...body,
-    assertion: generationAssertion,
-    signature: sign(generationAssertion),
-    request_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
-  };
-  const generationResponse = await post(base, '/v1/host/npc-generation-context', adapterHeaders, generationBody);
-  assert.equal(generationResponse.status, 200);
-  const generationPayload = await generationResponse.json();
-  assert.equal(generationPayload.generation_context.schema, 'npc-generation-context/v1');
-  assert.equal(generationPayload.generation_context.actor_id, 'host-memory-actor');
-
-  const generationReplay = await post(base, '/v1/host/npc-generation-context', adapterHeaders, generationBody);
-  assert.equal(generationReplay.status, 409);
-  assert.equal((await generationReplay.json()).error.code, 'HOST_SESSION_ASSERTION_REPLAYED');
 
   const invalidResults = [
     { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 0, commit_sequence: 0 }, provider_diagnostics: { secret: true } },
