@@ -457,4 +457,34 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(deniedGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
   assert.equal(deniedCoreCalls, 0);
 
+  // Exercise the actual adapter session-rotation path against Core. The old
+  // assertion is captured before rotation and must be rejected afterwards.
+  const rotationGateResponse = responseRecorder();
+  let rotationPassedGate = false;
+  await adapter.dispatchMiddleware(request, rotationGateResponse, () => { rotationPassedGate = true; });
+  assert.equal(rotationPassedGate, true);
+  const rotationDispatchResponse = responseRecorder();
+  await adapter.dispatch(request, rotationDispatchResponse);
+  assert.equal(rotationDispatchResponse.statusCode, 200);
+  const assertionFromOldSession = structuredClone(capturedSuccessfulDispatchBody);
+  const oldSessionId = request.session.logicEngineSessionId;
+  const oldAccountHandle = request.session.logicEngineSessionHandle;
+  request.user.profile.handle = 'rotated-account';
+  const rotationSessionResponse = responseRecorder();
+  await adapter.session(request, rotationSessionResponse);
+  assert.equal(rotationSessionResponse.statusCode, 200);
+  assert.notEqual(rotationSessionResponse.payload.host_session_id, oldSessionId);
+  assert.equal(request.session.logicEngineSessionHandle, 'rotated-account');
+  assert.ok(coreCalls.includes('/v1/host/session/revoke'));
+  assert.equal(oldAccountHandle, ACCOUNT_HANDLE);
+
+  const oldSessionRead = await post(
+    coreUrl + '/v1/host/memory-npc/retrieve',
+    { ...coreHeaders, 'x-adapter-id': ADAPTER_ID, 'x-adapter-token': ADAPTER_TOKEN },
+    assertionFromOldSession,
+  );
+  assert.equal(oldSessionRead.status, 401);
+  assert.equal((await oldSessionRead.json()).error.code, 'HOST_SESSION_REVOKED');
+  assert.equal(retrievalContexts.length, 4);
+
 });
