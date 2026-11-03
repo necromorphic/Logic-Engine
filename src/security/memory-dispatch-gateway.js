@@ -398,12 +398,16 @@ function assertNpcContextBinding({
   }
   const laneA = context.lanes?.lane_a;
   const laneB = context.lanes?.lane_b;
-  if (!plainDataRecord(laneA, ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'])
+  if (!plainDataRecord(laneA,
+    ['lane', 'items'],
+    ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'])
     || laneA.lane !== 'A' || laneA.purpose !== 'npc_turn_context'
     || !validText(laneA.authorization_ref, 200)
     || !validText(laneA.visibility_authorization_ref, 200)
     || !Array.isArray(laneA.items)
-    || !plainDataRecord(laneB, ['lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot'])
+    || !plainDataRecord(laneB,
+      ['lane', 'admitted', 'candidates'],
+      ['lane', 'core_purpose', 'provider_purpose', 'status', 'admitted', 'candidates', 'reason', 'snapshot'])
     || laneB.lane !== 'B' || laneB.core_purpose !== 'npc_turn_context'
     || laneB.provider_purpose !== purpose || laneB.status !== 'ready'
     || laneB.reason !== null
