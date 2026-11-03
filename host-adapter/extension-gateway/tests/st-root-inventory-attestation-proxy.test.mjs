@@ -56,7 +56,7 @@ test('root inventory proxy signs a VSS-aligned pinned-source attestation after C
         manifest_sha256: 'a'.repeat(64),
         journal_head_sha256: 'b'.repeat(64),
         lifecycle_sequence: 1,
-        lifecycle_head_sha256: '0'.repeat(64),
+        lifecycle_head_sha256: 'c'.repeat(64),
         source_manifest_sha256: 'e'.repeat(64),
         attestation_sha256: 'f'.repeat(64),
       } });
