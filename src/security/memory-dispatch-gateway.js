@@ -55,7 +55,7 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
   'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
   'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
-  'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
+  'workers-ai', 'text-completions', 'kobold', 'novelai-text',
 ]);
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
