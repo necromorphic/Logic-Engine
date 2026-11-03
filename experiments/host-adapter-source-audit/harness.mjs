@@ -217,6 +217,12 @@ test('bulk mutation guards do not authorize writes from a pre-mutation filesyste
   assert.doesNotMatch(guard, /return next\(\);[\s\S]*?enumerate/);
 });
 
+test('settings save and snapshot creation are blocked while Host authority is active', () => {
+  const source = mutationSources['src/endpoints/settings.js'];
+  assert.match(source, /router\.post\('\/save',\s*hostUnsupportedMutationGuard,/);
+  assert.match(source, /router\.post\('\/make-snapshot',\s*hostUnsupportedMutationGuard,/);
+});
+
 test('ComfyUI workflow file mutations are guarded and included in source identity coverage', async () => {
   const source = mutationSources['src/endpoints/stable-diffusion.js'];
   assert.match(source, /comfy\.post\('\/save-workflow',\s*hostUnsupportedMutationGuard,/);
