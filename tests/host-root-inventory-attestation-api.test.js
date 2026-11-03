@@ -49,6 +49,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
       authorized: true, adapter_id: ADAPTER_ID,
       host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT, root_id: ROOT_ID,
     } : { authorized: false };
+  let allowAttestationVerification = true;
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-lifecycle.sqlite'),
     coordinatorPath,
@@ -65,7 +66,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     resolveRootIdentity,
     verifyRootInventoryAttestation: ({ attestation, identity }) => {
       if (identity.adapter_id !== ADAPTER_ID) return false;
-      return attestation.signature === sign(attestation);
+      return allowAttestationVerification && attestation.signature === sign(attestation);
     },
   });
   const server = createApiServer({
@@ -143,6 +144,40 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   const replay = await post(base, '/v1/host-root-inventory/attest', { ...identity, attestation });
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).reconciliation.duplicate, true);
+
+  // Simulate a deployment trust-policy upgrade invalidating the old attestation.
+  // Core advances the append-only root sequence with an empty reconciliation
+  // event so a new proof can be accepted without replacing the old row.
+  allowAttestationVerification = false;
+  const refreshed = journal.observeRootInventory({
+    ...identity,
+    event_id: '77777777-7777-4777-8777-777777777777',
+    entries,
+  });
+  assert.equal(refreshed.status, 'NON_READY');
+  assert.equal(refreshed.reason, 'HOST_ROOT_INVENTORY_ATTESTATION_REFRESH_REQUIRED');
+  assert.equal(refreshed.sequence, baselinePayload.reconciliation.sequence + 1);
+  assert.equal(Object.values(refreshed.delta).reduce((sum, values) => sum + values.length, 0), 0);
+
+  allowAttestationVerification = true;
+  const refreshedAttestation = {
+    ...attestation,
+    inventory_sequence: refreshed.sequence,
+    manifest_sha256: refreshed.manifest_sha256,
+    inventory_head_sha256: refreshed.journal_head_sha256,
+    covered_delta_sha256: refreshed.delta_sha256,
+    lifecycle_sequence: refreshed.lifecycle_sequence,
+    lifecycle_head_sha256: refreshed.lifecycle_head_sha256,
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: '88888888-8888-4888-8888-888888888888',
+    signature: '',
+  };
+  refreshedAttestation.signature = sign(refreshedAttestation);
+  const refreshedAccepted = await post(base, '/v1/host-root-inventory/attest', {
+    ...identity, attestation: refreshedAttestation,
+  });
+  assert.equal(refreshedAccepted.status, 200);
+  assert.equal((await refreshedAccepted.json()).inventory_status, 'AUTHORITATIVE_COMPLETE');
 
   const snapshot = journal.getAuthoritySnapshot({
     authority_id: AUTHORITY_ID,
