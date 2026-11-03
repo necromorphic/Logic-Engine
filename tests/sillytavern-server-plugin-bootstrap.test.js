@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+const managerSource = await readFile(new URL('../scripts/sillytavern-patch-manager.mjs', import.meta.url), 'utf8');
 
 test('server plugin bootstraps the shared multi-route Patch Manager as sole owner', () => {
   assert.match(source, /import \{ SillyTavernPatchManager \} from '\.\/scripts\/sillytavern-patch-manager\.mjs'/);
   assert.match(source, /manager\.inspectInstalledReadOnly\(\)/);
   assert.doesNotMatch(source, /manager\.execute\('(update|uninstall)'\)/);
   assert.doesNotMatch(source, /host-adapter\/patch-manager\/manager\.mjs/);
-  assert.match(source, /data', 'logic-engine', 'final-send-patch/);
+  assert.match(managerSource, /data', 'logic-engine', 'final-send-patch/);
   assert.match(source, /registerLogicEngineFinalSendAdapter/);
 });
 
