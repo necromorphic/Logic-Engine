@@ -31,7 +31,7 @@ const rootMutationPatchPath = path.join(repoRoot, 'host-adapter/prototype/patche
 const lifecyclePatch = await readFile(lifecyclePatchPath);
 const unenrolledFixPatch = await readFile(unenrolledFixPatchPath);
 const rootMutationPatch = await readFile(rootMutationPatchPath);
-const handlerSource = await readFile(path.join(repoRoot, 'host-adapter/prototype/st-host-inventory-handler.mjs'));
+const handlerSource = await readFile(path.join(repoRoot, 'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'));
 const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
 const unenrolledFixBlobSha = gitBlobSha(unenrolledFixPatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
@@ -68,13 +68,12 @@ try {
   for (const name of ['index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json']) {
     await copyFile(path.join(clientSourceDir, name), path.join(expectedClientDir, name));
   }
-  // The patched ST endpoint handler and the Extension Gateway handler are
-  // separate runtime artifacts. Pin the former to the patch bundle's prototype
-  // source; the SOURCE_FILE_PATHS comparison below independently binds the
-  // latter to the exact server-plugin module copied from this repository.
-  const installedEndpointHandler = await readFile(path.join(sourceRoot, 'src/endpoints/logic-engine-host-inventory-handler.mjs'));
-  if (gitBlobSha(installedEndpointHandler) !== handlerBlobSha) {
-    throw new Error('HOST_INSTALLED_ENDPOINT_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
+  // Pin the actual Extension Gateway Host inventory handler. The patched
+  // ST endpoint module is a thin re-export and is independently compared with
+  // the expected patched tree through SOURCE_FILE_PATHS below.
+  const installedHandlerSource = await readFile(path.join(sourceRoot, 'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'));
+  if (gitBlobSha(installedHandlerSource) !== handlerBlobSha) {
+    throw new Error('HOST_INSTALLED_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
   }
 
   for (const relativePath of SOURCE_FILE_PATHS) {
