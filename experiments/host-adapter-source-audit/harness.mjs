@@ -216,14 +216,14 @@ test('bulk mutation guards do not authorize writes from a pre-mutation filesyste
   assert.doesNotMatch(guard, /return next\(\);[\s\S]*?enumerate/);
 });
 
-test('ComfyUI workflow file mutations are guarded and included in source identity coverage', () => {
+test('ComfyUI workflow file mutations are guarded and included in source identity coverage', async () => {
   const source = mutationSources['src/endpoints/stable-diffusion.js'];
-  assert.match(source, /comfy\\.post\\('\\/save-workflow',\\s*hostUnsupportedMutationGuard,/);
-  assert.match(source, /comfy\\.post\\('\\/delete-workflow',\\s*hostUnsupportedMutationGuard,/);
-  assert.match(source, /comfy\\.post\\('\\/rename-workflow',\\s*hostUnsupportedMutationGuard,/);
-  const attestation = require('node:fs').readFileSync(
-    resolve(process.cwd(), 'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
-  assert.match(attestation, /'src\\/endpoints\\/stable-diffusion\\.js'/);
+  assert.match(source, /comfy\.post\('\/save-workflow',\s*hostUnsupportedMutationGuard,/);
+  assert.match(source, /comfy\.post\('\/delete-workflow',\s*hostUnsupportedMutationGuard,/);
+  assert.match(source, /comfy\.post\('\/rename-workflow',\s*hostUnsupportedMutationGuard,/);
+  const attestation = await readFile(resolve(process.cwd(),
+    'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
+  assert.match(attestation, /'src\/endpoints\/stable-diffusion\.js'/);
 });
 
 test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
