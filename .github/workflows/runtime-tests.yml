@@ -1,7 +1,7 @@
 name: Runtime tests
 on:
   push:
-    branches: [main, 'work/**', 'npc/**']
+    branches: [main, 'work/**', 'npc/**', 'security/**', 'integration/**']
   pull_request:
   workflow_dispatch:
 
