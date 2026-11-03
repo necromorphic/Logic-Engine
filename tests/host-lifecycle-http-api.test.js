@@ -224,8 +224,57 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     ...authority,
   }).status, 'INTEGRITY_OK');
 
-  const changedSourceProof = {
+  // A complete VSS scan of a changed manifest must be re-attestable. Core
+  // preserves the previous proof chain but grants authority only for sequence 2.
+  const changedEntries = [{
+    ...rootBody.entries[0],
+    sha256: DIGEST('chat-content-after-save'),
+  }];
+  const changedObservation = await post('/v1/host-root-inventory/observe', {
+    ...rootBody,
+    event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    entries: changedEntries,
+  });
+  assert.equal(changedObservation.status, 200);
+  const changedObservationPayload = await changedObservation.json();
+  assert.equal(changedObservationPayload.reconciliation.status, 'NON_READY');
+  assert.equal(changedObservationPayload.reconciliation.sequence, 2);
+  assert.equal(journal.getAuthoritySnapshot({
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+    ...authority,
+  }).status, 'NON_READY');
+
+  const refreshedProof = {
     ...completenessProof,
+    event_id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    root_inventory_sequence: 2,
+    manifest_sha256: changedObservationPayload.reconciliation.manifest_sha256,
+  };
+  const refreshedSignature = createHmac('sha256', ADAPTER_TOKEN)
+    .update(canonical(refreshedProof), 'utf8').digest('hex');
+  const refreshed = await post('/v1/host-root-inventory/complete', {
+    ...completenessBody,
+    proof: refreshedProof,
+    proof_signature: refreshedSignature,
+  });
+  assert.equal(refreshed.status, 200);
+  const refreshedPayload = await refreshed.json();
+  assert.equal(refreshedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(refreshedPayload.reconciliation.sequence, 2);
+  assert.equal(refreshedPayload.reconciliation.completeness_sequence, 2);
+  assert.equal(journal.getAuthoritySnapshot({
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+    ...authority,
+  }).status, 'INTEGRITY_OK');
+
+  const changedSourceProof = {
+    ...refreshedProof,
     event_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     source_files_sha256: DIGEST('changed-pinned-source'),
   };
