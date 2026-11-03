@@ -3386,7 +3386,10 @@ static void probe_register_manifest_sidecar(sqlite3_context *context, int argc,
     int same_identity = logic_engine_win_identity_equal(&expected, &entry->identity);
     int same_owner = entry->role_index == role_index && entry->kind == kind;
     if (same_identity && !same_owner) reject = 1;
-    if (same_owner && !same_identity && !entry->retired) reject = 1;
+    /* Historical retired generations may coexist with one current active
+       identity for the same role/kind. Reject only a second distinct active
+       identity; manifest records are replayed as one validated snapshot. */
+    if (same_owner && !same_identity && !entry->retired && !retired) reject = 1;
   }
   if (!reject) {
     int found = 0;
