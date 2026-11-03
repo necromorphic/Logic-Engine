@@ -308,3 +308,18 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
  
 -        await updatePlugins(pluginsPath);
 +        if (!hostAuthorityConfigured) await updatePlugins(pluginsPath);
+
+diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
+--- a/src/endpoints/extensions.js
++++ b/src/endpoints/extensions.js
+@@ -480,1 +480,2 @@
+ router.get('/discover', function (request, response) {
++    const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
+@@ -515,2 +516,3 @@
+         .readdirSync(path.join(request.user.directories.extensions))
++        .filter(f => !hostAuthorityConfigured)
+         .filter(f => fs.statSync(path.join(request.user.directories.extensions, f)).isDirectory())
+@@ -524,2 +526,3 @@
+         .readdirSync(PUBLIC_DIRECTORIES.globalExtensions)
++        .filter(f => !hostAuthorityConfigured || f === 'logic-engine-extension-gateway')
+         .filter(f => fs.statSync(path.join(PUBLIC_DIRECTORIES.globalExtensions, f)).isDirectory())
