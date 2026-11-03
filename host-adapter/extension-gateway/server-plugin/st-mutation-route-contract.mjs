@@ -83,6 +83,10 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
   'src/endpoints/data-maid.js': Object.freeze({
     '/delete': 'hostBulkMutationGuard',
   }),
+  'src/endpoints/users-private.js': Object.freeze({
+    '/reset-settings': 'hostUserRootResetGuard',
+    '/reset-step2': 'hostUserRootResetGuard',
+  }),
 });
 
 const canonical = value => Array.isArray(value)
@@ -141,7 +145,6 @@ export async function verifyPinnedSillyTavernMutationCoverage({
   const specialFiles = [
     'src/endpoints/extensions.js',
     'src/endpoints/users-admin.js',
-    'src/endpoints/users-private.js',
     'src/endpoints/groups.js',
   ];
   for (const relative of specialFiles) {
