@@ -1,17 +1,32 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
+import { lstatSync, mkdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 function canonicalFilePath(path) {
   let candidate = resolve(path);
   const suffix = [];
-  while (!existsSync(candidate)) {
-    const parent = dirname(candidate);
-    if (parent === candidate) break;
-    suffix.unshift(basename(candidate));
-    candidate = parent;
+  const seenSymlinks = new Set();
+  for (let attempt = 0; attempt < 64; attempt += 1) {
+    try {
+      const stat = lstatSync(candidate);
+      if (stat.isSymbolicLink()) {
+        if (seenSymlinks.has(candidate)) {
+          throw new Error('Host assertion nonce database path contains a symbolic-link cycle.');
+        }
+        seenSymlinks.add(candidate);
+        candidate = resolve(dirname(candidate), readlinkSync(candidate));
+        continue;
+      }
+      return resolve(realpathSync(candidate), ...suffix);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      const parent = dirname(candidate);
+      if (parent === candidate) return resolve(candidate, ...suffix);
+      suffix.unshift(basename(candidate));
+      candidate = parent;
+    }
   }
-  return resolve(realpathSync(candidate), ...suffix);
+  throw new Error('Host assertion nonce database path contains too many symbolic links.');
 }
 
 function aliasesSameFile(left, right) {
