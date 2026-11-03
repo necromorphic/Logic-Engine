@@ -2499,3 +2499,15 @@ new file mode 100644
 +  locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
 +  authority: 'NON_AUTHORITATIVE',
 +});
+diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
+--- a/src/endpoints/users-admin.js
++++ b/src/endpoints/users-admin.js
+@@ -17,2 +17,4 @@
+ } from '../users.js';
+ import { DEFAULT_USER } from '../constants.js';
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
+ 
+@@ -219 +221 @@
+-router.post('/delete', requireAdminMiddleware, async (request, response) => {
++router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
