@@ -255,3 +255,48 @@ test('receivers created by the same builder share replay protection', async () =
   assert.equal(replayed.status, 'non_ready');
   assert.equal(replayed.reason, 'context_replay_rejected');
 });
+
+
+test('opaque dispatch handoff is minted only from a successful receiver receipt and is one-shot', async () => {
+  const { builder, receiver } = setup();
+  const built = await builder.build(request);
+  const accepted = await receiver.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+
+  const minted = receiver.issueDispatchHandoff(accepted, request);
+  assert.equal(minted.status, 'ready');
+  assert.equal(Object.keys(minted.handoff).length, 0);
+  assert.equal(Object.isFrozen(minted.handoff), true);
+  assert.equal(JSON.stringify(minted.handoff), '{}');
+
+  const consumed = receiver.consumeDispatchHandoff(minted.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context, built.context);
+  assert.equal(receiver.consumeDispatchHandoff(minted.handoff, request).status, 'non_ready');
+  assert.equal(receiver.consumeDispatchHandoff({ ...minted.handoff }, request).status, 'non_ready');
+});
+
+test('opaque dispatch handoff cannot be issued or consumed for another request or generation', async () => {
+  const { builder, receiver } = setup();
+  const built = await builder.build(request);
+  const accepted = await receiver.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+
+  assert.equal(receiver.issueDispatchHandoff(accepted, {
+    ...request, request_id: 'request-2',
+  }).status, 'non_ready');
+
+  const minted = receiver.issueDispatchHandoff(accepted, request);
+  assert.equal(minted.status, 'ready');
+  assert.equal(receiver.consumeDispatchHandoff(minted.handoff, {
+    ...request, generation_id: 'generation-2',
+  }).status, 'non_ready');
+  // A failed cross-request attempt does not make the capability transferable.
+  assert.equal(receiver.consumeDispatchHandoff(minted.handoff, request).status, 'accepted');
+});
+
+test('opaque dispatch handoff cannot be minted from a forged acceptance object', async () => {
+  const { receiver } = setup();
+  const forged = Object.freeze({ status: 'accepted', context: Object.freeze({ ...scope }) , reason: null });
+  assert.equal(receiver.issueDispatchHandoff(forged, request).status, 'non_ready');
+});
