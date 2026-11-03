@@ -45,6 +45,19 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 
 **Consequences:** chat rename/move, import, export, backup restore, group deletion, and account/root reset are not enabled for enrolled data. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add a real-file lineage receipt for each operation before removing its guard.
 
+Additional unreceipted account-root and installed-source mutation surfaces are now guarded by `createHostUnsupportedMutationGuard`. While Host authority is configured (or a Host-capability session is active), these routes return `503 NON_READY / HOST_MUTATION_ROUTE_UNSUPPORTED` before the SillyTavern handler runs:
+
+- Content imports: `/api/content-manager/importURL`, `/importUUID`
+- Image metadata writes/generation: `/api/image-metadata/folders/create`, `set-thumbnails`, `update`, `delete`, `assign`, `unassign`, root metadata write, `/all`, `/cleanup`
+- Image/sprite/background/avatar/asset/file writes and deletes
+- Moving-UI settings persistence
+- Preset, Quick Reply, Secret, Theme, World Info and vector-store mutations
+- Statistics recreation/update
+- Extension install/update/switch/move/delete (source identity boundary)
+- Account profile changes, password/name/avatar changes and account backup creation
+
+The guard intentionally does not claim these operations are receipted. It disables them until operation-specific persisted receipts or a separately verified inventory reconciliation contract exists. Read-only routes are not guarded solely because they use POST.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |
