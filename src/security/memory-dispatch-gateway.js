@@ -5,6 +5,12 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 
+/**
+ * Protected Memory egress registry: 29 sender identities across the four native
+ * SillyTavern text-generation handler families. Horde async text is excluded.
+ * All protected response bytes must pass this Gateway's final-send revalidation.
+ */
+
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
     || !request || typeof request !== 'object'
