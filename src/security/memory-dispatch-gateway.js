@@ -90,6 +90,9 @@ const intrinsicFunctionToString = Function.prototype.toString;
 const intrinsicReflectApply = Reflect.apply;
 const intrinsicGetPrototypeOf = Object.getPrototypeOf;
 const intrinsicStringEndsWith = String.prototype.endsWith;
+const intrinsicStringTrimStart = String.prototype.trimStart;
+const intrinsicRegExpTest = RegExp.prototype.test;
+const asyncGeneratorFunctionSource = /^(?:async\\s+function\\s*\\*|async\\s*\\*)/;
 const isProxy = utilTypes.isProxy;
 const isAsyncFunction = utilTypes.isAsyncFunction;
 const isGeneratorFunction = utilTypes.isGeneratorFunction;
@@ -126,6 +129,8 @@ function isSynchronousCallable(callback) {
     // callback to discover whether it returns a Promise. Use captured intrinsics
     // so a caller cannot poison the check after this module is initialized.
     const source = intrinsicReflectApply(intrinsicFunctionToString, callback, []);
+    const normalized = intrinsicReflectApply(intrinsicStringTrimStart, source, []);
+    if (intrinsicReflectApply(intrinsicRegExpTest, asyncGeneratorFunctionSource, [normalized])) return false;
     return !intrinsicReflectApply(intrinsicStringEndsWith, source, ['{ [native code] }']);
   } catch {
     return false;
