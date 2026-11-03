@@ -949,9 +949,7 @@ export class HostLifecycleJournal {
     if (attestationRow
       && attestationRow.inventory_sequence === root.sequence
       && attestationRow.manifest_sha256 === root.latest_manifest_sha256
-      && attestationRow.inventory_head_sha256 === root.head_sha256
-      && attestationRow.lifecycle_sequence === lifecycleHead.sequence
-      && attestationRow.lifecycle_head_sha256 === lifecycleHead.head_sha256) {
+      && attestationRow.inventory_head_sha256 === root.head_sha256) {
       try {
         const attestation = JSON.parse(attestationRow.canonical_attestation_json);
         const attestationIdentity = {
@@ -967,8 +965,8 @@ export class HostLifecycleJournal {
           manifest_sha256: root.latest_manifest_sha256,
           inventory_head_sha256: root.head_sha256,
           covered_delta_sha256: latestEvent.delta_sha256 ?? null,
-          lifecycle_sequence: lifecycleHead.sequence,
-          lifecycle_head_sha256: lifecycleHead.head_sha256,
+          lifecycle_sequence: attestationRow.lifecycle_sequence,
+          lifecycle_head_sha256: attestationRow.lifecycle_head_sha256,
         };
         if (canonical(attestation) === attestationRow.canonical_attestation_json
           && sha256(canonical(attestation)) === attestationRow.attestation_sha256
@@ -991,8 +989,6 @@ export class HostLifecycleJournal {
       root_inventory_sequence: root.sequence,
       root_manifest_sha256: root.latest_manifest_sha256,
       root_journal_head_sha256: root.head_sha256,
-      lifecycle_sequence: lifecycleHead.sequence,
-      lifecycle_head_sha256: lifecycleHead.head_sha256,
       authority_status: authorityStatus,
       attestation_sha256: attestationSha256,
     };
