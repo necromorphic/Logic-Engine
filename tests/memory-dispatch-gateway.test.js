@@ -263,6 +263,49 @@ test('Lane A nested accessors and proxies are rejected before dispatch without e
   }
 });
 
+test('Gateway rejects accessor, Proxy and sparse source/candidate containers before upstream egress', async () => {
+  const fixture = await createFixture();
+  let getterCalls = 0;
+  try {
+    const source = {};
+    Object.defineProperties(source, {
+      source_kind: { enumerable: true, value: 'canonical_entity' },
+      source_entity_id: { enumerable: true, value: 'entity-42' },
+      source_version: { enumerable: true, get() { getterCalls += 1; return 'version-7'; } },
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('source-getter', {
+      sources: [source],
+      transport: () => { fixture.calls.push('unexpected-source'); return Promise.resolve({ status: 200 }); },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(getterCalls, 0);
+
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('source-proxy', {
+      sources: new Proxy(sourceSet, {}),
+      transport: () => { fixture.calls.push('unexpected-source-proxy'); return Promise.resolve({ status: 200 }); },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+
+    const candidate = { ...validRequest().candidates[0] };
+    Object.defineProperty(candidate, 'record_ref', {
+      enumerable: true, get() { getterCalls += 1; return 'record-42'; },
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('candidate-getter', {
+      candidates: [candidate],
+      transport: () => { fixture.calls.push('unexpected-candidate'); return Promise.resolve({ status: 200 }); },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(getterCalls, 0);
+
+    const sparse = [];
+    sparse.length = 1;
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('source-sparse', {
+      sources: sparse,
+      transport: () => { fixture.calls.push('unexpected-sparse'); return Promise.resolve({ status: 200 }); },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', async () => {
   const fixture = await createFixture();
   try {
