@@ -94,6 +94,7 @@ export function createHostSessionRevocationClient({
     try {
       const upstream = await fetchImpl(target.url, {
         method: 'POST',
+        redirect: 'error',
         headers: {
           authorization: 'Bearer ' + target.apiToken,
           'content-type': 'application/json',
