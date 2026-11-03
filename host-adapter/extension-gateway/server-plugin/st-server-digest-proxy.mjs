@@ -309,7 +309,10 @@ export function createHostRootInventoryPersistence({
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
-  return async function persistHostRootInventory({ userHandle, rootPath, entries }) {
+  return async function persistHostRootInventory({
+    userHandle, rootPath, entries, filesystem, source, mutationCoverage,
+    snapshotAlignment, hostCommit,
+  }) {
     const target = configuredTarget(env);
     if (!target) return { status: 'NON_READY', reason: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' };
     if (!validId(userHandle) || typeof rootPath !== 'string' || !pathModule.isAbsolute(rootPath)
@@ -365,12 +368,96 @@ export function createHostRootInventoryPersistence({
     };
     try {
       const first = await post('/v1/host-root-inventory/baseline', randomUUID());
-      if (first.status === 409
-        && first.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED') {
-        const observed = await post('/v1/host-root-inventory/observe', randomUUID());
-        return normalizeRootInventoryResponse(observed);
+      const rootResult = first.status === 409
+        && first.payload?.error?.code === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED'
+        ? await post('/v1/host-root-inventory/observe', randomUUID())
+        : first;
+      const normalizedRoot = normalizeRootInventoryResponse(rootResult);
+      if (!['BASELINED_REVIEW_ONLY', 'UNCHANGED_REVIEW_ONLY'].includes(normalizedRoot.status)) {
+        return normalizedRoot;
       }
-      return normalizeRootInventoryResponse(first);
+
+      // A Core completeness proof is emitted only when the full-root VSS
+      // manifest, pinned source scan, and exact route-guard attestation all
+      // describe this same accepted root snapshot.
+      const coverageVerified = mutationCoverage?.status === 'VERIFIED'
+        && mutationCoverage.source_commit === hostCommit
+        && /^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
+        && Number.isSafeInteger(mutationCoverage.route_count)
+        && mutationCoverage.route_count > 0
+        && /^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '');
+      const filesystemComplete = filesystem?.status === 'complete'
+        && filesystem?.scope === 'single-root-regular-files-only'
+        && filesystem?.scan_passes === 2
+        && filesystem?.reparse_points === 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED'
+        && typeof filesystem?.snapshot_id === 'string'
+        && HOST_SESSION_UUID.test(filesystem.snapshot_id)
+        && Number.isSafeInteger(filesystem.file_count) && filesystem.file_count >= 0
+        && Number.isSafeInteger(filesystem.total_bytes) && filesystem.total_bytes >= 0;
+      const sourceComplete = source?.status === 'DOUBLE_SCAN_CANDIDATE'
+        && source?.host_commit === hostCommit
+        && source?.logical_identity_status === 'CURRENT_FILE_IDENTITIES_VERIFIED'
+        && source?.legacy_group_metadata_count === 0;
+      if (!coverageVerified || !filesystemComplete || !sourceComplete
+        || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
+        || normalizedRoot.integrity_status !== 'INTEGRITY_OK'
+        || !Number.isSafeInteger(normalizedRoot.sequence)
+        || !/^[a-f0-9]{64}$/.test(normalizedRoot.manifest_sha256 ?? '')) {
+        return normalizedRoot;
+      }
+
+      const proof = {
+        protocol_version: 1,
+        adapter_id: target.adapterId,
+        host_installation_id: identity.host_installation_id,
+        authenticated_account_id: identity.authenticated_account_id,
+        root_id,
+        event_id: randomUUID(),
+        root_inventory_sequence: normalizedRoot.sequence,
+        manifest_sha256: normalizedRoot.manifest_sha256,
+        source_commit: hostCommit,
+        coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+        snapshot_id: filesystem.snapshot_id,
+        snapshot_alignment: snapshotAlignment,
+        filesystem_scope: filesystem.scope,
+        filesystem_status: filesystem.status,
+        scan_passes: filesystem.scan_passes,
+        reparse_points: filesystem.reparse_points,
+        file_count: filesystem.file_count,
+        total_bytes: filesystem.total_bytes,
+        source_status: source.status,
+        logical_identity_status: source.logical_identity_status,
+        legacy_group_metadata_count: source.legacy_group_metadata_count,
+        route_coverage_status: mutationCoverage.status,
+        route_count: mutationCoverage.route_count,
+        source_files_sha256: mutationCoverage.source_files_sha256,
+        occurred_at: new Date().toISOString(),
+      };
+      const proofSignature = createHmac('sha256', target.adapterToken)
+        .update(canonical(proof), 'utf8').digest('hex');
+      const completeUrl = new URL(target.url);
+      completeUrl.pathname = '/v1/host-root-inventory/complete';
+      const completion = await fetchImpl(completeUrl, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + target.apiToken,
+          'content-type': 'application/json',
+          'x-adapter-id': target.adapterId,
+          'x-adapter-token': target.adapterToken,
+        },
+        body: JSON.stringify({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          root_id,
+          proof,
+          proof_signature: proofSignature,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      let completionPayload;
+      try { completionPayload = await completion.json(); }
+      catch { return { status: 'NON_READY', reason: 'CORE_COMPLETENESS_RESPONSE_INVALID' }; }
+      return normalizeRootInventoryResponse({ status: completion.status, payload: completionPayload });
     } catch {
       return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
     }
