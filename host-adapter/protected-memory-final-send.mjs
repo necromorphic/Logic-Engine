@@ -89,7 +89,7 @@ function projectLaneAItems(items) {
     if (typeof item.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(item.provenance_digest)
       || !Array.isArray(item.source_event_ids) || isProxy(item.source_event_ids)
       || Object.getPrototypeOf(item.source_event_ids) !== Array.prototype
-      || item.source_event_ids.length === 0 || item.source_event_ids.length > 200) {
+      || item.source_event_ids.length > 200) {
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID');
     }
     const sourceEventIds = [];
