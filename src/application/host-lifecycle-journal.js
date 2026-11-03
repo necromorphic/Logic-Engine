@@ -1086,7 +1086,8 @@ export class HostLifecycleJournal {
   enrollRootInventory(input) {
     if (!isPlainRecord(input) || !validText(input.host_installation_id)
       || !validText(input.authenticated_account_id) || !validDigest(input.root_id)
-      || !validText(input.event_id) || !Array.isArray(input.entries)) {
+      || !validText(input.event_id) || !Array.isArray(input.entries)
+      || (input.source_manifest_sha256 !== undefined && !validDigest(input.source_manifest_sha256))) {
       throw new TypeError('Invalid Host root inventory baseline envelope.');
     }
     const entries = validateRootEntries(input.entries);
@@ -1101,7 +1102,8 @@ export class HostLifecycleJournal {
   observeRootInventory(input) {
     if (!isPlainRecord(input) || !validText(input.host_installation_id)
       || !validText(input.authenticated_account_id) || !validDigest(input.root_id)
-      || !validText(input.event_id) || !Array.isArray(input.entries)) {
+      || !validText(input.event_id) || !Array.isArray(input.entries)
+      || (input.source_manifest_sha256 !== undefined && !validDigest(input.source_manifest_sha256))) {
       throw new TypeError('Invalid Host root inventory observation envelope.');
     }
     const entries = validateRootEntries(input.entries);
@@ -1143,7 +1145,16 @@ export class HostLifecycleJournal {
       const latest = JSON.parse(rows.at(-1).canonical_event_json);
       if (manifestSha256 === integrity.latest_manifest_sha256) {
         const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
-        if (currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE') {
+        const latestAttestation = this.db.prepare(`
+          SELECT inventory_sequence,canonical_attestation_json FROM host_root_inventory_attestations
+          WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+          ORDER BY inventory_sequence DESC LIMIT 1
+        `).get(input.host_installation_id, input.authenticated_account_id, input.root_id);
+        let latestAttestationProof = null;
+        try { latestAttestationProof = JSON.parse(latestAttestation?.canonical_attestation_json ?? 'null'); } catch {}
+        const sourceManifestChanged = validDigest(input.source_manifest_sha256)
+          && latestAttestationProof?.source_manifest_sha256 !== input.source_manifest_sha256;
+        if (currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE' && !sourceManifestChanged) {
           return {
             status: 'AUTHORITATIVE_COMPLETE',
             integrity_status: 'INTEGRITY_OK',
@@ -1157,16 +1168,11 @@ export class HostLifecycleJournal {
           };
         }
         // If the latest accepted attestation is bound to this exact inventory
-        // sequence but is no longer valid under the current Core source/secret
-        // policy (e.g. a pinned patch upgrade or attestation expiry), append a
-        // no-op reconciliation event. This advances the root sequence so a new
-        // signed proof can be appended without replacing the old immutable row.
-        const latestAttestation = this.db.prepare(`
-          SELECT inventory_sequence FROM host_root_inventory_attestations
-          WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
-          ORDER BY inventory_sequence DESC LIMIT 1
-        `).get(input.host_installation_id, input.authenticated_account_id, input.root_id);
-        if (latestAttestation?.inventory_sequence === integrity.sequence) {
+        // sequence but is stale under the current source/policy identity, append
+        // a no-op reconciliation event. This advances the root sequence so a
+        // new signed proof can be appended without replacing the immutable row.
+        if (latestAttestation?.inventory_sequence === integrity.sequence
+          && (sourceManifestChanged || currentAuthority?.authority_status !== 'AUTHORITATIVE_COMPLETE')) {
           const refreshDelta = rootInventoryDelta(latest.entries, entries);
           const refreshChanged = Object.values(refreshDelta).reduce((sum, items) => sum + items.length, 0);
           if (refreshChanged === 0) {
