@@ -771,6 +771,56 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
+  const controller = new AbortController();
+  let sends = 0;
+  let signalStarted;
+  const transportStarted = new Promise(resolve => { signalStarted = resolve; });
+  const fixture = await createFixture({
+    createTransport: () => () => new Promise((_resolve, reject) => {
+      sends += 1;
+      signalStarted();
+      if (controller.signal.aborted) {
+        reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+        return;
+      }
+      controller.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+      }, { once: true });
+    }),
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch'));
+    await transportStarted;
+    controller.abort();
+    await assert.rejects(pending, /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
+    assert.equal(sends, 1, 'cancellation must not trigger a transport retry');
+
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get('cancelled-dispatch').status,
+        'UNKNOWN',
+      );
+    } finally {
+      db.close();
+    }
+
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch')),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(sends, 1, 'same-ID and new-ID retries must both remain blocked');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('serialized Gateway endpoint rejects dispatch because it cannot carry an in-process transport capability', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
