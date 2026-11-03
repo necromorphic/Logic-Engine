@@ -181,6 +181,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     }
     if (relative.endsWith('users-private.js')
       && (!source.includes("router.post('/logout'")
+        || !source.includes('revokeHostSessionBeforeLogout(request)')
         || !source.includes('request.session = null'))) {
       throw new Error('HOST_ST_LOGOUT_SESSION_INVALIDATION_MISSING');
     }
