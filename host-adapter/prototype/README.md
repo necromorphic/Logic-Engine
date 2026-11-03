@@ -295,3 +295,15 @@ The Host candidate remains NON_READY until the resolver is wired to the canonica
 ### Supplemental fix for un-enrolled chats
 
 After applying the base lifecycle patch, apply `patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch` as well. It makes lifecycle hooks return `NOT_ENROLLED` for chats without a locator enrollment, so unrelated older enrollments cannot block ordinary SillyTavern message operations. Enrolled chats retain the strict identity-migration guard. The Host lifecycle patch-check workflow applies both patches in order.
+
+
+## Executable extension boundary — 3 Nov 2026
+
+The runtime pinned-source verifier now rejects additional entries under both SillyTavern executable extension roots:
+
+- `plugins/` must contain only `logic-engine-extension-gateway/`;
+- `public/scripts/extensions/third-party/` must contain only `logic-engine-extension-gateway/`.
+
+This is intentional fail-closed policy. A server plugin can register routes and a third-party browser extension can initiate mutations that are not covered by the built-in pinned route patch. A full account data-root scan cannot attest executable extension code. Installing another plugin or third-party extension therefore makes Host source identity NON_READY until that code is added to a reviewed source-coverage contract and pinned deployment manifest.
+
+The source-attestation unit tests now include fixtures for an unreviewed server plugin and an unreviewed third-party browser extension. They have been added but have **not** been run in this work session, per the instruction to finish implementation before testing.
