@@ -8,6 +8,7 @@ const chats = await readFile(resolve(root, 'src/endpoints/chats.js'), 'utf8');
 const serverMain = await readFile(resolve(root, 'src/server-main.js'), 'utf8');
 const pluginLoader = await readFile(resolve(root, 'src/plugin-loader.js'), 'utf8');
 const extensions = await readFile(resolve(root, 'public/scripts/extensions.js'), 'utf8');
+const openai = await readFile(resolve(root, 'public/scripts/openai.js'), 'utf8');
 const serverStartup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
 const gatewayManifest = JSON.parse(await readFile(resolve(process.cwd(), 'host-adapter/extension-gateway/manifest.json'), 'utf8'));
 const gatewayClient = await readFile(resolve(process.cwd(), 'host-adapter/extension-gateway/index.js'), 'utf8');
@@ -44,14 +45,23 @@ has(pluginLoader, /const enableServerPlugins = !!getConfigValue\('enableServerPl
 has(pluginLoader, /app\.use\(\`\/api\/plugins\/\$\{id\}\`, router\)/,
   'native server plugin router must mount under /api/plugins/{id}');
 has(extensions, /runGenerationInterceptors/,
-  'native generation interceptor chain must exist in the pinned host');
-assert.equal(gatewayManifest.generate_interceptor, 'logicEngineExtensionGatewayGenerationInterceptor');
-has(gatewayClient, /dispatchThroughExtensionGateway/,
-  'protected generation must dispatch through the Extension Gateway client');
+  'the native interceptor chain exists but is not used as the Memory ingress');
+has(script, /await eventSource\\.emit\\(event_types\\.GENERATE_AFTER_DATA, generate_data\\)/,
+  'text-generation locator event must be awaited before native request serialization');
+has(openai, /await eventSource\\.emit\\(event_types\\.CHAT_COMPLETION_SETTINGS_READY, generate_data\\)/,
+  'Chat Completions locator event must be awaited before native request serialization');
+assert.equal(Object.hasOwn(gatewayManifest, 'generate_interceptor'), false,
+  'Logic Engine must not register a parallel browser generation interceptor');
+has(gatewayClient, /CHAT_COMPLETION_SETTINGS_READY/,
+  'Extension must attach a locator at the native Chat Completions data event');
+has(gatewayClient, /GENERATE_AFTER_DATA/,
+  'Extension must attach a locator at the native text-generation data event');
+has(gatewayClient, /logic_engine_conversation_uuid/,
+  'Extension may attach only an untrusted Host conversation locator');
 has(gatewayServer, /id: 'logic-engine-extension-gateway'/,
   'server-side gateway must be a native SillyTavern server plugin');
-has(gatewayServer, /router\.post\('\/dispatch'/,
-  'the single protected dispatch route must be owned by the Extension Gateway plugin');
+assert.doesNotMatch(gatewayServer, /router\\.post\\(['"]\\/dispatch/,
+  'the browser-facing Memory dispatch route must not exist');
 assert.doesNotMatch(gatewayServer, /\/api\/logic-engine/,
   'the adapter must not register separate ST /api/logic-engine routes');
 assert.doesNotMatch(serverStartup, /logic-engine-(?:lifecycle|host-inventory)/,
