@@ -212,6 +212,45 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       'attributes.public_note': 'real Core source value',
     });
 
+    // Even a correctly signed Host assertion cannot choose Core World or
+    // Actor identity. The consumer must independently resolve both bindings.
+    const assertionNow = Math.floor(Date.now() / 1000);
+    const forgedScopeAssertion = {
+      protocol_version: 1,
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+      host_session_id: hostSessionId,
+      conversation_id: conversationId,
+      world_id: 'attacker-selected-world',
+      actor_id: 'attacker-selected-actor',
+      issued_at: assertionNow,
+      nonce: '55555555-5555-4555-8555-555555555555',
+    };
+    const assertionSecret = 'real-adapter-core-scope-test-secret';
+    const forgedScopeSignature = createHmac('sha256', assertionSecret).update(JSON.stringify([
+      forgedScopeAssertion.protocol_version,
+      forgedScopeAssertion.host_installation_id,
+      forgedScopeAssertion.authenticated_account_id,
+      forgedScopeAssertion.host_session_id,
+      forgedScopeAssertion.conversation_id,
+      forgedScopeAssertion.world_id,
+      forgedScopeAssertion.actor_id,
+      forgedScopeAssertion.issued_at,
+      forgedScopeAssertion.nonce,
+    ]), 'utf8').digest('hex');
+    const assertionRunner = createHostSessionAssertionRunner({
+      secret: assertionSecret,
+      now: () => assertionNow * 1000,
+    });
+    const forgedScopeResult = await assertionRunner.run(
+      forgedScopeAssertion,
+      forgedScopeSignature,
+      () => adapter.consumer.retrieveForNpc({ conversationId }),
+    );
+    assert.equal(forgedScopeResult.status, 'non_ready');
+    assert.equal(forgedScopeResult.reason, 'query_access_unconfirmed');
+    assert.deepEqual(forgedScopeResult.candidates, []);
+
     const generationRequest = {
       request_id: 'real-adapter-generation-request',
       generation_id: 'real-adapter-generation-1',
