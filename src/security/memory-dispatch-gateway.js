@@ -997,7 +997,8 @@ export class MemoryDispatchGateway {
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
       sources: sourceSet, candidates: candidateSet, providerEvidenceCursor: providerCursorSnapshot,
-      laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot,
+      laneA: laneASnapshot, npcContext, generationRequest, contentBlocks: contentBlockSet,
+      body, hostRoute, hostContext: hostContextSnapshot,
       coreHead, providerHead, policyAuthority,
     };
     try {
@@ -1045,6 +1046,27 @@ export class MemoryDispatchGateway {
 
 
   #revalidateReleaseContext(context, coordinatorLease) {
+    assertNpcContextBinding({
+      context: context.npcContext,
+      generationRequest: context.generationRequest,
+      requestId: context.requestId,
+      worldId: context.worldId,
+      actorId: context.actorId,
+      purpose: context.purpose,
+      conversationId: context.hostContext.core_conversation_id,
+      adapterId: context.hostContext.adapter_id,
+      candidateSet: context.candidates,
+      contentBlocks: context.contentBlocks,
+      body: context.body,
+      hostRoute: context.hostRoute,
+      senderRoute: context.senderRoute,
+    });
+    const laneAResult = assertSyncResult(this.npcContextRuntime.revalidateLaneAForDispatch(
+      context.npcContext, context.generationRequest,
+    ));
+    if (laneAResult.status !== 'ready') {
+      throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
+    }
     const currentAuthority = getAcceptedHeadStatusSync({
       port: this.authorityPort,
       token: this.readToken,
@@ -1077,13 +1099,6 @@ export class MemoryDispatchGateway {
     assertSameCandidates(currentProvider.candidates, context.candidates);
     assertSameProviderEvidenceCursor(currentProvider.provider_evidence_cursor, context.providerEvidenceCursor);
     assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
-    if (context.laneA.items.length > 0) {
-      const laneAResult = context.revalidateLaneA(coordinatorLease);
-      if (!laneAResult || laneAResult.status !== 'ready'
-        || typeof laneAResult.then === 'function') {
-        throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
-      }
-    }
     const currentHost = assertSyncResult(this.readHostEvidence({
       hostContext: context.hostContext,
       worldId: context.worldId,
