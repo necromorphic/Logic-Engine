@@ -81,5 +81,5 @@ test('public integrity and ledger export reject a corrupted independent head che
 test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
  const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
- assert.equal(result.status,'NON_READY');assert.match(result.reason,/no trusted pinned-source attestation/);
+ assert.equal(result.status,'NON_READY');assert.match(result.reason,/trusted source identity and Core-authoritative root inventory are required/);
 });
