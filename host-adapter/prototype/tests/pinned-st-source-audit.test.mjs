@@ -57,6 +57,14 @@ const anchors = [
         "router.post('/reset-step2'",
         'fsPromises.rm(request.user.directories.root',
     ]],
+    ['src/users.js', [
+        'export async function setUserDataMiddleware',
+        "await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })",
+    ]],
+    ['src/endpoints/users-public.js', [
+        "router.post('/login'",
+        "await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })",
+    ]],
     ['public/script.js', [
         'export function saveChatDebounced()',
         'event_types.MESSAGE_DELETED',
@@ -122,4 +130,26 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     const adminUsers = read('src/endpoints/users-admin.js');
     assert.ok(adminUsers.includes('HOST_USER_ACCOUNT_DELETE_UNSUPPORTED'),
         'account-root deletion must remain explicitly fail-closed');
+});
+
+
+test('account switching and version invalidation revoke the old Host capability before session mutation', { skip: !root }, () => {
+    const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+    const users = read('src/users.js');
+    const invalidationCall = users.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
+    const invalidationClear = users.indexOf('request.session.handle = null;', invalidationCall);
+    assert.ok(invalidationCall >= 0 && invalidationClear > invalidationCall,
+        'account-version invalidation must revoke Core capability before clearing the ST session');
+    const login = read('src/endpoints/users-public.js');
+    const loginCall = login.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
+    const loginMutation = login.indexOf('request.session.handle = user.handle;', loginCall);
+    assert.ok(loginCall >= 0 && loginMutation > loginCall,
+        'account switching must revoke Core capability before changing the authenticated account');
+    const loginReset = login.indexOf('delete request.session.logicEngineSessionId;', loginCall);
+    assert.ok(loginReset > loginCall && loginReset < loginMutation,
+        'account switching must clear the revoked Host identity before issuing a new session');
+    assert.ok(users.includes('Host session revocation unavailable; session was not invalidated.'),
+        'version invalidation must fail closed when Core revocation is unavailable');
+    assert.ok(login.includes('Host session revocation unavailable; account was not switched.'),
+        'account switching must fail closed when Core revocation is unavailable');
 });
