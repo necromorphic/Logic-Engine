@@ -347,6 +347,8 @@ test('host inventory clears only blockers covered by verified source and Core VS
     'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
     'NO_ACCEPTED_HEAD_AUTHORITY',
     'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+    'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+    'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
   ];
   const handler = createHostInventoryHandler({
     enumerate: async () => ({
