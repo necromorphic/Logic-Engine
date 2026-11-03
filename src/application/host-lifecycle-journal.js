@@ -1201,6 +1201,29 @@ export class HostLifecycleJournal {
       if (latestEvent.event_type === 'DELTA_LIMIT_EXCEEDED') {
         throw new Error('HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY');
       }
+      const attestation = input.attestation;
+      const canonicalAttestation = canonical(attestation);
+      const attestationSha256 = sha256(canonicalAttestation);
+      const existing = this.db.prepare(
+        'SELECT lifecycle_sequence,lifecycle_head_sha256,attestation_sha256,canonical_attestation_json FROM host_root_inventory_attestations WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=? AND inventory_sequence=?'
+      ).get(input.host_installation_id, input.authenticated_account_id, input.root_id, root.sequence);
+      if (existing) {
+        if (existing.attestation_sha256 !== attestationSha256
+          || existing.canonical_attestation_json !== canonicalAttestation) {
+          throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT');
+        }
+        return {
+          status: 'AUTHORITATIVE_COMPLETE',
+          duplicate: true,
+          integrity_status: 'INTEGRITY_OK',
+          sequence: root.sequence,
+          manifest_sha256: root.latest_manifest_sha256,
+          journal_head_sha256: root.head_sha256,
+          lifecycle_sequence: existing.lifecycle_sequence,
+          lifecycle_head_sha256: existing.lifecycle_head_sha256,
+          attestation_sha256: attestationSha256,
+        };
+      }
       const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
       const expected = {
         adapter_id: trustedIdentity.adapter_id,
@@ -1214,33 +1237,12 @@ export class HostLifecycleJournal {
         lifecycle_sequence: lifecycleHead.sequence,
         lifecycle_head_sha256: lifecycleHead.head_sha256,
       };
-      const attestation = input.attestation;
       if (!validRootInventoryAttestation(attestation, expected)) {
         throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
       }
       const nowSeconds = Math.floor(Date.now() / 1000);
       if (Math.abs(nowSeconds - attestation.issued_at) > 30) {
         throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_EXPIRED');
-      }
-      const existing = this.db.prepare(
-        'SELECT attestation_sha256,canonical_attestation_json FROM host_root_inventory_attestations WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=? AND inventory_sequence=?'
-      ).get(input.host_installation_id, input.authenticated_account_id, input.root_id, root.sequence);
-      const canonicalAttestation = canonical(attestation);
-      const attestationSha256 = sha256(canonicalAttestation);
-      if (existing) {
-        if (existing.attestation_sha256 !== attestationSha256
-          || existing.canonical_attestation_json !== canonicalAttestation) {
-          throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT');
-        }
-        return {
-          status: 'AUTHORITATIVE_COMPLETE',
-          duplicate: true,
-          integrity_status: 'INTEGRITY_OK',
-          sequence: root.sequence,
-          manifest_sha256: root.latest_manifest_sha256,
-          journal_head_sha256: root.head_sha256,
-          attestation_sha256: attestationSha256,
-        };
       }
       const nonceUsed = this.db.prepare(
         'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
