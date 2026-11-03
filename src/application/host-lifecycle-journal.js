@@ -1015,7 +1015,7 @@ export class HostLifecycleJournal {
       root_journal_head_sha256: root.head_sha256,
       authority_status: authorityStatus,
       attestation_sha256: attestationSha256,
-      source_manifest_sha256: sourceManifestSha256,
+      ...(sourceManifestSha256 ? { source_manifest_sha256: sourceManifestSha256 } : {}),
     };
     return {
       sequence: root.sequence,
