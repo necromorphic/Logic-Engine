@@ -224,7 +224,7 @@
         },
         "parentComponents": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 256,
           "items": {
             "$ref": "#/$defs/component"
@@ -232,7 +232,7 @@
         },
         "parentIdentities": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 256,
           "items": {
             "$ref": "#/$defs/identity"
@@ -413,8 +413,13 @@
             "items": {
               "type": "object",
               "properties": {
+                "parentComponents": {
+                  "type": "array",
+                  "minItems": 1
+                },
                 "parentIdentities": {
                   "type": "array",
+                  "minItems": 1,
                   "items": {
                     "$ref": "#/$defs/posixIdentity"
                   }
