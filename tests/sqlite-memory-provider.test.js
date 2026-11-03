@@ -75,6 +75,26 @@ test('final authorized-read lease serializes query and record grants with a sync
   };
 
   assert.equal(s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized'), 'authorized');
+  let hostileCallbackInvoked = false;
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, new Proxy([leaseCandidate], {}), () => {
+      hostileCallbackInvoked = true;
+    }),
+    /Invalid Provider authorized-read lease input/,
+  );
+  const accessorCandidates = [leaseCandidate];
+  Object.defineProperty(accessorCandidates, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { throw new Error('candidate array getter must not execute'); },
+  });
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, accessorCandidates, () => {
+      hostileCallbackInvoked = true;
+    }),
+    /Invalid Provider authorized-read lease input/,
+  );
+  assert.equal(hostileCallbackInvoked, false);
   assert.throws(
     () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
       s.provider.grantQuery(s.scope, false);
