@@ -507,7 +507,8 @@ export class MemoryNpcConsumer {
       }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
-        || !validId(candidate.source?.entity_id)) {
+        || !validId(candidate.source?.entity_id)
+        || !validId(candidate.source?.source_version)) {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
       }
@@ -521,6 +522,7 @@ export class MemoryNpcConsumer {
           authorization_generation: candidate.authorization_generation,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch (error) {
         // A denial is an ordinary filtered record; an authorization failure is
@@ -798,6 +800,7 @@ export class MemoryNpcConsumer {
         record_version: candidate.record.version,
         authorization_generation: candidate.authorization_generation,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),
@@ -840,6 +843,7 @@ export class MemoryNpcConsumer {
           authorization_generation: item.authorization_generation,
           source_kind: 'canonical_entity',
           source_entity_id: item.source_entity_id,
+          source_version: item.source_version,
         }) === true;
       } catch (error) {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
