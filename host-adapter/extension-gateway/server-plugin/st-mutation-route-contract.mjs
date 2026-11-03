@@ -107,6 +107,8 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
     'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED',
     'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED',
     'HOST_USER_ROOT_RESET_UNSUPPORTED',
+    'HOST_USER_DATA_MIGRATION_INCOMPLETE',
+    'HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE',
     'Skipping unreceipted startup group metadata migration while Host inventory is enabled.',
   ],
 }));
@@ -145,6 +147,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
   const specialFiles = [
     'src/endpoints/extensions.js',
     'src/endpoints/users-admin.js',
+    'src/users.js',
     'src/endpoints/groups.js',
   ];
   for (const relative of specialFiles) {
@@ -157,6 +160,11 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     }
     if (relative.endsWith('users-admin.js') && !source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')) {
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
+    }
+    if (relative.endsWith('users.js')
+      && (!source.includes("throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE')")
+        || !source.includes("throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE')"))) {
+      throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-private.js') && !source.includes('HOST_USER_ROOT_RESET_UNSUPPORTED')) {
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');
