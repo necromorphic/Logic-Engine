@@ -199,6 +199,15 @@ function assertProtectedContext(context) {
     || typeof context.worldId !== 'string' || !context.worldId
     || typeof context.actorId !== 'string' || !context.actorId
     || typeof context.purpose !== 'string' || !context.purpose
+    || typeof context.conversationId !== 'string' || !context.conversationId
+    || typeof context.adapterId !== 'string' || !context.adapterId
+    || !context.npcContextHandoff || typeof context.npcContextHandoff !== 'object'
+    || !context.generationRequest || typeof context.generationRequest !== 'object'
+    || Array.isArray(context.generationRequest)
+    || Object.keys(context.generationRequest).length !== 3
+    || context.generationRequest.request_id !== context.requestId
+    || typeof context.generationRequest.generation_id !== 'string' || !context.generationRequest.generation_id
+    || typeof context.generationRequest.generation_type !== 'string' || !context.generationRequest.generation_type
     || !Array.isArray(context.sources) || !Array.isArray(context.candidates)
     || !Array.isArray(context.contentBlocks) || context.contentBlocks.length === 0) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -300,6 +309,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       ...protectedMemory,
       route: 'host-selected-chat-generation',
       senderRoute,
+      hostRoute,
       model: protectedMemory.model,
       stream,
       body: exactBody,
