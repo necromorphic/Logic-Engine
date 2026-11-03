@@ -831,6 +831,65 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('pre-aborted protected dispatch is denied before durable start and transport handoff', async () => {
+  const fixture = await createFixture();
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('pre-aborted-dispatch', { signal: controller.signal })),
+      /MEMORY_DISPATCH_CANCELLED/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT request_id FROM dispatch_ledger WHERE request_id=?').get('pre-aborted-dispatch'),
+        undefined,
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('cancellation after upstream completion but before Host response write suppresses bytes and records UNKNOWN', async () => {
+  const fixture = await createFixture();
+  const controller = new AbortController();
+  try {
+    const request = validRequest('cancel-before-final-write', { signal: controller.signal });
+    const upstream = await fixture.gateway.dispatchProtectedRequest(request);
+    assert.equal(upstream.status, 200);
+    controller.abort();
+
+    const hostResponse = new EventEmitter();
+    hostResponse.writableEnded = false;
+    hostResponse.destroyed = false;
+    let writes = 0;
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => {
+        writes += 1;
+      }, { final: true, response: hostResponse }),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(writes, 0, 'a cancelled response must not reach the native Host writer');
+
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(request.requestId).status,
+        'UNKNOWN',
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
   const controller = new AbortController();
   let sends = 0;
