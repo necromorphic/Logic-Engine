@@ -92,11 +92,6 @@ export function createHostDigestProxyHandler({
         error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
       });
     }
-    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
-      return response.status(403).json({
-        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
-      });
-    }
     if (!validCapture(request?.body)) {
       return response.status(400).json({
         error: { code: 'INVALID_HOST_VERSION_CAPTURE', message: 'Only digest-only Host version identity and lifecycle fields are accepted.' },
@@ -784,12 +779,14 @@ export function createHostMemoryDispatchProxyHandler({
   return async function hostMemoryDispatchProxy(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const context = resolveHostContext(request);
+    const hostRequest = request?.hostRequest ?? request;
+    const context = resolveHostContext(hostRequest);
     if (!context || !HOST_SESSION_UUID.test(context.host_installation_id ?? '')
       || !HOST_SESSION_UUID.test(context.authenticated_account_id ?? '')
       || !HOST_SESSION_UUID.test(context.host_session_id ?? '')
       || typeof context.conversation_id !== 'string'
-      || !HOST_CONVERSATION_ID.test(context.conversation_id)) {
+      || !HOST_CONVERSATION_ID.test(context.conversation_id)
+      || !requestMatchesAuthenticatedHostSession(hostRequest, context)) {
       return response.sendStatus(403);
     }
     const body = request?.body;
@@ -893,7 +890,7 @@ export function createHostMemoryDispatchProxyHandler({
         status: 'NON_READY',
         code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
       });
-      return response.status(200).json(payload);
+      return response.status(200).json({ host_context: hostBindings, retrieval: payload?.retrieval });
     } catch {
       return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
     }
