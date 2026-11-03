@@ -483,6 +483,10 @@ export class MemoryNpcConsumer {
     }
 
     let authorizedCandidates = [];
+    // Detect identity rebinding before filtering unsupported or malformed source
+    // metadata. Otherwise a duplicate ref/version with a missing source version
+    // could be silently skipped and make the complete result appear ready-empty.
+    const observedIdentitySignatures = new Map();
     for (const candidate of memoryResult.candidates) {
       // A result declared complete must not silently turn malformed records
       // into an apparently valid empty result. Scope/identity/snapshot
@@ -505,6 +509,25 @@ export class MemoryNpcConsumer {
       if (!sameSnapshot(candidate.snapshot, memoryResult.snapshot)) {
         return nonReady('memory_snapshot_stale');
       }
+      const observedIdentity = recordIdentityKey(candidate.record.ref, candidate.record.version);
+      const observedSignature = {
+        source_kind: candidate.source?.kind,
+        source_entity_id: candidate.source?.entity_id,
+        source_version: candidate.source?.source_version,
+        content_kind: candidate.content_kind,
+        epistemic_kind: candidate.epistemic_kind,
+        producer_kind: candidate.producer?.kind,
+        authorization_generation: candidate.authorization_generation,
+        content_disposition: candidate.lifecycle?.content_disposition,
+        evidence_assessment: candidate.lifecycle?.evidence_assessment,
+        index_health: candidate.lifecycle?.index_health,
+      };
+      const previousObservedSignature = observedIdentitySignatures.get(observedIdentity);
+      if (previousObservedSignature && !isDeepStrictEqual(previousObservedSignature, observedSignature)) {
+        return nonReady('memory_record_identity_conflict');
+      }
+      if (!previousObservedSignature) observedIdentitySignatures.set(observedIdentity, observedSignature);
+
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
         || !validId(candidate.source?.entity_id)
