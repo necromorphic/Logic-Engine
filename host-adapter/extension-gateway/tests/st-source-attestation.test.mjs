@@ -95,6 +95,7 @@ test('root inventory attestation signs the exact accepted snapshot envelope', as
   const expected = createHmac('sha256', adapterToken).update(canonical(proof), 'utf8').digest('hex');
   assert.equal(signature, expected);
   assert.equal(attestation.covered_delta_sha256, 'd'.repeat(64));
+  assert.equal(attestation.source_manifest_sha256, 'a'.repeat(64));
   assert.equal(attestation.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(attestation.source_identity_status, 'CURRENT_IDENTITIES_VERIFIED');
 });
