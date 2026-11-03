@@ -221,6 +221,7 @@ function assertProtectedContext(context) {
     || !Array.isArray(context.contentBlocks) || context.contentBlocks.length === 0) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
+  stableJson(context.contentBlocks);
 }
 
 function assertRequest(endpointUrl, requestInit) {
