@@ -64,6 +64,7 @@ test('root inventory attestation signs the exact accepted snapshot envelope', as
   const adapterToken = 'test-adapter-secret-at-least-16';
   const sourceIdentity = {
     status: 'CURRENT_IDENTITIES_VERIFIED',
+    manifest_sha256: 'a'.repeat(64),
     patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
     host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
   };
