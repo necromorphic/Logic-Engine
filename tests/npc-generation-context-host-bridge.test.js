@@ -11,6 +11,7 @@ function setup({ prepareStatus = 'ready' } = {}) {
   const context = Object.freeze({ request_id: 'request-1', generation_id: 'generation-1' });
   let preparedMetadata = null;
   let consumed = false;
+  const coordinatorLease = Object.freeze({ held: true });
   const runtime = {
     async prepareForDispatch(metadata) {
       preparedMetadata = metadata;
@@ -35,16 +36,21 @@ function setup({ prepareStatus = 'ready' } = {}) {
         ? { status: 'ready', reason: null }
         : { status: 'non_ready', reason: 'lane_a_rejected' };
     },
+    revalidateLaneAForDispatchUnderCoordinatorLease(value, metadata, lease) {
+      return value === context && metadata === preparedMetadata && lease === coordinatorLease
+        ? { status: 'ready', reason: null }
+        : { status: 'non_ready', reason: 'lane_a_rejected' };
+    },
   };
   const bridge = createNpcGenerationContextHostBridge({
     runtime,
     createRequestMetadata: () => requestMetadata,
   });
-  return { bridge, context };
+  return { bridge, context, coordinatorLease };
 }
 
 test('Host bridge carries one prepared handoff to the exact request/response dispatch', async () => {
-  const { bridge, context } = setup();
+  const { bridge, context, coordinatorLease } = setup();
   const hostRequest = {};
   const hostResponse = {};
   assert.equal((await bridge.prepare(hostRequest, hostResponse)).status, 'ready');
@@ -53,6 +59,8 @@ test('Host bridge carries one prepared handoff to the exact request/response dis
   assert.equal(accepted.context, context);
   assert.equal(accepted.laneB.lane, 'B');
   assert.equal(accepted.revalidateLaneA().status, 'ready');
+  assert.equal(accepted.revalidateLaneAUnderCoordinatorLease(coordinatorLease).status, 'ready');
+  assert.equal(accepted.revalidateLaneAUnderCoordinatorLease({}).status, 'non_ready');
   assert.equal(bridge.consume(hostRequest, hostResponse).status, 'non_ready');
   assert.equal((await bridge.prepare(hostRequest, hostResponse)).status, 'non_ready');
 });
@@ -98,6 +106,7 @@ test('Host bridge rejects mutable request metadata before asking Core to prepare
       consumeDispatchHandoff() { return { status: 'non_ready' }; },
       getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
       revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
     },
     createRequestMetadata: () => ({ ...requestMetadata }),
   });
@@ -140,6 +149,7 @@ test('Host bridge rejects reuse of one frozen request-metadata object across Hos
       consumeDispatchHandoff() { return { status: 'non_ready' }; },
       getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
       revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
     },
     createRequestMetadata: () => requestMetadata,
   });
