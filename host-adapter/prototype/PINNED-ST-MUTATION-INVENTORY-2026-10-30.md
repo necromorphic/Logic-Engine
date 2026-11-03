@@ -36,15 +36,16 @@ This is a static source inventory of server routes and file mutation sites inspe
 
 - The generic scanner now fingerprints regular files under the authenticated per-user `directories.root`, so file changes under characters, avatars, worlds, settings, backups, user files, vectors and other per-user directories affect the aggregate digest.
 - The semantic parser still understands only chat/group roots. Character/persona data is fingerprinted as files, not represented by semantic character identity or lifecycle events.
-- The root digest is currently returned as a summary only. The bridge does not persist/compare a durable full-root baseline or consume per-file diffs. This is **not yet an end-to-end detector**; the response carries `NO_DURABLE_FULL_ROOT_BASELINE` and `NO_FULL_ROOT_PER_FILE_DIFF`.
-- Public/global SillyTavern state and extension installation directories are outside `directories.root`; the response carries `NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE`.
-- Recursive deletion, import/export, copy/move/duplicate, backup restore, group metadata migration, data cleanup, user reset, vector purge and extension lifecycle need explicit before/after/restart acceptance. Browser message events do not prove these server-side operations.
-- VSS provides a shared Windows point-in-time file view, not an application-level SillyTavern transaction. The Windows result retains `NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT`.
+- The full per-user root manifest is now durably persisted by Core in `HostLifecycleJournal`: baseline entries, deterministic manifest digest, monotonic sequence, per-file delta and hash-chain integrity survive Core restart. This is stronger than the earlier digest-only summary, but Core deliberately returns `BASELINED_REVIEW_ONLY`; it does not yet prove `AUTHORITATIVE_COMPLETE`.
+- The scanner covers regular files under the authenticated `directories.root` and uses a shared Windows VSS snapshot plus independent stable file reads. It rejects unsupported reparse/symlink states and does not silently fall back to a live-tree scan.
+- Public/global SillyTavern state and extension installation directories remain outside the per-user root manifest. While Host identity storage is enabled, extension install/update/switch/move/delete routes now fail closed so they cannot silently replace the pinned Host source.
+- A pinned, machine-checked route contract now covers 47 per-user mutation routes across chats, groups, characters, avatars, files, World Info, presets, quick replies, themes, backgrounds, assets, vectors, settings, backups and Data Maid. The applied-source test fails if a route is missing its expected guard.
+- These guards are not all operation receipts. Message create/send/receive/edit/swipe/delete paths have lifecycle hooks. Bulk chat rename/delete/import/export, backup restore, group cascade, character recursive deletion, user-root reset and vector purge remain fail-closed for enrolled histories until operation-specific before/after receipts exist. Account-admin and extension-source mutations are disabled while Host identity storage is active.
+- VSS gives a point-in-time filesystem view, not an application-level ST transaction. The journal must also prove no pending lifecycle mutation and that the accepted root manifest matches the same VSS snapshot.
 
 ## Required next acceptance work
 
-1. Turn this static list into a pinned, machine-checked route inventory so changes to the approved SillyTavern source fail the audit until reviewed.
-2. Map each route to the exact per-user/global files it can create, rewrite, copy, move or delete.
-3. Add real-file before/after tests for each operation class, including recursive cascades, imports/exports, restore/migration and user reset.
-4. Prove persistence and identity after process restart, then compare the full-root manifest against the durable lifecycle journal. Any unexplained delta must remain NON_READY.
-5. Keep READY disabled until every mutation route is either covered by a verified event contract or explicitly excluded with a fail-closed rule.
+1. Add the Core completeness-proof contract that binds the accepted root manifest to the pinned source commit, the 47-route coverage manifest, VSS snapshot identity, and the installation/account root binding. Until then, keep the result review-only.
+2. Implement operation-specific receipts for supported bulk chat operations (rename/move, import, export, restore, delete and cascades), or keep those routes explicitly unsupported and fail-closed.
+3. Extend the real pinned-ST Windows harness to verify restart, restore, logout, account switch and session rotation against the same root identity and journal.
+4. Keep `AUTHORITATIVE_COMPLETE` and READY disabled whenever any source, route, file delta, lifecycle event or restart proof is incomplete.
