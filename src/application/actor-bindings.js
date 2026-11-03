@@ -14,7 +14,7 @@ export class ActorBindingService {
     this.engine = engine;
     this.db = engine.store.db;
     if (engine.store.readOnly) {
-      const required = ['host_actor_bindings'];
+      const required = ['actor_bindings'];
       const objects = new Set(this.db.prepare(
         "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
       ).all().map(row => row.object_name));
