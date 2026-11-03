@@ -87,6 +87,24 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
 ]);
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
+const GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(function* () {}).constructor;
+const ASYNC_GENERATOR_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function* () {}).constructor;
+
+function isSynchronousCallable(callback) {
+  if (typeof callback !== 'function' || utilTypes.isProxy(callback)) return false;
+  try {
+    if (callback instanceof ASYNC_FUNCTION_PROTOTYPE
+      || callback instanceof GENERATOR_FUNCTION_PROTOTYPE
+      || callback instanceof ASYNC_GENERATOR_FUNCTION_PROTOTYPE) return false;
+    // Bound functions stringify as native code. Their target kind (sync/async)
+    // is intentionally opaque, so reject them rather than invoke an untrusted
+    // callback to discover whether it returns a Promise.
+    const source = Function.prototype.toString.call(callback);
+    return !source.includes('[native code]');
+  } catch {
+    return false;
+  }
+}
 
 function arrayContains(values, expected) {
   for (let index = 0; index < values.length; index += 1) {
@@ -730,7 +748,7 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     if (laneASnapshot.items.length > 0
-      && (typeof revalidateLaneA !== 'function' || revalidateLaneA instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      && (!isSynchronousCallable(revalidateLaneA))) {
       throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
     }
     const hostContextSnapshot = normalizeHostContext(hostContext);
@@ -820,7 +838,7 @@ export class MemoryDispatchGateway {
       // directly in-process. It is never accepted through the JSON Gateway
       // endpoint and is never serialized. The Host creates it from its trusted
       // provider endpoint, credentials, headers and final serialized body.
-      if (typeof transport !== 'function' || transport instanceof ASYNC_FUNCTION_PROTOTYPE) {
+      if (!isSynchronousCallable(transport)) {
         throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
       }
 
@@ -1016,8 +1034,7 @@ export class MemoryDispatchGateway {
 
   /** Revalidate and perform one synchronous Host write under the shared lease. */
   authorizeResponseWrite(requestId, write, { final = false } = {}) {
-    if (!validText(requestId, 200) || typeof write !== 'function'
-      || write instanceof ASYNC_FUNCTION_PROTOTYPE) {
+    if (!validText(requestId, 200) || !isSynchronousCallable(write)) {
       throw new TypeError('Invalid protected response release capability.');
     }
     const context = this.pendingReleases.get(requestId);
