@@ -567,5 +567,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 9);
+  assert.equal(calls, 10);
 });
