@@ -64,6 +64,42 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
 });
 
+test('lifecycle authority requires complete mutation coverage plus verified source and Core root proof', async () => {
+  const f = fixture();
+  await f.bridge.enrollCurrentConversation();
+  const completeCoverage = [
+    'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
+    'delete-swipe', 'delete-message', 'delete-chat', 'delete-group-chat',
+    'delete-character-chat-recursive', 'edit-message', 'persistence-ordering',
+    'clear-chat', 'import', 'import-character-chat', 'import-group-chat', 'export',
+    'copy-branch', 'restore', 'backup-restore', 'create-branch',
+    'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay',
+  ];
+  const incomplete = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage.slice(0, -1),
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(incomplete.status, 'NON_READY');
+  assert.ok(incomplete.missingPaths.includes('replay'));
+  const ready = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(ready.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(ready.baselineBoundary, 'enrollment-forward-only');
+  const untrustedSource = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'NON_READY',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(untrustedSource.status, 'NON_READY');
+});
+
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
