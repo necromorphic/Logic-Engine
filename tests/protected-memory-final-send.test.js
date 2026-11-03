@@ -350,6 +350,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   const setDescriptors = new Array(setNames.length);
   const poison = () => { throw new Error('POISONED_PROTOTYPE_METHOD_CALLED'); };
   let failure = null;
+  let pending;
   try {
     for (let index = 0; index < names.length; index += 1) {
       const key = names[index];
@@ -362,7 +363,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
       Object.defineProperty(Set.prototype, key, { value: poison, writable: true, configurable: true });
     }
     try {
-      await finalSend({
+      pending = finalSend({
         senderRoute: 'google-ai-studio',
         endpointUrl: 'https://provider.example/generate',
         requestInit: init(JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] })),
@@ -383,6 +384,13 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
       const descriptor = setDescriptors[index];
       if (descriptor) Object.defineProperty(Set.prototype, key, descriptor);
       else delete Set.prototype[key];
+    }
+  }
+  if (!failure) {
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
     }
   }
   if (failure) throw new Error('Final-Send called a poisoned prototype method: ' + failure.message);
