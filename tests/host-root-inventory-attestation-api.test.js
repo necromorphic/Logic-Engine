@@ -16,6 +16,7 @@ const ADAPTER_ID = 'st-host-adapter';
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const ROOT_ID = createHash('sha256').update('host-root-test').digest('hex');
+const SOURCE_MANIFEST_SHA256 = digest('pinned-source-manifest');
 const AUTHORITY_ID = 'host-root-test-authority';
 const AUTHORITY_GENERATION = 1;
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -48,6 +49,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     ? {
       authorized: true, adapter_id: ADAPTER_ID,
       host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT, root_id: ROOT_ID,
+      source_manifest_sha256: SOURCE_MANIFEST_SHA256,
     } : { authorized: false };
   const journal = new HostLifecycleJournal({
     path: join(directory, 'host-lifecycle.sqlite'),
@@ -147,10 +149,10 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     covered_delta_sha256: null,
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patch_blob_sha: 'b74efbc0884c4e983b1edec046122bcb08addb515d955b00bd516dd1a3a4e1ae',
+    patch_blob_sha: '9adf8569a6960667dff219d8e69cbcba4c928100a2858d68f6bc06bc9fee9e7a',
     host_handler_blob_sha: 'a1581f4c39ca7bc7f30b52b155c4ae6222fa7abf',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
-    source_manifest_sha256: digest('pinned-source-manifest'),
+    source_manifest_sha256: SOURCE_MANIFEST_SHA256,
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     snapshot_sha256: digest('vss-snapshot'),
     lifecycle_sequence: lifecycleEvent.sequence,
@@ -179,14 +181,15 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).reconciliation.duplicate, true);
 
-  // A source manifest change on an unchanged account root must advance the
-  // append-only inventory sequence so Core can accept a new source proof.
-  const newSourceManifestSha256 = digest('new-pinned-source-manifest');
+  // The Core deployment registry pins the exact accepted source manifest.
+  // A self-consistent replacement manifest must not be able to re-authorize
+  // the same Host installation without an explicit deployment config update.
+  const unapprovedSourceManifestSha256 = digest('unapproved-source-manifest');
   const refreshResponse = await post(base, '/v1/host-root-inventory/observe', {
     ...identity,
     event_id: '77777777-7777-4777-8777-777777777777',
     entries,
-    source_manifest_sha256: newSourceManifestSha256,
+    source_manifest_sha256: unapprovedSourceManifestSha256,
   });
   assert.equal(refreshResponse.status, 409);
   const refreshPayload = await refreshResponse.json();
@@ -196,27 +199,25 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(refreshed.sequence, baselinePayload.reconciliation.sequence + 1);
   assert.equal(Object.values(refreshed.counts).reduce((sum, count) => sum + count, 0), 0);
 
-  const refreshedAttestation = {
+  const forgedRefreshAttestation = {
     ...attestation,
     inventory_sequence: refreshed.sequence,
     manifest_sha256: refreshed.manifest_sha256,
     inventory_head_sha256: refreshed.journal_head_sha256,
     covered_delta_sha256: refreshed.delta_sha256,
-    source_manifest_sha256: newSourceManifestSha256,
+    source_manifest_sha256: unapprovedSourceManifestSha256,
     lifecycle_sequence: refreshed.lifecycle_sequence,
     lifecycle_head_sha256: refreshed.lifecycle_head_sha256,
     issued_at: Math.floor(Date.now() / 1000),
     nonce: '88888888-8888-4888-8888-888888888888',
     signature: '',
   };
-  refreshedAttestation.signature = sign(refreshedAttestation);
-  const refreshedAccepted = await post(base, '/v1/host-root-inventory/attest', {
-    ...identity, attestation: refreshedAttestation,
+  forgedRefreshAttestation.signature = sign(forgedRefreshAttestation);
+  const forgedRefresh = await post(base, '/v1/host-root-inventory/attest', {
+    ...identity, attestation: forgedRefreshAttestation,
   });
-  assert.equal(refreshedAccepted.status, 200);
-  const refreshedAcceptedPayload = await refreshedAccepted.json();
-  assert.equal(refreshedAcceptedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
-  assert.equal(refreshedAcceptedPayload.reconciliation.source_manifest_sha256, newSourceManifestSha256);
+  assert.equal(forgedRefresh.status, 409);
+  assert.equal((await forgedRefresh.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
 
   const snapshot = journal.getAuthoritySnapshot({
     authority_id: AUTHORITY_ID,
@@ -227,7 +228,7 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
     root_id: ROOT_ID,
   });
   assert.equal(snapshot.status, 'INTEGRITY_OK');
-  assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
-  assert.equal(snapshot.source_manifest_sha256, newSourceManifestSha256);
+  assert.equal(snapshot.authority_status, 'REVIEW_ONLY');
+  assert.equal(snapshot.source_manifest_sha256, undefined);
 
 });
