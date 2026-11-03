@@ -76,6 +76,52 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       };
     },
   };
+  const npcGenerationContext = {
+    async build(request) {
+      const authenticated = getAuthenticatedHostSessionContext();
+      const retrieval = await memoryConsumer.retrieveForNpc({
+        conversationId: authenticated.conversation_id,
+      });
+      const snapshot = retrieval.snapshot;
+      return {
+        status: 'ready',
+        context: {
+          schema: 'npc-generation-context/v1',
+          request_id: request.request_id,
+          generation_id: request.generation_id,
+          generation_type: request.generation_type,
+          world_id: authenticated.world_id,
+          actor_id: authenticated.actor_id,
+          conversation_id: authenticated.conversation_id,
+          adapter_id: authenticated.adapter_id,
+          recipient: 'model',
+          purpose: 'npc_turn_context',
+          snapshot,
+          lanes: {
+            lane_a: {
+              purpose: 'npc_turn_context',
+              authorization_ref: 'rule:host-e2e-lane-a-read',
+              visibility_authorization_ref: 'rule:host-e2e-lane-a-visibility',
+              items: [],
+            },
+            lane_b: {
+              core_purpose: 'npc_turn_context',
+              provider_purpose: 'npc_decision',
+              status: retrieval.status,
+              admitted: retrieval.admitted,
+              candidates: retrieval.candidates,
+              reason: retrieval.reason,
+              snapshot,
+            },
+          },
+        },
+      };
+    },
+    async receive(context, request) {
+      assert.equal(context.request_id, request.request_id);
+      return { status: 'accepted', context };
+    },
+  };
   engine.createWorld({
     world_id: 'host-e2e-world',
     world_pack_id: 'test.host-e2e',
@@ -95,6 +141,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: memoryConsumer },
+    memoryNpcGenerationContexts: { [ADAPTER_ID]: npcGenerationContext },
     hostAssertionNonceStore: nonceStore,
   });
   core.listen(0, '127.0.0.1');
