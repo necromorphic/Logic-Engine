@@ -192,3 +192,21 @@ test('calendar and duration reject accessor, symbol, sparse and custom-prototype
   Object.defineProperty(rule, 'kind', { enumerable: true, get() { throw new Error('getter must not run'); } });
   assert.throws(() => resolveDurationDecision(rule), TypeError);
 });
+
+
+test('interval and category proposal validators reject Proxy inputs before traps', async () => {
+  const { resolveDurationDecision } = await import('../src/time/duration.js');
+  let traps = 0;
+  const hostile = new Proxy({}, {
+    getPrototypeOf() { traps += 1; throw new Error('prototype trap'); },
+    ownKeys() { traps += 1; throw new Error('keys trap'); },
+  });
+  assert.throws(() => intervalContains(hostile, 1), TypeError);
+  assert.deepEqual(resolveDurationDecision({
+    kind: 'category_map',
+    categories: [{ category: 'short', units: 10 }],
+  }, hostile), {
+    status: 'rejected', certainty: 'unknown', reason: 'INVALID_CATEGORY_PROPOSAL',
+  });
+  assert.equal(traps, 0);
+});
