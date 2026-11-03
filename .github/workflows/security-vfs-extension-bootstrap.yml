@@ -129,6 +129,23 @@ jobs:
             if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
               throw 'WhatIf unexpectedly created a Windows service'
             }
+            New-Item -ItemType File -Path $state -Force | Out-Null
+            $invalidStateRejected = $false
+            try {
+              & deploy/sqlite-security/install-windows-service.ps1 -ServiceName $serviceName -InstallDirectory $install -StateDirectory $state -NodePath $node -WhatIf
+            } catch {
+              if ($_.Exception.Message -like '*StateDirectory exists but is not a directory*') {
+                $invalidStateRejected = $true
+              } else {
+                throw
+              }
+            }
+            if (-not $invalidStateRejected) {
+              throw 'Installer did not reject a file supplied as StateDirectory'
+            }
+            if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+              throw 'Invalid StateDirectory unexpectedly created a Windows service'
+            }
           } finally {
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
           }
