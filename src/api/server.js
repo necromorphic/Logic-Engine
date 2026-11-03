@@ -357,6 +357,87 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw error;
         }
       }
+      if (url.pathname === '/v1/host-root-inventory/complete') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host root-inventory completeness operation.' },
+        });
+        if (!hostRootInventoryJournal || typeof hostRootInventoryJournal.completeRootInventory !== 'function'
+          || !resolveHostRootIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_ROOT_INVENTORY_UNAVAILABLE', message: 'Host root inventory completeness authority is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req, 64 * 1024);
+        const validIdentity = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== 5
+          || Object.keys(body).some(key => ![
+            'host_installation_id', 'authenticated_account_id', 'root_id', 'proof', 'proof_signature',
+          ].includes(key))
+          || !validIdentity(body.host_installation_id)
+          || !validIdentity(body.authenticated_account_id)
+          || !/^[a-f0-9]{64}$/.test(body.root_id ?? '')
+          || !body.proof || typeof body.proof !== 'object' || Array.isArray(body.proof)
+          || Object.getPrototypeOf(body.proof) !== Object.prototype
+          || !/^[a-f0-9]{64}$/.test(body.proof_signature ?? '')) {
+          throw new EngineError('INVALID_HOST_ROOT_INVENTORY_COMPLETENESS', 'A bounded, signed Host root-inventory completeness proof is required.', 400);
+        }
+        let trustedIdentity;
+        try {
+          trustedIdentity = await resolveHostRootIdentity({
+            adapterId,
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            root_id: body.root_id,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.adapter_id !== adapterId
+          || trustedIdentity.host_installation_id !== body.host_installation_id
+          || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
+          || trustedIdentity.root_id !== body.root_id
+          || body.proof.adapter_id !== adapterId
+          || body.proof.host_installation_id !== body.host_installation_id
+          || body.proof.authenticated_account_id !== body.authenticated_account_id
+          || body.proof.root_id !== body.root_id) {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        try {
+          const result = hostRootInventoryJournal.completeRootInventory({
+            host_installation_id: trustedIdentity.host_installation_id,
+            authenticated_account_id: trustedIdentity.authenticated_account_id,
+            root_id: trustedIdentity.root_id,
+            proof: body.proof,
+            proof_signature: body.proof_signature,
+          });
+          if (result.status !== 'AUTHORITATIVE_COMPLETE'
+            || result.integrity_status !== 'INTEGRITY_OK'
+            || !/^[a-f0-9]{64}$/.test(result.manifest_sha256 ?? '')
+            || !/^[a-f0-9]{64}$/.test(result.proof_sha256 ?? '')) {
+            return send(res, 409, { inventory_status: 'NON_READY', reconciliation: result });
+          }
+          return send(res, 200, { inventory_status: 'AUTHORITATIVE_COMPLETE', reconciliation: result });
+        } catch (error) {
+          if (error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_EVENT_ID_CONFLICT'
+            || error?.message === 'HOST_ROOT_INVENTORY_NOT_ELIGIBLE_FOR_COMPLETENESS'
+            || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_COMPLETENESS_CHAIN_INVALID') {
+            throw new EngineError(error.message, 'Core rejected the Host root-inventory completeness proof.', 409);
+          }
+          if (error instanceof TypeError) {
+            throw new EngineError('INVALID_HOST_ROOT_INVENTORY_COMPLETENESS', 'The Host root-inventory completeness proof is malformed or unsafe.', 400);
+          }
+          throw error;
+        }
+      }
       if (url.pathname === '/v1/host-root-inventory/baseline'
         || url.pathname === '/v1/host-root-inventory/observe') {
         if (req.method !== 'POST') return send(res, 405, {
