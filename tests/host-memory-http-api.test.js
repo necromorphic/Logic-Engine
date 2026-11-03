@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHmac } from 'node:crypto';
@@ -22,6 +23,14 @@ const ROTATED_SESSION = '12121212-1212-4212-8212-121212121212';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const NONCE = '55555555-5555-4555-8555-555555555555';
 const conversationId = SESSION + ':' + INSTALLATION + ':' + CONVERSATION;
+
+test('production Core bootstrap does not expose the legacy HTTP Host-to-Consumer bridge', async () => {
+  const source = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /memoryNpcConsumers\\s*\\[\\s*adapterId\\s*\\]\\s*=/);
+  assert.doesNotMatch(source, /\\n\\s*memoryNpcConsumers,\\s*\\n/);
+  assert.match(source, /legacy HTTP Host→Consumer retrieval bridge is intentionally not/);
+});
+
 
 function sign(assertion) {
   const canonical = JSON.stringify([
