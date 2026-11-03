@@ -4,12 +4,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
 import { createSillyTavernHostAdapter } from './host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
 import { createSillyTavernFinalSendAdapter } from './host-adapter/sillytavern-final-send-adapter.mjs';
-import { receiveNpcContext } from './host-adapter/npc-context-receiver.mjs';
+import { createEmbeddedGatewayRuntime } from './host-adapter/embedded-gateway-runtime.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
 let registeredHook = null;
 let registeredAdapter = null;
+let registeredRuntime = null;
+const npcHandoffsByRequest = new WeakMap();
 
 const unavailableGateway = Object.freeze({
   dispatchProtectedRequest() {
@@ -22,6 +24,14 @@ const unavailableGateway = Object.freeze({
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   },
 });
+
+function generationBody(request) {
+  const body = request?.body;
+  if (body && typeof body === 'object' && typeof body.logic_engine_request_id === 'string') return body;
+  const params = body?.params;
+  if (params && typeof params === 'object') return params;
+  return null;
+}
 
 function resolveRequestModel(request, prepared) {
   const body = prepared.hostRoute === 'horde-text'
@@ -67,6 +77,16 @@ export async function init(router) {
   const memoryEnabled = process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true';
   const hostAdapter = createSillyTavernHostAdapter();
   try {
+    if (memoryEnabled) {
+      registeredRuntime = createEmbeddedGatewayRuntime({
+        hostAdapter,
+        adapterId: process.env.LOGIC_ENGINE_ADAPTER_ID,
+      });
+      if (typeof registeredRuntime.providerAdapter?.npcGenerationContext?.prepareForDispatch !== 'function'
+        || typeof registeredRuntime.providerAdapter?.runWithAuthenticatedHostSession !== 'function') {
+        throw new Error('EMBEDDED_GATEWAY_NPC_CONTEXT_RUNTIME_UNAVAILABLE');
+      }
+    }
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
     const hook = await import(pathToFileURL(hookPath).href);
     const nativeUtilPath = join(hostRoot, 'src', 'util.js');
@@ -79,37 +99,118 @@ export async function init(router) {
     }
 
     registeredAdapter = createSillyTavernFinalSendAdapter({
-      gateway: unavailableGateway,
+      gateway: memoryEnabled ? registeredRuntime.gateway : unavailableGateway,
       chatCompletionSources: nativeConstants.CHAT_COMPLETION_SOURCES,
       nativeForwardFetchResponse: nativeUtil.forwardFetchResponse,
-      prepareHostContext: async (request, _response, hostRoute) => {
+      prepareHostContext: async (request, response, hostRoute) => {
         if (!memoryEnabled) return null;
-        return hostAdapter.prepareGenerationContext(request, hostRoute);
-      },
-      resolveProtectedMemory: prepared => {
-        if (!memoryEnabled) return null;
-        const host = prepared?.hostContext;
-        const request = prepared?.request;
-        if (!host || host.status !== 'READY' || !request) return undefined;
-        const received = receiveNpcContext({
-          retrieval: host.retrieval,
-          hostContext: host.coreContext,
-          hostBinding: host.context,
-          requestId: host.requestId,
-          model: resolveRequestModel(request, prepared),
-          purpose: 'npc_decision',
+        const host = await hostAdapter.prepareGenerationContext(request, hostRoute);
+        if (host?.status !== 'READY' || !host.coreContext || !host.context) {
+          return { status: 'NON_READY', code: host?.code || 'HOST_NPC_CONTEXT_NON_READY' };
+        }
+        const coreConversationId = hostAdapter.resolveCoreConversationId(request);
+        if (typeof coreConversationId !== 'string' || !coreConversationId
+          || coreConversationId !== host.coreContext.conversation_id) {
+          return { status: 'NON_READY', code: 'HOST_CORE_CONVERSATION_UNAVAILABLE' };
+        }
+        const body = generationBody(request);
+        const generationRequest = Object.freeze({
+          request_id: body?.logic_engine_request_id,
+          generation_id: body?.logic_engine_generation_id,
+          generation_type: body?.logic_engine_generation_type,
         });
-        // Memory-enabled generation is classified as protected even when
-        // Lane B is complete-empty. The current receiver does not yet carry the
-        // Core Lane A projection, so an empty Lane B result is not proof that the
-        // complete NPC context is empty. Never turn that uncertainty into an
-        // explicit unprotected null/native fallback.
-        return received;
+        let preparedNpc;
+        try {
+          preparedNpc = await registeredRuntime.providerAdapter.runWithAuthenticatedHostSession(
+            request,
+            coreConversationId,
+            () => registeredRuntime.providerAdapter.npcGenerationContext.prepareForDispatch(generationRequest),
+          );
+        } catch {
+          return { status: 'NON_READY', code: 'NPC_CONTEXT_PREPARATION_FAILED' };
+        }
+        if (preparedNpc?.status !== 'ready' || !preparedNpc.handoff) {
+          return { status: 'NON_READY', code: preparedNpc?.reason || 'NPC_CONTEXT_NOT_READY' };
+        }
+        npcHandoffsByRequest.set(request, Object.freeze({
+          response,
+          handoff: preparedNpc.handoff,
+          generationRequest,
+        }));
+        return host;
+      },
+      resolveProtectedMemory: (request, prepared) => {
+        if (!memoryEnabled) return Object.freeze({ status: 'unprotected' });
+        const host = prepared?.hostContext;
+        const handoff = request && typeof request === 'object' ? npcHandoffsByRequest.get(request) : null;
+        if (!host || host.status !== 'READY' || !prepared?.response
+          || !handoff || handoff.response !== prepared.response) {
+          return Object.freeze({ status: 'non_ready' });
+        }
+        npcHandoffsByRequest.delete(request);
+        const runtime = registeredRuntime?.providerAdapter?.npcGenerationContext;
+        if (!runtime || typeof runtime.projectDispatchHandoff !== 'function') {
+          return Object.freeze({ status: 'non_ready' });
+        }
+        let projected;
+        try { projected = runtime.projectDispatchHandoff(handoff.handoff, handoff.generationRequest); }
+        catch { return Object.freeze({ status: 'non_ready' }); }
+        if (projected?.status !== 'ready' || !projected.projection
+          || !Array.isArray(projected.projection.contentBlocks)
+          || !Array.isArray(projected.projection.sources)
+          || !Array.isArray(projected.projection.candidates)) {
+          return Object.freeze({ status: 'non_ready' });
+        }
+        const projection = projected.projection;
+        // A fully ready, complete-empty NPC projection is explicitly
+        // unprotected. Missing/invalid projection is never treated as empty.
+        if (projection.contentBlocks.length === 0
+          && projection.sources.length === 0 && projection.candidates.length === 0) {
+          return Object.freeze({ status: 'unprotected' });
+        }
+        const hostBinding = host.context;
+        const coreContext = host.coreContext;
+        if (!hostBinding || !coreContext) return Object.freeze({ status: 'non_ready' });
+        const hostContext = Object.freeze({
+          adapter_id: coreContext.adapter_id,
+          core_conversation_id: coreContext.conversation_id,
+          world_id: projection.world_id,
+          actor_id: projection.actor_id,
+          actor_type: coreContext.actor_type,
+          host_installation_id: hostBinding.host_installation_id,
+          authenticated_account_id: hostBinding.authenticated_account_id,
+          host_session_id: hostBinding.host_session_id,
+          host_conversation_id: hostBinding.conversation_id,
+          conversation_uuid: hostBinding.conversation_uuid,
+          root_id: hostBinding.root_id,
+          root_inventory_sequence: hostBinding.root_inventory_sequence,
+          root_manifest_sha256: hostBinding.root_manifest_sha256,
+        });
+        return Object.freeze({
+          status: 'ready',
+          context: Object.freeze({
+            requestId: host.requestId,
+            generationRequest: handoff.generationRequest,
+            npcContextHandoff: handoff.handoff,
+            model: resolveRequestModel(request, prepared),
+            worldId: projection.world_id,
+            actorId: projection.actor_id,
+            purpose: 'npc_decision',
+            conversationId: projection.conversation_id,
+            adapterId: projection.adapter_id,
+            sources: projection.sources,
+            candidates: projection.candidates,
+            contentBlocks: projection.contentBlocks,
+            hostContext,
+          }),
+        });
       },
     });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
     registeredHook = hook;
   } catch (error) {
+    try { registeredRuntime?.close?.(); } catch {}
+    registeredRuntime = null;
     throw error;
   }
 
@@ -121,8 +222,8 @@ export async function init(router) {
       patch: patch.status,
       hostCommit: patch.hostCommit ?? null,
       patchVersion: patch.patchVersion ?? null,
-      gateway: 'NOT_WIRED_FAIL_CLOSED',
-      memoryNpc: memoryEnabled ? 'PREPARE_ONLY_FAIL_CLOSED' : 'DISABLED_FAIL_CLOSED',
+      gateway: memoryEnabled ? 'EMBEDDED_GATEWAY_FAIL_CLOSED_ON_EVIDENCE' : 'DISABLED_FAIL_CLOSED',
+      memoryNpc: memoryEnabled ? 'LOCAL_ONE_SHOT_HANDOFF' : 'DISABLED_FAIL_CLOSED',
     });
   });
 
@@ -135,6 +236,7 @@ export async function exit() {
   }
   registeredHook = null;
   registeredAdapter = null;
+  try { registeredRuntime?.close?.(); } finally { registeredRuntime = null; }
   // Do not uninstall on normal server shutdown/unload. The patched native
   // route modules remain installed for the next process startup.
 }
