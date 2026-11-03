@@ -255,7 +255,27 @@ diff --git a/public/script.js b/public/script.js
  export async function clearChat({ clearData = false } = {}) {
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1605,8 +1831,14 @@
+@@ -1604 +1830,15 @@
+-    if (clearData) chat.length = 0;
++    if (clearData) {
++        const lifecycleBridge = await getLogicEngineLifecycleBridge();
++        try {
++            while (chat.length > 0) {
++                const messageIndex = chat.length - 1;
++                const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', [messageIndex], { bulkClear: true });
++                chat.splice(messageIndex, 1);
++                if (lifecycleBefore.status !== 'NOT_ENROLLED') {
++                    await saveChatConditional();
++                    await lifecycleBridge.afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex });
++                }
++            }
++        } catch (error) {
++            await printMessages();
++            throw error;
++        }
++    }
++
+@@ -1605,8 +1846,14 @@
  }
  
  export async function deleteLastMessage() {
