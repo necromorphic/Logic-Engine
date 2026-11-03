@@ -48,3 +48,14 @@ This is not yet a complete durable store integration. The caller must provision 
 - deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
 
 The adapter is not yet connected to the named-pipe protocol or SQLite VFS. The service still reports filesystem operations as UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
+
+## Strict Windows manifest byte validation
+
+`native/secure-vfs-probe/windows-manifest-json.js` adds a Node-side strict byte parser for the existing Windows role-manifest and lifecycle-intent validators:
+- fatal UTF-8 decoding; BOMs and malformed byte sequences are rejected;
+- duplicate object keys are rejected at every nesting level, including keys that become equal after JSON escape decoding;
+- malformed escapes, unpaired surrogates, trailing commas/content and excessive nesting/token/byte counts are rejected;
+- parsed manifests and intents are passed through the exact-key and generation/state validators already used by the lifecycle coordinator;
+- bounded encoders validate before serialization.
+
+This parser is covered by the VFS CI manifest-schema job. It is not yet wired into the native SCM broker's validation callbacks; the broker continues to reject every state-changing request until that bridge and startup recovery are implemented.
