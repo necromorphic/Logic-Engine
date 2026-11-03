@@ -296,6 +296,8 @@ export class MemoryDispatchGateway {
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
+            adapter_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
             sources_json TEXT NOT NULL,
             candidates_json TEXT NOT NULL,
@@ -323,9 +325,16 @@ export class MemoryDispatchGateway {
           || !objects.has('index:dispatch_ledger_unresolved_digest')) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
-        const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
+        let columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
+        if (!columns.has('adapter_id')) {
+          this.db.exec("ALTER TABLE dispatch_ledger ADD COLUMN adapter_id TEXT NOT NULL DEFAULT 'legacy'");
+        }
+        if (!columns.has('conversation_id')) {
+          this.db.exec("ALTER TABLE dispatch_ledger ADD COLUMN conversation_id TEXT NOT NULL DEFAULT 'legacy'");
+        }
+        columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'adapter_id', 'conversation_id', 'purpose',
           'sources_json', 'candidates_json', 'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
           'policy_fingerprint', 'status', 'outcome_code',
           'started_at', 'finished_at',
@@ -351,6 +360,8 @@ export class MemoryDispatchGateway {
               stream INTEGER NOT NULL CHECK(stream IN (0,1)),
               world_id TEXT NOT NULL,
               actor_id TEXT NOT NULL,
+              adapter_id TEXT NOT NULL,
+              conversation_id TEXT NOT NULL,
               purpose TEXT NOT NULL,
               sources_json TEXT NOT NULL,
               candidates_json TEXT NOT NULL,
@@ -365,7 +376,7 @@ export class MemoryDispatchGateway {
               finished_at TEXT
             );
             INSERT INTO dispatch_ledger SELECT
-              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,adapter_id,conversation_id,purpose,
               sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
               policy_fingerprint,status,outcome_code,started_at,finished_at
             FROM dispatch_ledger_legacy;
@@ -395,13 +406,14 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, hostTransformsStream = false, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, adapterId, conversationId, purpose, sources, candidates, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
-      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
+      || !validText(worldId, 200) || !validText(actorId, 200)
+      || !validText(adapterId, 200) || !validText(conversationId, 200) || !validText(purpose, 200)
       || typeof hostTransformsStream !== 'boolean'
       || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -419,6 +431,8 @@ export class MemoryDispatchGateway {
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
       world_id: worldId,
       actor_id: actorId,
+      adapter_id: adapterId,
+      conversation_id: conversationId,
       purpose,
       sources: sourceSet,
       candidates: candidateSet,
@@ -442,7 +456,7 @@ export class MemoryDispatchGateway {
       }
 
       const core = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        worldId, actorId, adapterId, conversationId, purpose, sources: sourceSet,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
         worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
@@ -487,7 +501,7 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,adapter_id,conversation_id,purpose,sources_json,candidates_json,
             core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
@@ -499,6 +513,8 @@ export class MemoryDispatchGateway {
           stream ? 1 : 0,
           worldId,
           actorId,
+          adapterId,
+          conversationId,
           purpose,
           JSON.stringify(sourceSet),
           JSON.stringify(candidateSet),
@@ -558,7 +574,7 @@ export class MemoryDispatchGateway {
     let finalRelease = null;
     let finalResponseAllowed = false;
     const releaseContext = {
-      requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
+      requestId, route, senderRoute, model, stream, worldId, actorId, adapterId, conversationId, purpose,
       sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority,
     };
     try {
@@ -616,7 +632,8 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
     const currentCore = assertSyncResult(this.readCoreEvidence({
-      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose, sources: context.sources,
+      worldId: context.worldId, actorId: context.actorId, adapterId: context.adapterId,
+      conversationId: context.conversationId, purpose: context.purpose, sources: context.sources,
     }));
     const currentProvider = assertSyncResult(this.readProviderEvidence({
       worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
