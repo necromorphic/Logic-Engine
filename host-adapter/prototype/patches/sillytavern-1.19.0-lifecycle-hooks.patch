@@ -1061,7 +1061,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -994,5 +1006,12 @@
+@@ -994,5 +1006,14 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (request.session.logicEngineSessionId !== undefined) {
