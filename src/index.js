@@ -147,6 +147,7 @@ const hostAssertionNonceStore = new HostAssertionNonceStore({
   path: assertionNoncePath,
   coreDatabasePath,
   coordinatorPath,
+  providerDatabasePath: memoryProviderPath === undefined ? null : resolve(memoryProviderPath),
 });
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
@@ -204,7 +205,7 @@ function verifyHostLifecycleReceipt({ event, identity }) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-function bindHostLifecycleAuthority(resolved) {
+function bindHostLifecycleAuthority(resolved, { requireComplete = false } = {}) {
   if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
     || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
     || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
@@ -217,8 +218,9 @@ function bindHostLifecycleAuthority(resolved) {
       generation: hostLifecycleAuthorityGeneration,
     });
   } catch { return { authorized: false }; }
+  const authorityStatus = snapshot?.authority_status ?? 'REVIEW_ONLY';
   if (snapshot?.status !== 'INTEGRITY_OK'
-    || snapshot.authority_status !== 'AUTHORITATIVE_COMPLETE'
+    || (requireComplete && authorityStatus !== 'AUTHORITATIVE_COMPLETE')
     || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
     return { authorized: false };
   }
@@ -226,6 +228,7 @@ function bindHostLifecycleAuthority(resolved) {
     ...resolved,
     authority_id: hostLifecycleAuthorityId.trim(),
     generation: hostLifecycleAuthorityGeneration,
+    authority_status: authorityStatus,
     snapshot_fingerprint: snapshot.snapshot_fingerprint,
   };
 }
@@ -316,7 +319,13 @@ const server = createApiServer({
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
-  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input)),
+  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+  ),
+  resolveHostMemoryIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+    { requireComplete: true },
+  ),
   hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
   memoryNpcConsumers,
