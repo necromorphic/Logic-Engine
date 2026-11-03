@@ -301,7 +301,9 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const bytes = await readFile(join(sourceRoot, relative));
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     const source = bytes.toString('utf8');
-    if (relative.endsWith('extensions.js') && !source.includes('HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED')) {
+    if (relative.endsWith('extensions.js')
+      && (!source.includes('createHostUnsupportedMutationGuard')
+        || !source.includes('const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();'))) {
       throw new Error('HOST_ST_EXTENSION_SOURCE_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-admin.js')
