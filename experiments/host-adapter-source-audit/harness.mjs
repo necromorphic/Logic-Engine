@@ -96,13 +96,14 @@ test('server and browser extension loaders reject unreviewed third-party code be
   const pluginEnd = lifecyclePatch.indexOf('\ndiff --git ', pluginStart + 10);
   const pluginSection = lifecyclePatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
   const files = pluginSection.indexOf('const files = fs.readdirSync(pluginsPath)');
-  const update = pluginSection.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
+  const hostUpdateGate = pluginSection.indexOf('if (hostAuthorityConfigured) {');
+  const update = pluginSection.indexOf('await updatePlugins(pluginsPath)');
   const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
   const firstImport = Math.min(
     pluginSection.indexOf('await loadFromDirectory(app, pluginFilePath, exitHooks)'),
     pluginSection.indexOf('await loadFromFile(app, pluginFilePath, exitHooks)'),
   );
-  assert.ok(files >= 0 && update > files && allowlist > update && firstImport > allowlist,
+  assert.ok(files >= 0 && hostUpdateGate > files && update > hostUpdateGate && allowlist > update && firstImport > allowlist,
     'server plugin updates must be disabled in Host mode and unreviewed plugins rejected before import');
 
   const extensionStart = rootMutationPatch.indexOf('diff --git a/src/endpoints/extensions.js ');
@@ -419,7 +420,7 @@ test('every pinned chat-history mutation route is either receipted or fail-close
     ['src/endpoints/users-admin.js', '/promote', 'hostUnsupportedMutationGuard'],
     ['src/endpoints/users-admin.js', '/demote', 'hostUnsupportedMutationGuard'],
     ['src/endpoints/users-admin.js', '/create', 'hostUnsupportedMutationGuard'],
-    ['src/endpoints/users-admin.js', '/delete', 'hostUnsupportedMutationGuard'],
+    ['src/endpoints/users-admin.js', '/delete', 'hostAccountDeleteGuard'],
   ];
   for (const [file, route, guard] of guardedRoutes) {
     const lines = section(file).split('\n').filter(line => line.startsWith('+router.post('));
