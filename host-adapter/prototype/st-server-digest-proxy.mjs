@@ -105,6 +105,11 @@ export function createHostDigestProxyHandler({
         error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
       });
     }
+    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+      return response.status(403).json({
+        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+      });
+    }
     if (!validCapture(request?.body)) {
       return response.status(400).json({
         error: { code: 'INVALID_HOST_VERSION_CAPTURE', message: 'Only digest-only Host version identity and lifecycle fields are accepted.' },
