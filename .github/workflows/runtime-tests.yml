@@ -1,7 +1,7 @@
 name: Runtime tests
 on:
   push:
-    branches: [main, 'work/**']
+    branches: [main, 'work/**', 'npc/**']
   pull_request:
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run NPC memory boundary tests
-        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-belief-state-snapshot-race.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-generation-context.test.js tests/npc-generation-context-runtime.test.js tests/npc-generation-context-host-bridge.test.js tests/npc-belief-state-snapshot-race.test.js
 
   test:
     # VSS-backed Host inventory tests require the hosted Windows image's VSS provider;

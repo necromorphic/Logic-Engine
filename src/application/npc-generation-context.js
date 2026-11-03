@@ -8,8 +8,6 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 const validId = value => typeof value === 'string' && value.length > 0
   && value.length <= ID_MAX && value === value.trim()
   && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
-const validSourceVersion = value => typeof value === 'string'
-  && /^core-entity-v1:[1-9][0-9]*$/.test(value);
 const validCursor = value => Number.isSafeInteger(value) && value >= 0;
 const validSnapshot = value => object(value)
   && validCursor(value.world_revision) && validCursor(value.commit_sequence);
@@ -140,6 +138,13 @@ function validateLaneA(envelope, scope) {
   } catch { return false; }
 }
 
+function validProviderEvidenceCursor(value) {
+  return exactRecord(value, ['data_version', 'candidate_digest'])
+    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+    && typeof value.candidate_digest === 'string'
+    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
+}
+
 function validateLaneB(envelope, scope) {
   const keys = ['status', 'lane', 'world_id', 'actor_id', 'conversation_id', 'adapter_id',
     'recipient', 'core_purpose', 'provider_purpose', 'snapshot', 'result'];
@@ -149,35 +154,43 @@ function validateLaneB(envelope, scope) {
     || envelope.recipient !== RECIPIENT || envelope.core_purpose !== PURPOSE
     || envelope.provider_purpose !== 'npc_decision'
     || !exactRecord(envelope.snapshot, ['world_revision', 'commit_sequence'])
-    || !sameSnapshot(envelope.snapshot, scope.snapshot)) return false;
+    || !sameSnapshot(envelope.snapshot, scope.snapshot)) return 'lane_b_envelope_invalid';
   const result = envelope.result;
-  if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+  if (!exactRecord(result, ['status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor'])
     || result.status !== 'ready' || result.reason !== null
     || !densePlainArray(result.admitted) || !densePlainArray(result.candidates)
     || !exactRecord(result.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(result.snapshot, scope.snapshot)
-    || result.admitted.length !== result.candidates.length) return false;
+    || !validProviderEvidenceCursor(result.provider_evidence_cursor)
+    || result.admitted.length !== result.candidates.length) return 'lane_b_result_invalid';
   try {
     const identities = new Set();
     for (let i = 0; i < result.candidates.length; i += 1) {
       const candidate = result.candidates[i];
       const admitted = result.admitted[i];
       if (!exactRecord(candidate, ['record_ref', 'record_version', 'authorization_generation',
-        'source_entity_id', 'source_version', 'epistemic_kind', 'evidence_assessment', 'content'])
+        'source_kind', 'source_entity_id', 'source_version', 'epistemic_kind', 'evidence_assessment', 'content'])
         || !plainDataRecord(admitted, ['record_ref', 'record_version'], ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
-        || !validId(candidate.source_entity_id) || !validSourceVersion(candidate.source_version)
+        || candidate.source_kind !== 'canonical_entity'
+        || !validId(candidate.source_entity_id)
+        || typeof candidate.source_version !== 'string'
+        || !/^core-entity-v1:[1-9][0-9]*$/.test(candidate.source_version)
         || !validId(candidate.epistemic_kind)
         || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
-        || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version) return false;
+        || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version
+        || (Object.hasOwn(admitted, 'epistemic_kind')
+          && admitted.epistemic_kind !== candidate.epistemic_kind)
+        || (Object.hasOwn(admitted, 'evidence_assessment')
+          && admitted.evidence_assessment !== candidate.evidence_assessment)) return 'lane_b_candidate_invalid';
       const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
-      if (identities.has(identity)) return false;
+      if (identities.has(identity)) return 'lane_b_candidate_identity_duplicated';
       identities.add(identity);
       immutableCopy(candidate.content);
     }
-    return true;
-  } catch { return false; }
+    return null;
+  } catch { return 'lane_b_candidate_content_invalid'; }
 }
 
 /**
@@ -225,7 +238,8 @@ export function createNpcGenerationContextBuilder({
     } catch { return nonReady('lane_b_evidence_unavailable'); }
 
     if (!validateLaneA(laneA, scope)) return nonReady('lane_a_evidence_not_current_or_authorized');
-    if (!validateLaneB(laneB, scope)) return nonReady('lane_b_evidence_not_current_or_authorized');
+    const laneBFailure = validateLaneB(laneB, scope);
+    if (laneBFailure !== null) return nonReady(laneBFailure);
 
     let evidenceCurrent;
     try { evidenceCurrent = await revalidateEvidence(scope, Object.freeze({ laneA, laneB })); }
@@ -254,6 +268,7 @@ export function createNpcGenerationContextBuilder({
           candidates: laneB.result.candidates,
           reason: laneB.result.reason,
           snapshot: laneB.result.snapshot,
+          provider_evidence_cursor: laneB.result.provider_evidence_cursor,
         }),
       });
     } catch { return nonReady('generation_context_invalid'); }
@@ -335,6 +350,7 @@ function createNpcGenerationContextReceiver({
     const accepted = Object.freeze({ status: 'accepted', context, reason: null });
     acceptedReceipts.set(accepted, Object.freeze({
       context,
+      request,
       request_id: request.request_id,
       generation_id: request.generation_id,
       generation_type: request.generation_type,
@@ -348,6 +364,7 @@ function createNpcGenerationContextReceiver({
   function issueDispatchHandoff(accepted, request) {
     const receipt = accepted && typeof accepted === 'object' ? acceptedReceipts.get(accepted) : null;
     if (!receipt || consumedReceipts.has(accepted) || !validateRequest(request)
+      || receipt.request !== request
       || receipt.request_id !== request.request_id
       || receipt.generation_id !== request.generation_id
       || receipt.generation_type !== request.generation_type
@@ -366,6 +383,7 @@ function createNpcGenerationContextReceiver({
   function consumeDispatchHandoff(handoff, request) {
     const receipt = handoff && typeof handoff === 'object' ? dispatchHandoffs.get(handoff) : null;
     if (!receipt || consumedHandoffs.has(handoff) || !validateRequest(request)
+      || receipt.request !== request
       || receipt.request_id !== request.request_id
       || receipt.generation_id !== request.generation_id
       || receipt.generation_type !== request.generation_type) {
@@ -375,118 +393,5 @@ function createNpcGenerationContextReceiver({
     return Object.freeze({ status: 'accepted', context: receipt.context, reason: null });
   }
 
-  // Non-authorizing prompt projection for the exact issued handoff. It
-  // exposes bounded data only; the opaque handoff remains private and
-  // unconsumed until Gateway calls consumeDispatchHandoff() under its lease.
-  function projectDispatchHandoff(handoff, request) {
-    const receipt = handoff && typeof handoff === 'object' ? dispatchHandoffs.get(handoff) : null;
-    if (!receipt || consumedHandoffs.has(handoff) || !validateRequest(request)
-      || receipt.request_id !== request.request_id
-      || receipt.generation_id !== request.generation_id
-      || receipt.generation_type !== request.generation_type) {
-      return nonReady('dispatch_projection_rejected');
-    }
-    const context = receipt.context;
-    const laneA = context?.lanes?.lane_a;
-    const laneB = context?.lanes?.lane_b;
-    if (!plainDataRecord(laneA, ['lane', 'items'], [
-      'lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items',
-    ]) || laneA.lane !== 'A' || laneA.purpose !== PURPOSE
-      || !validId(laneA.authorization_ref) || !validId(laneA.visibility_authorization_ref)
-      || !densePlainArray(laneA.items)
-      || !plainDataRecord(laneB, ['lane', 'candidates', 'admitted'], [
-        'lane', 'core_purpose', 'provider_purpose', 'status', 'admitted',
-        'candidates', 'reason', 'snapshot',
-      ]) || laneB.lane !== 'B' || laneB.core_purpose !== PURPOSE
-      || laneB.provider_purpose !== 'npc_decision' || laneB.status !== 'ready'
-      || laneB.reason !== null || !sameSnapshot(context.snapshot, laneB.snapshot)
-      || !densePlainArray(laneB.candidates) || !densePlainArray(laneB.admitted)
-      || laneB.candidates.length !== laneB.admitted.length) {
-      return nonReady('dispatch_projection_invalid');
-    }
-    try {
-      const contentBlocks = [];
-      for (let index = 0; index < laneA.items.length; index += 1) {
-        const item = laneA.items[index];
-        if (!plainDataRecord(item, ['acquisition_kind', 'subject_ref', 'predicate', 'value'], [
-          'acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value',
-          'acquisition_kind', 'provenance_ref', 'provenance_digest',
-          'acquisition_authorization_ref', 'source_event_ids', 'visibility_authorization_ref',
-        ]) || !validId(item.acquisition_kind) || !validId(item.subject_ref)
-          || !validId(item.predicate)) return nonReady('dispatch_projection_invalid');
-        contentBlocks.push({
-          epistemic_kind: item.acquisition_kind,
-          evidence_assessment: 'unassessed',
-          content: {
-            subject_ref: item.subject_ref,
-            predicate: item.predicate,
-            value: item.value,
-          },
-        });
-      }
-      const candidates = [];
-      const sourceByIdentity = new Map();
-      for (let index = 0; index < laneB.candidates.length; index += 1) {
-        const candidate = laneB.candidates[index];
-        const admitted = laneB.admitted[index];
-        if (!exactRecord(candidate, [
-          'record_ref', 'record_version', 'authorization_generation',
-          'source_entity_id', 'source_version', 'epistemic_kind',
-          'evidence_assessment', 'content',
-        ]) || !plainDataRecord(admitted, ['record_ref', 'record_version'], [
-          'record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment',
-        ])
-          || !validId(candidate.record_ref) || !validId(candidate.record_version)
-          || !Number.isSafeInteger(candidate.authorization_generation)
-          || candidate.authorization_generation < 1
-          || !validId(candidate.source_entity_id) || !validSourceVersion(candidate.source_version)
-          || !validId(candidate.epistemic_kind)
-          || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
-          || admitted.record_ref !== candidate.record_ref
-          || admitted.record_version !== candidate.record_version) {
-          return nonReady('dispatch_projection_invalid');
-        }
-        candidates.push({
-          record_ref: candidate.record_ref,
-          record_version: candidate.record_version,
-          authorization_generation: candidate.authorization_generation,
-          source_kind: 'canonical_entity',
-          source_entity_id: candidate.source_entity_id,
-          source_version: candidate.source_version,
-        });
-        const sourceIdentity = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
-        sourceByIdentity.set(sourceIdentity, {
-          source_kind: 'canonical_entity',
-          source_entity_id: candidate.source_entity_id,
-          source_version: candidate.source_version,
-        });
-        contentBlocks.push({
-          epistemic_kind: candidate.epistemic_kind,
-          evidence_assessment: candidate.evidence_assessment,
-          content: candidate.content,
-        });
-      }
-      const sources = [...sourceByIdentity.values()].sort((a, b) =>
-        a.source_entity_id < b.source_entity_id ? -1
-          : a.source_entity_id > b.source_entity_id ? 1
-            : a.source_version < b.source_version ? -1
-              : a.source_version > b.source_version ? 1 : 0);
-      const projection = immutableCopy({
-        world_id: context.world_id,
-        actor_id: context.actor_id,
-        conversation_id: context.conversation_id,
-        adapter_id: context.adapter_id,
-        purpose: context.purpose,
-        snapshot: context.snapshot,
-        contentBlocks,
-        sources,
-        candidates,
-      });
-      return Object.freeze({ status: 'ready', projection, reason: null });
-    } catch {
-      return nonReady('dispatch_projection_invalid');
-    }
-  }
-
-  return Object.freeze({ receive, issueDispatchHandoff, consumeDispatchHandoff, projectDispatchHandoff });
+  return Object.freeze({ receive, issueDispatchHandoff, consumeDispatchHandoff });
 }

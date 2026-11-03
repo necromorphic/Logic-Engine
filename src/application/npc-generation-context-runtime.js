@@ -74,10 +74,44 @@ function validId(value) {
     && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 
+function validateRequest(request) {
+  return exactDataRecord(request, ['request_id', 'generation_id', 'generation_type'])
+    && validId(request.request_id)
+    && validId(request.generation_id)
+    && typeof request.generation_type === 'string'
+    && /^[a-z][a-z0-9_-]{0,31}$/.test(request.generation_type);
+}
+
 function validSnapshot(value) {
   return value && typeof value === 'object'
     && Number.isSafeInteger(value.world_revision) && value.world_revision >= 0
     && Number.isSafeInteger(value.commit_sequence) && value.commit_sequence >= 0;
+}
+
+function validSourceVersion(value) {
+  return typeof value === 'string' && /^core-entity-v1:[1-9][0-9]*$/.test(value);
+}
+
+function validProviderEvidenceCursor(value) {
+  return exactDataRecord(value, ['data_version', 'candidate_digest'])
+    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+    && typeof value.candidate_digest === 'string'
+    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
+}
+
+function stripCanonicalSourceLineage(result) {
+  if (!result || result.status !== 'ready' || !Array.isArray(result.candidates)) return null;
+  return {
+    status: result.status,
+    admitted: result.admitted,
+    candidates: result.candidates.map(candidate => {
+      const { source_kind, source_version, ...providerCandidate } = candidate;
+      return providerCandidate;
+    }),
+    reason: result.reason,
+    snapshot: result.snapshot,
+    provider_evidence_cursor: result.provider_evidence_cursor,
+  };
 }
 
 /**
@@ -123,7 +157,7 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
-  function readLaneA(input) {
+  function readLaneA(input, coordinatorLease = null) {
     let trustedScope;
     try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'A' }); }
     const expectedRevision = input?.snapshot?.world_revision ?? input?.expected_revision;
@@ -135,7 +169,7 @@ export function createCoreNpcGenerationContextRuntime({
       || expectedCommitSequence !== trustedScope.snapshot.commit_sequence) {
       return Object.freeze({ status: 'non_ready', lane: 'A' });
     }
-    const read = engine.readNpcKnowledge({
+    const readInput = {
       world_id: trustedScope.world_id,
       actor_id: trustedScope.actor_id,
       conversation_id: trustedScope.conversation_id,
@@ -145,7 +179,10 @@ export function createCoreNpcGenerationContextRuntime({
       expected_revision: expectedRevision,
       expected_commit_sequence: expectedCommitSequence,
       limit: 200,
-    });
+    };
+    const read = coordinatorLease
+      ? engine.readNpcKnowledgeUnderCoordinatorLease(readInput, coordinatorLease)
+      : engine.readNpcKnowledge(readInput);
     if (!exactDataRecord(read, [
       'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient',
       'purpose', 'snapshot', 'authorization_ref', 'truncated', 'items',
@@ -244,13 +281,68 @@ export function createCoreNpcGenerationContextRuntime({
     });
   }
 
+  function attachCanonicalSourceLineage(result, trustedScope) {
+    if (!result || result.status !== 'ready' || !validSnapshot(result.snapshot)
+      || !Array.isArray(result.candidates) || result.candidates.length > 50) return null;
+    if (result.candidates.length === 0) return result;
+    const entityIds = [];
+    const seen = new Set();
+    if (!densePlainArray(result.candidates)) return null;
+    for (let index = 0; index < result.candidates.length; index += 1) {
+      const candidate = result.candidates[index];
+      if (!exactDataRecord(candidate, [
+        'record_ref', 'record_version', 'authorization_generation',
+        'source_entity_id', 'epistemic_kind', 'evidence_assessment', 'content',
+      ]) || !validId(candidate.source_entity_id)) return null;
+      if (!seen.has(candidate.source_entity_id)) {
+        seen.add(candidate.source_entity_id);
+        entityIds.push(candidate.source_entity_id);
+      }
+    }
+    if (entityIds.length === 0 || entityIds.length > 50) return null;
+    let snapshot;
+    try {
+      snapshot = engine.getSnapshot(trustedScope.world_id, {
+        entityIds, includeSourceVersions: true,
+      });
+    } catch { return null; }
+    if (!snapshot || snapshot.world_id !== trustedScope.world_id
+      || snapshot.world_revision !== result.snapshot.world_revision
+      || snapshot.commit_sequence !== result.snapshot.commit_sequence
+      || !densePlainArray(snapshot.entities) || snapshot.entities.length !== entityIds.length) return null;
+    const versions = new Map();
+    for (let index = 0; index < snapshot.entities.length; index += 1) {
+      const entity = snapshot.entities[index];
+      if (!exactDataRecord(entity, [
+        'entity_id', 'entity_type', 'status', 'attributes', 'created_by_event_id',
+        'updated_revision', 'source_version',
+      ]) || !validId(entity.entity_id) || !seen.has(entity.entity_id)
+        || versions.has(entity.entity_id) || entity.status !== 'active'
+        || !validSourceVersion(entity.source_version)) return null;
+      versions.set(entity.entity_id, entity.source_version);
+    }
+    if (versions.size !== entityIds.length) return null;
+    return Object.freeze({
+      ...result,
+      candidates: Object.freeze(result.candidates.map(candidate => Object.freeze({
+        ...candidate,
+        source_kind: 'canonical_entity',
+        source_version: versions.get(candidate.source_entity_id),
+      }))),
+    });
+  }
+
   async function readLaneB(input) {
     let trustedScope;
     try { trustedScope = resolveScope(); } catch { return Object.freeze({ status: 'non_ready', lane: 'B' }); }
     if (input?.conversation_id !== trustedScope.conversation_id) {
       return Object.freeze({ status: 'non_ready', lane: 'B' });
     }
-    const result = await consumer.retrieveForNpc({ conversationId: trustedScope.conversation_id });
+    let result;
+    try {
+      result = await consumer.retrieveForNpc({ conversationId: trustedScope.conversation_id });
+      result = attachCanonicalSourceLineage(result, trustedScope);
+    } catch { result = null; }
     if (!result || result.status !== 'ready' || !validSnapshot(result.snapshot)) {
       return Object.freeze({ status: 'non_ready', lane: 'B' });
     }
@@ -277,10 +369,13 @@ export function createCoreNpcGenerationContextRuntime({
     if (freshA.status !== 'ready' || JSON.stringify(freshA) !== JSON.stringify(envelopes.laneA)) return false;
     let freshB;
     try {
+      const providerResult = stripCanonicalSourceLineage(envelopes.laneB.result);
+      if (!providerResult) return false;
       freshB = await consumer.revalidateForFinalDispatch(
         { conversationId: scope.conversation_id },
-        envelopes.laneB.result,
+        providerResult,
       );
+      freshB = attachCanonicalSourceLineage(freshB, scope);
     } catch { return false; }
     // Lane B revalidation is asynchronous. Re-read Lane A after that await so
     // a visibility revoke during the Provider/Core checks cannot survive the
@@ -314,14 +409,18 @@ export function createCoreNpcGenerationContextRuntime({
       candidates: toPlainData(laneBContext.candidates),
       reason: laneBContext.reason,
       snapshot: toPlainData(laneBContext.snapshot),
+      provider_evidence_cursor: toPlainData(laneBContext.provider_evidence_cursor),
     } : null;
     if (preparedResult === null) return false;
     let freshB;
     try {
+      const providerResult = stripCanonicalSourceLineage(toPlainData(preparedResult));
+      if (!providerResult) return false;
       freshB = await consumer.revalidateForFinalDispatch(
         { conversationId: scope.conversation_id },
-        toPlainData(preparedResult),
+        providerResult,
       );
+      freshB = attachCanonicalSourceLineage(freshB, scope);
     } catch { return false; }
     // Revalidate Lane A again after the asynchronous Lane B check. The
     // dispatch-start Gateway must still serialize this with durable revoke
@@ -351,19 +450,19 @@ export function createCoreNpcGenerationContextRuntime({
     revalidateEvidence: revalidateIssuedContext,
     revalidateScope: resolveScope,
   });
-  const dispatchableContexts = new WeakSet();
+  const dispatchableContexts = new WeakMap();
 
   function consumeDispatchHandoff(handoff, request) {
     const result = receiver.consumeDispatchHandoff(handoff, request);
-    if (result.status === 'accepted') dispatchableContexts.add(result.context);
+    if (result.status === 'accepted') dispatchableContexts.set(result.context, request);
     return result;
   }
 
   // Synchronous Lane A fence for the Gateway's shared-Coordinator critical
   // section. Lane B admission/grant/source freshness remains the Gateway's
   // independent synchronous Provider responsibility.
-  function revalidateLaneAForDispatch(context, request) {
-    if (!context || typeof context !== 'object' || !dispatchableContexts.has(context)
+  function revalidateLaneAForDispatch(context, request, coordinatorLease = null) {
+    if (!context || typeof context !== 'object' || dispatchableContexts.get(context) !== request
       || !request || context.request_id !== request.request_id
       || context.generation_id !== request.generation_id
       || context.generation_type !== request.generation_type
@@ -381,13 +480,18 @@ export function createCoreNpcGenerationContextRuntime({
       || scope.snapshot.commit_sequence !== context.snapshot.commit_sequence) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_scope_changed' });
     }
-    const freshA = readLaneA({
-      world_id: scope.world_id, actor_id: scope.actor_id,
-      conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
-      recipient: RECIPIENT, purpose: PURPOSE,
-      expected_revision: scope.snapshot.world_revision,
-      expected_commit_sequence: scope.snapshot.commit_sequence,
-    });
+    let freshA;
+    try {
+      freshA = readLaneA({
+        world_id: scope.world_id, actor_id: scope.actor_id,
+        conversation_id: scope.conversation_id, adapter_id: scope.adapter_id,
+        recipient: RECIPIENT, purpose: PURPOSE,
+        expected_revision: scope.snapshot.world_revision,
+        expected_commit_sequence: scope.snapshot.commit_sequence,
+      }, coordinatorLease);
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_a_unavailable' });
+    }
     const laneAContext = context.lanes?.lane_a;
     if (freshA.status !== 'ready'
       || freshA.read_authorization_ref !== laneAContext?.authorization_ref
@@ -419,13 +523,83 @@ export function createCoreNpcGenerationContextRuntime({
     return Object.freeze({ status: 'ready', handoff: issued.handoff, reason: null });
   }
 
+  function getLaneBDispatchEvidence(context, request) {
+    if (!context || typeof context !== 'object' || dispatchableContexts.get(context) !== request
+      || !validateRequest(request)
+      || context.request_id !== request.request_id
+      || context.generation_id !== request.generation_id
+      || context.generation_type !== request.generation_type
+      || context.purpose !== PURPOSE || context.recipient !== RECIPIENT) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_context_mismatch' });
+    }
+    const laneB = context.lanes?.lane_b;
+    if (!laneB || laneB.status !== 'ready' || laneB.provider_purpose !== 'npc_decision'
+      || laneB.core_purpose !== PURPOSE || !validSnapshot(laneB.snapshot)
+      || laneB.snapshot.world_revision !== context.snapshot.world_revision
+      || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence
+      || !validProviderEvidenceCursor(laneB.provider_evidence_cursor)
+      || !densePlainArray(laneB.candidates) || laneB.candidates.length > 50) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
+    }
+    const candidates = [];
+    const sourceMap = new Map();
+    for (let index = 0; index < laneB.candidates.length; index += 1) {
+      const candidate = laneB.candidates[index];
+      if (!exactDataRecord(candidate, [
+        'record_ref', 'record_version', 'authorization_generation',
+        'source_kind', 'source_entity_id', 'source_version',
+        'epistemic_kind', 'evidence_assessment', 'content',
+      ]) || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
+        || candidate.source_kind !== 'canonical_entity' || !validId(candidate.source_entity_id)
+        || !validSourceVersion(candidate.source_version)) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_lineage_invalid' });
+      }
+      const source = Object.freeze({
+        source_kind: 'canonical_entity',
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      });
+      sourceMap.set(JSON.stringify([source.source_entity_id, source.source_version]), source);
+      candidates.push(Object.freeze({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+        source_kind: candidate.source_kind,
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      }));
+    }
+    const sources = [...sourceMap.values()].sort((left, right) =>
+      left.source_entity_id < right.source_entity_id ? -1
+        : left.source_entity_id > right.source_entity_id ? 1
+          : left.source_version < right.source_version ? -1
+            : left.source_version > right.source_version ? 1 : 0);
+    return Object.freeze({
+      status: 'ready',
+      lane: 'B',
+      world_id: context.world_id,
+      actor_id: context.actor_id,
+      conversation_id: context.conversation_id,
+      adapter_id: context.adapter_id,
+      core_purpose: PURPOSE,
+      provider_purpose: 'npc_decision',
+      snapshot: context.snapshot,
+      provider_evidence_cursor: laneB.provider_evidence_cursor,
+      sources: Object.freeze(sources),
+      candidates: Object.freeze(candidates),
+    });
+  }
+
   return Object.freeze({
     build: builder.build,
     receive: receiver.receive,
     prepareForDispatch,
     issueDispatchHandoff: receiver.issueDispatchHandoff,
     consumeDispatchHandoff,
-    projectDispatchHandoff: receiver.projectDispatchHandoff,
+    getLaneBDispatchEvidence,
     revalidateLaneAForDispatch,
+    revalidateLaneAForDispatchUnderCoordinatorLease: (context, request, lease) =>
+      revalidateLaneAForDispatch(context, request, lease),
   });
 }

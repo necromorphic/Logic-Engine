@@ -9,12 +9,12 @@ const now = () => new Date().toISOString();
  * action semantics, approval, or commit.
  */
 export class ActorBindingService {
-  constructor(engine) {
+  constructor(engine, { readOnly = false } = {}) {
     if (!engine?.store?.db) throw new TypeError('ActorBindingService requires an engine with a persistent store');
+    if (typeof readOnly !== 'boolean') throw new TypeError('readOnly must be a boolean');
     this.engine = engine;
     this.db = engine.store.db;
-    if (engine.store.readOnly) return;
-    this.engine.store.tx(() => this.db.exec(`
+    if (!readOnly && !engine.store.readOnly) this.engine.store.tx(() => this.db.exec(`
       CREATE TABLE IF NOT EXISTS actor_bindings (
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
         adapter_id TEXT NOT NULL,

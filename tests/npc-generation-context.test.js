@@ -31,10 +31,12 @@ const laneB = () => ({
     status: 'ready', admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
     candidates: [{
       record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
-      source_entity_id: 'source-1', source_version: 'source-v1', epistemic_kind: 'acquired_report',
+      source_kind: 'canonical_entity', source_entity_id: 'source-1',
+      source_version: 'core-entity-v1:1', epistemic_kind: 'acquired_report',
       evidence_assessment: 'disputed', content: { note: 'Lane B report' },
     }],
     reason: null, snapshot: { ...scope.snapshot },
+    provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
   },
 });
 function setup(overrides = {}) {
@@ -63,6 +65,9 @@ test('builds immutable generation context with isolated Lane A and Lane B envelo
   assert.equal(result.context.lanes.lane_a.items[0].value.text, 'Lane A source');
   assert.equal(result.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
   assert.equal(result.context.lanes.lane_b.provider_purpose, 'npc_decision');
+  assert.deepEqual({ ...result.context.lanes.lane_b.provider_evidence_cursor }, {
+    data_version: 12, candidate_digest: 'b'.repeat(64),
+  });
   assert.equal(Object.isFrozen(result.context), true);
   assert.equal(Object.isFrozen(result.context.lanes.lane_a.items[0].value), true);
   assert.throws(() => { result.context.actor_id = 'npc-2'; }, TypeError);
@@ -111,7 +116,6 @@ test('revoked, stale, partial and unavailable Lane B evidence fails closed', asy
     ['stale source', () => ({ ...laneB(), status: 'non_ready' })],
     ['partial retrieval', () => ({ ...laneB(), result: { ...laneB().result, status: 'non_ready' } })],
     ['unknown assessment', () => { const x = laneB(); x.result.candidates[0].evidence_assessment = 'confirmed'; return x; }],
-    ['missing source version', () => { const x = laneB(); delete x.result.candidates[0].source_version; return x; }],
   ];
   for (const [name, make] of cases) await t.test(name, async () => {
     const { builder } = setup({ laneB: make });
@@ -120,6 +124,16 @@ test('revoked, stale, partial and unavailable Lane B evidence fails closed', asy
     assert.equal(result.context, null);
     assert.doesNotMatch(JSON.stringify(result), /Lane B report/);
   });
+});
+
+test('Lane B admission assessment must match its exact candidate evidence', async () => {
+  const bad = laneB();
+  bad.result.admitted[0].epistemic_kind = 'rumor';
+  bad.result.admitted[0].evidence_assessment = 'supported';
+  const { builder } = setup({ laneB: () => bad });
+  const result = await builder.build(request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.context, null);
 });
 
 test('conflicting and insufficient assessments remain evidence labels, never belief assertions', async () => {
@@ -270,6 +284,7 @@ test('opaque dispatch handoff is minted only from a successful receiver receipt 
   assert.equal(Object.isFrozen(minted.handoff), true);
   assert.equal(JSON.stringify(minted.handoff), '{}');
 
+  assert.equal(receiver.consumeDispatchHandoff(minted.handoff, { ...request }).status, 'non_ready');
   const consumed = receiver.consumeDispatchHandoff(minted.handoff, request);
   assert.equal(consumed.status, 'accepted');
   assert.equal(consumed.context, built.context);
@@ -286,6 +301,7 @@ test('opaque dispatch handoff cannot be issued or consumed for another request o
   assert.equal(receiver.issueDispatchHandoff(accepted, {
     ...request, request_id: 'request-2',
   }).status, 'non_ready');
+  assert.equal(receiver.issueDispatchHandoff(accepted, { ...request }).status, 'non_ready');
 
   const minted = receiver.issueDispatchHandoff(accepted, request);
   assert.equal(minted.status, 'ready');
@@ -300,4 +316,15 @@ test('opaque dispatch handoff cannot be minted from a forged acceptance object',
   const { receiver } = setup();
   const forged = Object.freeze({ status: 'accepted', context: Object.freeze({ ...scope }) , reason: null });
   assert.equal(receiver.issueDispatchHandoff(forged, request).status, 'non_ready');
+});
+
+
+test('Lane B rejects a malformed Provider evidence cursor before context issuance', async () => {
+  const bad = laneB();
+  bad.result.provider_evidence_cursor.candidate_digest = 'not-a-digest';
+  const { builder } = setup({ laneB: () => bad });
+  const result = await builder.build(request);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'lane_b_result_invalid');
+  assert.equal(result.context, null);
 });

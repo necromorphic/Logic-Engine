@@ -130,7 +130,6 @@ const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
-const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
 
 function databaseSchemaDigest(db) {
   return hashRequest(db.prepare(`
@@ -206,7 +205,9 @@ export class SQLiteMemoryProvider {
     } = options;
     // Reject non-string paths before Node path helpers can coerce caller-owned
     // objects and execute their Symbol.toPrimitive/valueOf hooks.
-    if (typeof observerOnly !== 'boolean') throw new TypeError('SQLiteMemoryProvider observerOnly must be boolean');
+    if (typeof observerOnly !== 'boolean') throw new TypeError('observerOnly must be a boolean');
+    if (observerOnly && path === ':memory:') throw new Error('PROVIDER_OBSERVER_REQUIRES_FILE_BACKED_STORE');
+    this.#observerOnly = observerOnly;
     if (typeof path !== 'string' || path.length === 0) {
       throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
     }
@@ -217,7 +218,6 @@ export class SQLiteMemoryProvider {
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
     }
-    this.#observerOnly = observerOnly;
     this.#getSnapshot = getSnapshot;
     this.#validateSourceVersion = validateSourceVersion;
     if (typeof validateInventory !== 'function') {
@@ -254,7 +254,9 @@ export class SQLiteMemoryProvider {
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path, observerOnly ? { readOnly: true } : undefined);
+      this.#db = observerOnly
+        ? new DatabaseSync(path, { readOnly: true })
+        : new DatabaseSync(path);
       const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
@@ -333,38 +335,13 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `;
-      if (observerOnly) {
-        if (!this.#acceptedHeadConfig) throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
-        const existingObjects = new Set(this.#db.prepare(
-          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
-        ).all().map((row) => row.object_name));
-        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
-          .map((match) => match[1].toLowerCase() + ':' + match[2]);
-        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
-          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
-        }
-        const status = getAcceptedHeadStatusSync({
-          port: this.#acceptedHeadConfig.port,
-          token: this.#acceptedHeadConfig.token,
-        });
-        const local = this.#db.prepare(
-          'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
-        ).get();
-        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
-          || status.pending.core || status.pending.provider
-          || status.operations.core || status.operations.provider
-          || !status.enrolled.core || !status.enrolled.provider
-          || status.heads.provider !== local.head || status.heads.core < 1) {
-          throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
-        }
-      } else {
-        if (!this.#acceptedHeadConfig) {
+      if (!this.#acceptedHeadConfig) {
         const hasHeadTable = this.#db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
         if (hasHeadTable && this.#db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
           throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
         }
       }
-      if (this.#acceptedHeadConfig) {
+      if (observerOnly || this.#acceptedHeadConfig) {
         const existingObjects = new Set(this.#db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         ).all().map((row) => row.object_name));
@@ -374,24 +351,33 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
         }
       }
-      this.#db.exec(schemaSql);
-      if (!this.#acceptedHeadConfig) {
+      if (!observerOnly) this.#db.exec(schemaSql);
+      if (!observerOnly && !this.#acceptedHeadConfig) {
         this.#db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
       const recordGrantColumns = this.#db.prepare('PRAGMA table_info(memory_record_grants)').all();
-      if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
-        this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
-      }
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
-      // Readiness is process-local evidence; restart requires full reconciliation.
-      this.#db.prepare(`
-        UPDATE memory_index_state
-        SET index_health='stale', source_reconciliation='stale',
-            snapshot_revision=NULL, snapshot_sequence=NULL,
-            failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
-        WHERE index_health='ready' AND source_reconciliation='current'
-      `).run(new Date().toISOString());
+      if (observerOnly) {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')
+          || !stateColumns.some((column) => column.name === 'failure_code')) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+      } else {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
+          this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
+        }
+        if (!stateColumns.some((column) => column.name === 'failure_code')) {
+          this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+        }
+        // Writable Provider instances invalidate process-local readiness on restart.
+        this.#db.prepare(`
+          UPDATE memory_index_state
+          SET index_health='stale', source_reconciliation='stale',
+              snapshot_revision=NULL, snapshot_sequence=NULL,
+              failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
+          WHERE index_health='ready' AND source_reconciliation='current'
+        `).run(new Date().toISOString());
+      }
       if (this.#acceptedHeadConfig) {
         let status = getAcceptedHeadStatusSync({ port: this.#acceptedHeadConfig.port, token: this.#acceptedHeadConfig.token });
         const local = this.#db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
@@ -400,6 +386,7 @@ export class SQLiteMemoryProvider {
         }
         const pending = status.operations.provider;
         if (pending) {
+          if (observerOnly) throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
           if (local.head !== pending.head || local.last_operation_id !== pending.operation_id
             || local.last_operation_digest !== pending.operation_digest) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
@@ -414,8 +401,6 @@ export class SQLiteMemoryProvider {
           || status.operations.core || status.operations.provider) {
           throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
         }
-      }
-
       }
     } catch (error) {
       startupError = error;
@@ -472,22 +457,7 @@ export class SQLiteMemoryProvider {
   }
 
   #withImmediateTransaction(work) {
-    if (this.#observerOnly) {
-      return this.#withCoordinatorLock(() => {
-        this.#db.exec('BEGIN');
-        this.#transactionDepth += 1;
-        try {
-          const result = work();
-          this.#db.exec('COMMIT');
-          return result;
-        } catch (error) {
-          try { this.#db.exec('ROLLBACK'); } catch {}
-          throw error;
-        } finally {
-          this.#transactionDepth -= 1;
-        }
-      });
-    }
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
@@ -1305,170 +1275,6 @@ export class SQLiteMemoryProvider {
     }
   }
 
-  /**
-   * Read-only Provider evidence for the in-process Final-Send Gateway.
-   *
-   * The caller must already hold the shared Coordinator lease. This method
-   * never opens a second lease, awaits Core, mutates readiness, or repairs
-   * Provider state. It rechecks the durable query/record grants, their
-   * persisted authorization generations, index membership, direct-source
-   * lineage and Core-owned source-version validator under that lease.
-   */
-  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, candidates, coordinatorLease } = {}) {
-    if (!this.#coordinatorDb || !isCoordinatorLease(coordinatorLease, this.#coordinatorDb)
-      || !this.#acceptedHeadConfig
-      || !validId(worldId) || !validId(actorId) || !validId(purpose)
-      || !isPlainDataArray(sources) || sources.length > 256
-      || !isPlainDataArray(candidates) || candidates.length > 50) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-
-    // An accepted Provider head is mandatory. The normal non-accepted test
-    // Provider and review-only stores are never eligible for protected egress.
-    this.#assertAcceptedHeadCurrent();
-    const head = this.#db.prepare(
-      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
-    ).get();
-    if (!head || head.enrolled !== 1 || !Number.isSafeInteger(head.head) || head.head < 1) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-
-    const state = this.#db.prepare(
-      'SELECT index_health,source_reconciliation FROM memory_index_state WHERE world_id=?',
-    ).get(worldId);
-    if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-    const queryGrant = this.#db.prepare(
-      'SELECT allowed FROM memory_query_grants WHERE world_id=? AND subject_id=? AND purpose=?',
-    ).get(worldId, actorId, purpose);
-    if (queryGrant?.allowed !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
-
-    if (this.#validateSourceVersion instanceof ASYNC_FUNCTION_PROTOTYPE) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-
-    const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
-    const normalizedSources = [];
-    const sourceKeys = new Set();
-    for (const source of sources) {
-      if (!isPlainDataRecord(source)
-        || Reflect.ownKeys(source).length !== 3
-        || source.source_kind !== 'canonical_entity'
-        || !validId(source.source_entity_id) || !validId(source.source_version)) {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      const key = JSON.stringify([source.source_entity_id, source.source_version]);
-      if (sourceKeys.has(key)) throw new Error('MEMORY_DISPATCH_NOT_READY');
-      sourceKeys.add(key);
-      normalizedSources.push({
-        source_kind: 'canonical_entity',
-        source_entity_id: source.source_entity_id,
-        source_version: source.source_version,
-      });
-    }
-    normalizedSources.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
-      || compareCodeUnits(a.source_version, b.source_version));
-
-    const normalizedCandidates = [];
-    const candidateKeys = new Set();
-    const candidateSources = new Set();
-    const readCandidate = this.#db.prepare(`
-      SELECT r.*,i.record_ref AS indexed_record_ref,g.allowed,g.authorization_generation
-      FROM memory_records r
-      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
-      JOIN memory_record_grants g
-        ON g.world_id=r.world_id AND g.subject_id=r.subject_id AND g.purpose=r.purpose
-        AND g.record_ref=r.record_ref AND g.record_version=r.record_version
-      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
-        AND r.record_ref=? AND r.record_version=?
-      LIMIT 1
-    `);
-
-    for (const candidate of candidates) {
-      if (!isPlainDataRecord(candidate)
-        || Reflect.ownKeys(candidate).length !== 6
-        || !validId(candidate.record_ref) || !validId(candidate.record_version)
-        || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
-        || candidate.source_kind !== 'canonical_entity'
-        || !validId(candidate.source_entity_id) || !validId(candidate.source_version)) {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
-      if (candidateKeys.has(identity)) throw new Error('MEMORY_DISPATCH_NOT_READY');
-      candidateKeys.add(identity);
-
-      const row = readCandidate.get(
-        worldId, actorId, purpose, candidate.record_ref, candidate.record_version,
-      );
-      if (!row || row.allowed !== 1
-        || row.authorization_generation !== candidate.authorization_generation
-        || row.source_kind !== 'canonical_entity'
-        || row.source_entity_id !== candidate.source_entity_id
-        || row.source_version !== candidate.source_version
-        || row.indexed_record_ref !== candidate.record_ref
-        || row.content_disposition !== 'usable'
-        || !['claim', 'report', 'summary', 'author_initial', 'imported', 'inference'].includes(row.content_kind)
-        || !['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported'].includes(row.epistemic_kind)
-        || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(row.evidence_assessment)) {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-
-      let lineage;
-      try { lineage = JSON.parse(row.lineage_json); } catch {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_DISPATCH_NOT_READY');
-      let sourceCurrent;
-      try {
-        sourceCurrent = this.#validateSourceVersion({
-          world_id: worldId,
-          source_kind: row.source_kind,
-          source_entity_id: row.source_entity_id,
-          source_version: row.source_version,
-          lineage,
-        });
-      } catch {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      if (sourceCurrent !== true || (sourceCurrent && typeof sourceCurrent.then === 'function')) {
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-
-      candidateSources.add(JSON.stringify([row.source_entity_id, row.source_version]));
-      normalizedCandidates.push({
-        record_ref: row.record_ref,
-        record_version: row.record_version,
-        authorization_generation: row.authorization_generation,
-        source_kind: row.source_kind,
-        source_entity_id: row.source_entity_id,
-        source_version: row.source_version,
-      });
-    }
-
-    normalizedCandidates.sort((a, b) => compareCodeUnits(a.record_ref, b.record_ref)
-      || compareCodeUnits(a.record_version, b.record_version)
-      || compareCodeUnits(a.source_entity_id, b.source_entity_id)
-      || compareCodeUnits(a.source_version, b.source_version));
-    if (normalizedSources.length !== candidateSources.size
-      || normalizedSources.some(source => !candidateSources.has(
-        JSON.stringify([source.source_entity_id, source.source_version]),
-      ))) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-
-    return Object.freeze({
-      world_id: worldId,
-      actor_id: actorId,
-      purpose,
-      granted: true,
-      readiness: 'READY',
-      head: head.head,
-      sources: Object.freeze(normalizedSources.map(source => Object.freeze(source))),
-      candidates: Object.freeze(normalizedCandidates.map(candidate => Object.freeze(candidate))),
-    });
-  }
-
   async retrieveCandidates(scope) {
     this.#assertAcceptedHeadCurrent();
     // Snapshot the scope before the first await. Reusing a mutable caller object
@@ -1600,13 +1406,19 @@ export class SQLiteMemoryProvider {
           freshness: { status: 'current' },
           snapshot: current,
         }));
+        const resultScope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
+        const providerEvidenceCursor = Object.freeze({
+          data_version: this.#dataVersion(),
+          candidate_digest: hashRequest({ scope: resultScope, snapshot: current, candidates }),
+        });
         return {
           completeness: rows.length > 50 ? 'partial' : 'complete',
           index_health: lockedState.index_health,
           source_reconciliation: lockedState.source_reconciliation,
-          scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
+          scope: resultScope,
           snapshot: current,
           candidates,
+          provider_evidence_cursor: providerEvidenceCursor,
         };
 
       });
@@ -1617,6 +1429,125 @@ export class SQLiteMemoryProvider {
       throw error;
     }
     return lockedResult;
+  }
+
+  /**
+   * Synchronous read-only Provider proof for the Gateway. The caller must hold
+   * the shared Coordinator lease; this method never acquires a nested lease.
+   * The Provider cursor binds the complete indexed candidate projection at the
+   * time of NPC retrieval, so any subsequent Provider write fails closed.
+   */
+  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor, coordinatorLease }) {
+    if (!isCoordinatorLease(coordinatorLease, this.#coordinatorDb)) {
+      throw new Error('PROVIDER_COORDINATOR_LEASE_REQUIRED');
+    }
+    if (!this.#observerOnly) throw new Error('PROVIDER_DISPATCH_READER_REQUIRES_OBSERVER_MODE');
+    if (!validId(worldId) || !validId(actorId) || !validPurpose(purpose)
+      || !Array.isArray(sources) || !Array.isArray(candidates)
+      || !providerEvidenceCursor || typeof providerEvidenceCursor !== 'object'
+      || !Number.isSafeInteger(providerEvidenceCursor.data_version)
+      || typeof providerEvidenceCursor.candidate_digest !== 'string'
+      || !/^[a-f0-9]{64}$/.test(providerEvidenceCursor.candidate_digest)) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_INVALID');
+    }
+
+    this.#assertAcceptedHeadCurrent();
+    const scope = this.#scope({ world_id: worldId, subject_id: actorId, purpose });
+    const dataVersionBefore = this.#dataVersion();
+    if (dataVersionBefore !== providerEvidenceCursor.data_version) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
+    }
+    const indexState = this.#db.prepare(`
+      SELECT index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code
+      FROM memory_index_state WHERE world_id=?
+    `).get(worldId);
+    if (!indexState || indexState.index_health !== 'ready'
+      || indexState.source_reconciliation !== 'current'
+      || !Number.isSafeInteger(indexState.snapshot_revision)
+      || !Number.isSafeInteger(indexState.snapshot_sequence)
+      || indexState.failure_code !== null) {
+      throw new Error('PROVIDER_DISPATCH_INDEX_NOT_READY');
+    }
+    const queryGrant = this.#db.prepare(`
+      SELECT allowed FROM memory_query_grants
+      WHERE world_id=? AND subject_id=? AND purpose=?
+    `).get(worldId, actorId, purpose);
+    if (!queryGrant || queryGrant.allowed !== 1) throw new Error('PROVIDER_DISPATCH_QUERY_GRANT_DENIED');
+
+    const snapshot = Object.freeze({
+      world_revision: indexState.snapshot_revision,
+      commit_sequence: indexState.snapshot_sequence,
+    });
+    const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
+      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+      JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
+        AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
+      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
+      ORDER BY r.record_ref,r.record_version LIMIT 51`)
+      .all(actorId, purpose, worldId, actorId, purpose);
+    if (rows.length > 50) throw new Error('PROVIDER_DISPATCH_CANDIDATE_SET_PARTIAL');
+
+    const rawCandidates = rows.map(row => ({
+      record: { ref: row.record_ref, version: row.record_version },
+      authorization_generation: row.authorization_generation,
+      source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
+      world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+      content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
+      producer: { kind: row.producer_kind },
+      lifecycle: { content_disposition: row.content_disposition,
+        source_reconciliation: indexState.source_reconciliation,
+        evidence_assessment: row.evidence_assessment, index_health: indexState.index_health },
+      freshness: { status: 'current' },
+      snapshot,
+    }));
+    const currentCursor = {
+      data_version: this.#dataVersion(),
+      candidate_digest: hashRequest({ scope, snapshot, candidates: rawCandidates }),
+    };
+    if (currentCursor.data_version !== dataVersionBefore
+      || currentCursor.data_version !== providerEvidenceCursor.data_version
+      || currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
+    }
+
+    const rawByIdentity = new Map(rawCandidates.map(candidate => [
+      JSON.stringify([candidate.record.ref, candidate.record.version]), candidate,
+    ]));
+    for (const candidate of candidates) {
+      const raw = rawByIdentity.get(JSON.stringify([candidate.record_ref, candidate.record_version]));
+      if (!raw
+        || raw.authorization_generation !== candidate.authorization_generation
+        || raw.source.kind !== candidate.source_kind
+        || raw.source.entity_id !== candidate.source_entity_id
+        || raw.source.source_version !== candidate.source_version
+        || raw.epistemic_kind !== candidate.epistemic_kind
+        || raw.lifecycle.evidence_assessment !== candidate.evidence_assessment) {
+        throw new Error('PROVIDER_DISPATCH_CANDIDATE_NOT_CURRENT');
+      }
+    }
+    const localHead = this.#db.prepare(
+      'SELECT head FROM accepted_head_state WHERE domain=?',
+    ).get('provider');
+    if (!localHead || !Number.isSafeInteger(localHead.head)) {
+      throw new Error('PROVIDER_DISPATCH_ACCEPTED_HEAD_UNAVAILABLE');
+    }
+    const derivedSources = [...new Map(candidates.map(candidate => [
+      JSON.stringify([candidate.source_kind, candidate.source_entity_id, candidate.source_version]),
+      { source_kind: candidate.source_kind, entity_id: candidate.source_entity_id, source_version: candidate.source_version },
+    ])).values()].sort((a, b) =>
+      JSON.stringify([a.source_kind, a.entity_id, a.source_version])
+        .localeCompare(JSON.stringify([b.source_kind, b.entity_id, b.source_version])));
+    return Object.freeze({
+      world_id: worldId,
+      actor_id: actorId,
+      purpose,
+      granted: true,
+      readiness: 'READY',
+      head: localHead.head,
+      sources: Object.freeze(derivedSources.map(source => Object.freeze(source))),
+      candidates: Object.freeze(candidates),
+      provider_evidence_cursor: Object.freeze(currentCursor),
+    });
   }
 }
 

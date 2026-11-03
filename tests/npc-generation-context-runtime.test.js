@@ -22,14 +22,16 @@ const memoryResult = () => ({
   admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
   candidates: [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
-    source_entity_id: 'source-1', source_version: 'core-entity-v1:1', epistemic_kind: 'acquired_report',
+    source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
     evidence_assessment: 'disputed', content: { note: 'report' },
   }],
   reason: null, snapshot: { ...scope.snapshot },
+  provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
 });
 
 function setup() {
   let currentScope = scope;
+  let canonicalSourceVersion = 'core-entity-v1:1';
   let visible = true;
   let visibilityCalls = 0;
   let denyOnVisibilityCall = Number.POSITIVE_INFINITY;
@@ -39,8 +41,24 @@ function setup() {
   let readActorId = scope.actor_id;
   let memoryResultFactory = memoryResult;
   let afterMemoryRevalidation = null;
+  const coordinatorLease = Object.freeze({ id: 'test-coordinator-lease' });
   const engine = {
-    getSnapshot: () => scope.snapshot,
+    getSnapshot: (_worldId, options = {}) => options.includeSourceVersions === true
+      ? {
+        world_id: scope.world_id,
+        world_revision: scope.snapshot.world_revision,
+        commit_sequence: scope.snapshot.commit_sequence,
+        entities: options.entityIds.map(entity_id => ({
+          entity_id, entity_type: 'character', status: 'active', attributes: {},
+          created_by_event_id: 'event-1', updated_revision: scope.snapshot.world_revision,
+          source_version: canonicalSourceVersion,
+        })),
+      }
+      : scope.snapshot,
+    readNpcKnowledgeUnderCoordinatorLease(input, lease) {
+      if (lease !== coordinatorLease) throw new Error('COORDINATOR_LEASE_REQUIRED');
+      return this.readNpcKnowledge(input);
+    },
     readNpcKnowledge(input) {
       assert.equal(input.actor_id, scope.actor_id);
       assert.equal(input.purpose, 'npc_turn_context');
@@ -83,7 +101,9 @@ function setup() {
   });
   return {
     runtime,
+    coordinatorLease,
     setScope: value => { currentScope = value; },
+    setCanonicalSourceVersion: value => { canonicalSourceVersion = value; },
     setVisible: value => { visible = value; },
     setDenyOnVisibilityCall: value => { denyOnVisibilityCall = value; },
     setMemoryCurrent: value => { memoryCurrent = value; },
@@ -102,6 +122,8 @@ test('composes the live Core acquisition visibility fence and Memory consumer in
   assert.equal(built.context.lanes.lane_a.items.length, 1);
   assert.equal(built.context.lanes.lane_a.items[0].visibility_authorization_ref, 'visibility-1');
   assert.equal(built.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
+  assert.equal(built.context.lanes.lane_b.candidates[0].source_kind, 'canonical_entity');
+  assert.equal(built.context.lanes.lane_b.candidates[0].source_version, 'core-entity-v1:1');
   assert.equal(built.context.lanes.lane_b.provider_purpose, 'npc_decision');
   assert.equal((await runtime.receive(built.context, request)).status, 'accepted');
 });
@@ -247,6 +269,20 @@ test('synchronous dispatch fence revalidates Lane A visibility and exact Core sc
   assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'non_ready');
 });
 
+test('Gateway can revalidate Lane A under its already-held shared Coordinator lease', async () => {
+  const { runtime, coordinatorLease } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+    consumed.context, request, coordinatorLease,
+  ).status, 'ready');
+  assert.equal(runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+    consumed.context, request, {},
+  ).status, 'non_ready');
+});
+
 test('synchronous dispatch fence rejects copied contexts and unconsumed handoff contexts', async () => {
   const { runtime } = setup();
   const built = await runtime.build(request);
@@ -271,69 +307,6 @@ test('prepareForDispatch completes async build and receiver checks but exposes o
   assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, request).status, 'ready');
 });
 
-test('dispatch projection preserves both lanes and does not consume the opaque handoff', async () => {
-  const { runtime } = setup();
-  const prepared = await runtime.prepareForDispatch(request);
-  assert.equal(prepared.status, 'ready');
-  const projected = runtime.projectDispatchHandoff(prepared.handoff, request);
-  assert.equal(projected.status, 'ready');
-  assert.equal(projected.projection.contentBlocks.length, 2);
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[0])), {
-    epistemic_kind: 'author_initial',
-    evidence_assessment: 'unassessed',
-    content: {
-      subject_ref: 'entity:npc-1',
-      predicate: 'knows',
-      value: { fact: 'private-to-npc-1' },
-    },
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[1])), {
-    epistemic_kind: 'acquired_report',
-    evidence_assessment: 'disputed',
-    content: { note: 'report' },
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.sources)), [{
-    source_kind: 'canonical_entity',
-    source_entity_id: 'source-1',
-    source_version: 'core-entity-v1:1',
-  }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.candidates)), [{
-    record_ref: 'memory:1',
-    record_version: 'v1',
-    authorization_generation: 2,
-    source_kind: 'canonical_entity',
-    source_entity_id: 'source-1',
-    source_version: 'core-entity-v1:1',
-  }]);
-  assert.equal(runtime.projectDispatchHandoff(prepared.handoff, { ...request, request_id: 'other' }).status, 'non_ready');
-  assert.equal(runtime.consumeDispatchHandoff(prepared.handoff, request).status, 'accepted');
-  assert.equal(runtime.projectDispatchHandoff(prepared.handoff, request).status, 'non_ready');
-});
-
-test('Lane A-only projection retains authorized facts with an explicitly empty Lane B', async () => {
-  const { runtime, setMemoryResultFactory } = setup();
-  setMemoryResultFactory(() => ({
-    status: 'ready', admitted: [], candidates: [], reason: null,
-    snapshot: { ...scope.snapshot },
-  }));
-  const prepared = await runtime.prepareForDispatch(request);
-  assert.equal(prepared.status, 'ready');
-  const projected = runtime.projectDispatchHandoff(prepared.handoff, request);
-  assert.equal(projected.status, 'ready');
-  assert.equal(projected.projection.contentBlocks.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.contentBlocks[0])), {
-    epistemic_kind: 'author_initial',
-    evidence_assessment: 'unassessed',
-    content: {
-      subject_ref: 'entity:npc-1',
-      predicate: 'knows',
-      value: { fact: 'private-to-npc-1' },
-    },
-  });
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.sources)), []);
-  assert.deepEqual(JSON.parse(JSON.stringify(projected.projection.candidates)), []);
-});
-
 test('prepareForDispatch returns no handoff when either lane is not ready', async () => {
   const { runtime, setMemoryCurrent } = setup();
   setMemoryCurrent(false);
@@ -341,4 +314,73 @@ test('prepareForDispatch returns no handoff when either lane is not ready', asyn
   assert.equal(prepared.status, 'non_ready');
   assert.equal(prepared.handoff, null);
   assert.equal(Object.hasOwn(prepared, 'context'), false);
+});
+
+
+test('Lane B rejects a changed canonical source-version token at the receiver fence', async () => {
+  const { runtime, setCanonicalSourceVersion } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  setCanonicalSourceVersion('core-entity-v1:2');
+  const received = await runtime.receive(built.context, request);
+  assert.equal(received.status, 'non_ready');
+  assert.equal(received.reason, 'context_evidence_changed');
+});
+
+test('dispatch handoff exposes a Lane B-only provider projection with exact source lineage', async () => {
+  const { runtime } = setup();
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
+  assert.equal(evidence.status, 'ready');
+  assert.equal(evidence.lane, 'B');
+  assert.deepEqual({ ...evidence.provider_evidence_cursor }, {
+    data_version: 12, candidate_digest: 'b'.repeat(64),
+  });
+  assert.deepEqual(evidence.sources, [{
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'core-entity-v1:1',
+  }]);
+  assert.deepEqual(evidence.candidates, [{
+    record_ref: 'memory:1',
+    record_version: 'v1',
+    authorization_generation: 2,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-1',
+    source_version: 'core-entity-v1:1',
+  }]);
+  assert.equal(Object.hasOwn(evidence, 'lane_a'), false);
+});
+
+
+test('prepareForDispatch fails closed when Core cannot prove canonical source-version lineage', async () => {
+  const { runtime, setCanonicalSourceVersion } = setup();
+  setCanonicalSourceVersion('unversioned-source');
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.handoff, null);
+});
+
+
+test('complete-empty Lane B remains an explicit empty Lane B projection without fabricating lineage', async () => {
+  const { runtime, setMemoryResultFactory } = setup();
+  setMemoryResultFactory(() => ({
+    status: 'ready', admitted: [], candidates: [], reason: null,
+    snapshot: { ...scope.snapshot },
+    provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
+  }));
+  const prepared = await runtime.prepareForDispatch(request);
+  assert.equal(prepared.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(prepared.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context.lanes.lane_a.items.length, 1);
+  assert.equal(runtime.revalidateLaneAForDispatch(consumed.context, { ...request }).status, 'non_ready');
+  assert.equal(runtime.getLaneBDispatchEvidence(consumed.context, { ...request }).status, 'non_ready');
+  const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
+  assert.equal(evidence.status, 'ready');
+  assert.deepEqual(evidence.sources, []);
+  assert.deepEqual(evidence.candidates, []);
 });

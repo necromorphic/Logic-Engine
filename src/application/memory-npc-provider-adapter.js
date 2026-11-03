@@ -62,7 +62,7 @@ export function createMemoryNpcProviderAdapter({
   resolveHostIdentity,
   observerOnly = false,
 }) {
-  if (typeof observerOnly !== 'boolean') throw new TypeError('Memory Provider observerOnly must be boolean');
+  if (typeof observerOnly !== 'boolean') throw new TypeError('observerOnly must be a boolean');
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
   }
@@ -120,7 +120,7 @@ export function createMemoryNpcProviderAdapter({
   });
 
   try {
-    const actorBindingService = new ActorBindingService(engine);
+    const actorBindingService = new ActorBindingService(engine, { readOnly: observerOnly });
     const hostConversationWorldBindingService = new HostConversationWorldBindingService(engine);
     // Bind the authenticated Host capability to the exact Core-owned World and
     // unique Actor binding. The resolver is deployment-composed here; callers
@@ -170,34 +170,42 @@ export function createMemoryNpcProviderAdapter({
     const consumerFacade = Object.freeze({
       retrieveForNpc: (...args) => consumer.retrieveForNpc(...args),
       revalidateForFinalDispatch: (...args) => consumer.revalidateForFinalDispatch(...args),
-      readDispatchEvidenceSync: (...args) => consumer.readDispatchEvidenceSync(...args),
     });
 
     const resolveAuthenticatedNpcScope = () => {
       const hostContext = getAuthenticatedHostSessionContext();
-      if (!isAuthenticatedHostSessionContext(hostContext, hostContext?.conversation_id)) throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
-      const conversation = hostConversationWorldBindingService.resolve({ adapterId, conversationId: hostContext.conversation_id });
+      if (!isAuthenticatedHostSessionContext(hostContext, hostContext?.conversation_id)) {
+        throw new Error('HOST_SESSION_AUTHENTICATION_REQUIRED');
+      }
+      const conversation = hostConversationWorldBindingService.resolve({
+        adapterId, conversationId: hostContext.conversation_id,
+      });
       const worldId = conversation?.world_id;
-      if (!validCoreId(worldId) || hostContext.world_id !== worldId) throw new Error('HOST_CONVERSATION_BINDING_CHANGED');
+      if (!validCoreId(worldId) || hostContext.world_id !== worldId) {
+        throw new Error('HOST_CONVERSATION_BINDING_CHANGED');
+      }
       const actorBinding = actorBindingService.resolveForAdapter(worldId, adapterId);
       const actorId = actorBinding?.actor?.entity_id;
       const exactBinding = actorBindingService.resolve(worldId, adapterId, actorId);
       if (!validCoreId(actorId) || exactBinding?.world_id !== worldId
         || exactBinding?.adapter_id !== adapterId || exactBinding?.actor?.entity_id !== actorId
-        || hostContext.actor_id !== actorId) throw new Error('HOST_ACTOR_BINDING_CHANGED');
+        || hostContext.actor_id !== actorId) {
+        throw new Error('HOST_ACTOR_BINDING_CHANGED');
+      }
       const snapshot = engine.getSnapshot(worldId);
       if (!snapshot || snapshot.status !== 'active'
         || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
-        || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0) throw new Error('CORE_WORLD_SNAPSHOT_UNAVAILABLE');
+        || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0) {
+        throw new Error('CORE_WORLD_SNAPSHOT_UNAVAILABLE');
+      }
       return {
         world_id: worldId, actor_id: actorId, conversation_id: hostContext.conversation_id,
         adapter_id: adapterId, recipient: 'model', purpose: 'npc_turn_context',
         snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
       };
     };
-    // The generation-context runtime is available only when the deployment
-    // has configured the independent Core per-acquisition visibility authority.
-    // Without it, preserve the existing Memory adapter but expose no context builder.
+    // The runtime is exposed only when both synchronous Core authorizers are
+    // deployment-configured. It remains an in-process capability, never HTTP data.
     const npcGenerationContext = typeof engine.npcKnowledgeReadAuthorizer === 'function'
       && typeof engine.npcKnowledgeVisibilityAuthorizer === 'function'
       ? createCoreNpcGenerationContextRuntime({
@@ -207,10 +215,12 @@ export function createMemoryNpcProviderAdapter({
 
     const adapter = {
       adapterId,
-      ...(providerControl ? { provider: providerControl } : {}),
+      provider: providerControl,
+      readProviderEvidenceSync: observerOnly
+        ? (input) => provider.readDispatchEvidenceSync(input)
+        : null,
       consumer: consumerFacade,
       npcGenerationContext,
-      readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
         if (observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
         await provider.rebuildIndex(worldId);
