@@ -58,16 +58,19 @@ function assertAuthenticatedHostRequest(request) {
 }
 
 function resolveHostRoute(request) {
-  const path = typeof request?.originalUrl === 'string'
+  const rawPath = typeof request?.originalUrl === 'string'
     ? request.originalUrl
     : typeof request?.baseUrl === 'string' && typeof request?.path === 'string'
       ? request.baseUrl + request.path : '';
-  if (/\\/api\\/backends\\/chat-completions\\/generate(?:[?#]|$)/.test(path)) return 'chat-completions';
-  if (/\\/api\\/backends\\/text-completions\\/generate(?:[?#]|$)/.test(path)) return 'text-completions';
-  if (/\\/api\\/backends\\/kobold\\/generate(?:[?#]|$)/.test(path)) return 'kobold';
-  if (/\\/api\\/novelai\\/generate(?:[?#]|$)/.test(path)) return 'novelai-text';
-  if (/\\/api\\/horde\\/generate-text(?:[?#]|$)/.test(path)) return 'horde-text';
-  return null;
+  const path = rawPath.split('?')[0];
+  switch (path) {
+    case '/api/backends/chat-completions/generate': return 'chat-completions';
+    case '/api/backends/text-completions/generate': return 'text-completions';
+    case '/api/backends/kobold/generate': return 'kobold';
+    case '/api/novelai/generate': return 'novelai-text';
+    case '/api/horde/generate-text': return 'horde-text';
+    default: return null;
+  }
 }
 
 function terminalError(error) {
