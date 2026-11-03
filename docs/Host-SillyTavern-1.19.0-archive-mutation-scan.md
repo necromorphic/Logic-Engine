@@ -16,11 +16,13 @@ This is a static candidate scan, not a route-level proof. It searched endpoint m
 | `src/endpoints/images.js` | `POST /upload`, `POST /delete` | Trace account-root image mutations |
 | `src/endpoints/moving-ui.js` | `POST /save` | Trace settings persistence and root location |
 | `src/endpoints/presets.js` | `POST /save`, `/delete`, `/restore` | Trace preset writes and restore semantics |
+| `src/endpoints/settings.js` | `POST /save`, `/make-snapshot`, `/restore-snapshot` | Writes account settings and settings backups; all three routes are now fail-closed guarded |
 | `src/endpoints/quick-replies.js` | `POST /save`, `/delete` | Trace account/global quick-reply persistence |
 | `src/endpoints/secrets.js` | `POST /write`, `/delete`, `/rotate`, `/rename`, `/settings` | Trace secret-store writes and account/global scope |
 | `src/endpoints/sprites.js` | `POST /delete`, `/upload`, `/upload-zip` | Trace character sprite files and archive expansion |
 | `src/endpoints/stats.js` | `POST /recreate`, `/update` | Trace stats-file writes |
 | `src/endpoints/stable-diffusion.js` | ComfyUI `/save-workflow`, `/delete-workflow`, `/rename-workflow` | Writes/deletes/renames per-account workflow JSON files; fail-closed guarded and included in source identity coverage |
+| `src/endpoints/thumbnails.js` | `GET /` (thumbnail generation side effect) | Writes derived per-account thumbnail cache files; Host mode now serves the original image when a cache miss would write a file |
 | `src/endpoints/themes.js` | `POST /save`, `/delete` | Trace theme persistence |
 | `src/endpoints/worldinfo.js` | `POST /delete`, `/import`, `/edit` | Trace World Info file writes and imports |
 | `src/endpoints/vectors.js` | `POST /insert`, `/delete`, `/purge`, `/purge-all` | Trace vector-store mutations and whether they touch the enrolled root |
