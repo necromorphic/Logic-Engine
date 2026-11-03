@@ -33,6 +33,7 @@ const mutationPaths = [
   'src/endpoints/secrets.js',
   'src/endpoints/sprites.js',
   'src/endpoints/stable-diffusion.js',
+  'src/endpoints/thumbnails.js',
   'src/endpoints/stats.js',
 ];
 const [events, script, groupChats, chatBackups, serverMain, hostRoutePatch, lifecyclePatch, rootMutationPatch, ...mutationContents] = await Promise.all([
@@ -224,6 +225,13 @@ test('ComfyUI workflow file mutations are guarded and included in source identit
   const attestation = await readFile(resolve(process.cwd(),
     'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
   assert.match(attestation, /'src\/endpoints\/stable-diffusion\.js'/);
+});
+
+test('thumbnail GET falls back to originals instead of writing unreceipted account cache files', () => {
+  const source = mutationSources['src/endpoints/thumbnails.js'];
+  assert.match(source, /hostCacheWritesDisabled/);
+  assert.match(source, /hostCacheWritesDisabled && !fs\.existsSync\(pathToCachedFile\)/);
+  assert.match(source, /return serveOriginal\(\)/);
 });
 
 test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
