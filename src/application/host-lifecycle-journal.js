@@ -984,6 +984,7 @@ export class HostLifecycleJournal {
           host_installation_id: identity.host_installation_id,
           authenticated_account_id: identity.authenticated_account_id,
           root_id: identity.root_id,
+          source_manifest_sha256: trustedIdentity.source_manifest_sha256,
         };
         const latestEvent = JSON.parse(rows.at(-1).canonical_event_json);
         const expectedAttestation = {
