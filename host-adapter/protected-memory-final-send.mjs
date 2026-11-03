@@ -24,12 +24,17 @@ const isGeneratorFunction = utilTypes.isGeneratorFunction;
 const intrinsicFunctionToString = Function.prototype.toString;
 const intrinsicReflectApply = Reflect.apply;
 const intrinsicStringEndsWith = String.prototype.endsWith;
+const intrinsicStringTrimStart = String.prototype.trimStart;
+const intrinsicRegExpTest = RegExp.prototype.test;
+const asyncGeneratorFunctionSource = /^(?:async\\s+function\\s*\\*|async\\s*\\*)/;
 
 function isSynchronousCallable(callback) {
   if (typeof callback !== 'function' || isProxy(callback)
     || isAsyncFunction(callback) || isGeneratorFunction(callback)) return false;
   try {
     const source = intrinsicReflectApply(intrinsicFunctionToString, callback, []);
+    const normalized = intrinsicReflectApply(intrinsicStringTrimStart, source, []);
+    if (intrinsicReflectApply(intrinsicRegExpTest, asyncGeneratorFunctionSource, [normalized])) return false;
     return !intrinsicReflectApply(intrinsicStringEndsWith, source, ['{ [native code] }']);
   } catch {
     return false;
