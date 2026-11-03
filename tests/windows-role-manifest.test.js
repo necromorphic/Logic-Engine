@@ -51,6 +51,7 @@ function fakeDatabase(options = {}) {
               return { registered: 1, validated: 0 };
             }
           }
+          if (sql.includes('activate_manifest_role')) return { activated: 1 };
           return { registered: 1, validated: 1 };
         },
       };
