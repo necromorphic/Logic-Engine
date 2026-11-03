@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { createHostSessionRevocationClient } from '../server-plugin/st-host-session-revocation.mjs';
+import { createHostSessionRevocationClient, revokeHostSessionBeforeLogout } from '../server-plugin/st-host-session-revocation.mjs';
 import { createHostSessionHandler } from '../server-plugin/st-host-inventory-handler.mjs';
 
 const INSTALLATION = '11111111-1111-4111-8111-111111111111';
@@ -59,6 +59,15 @@ test('logout revocation signs the exact adapter/installation/account/session tup
   assert.equal(body.host_session_id, SESSION);
   const proof = JSON.stringify([1, 'st-host-adapter', INSTALLATION, ACCOUNT, SESSION, 1_800_000_000, NONCE, 'logout']);
   assert.equal(body.signature, createHmac('sha256', ADAPTER_TOKEN).update(proof).digest('hex'));
+});
+
+test('missing revocation configuration cannot silently clear an existing Host session', async () => {
+  await assert.rejects(
+    revokeHostSessionBeforeLogout({
+      session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice' },
+    }, { env: {} }),
+    /HOST_SESSION_REVOCATION_UNAVAILABLE/,
+  );
 });
 
 test('remote HTTPS revocation endpoints remain supported', async () => {
