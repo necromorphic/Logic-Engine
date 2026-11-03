@@ -56,7 +56,7 @@ const mutationSources = Object.fromEntries(
 const endpointDirectory = resolve(root, 'src/endpoints');
 const endpointEntries = await readdir(endpointDirectory, { withFileTypes: true });
 const endpointMutationCandidates = [];
-const filesystemMutationPrimitive = /\\b(?:fs|fsPromises|fs\\.promises)\\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\\b|\\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\\s*\\(/;
+const filesystemMutationPrimitive = /\b(?:fs|fsPromises|fs\.promises)\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\b|\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\s*\(/;
 for (const entry of endpointEntries) {
   if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
   const relative = 'src/endpoints/' + entry.name;
