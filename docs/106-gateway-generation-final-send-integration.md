@@ -25,7 +25,7 @@ The local patch wraps these five native ST generation handlers:
 
 | Native route | Gateway sender identities |
 |---|---|
-| `POST /api/backends/chat-completions/generate` | 26 exact sender IDs: `claude`, `google-ai-studio`, `vertex-ai`, `ai21`, `mistral`, `cohere`, `cometapi`, `deepseek`, `aimlapi`, `xai`, `chutes`, `minimax`, `electronhub`, `azure-openai`, `openai`, `openrouter`, `custom`, `perplexity`, `groq`, `fireworks`, `nanogpt`, `pollinations`, `moonshot`, `zai`, `siliconflow`, `workers-ai` |
+| `POST /api/backends/chat-completions/generate` | 26 exact SillyTavern `CHAT_COMPLETION_SOURCES` IDs mapped to Gateway routes: `openai→openai`, `claude→claude`, `openrouter→openrouter`, `ai21→ai21`, `makersuite→google-ai-studio`, `vertexai→vertex-ai`, `mistralai→mistral`, `custom→custom`, `cohere→cohere`, `perplexity→perplexity`, `groq→groq`, `chutes→chutes`, `electronhub→electronhub`, `nanogpt→nanogpt`, `deepseek→deepseek`, `aimlapi→aimlapi`, `xai→xai`, `pollinations→pollinations`, `moonshot→moonshot`, `fireworks→fireworks`, `cometapi→cometapi`, `azure_openai→azure-openai`, `zai→zai`, `siliconflow→siliconflow`, `minimax→minimax`, `workers_ai→workers-ai` |
 | `POST /api/backends/text-completions/generate` | `text-completions` |
 | `POST /api/backends/kobold/generate` | `kobold` |
 | `POST /api/novelai/generate` | `novelai-text` |
