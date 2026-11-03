@@ -257,6 +257,23 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.deepEqual((await retrieved.json()).retrieval.status, 'ready');
   assert.equal(calls, 1);
 
+  // HMAC authenticates the Host issuer; it does not make browser/Host-selected
+  // World and Actor values authoritative. Core must resolve both independently.
+  for (const [field, value, nonce, requestId] of [
+    ['world_id', 'attacker-world', '17171717-1717-4717-8717-171717171717', '18181818-1818-4818-8818-181818181818'],
+    ['actor_id', 'attacker-actor', '19191919-1919-4919-8919-191919191919', '20202020-2020-4020-8020-202020202020'],
+  ]) {
+    const forgedScope = {
+      ...assertion, [field]: value, nonce, issued_at: Math.floor(Date.now() / 1000),
+    };
+    const forgedScopeResponse = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+      ...body, assertion: forgedScope, signature: sign(forgedScope), request_id: requestId,
+    });
+    assert.equal(forgedScopeResponse.status, 401);
+    assert.equal((await forgedScopeResponse.json()).error.code, 'HOST_CORE_BINDING_UNAUTHORIZED');
+  }
+  assert.equal(calls, 1);
+
   // A correctly HMAC-signed assertion is still rejected unless its exact
   // installation/account/session/conversation tuple is enrolled by Root
   // Inventory Authority.
@@ -650,6 +667,47 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(replayedRevocationAfterRestart.status, 409);
 
+  // Revoke and replace the Core actor binding while a Provider read is
+  // suspended. The final Core-side fence must reject the stale actor scope.
+  const worldBeforeActorSwap = store.world('host-memory-world');
+  const actorSeed = engine.commitEvent('host-memory-world', {
+    idempotency_key: 'host-memory-seed-replacement-actor',
+    turn_id: 'host-memory-seed-replacement-actor',
+    event_type: 'action.completed',
+    expected_revision: worldBeforeActorSwap.world_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'host-memory-actor-replacement', entity_type: 'character' }],
+  });
+  assert.equal(actorSeed.accepted, true);
+  let bindingRaceStartedResolve;
+  const bindingRaceStarted = new Promise(resolve => { bindingRaceStartedResolve = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = bindingRaceStartedResolve;
+  const bindingRaceAssertion = {
+    ...assertion, nonce: '21212121-2121-4121-8121-212121212121',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const bindingRaceRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: bindingRaceAssertion, signature: sign(bindingRaceAssertion),
+    request_id: '22222222-2222-4222-8222-222222222222',
+  });
+  await bindingRaceStarted;
+  const revokeActor = await fetch(base + '/v1/worlds/host-memory-world/actor-bindings/'
+    + encodeURIComponent(ADAPTER_ID) + '/host-memory-actor', {
+    method: 'DELETE', headers: adminHeaders,
+  });
+  assert.equal(revokeActor.status, 200);
+  const replacementActor = await post(base, '/v1/worlds/host-memory-world/actor-bindings', adminHeaders, {
+    adapter_id: ADAPTER_ID, entity_id: 'host-memory-actor-replacement',
+  });
+  assert.equal(replacementActor.status, 201);
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const bindingRaceResponse = await bindingRaceRead;
+  assert.equal(bindingRaceResponse.status, 409);
+  assert.equal((await bindingRaceResponse.json()).error.code, 'HOST_CORE_BINDING_CHANGED');
+  consumerStartedResolve = null;
+  assert.equal(calls, 13);
+
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
   await new Promise(resolve => server.close(resolve));
@@ -685,5 +743,5 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(unavailableResponse.status, 503);
   assert.equal((await unavailableResponse.json()).error.code, 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
-  assert.equal(calls, 12);
+  assert.equal(calls, 13);
 });
