@@ -298,12 +298,16 @@ export function createCoreNpcGenerationContextRuntime({
       || freshA.snapshot.world_revision !== context?.snapshot?.world_revision
       || freshA.snapshot.commit_sequence !== context?.snapshot?.commit_sequence) return false;
     const laneBContext = context?.lanes?.lane_b;
+    // MemoryNpcConsumer uses Node's isDeepStrictEqual for its final
+    // freshness comparison. Rebuild the immutable null-prototype payload as
+    // ordinary plain data so the comparison checks content, not our internal
+    // immutability representation.
     const preparedResult = laneBContext ? {
       status: laneBContext.status,
-      admitted: laneBContext.admitted,
-      candidates: laneBContext.candidates,
+      admitted: toPlainData(laneBContext.admitted),
+      candidates: toPlainData(laneBContext.candidates),
       reason: laneBContext.reason,
-      snapshot: laneBContext.snapshot,
+      snapshot: toPlainData(laneBContext.snapshot),
     } : null;
     if (preparedResult === null) return false;
     let freshB;
