@@ -65,6 +65,7 @@ function makeHarness({ manifest = makeManifest(), files = new Map(), crash = nul
       state.events.push('create');
       const key = `${role}:${kind}:${basename}`;
       if (state.files.has(key)) throw new Error('CREATE_NEW collision');
+      if (crash === 'before-create') throw new Error('simulated process crash before create');
       const file = { identity: identity('5') };
       state.files.set(key, file);
       if (crash === 'after-create') throw new Error('simulated process crash after create');
@@ -128,16 +129,17 @@ test('create recovery enrolls a sidecar created before a simulated crash', async
   assert.equal(h.state.intent, null);
 });
 
-test('create recovery rolls back an intent when the file was never created', async () => {
-  const h = makeHarness();
-  const originalCreate = h.coordinator.createSidecar.bind(h.coordinator);
-  // Simulate a crash at the durable-intent boundary by making CREATE_NEW fail
-  // before it creates anything.
-  const files = h.state.files;
-  files.clear();
-  await assert.rejects(originalCreate('core', 'wal'), /simulated|/);
-  // A normal successful create has already completed; the empty-store path is
-  // covered by the create operation's CREATE_NEW contract and recovery below.
+test('create recovery clears an intent when CREATE_NEW never created the file', async () => {
+  const h = makeHarness({ crash: 'before-create' });
+  await assert.rejects(h.coordinator.createSidecar('core', 'wal'), /simulated process crash before create/);
+  assert.ok(h.state.intent);
+  assert.equal(h.state.files.has(sidecarKey), false);
+  const result = await h.coordinator.reconcile();
+  assert.deepEqual(result, {
+    recovered: true, operation: 'create-rolled-back', generation: 1,
+  });
+  assert.equal(h.state.intent, null);
+  assert.equal(h.state.manifest.roles[0].sidecars.length, 0);
 });
 
 test('delete commits intent before identity-checked unlink and retains a retired generation', async () => {
