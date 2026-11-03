@@ -925,6 +925,45 @@ test('abort raised inside the final Host writer settles after the Coordinator le
   }
 });
 
+test('stream cancellation between chunks prevents every subsequent Host write', async () => {
+  const fixture = await createFixture();
+  const controller = new AbortController();
+  const writes = [];
+  try {
+    const request = validRequest('stream-cancel-between-chunks', {
+      stream: true,
+      signal: controller.signal,
+      forwardResponse: () => {
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => {
+          writes.push('first-chunk');
+        }, { final: false });
+        controller.abort();
+        fixture.gateway.authorizeResponseWrite(request.requestId, () => {
+          writes.push('second-chunk');
+        }, { final: false });
+        return Promise.resolve();
+      },
+    });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    await Promise.resolve();
+    assert.deepEqual(writes, ['first-chunk']);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(request.requestId).status,
+        'UNKNOWN',
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
   const controller = new AbortController();
   let sends = 0;
