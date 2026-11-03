@@ -133,7 +133,6 @@ function formatNpcMemoryContext(contentBlocks) {
     }
     lines.push(`- epistemic_kind=${epistemicKind}; evidence_assessment=${evidenceAssessment}; content=${stableJson(content)}`);
   }
-  if (contentBlocks.length === 0) lines.push('- No admitted NPC memory records are available for this generation.');
   return lines.join('\n');
 }
 
@@ -201,7 +200,7 @@ function assertProtectedContext(context) {
     || typeof context.actorId !== 'string' || !context.actorId
     || typeof context.purpose !== 'string' || !context.purpose
     || !Array.isArray(context.sources) || !Array.isArray(context.candidates)
-    || !Array.isArray(context.contentBlocks)) {
+    || !Array.isArray(context.contentBlocks) || context.contentBlocks.length === 0) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
 }
