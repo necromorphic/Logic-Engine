@@ -55,12 +55,16 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
     const manifestWalPath = `${manifestDbPath}-wal`;
     const manifestShmPath = `${manifestDbPath}-shm`;
     writeFileSync(manifestDbPath, '');
-    writeFileSync(manifestWalPath, 'manifest-wal');
+    writeFileSync(manifestWalPath, 'retired-manifest-wal');
     writeFileSync(manifestShmPath, 'manifest-shm');
     const captureIdentity = (filePath) => JSON.parse(roleRegistrar.prepare(
       'SELECT logic_engine_vfs_probe_capture_manifest_identity(?) AS value'
     ).get(filePath).value);
     const databaseIdentity = captureIdentity(manifestDbPath);
+    const retiredWalIdentity = captureIdentity(manifestWalPath);
+    const retiredWalAliasPath = `${manifestWalPath}.retired`;
+    renameSync(manifestWalPath, retiredWalAliasPath);
+    writeFileSync(manifestWalPath, 'active-manifest-wal');
     const walIdentity = captureIdentity(manifestWalPath);
     const shmIdentity = captureIdentity(manifestShmPath);
     unlinkSync(manifestShmPath);
@@ -83,6 +87,7 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
         databaseIdentity: databaseIdentity.databaseIdentity,
         state: 'active',
         sidecars: [
+          { kind: 'wal', identity: retiredWalIdentity.databaseIdentity, state: 'retired', generation: 2 },
           { kind: 'wal', identity: walIdentity.databaseIdentity, state: 'active', generation: 3 },
           { kind: 'shm', identity: shmIdentity.databaseIdentity, state: 'retired', generation: 4 },
         ],
