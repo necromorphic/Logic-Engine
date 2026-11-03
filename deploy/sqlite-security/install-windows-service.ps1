@@ -139,6 +139,58 @@ Assert-NoReparsePointAncestors $InstallDirectory
 Assert-NoReparsePointAncestors $StateDirectory
 Assert-NoReparsePointAncestors $NodePath
 if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
+$nodeVersionOutput = & $NodePath --version
+if ($LASTEXITCODE -ne 0 -or $nodeVersionOutput -notmatch '^v(\d+)\.(\d+)\.(\d+)# Dry-run must inspect existing descendants too; repeat immediately before ACL
+# mutation inside ShouldProcess to narrow the validation-to-use window.
+Assert-NoReparsePoints $InstallDirectory
+if (Test-Path -LiteralPath $StateDirectory) {
+  if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
+    throw "StateDirectory exists but is not a directory: $StateDirectory"
+  }
+  Assert-NoReparsePoints $StateDirectory
+}
+if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
+$account = "NT SERVICE\$ServiceName"
+$entry = Join-Path $InstallDirectory 'src\index.js'
+$binary = '"' + $NodePath + '" "' + $entry + '"'
+if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-account service")) {
+  try {
+    # Keep -WhatIf side-effect free: create writable state only after approval.
+    if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
+      New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
+    }
+    Invoke-Sc @("create", $ServiceName, "binPath=", $binary, "start=", "demand", "obj=", $account, "password=", "")
+    Invoke-Sc @("sidtype", $ServiceName, "unrestricted")
+    $sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+    # Reject reparse points before recursive ACL changes; ancestors still must be admin-controlled.
+    Assert-NoReparsePoints $InstallDirectory
+    Assert-NoReparsePoints $StateDirectory
+    # The service may execute/read application files but cannot replace its own code.
+    Set-PrivateTreeAcl $InstallDirectory $sid "RX"
+    Set-PrivateTreeAcl $StateDirectory $sid "F"
+    if ($EnvironmentFile) {
+      Set-PrivateFileAcl $EnvironmentFile $sid
+    }
+    Invoke-Sc @("config", $ServiceName, "start=", "auto")
+  } catch {
+    & sc.exe stop $ServiceName | Out-Null
+    & sc.exe delete $ServiceName | Out-Null
+    throw
+  }
+  Write-Output "Provisioned service: $ServiceName"
+  Write-Output "Service identity: $account"
+  Write-Output "State directory: $StateDirectory"
+  Write-Output "Do not start until all SQLite paths and secure-VFS production gates are configured."
+} else {
+  Write-Output "No provisioning changes were made (WhatIf or confirmation declined)."
+}
+) {
+  throw "Unable to determine the configured Node.js runtime version: $NodePath"
+}
+$nodeVersion = [version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
+if ($nodeVersion -lt [version]'22.14.0') {
+  throw "Node.js 22.14.0 or newer is required for the SQLite addon runtime; found $nodeVersion"
+}
 # Dry-run must inspect existing descendants too; repeat immediately before ACL
 # mutation inside ShouldProcess to narrow the validation-to-use window.
 Assert-NoReparsePoints $InstallDirectory
