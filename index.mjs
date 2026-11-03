@@ -99,11 +99,12 @@ export async function init(router) {
           model: resolveRequestModel(request, prepared),
           purpose: 'npc_decision',
         });
-        // A verified complete-empty result carries no protected content and
-        // does not need the Memory egress lease. Every non-empty result must
-        // pass the in-process Gateway; its current production reader composition
-        // is intentionally unavailable, so it is denied without native fallback.
-        return received.candidates.length === 0 ? null : received;
+        // Memory-enabled generation is classified as protected even when
+        // Lane B is complete-empty. The current receiver does not yet carry the
+        // Core Lane A projection, so an empty Lane B result is not proof that the
+        // complete NPC context is empty. Never turn that uncertainty into an
+        // explicit unprotected null/native fallback.
+        return received;
       },
     });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
