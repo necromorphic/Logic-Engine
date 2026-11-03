@@ -35,7 +35,7 @@ test('Host session revocation is durable and visible to a read-only Gateway read
     });
     reader = new HostSessionRevocationReader({ path: noncePath });
     assert.equal(reader.isSessionRevoked('st-adapter', identity), false);
-    assert.equal(store.revokeSession(
+    assert.equal(await store.revokeSession(
       'st-adapter', identity,
       '44444444-4444-4444-8444-444444444444',
       1_800_000_000,
@@ -96,9 +96,9 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
       providerDatabasePath: process.env.TEST_PROVIDER_PATH,
     });
     process.stdout.write('READY\\n');
-    process.stdin.setEncoding('utf8').once('data', chunk => {
+    process.stdin.setEncoding('utf8').once('data', async chunk => {
       if (chunk.trim() !== 'REVOKE') process.exit(2);
-      const result = store.revokeSession(
+      const result = await store.revokeSession(
         'st-adapter',
         {"host_installation_id":"11111111-1111-4111-8111-111111111111","authenticated_account_id":"22222222-2222-4222-8222-222222222222","host_session_id":"33333333-3333-4333-8333-333333333333"},
         '55555555-5555-4555-8555-555555555555',
