@@ -301,7 +301,7 @@ const makeRootAttestation = result => {
     covered_delta_sha256: result.delta_sha256 ?? null,
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patch_blob_sha: '812c250791bfbd1adb8d547b11d597393557024e52cbd37381d51aca807e9f30',
+    patch_blob_sha: '35ae74285a99fc802ee5442dc9000671233967f7d74d169b2ba106c6d991f256',
     host_handler_blob_sha: 'dea9ad6acf7aa7c4bfa04f25a90aeb0db9e242a6',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
     source_manifest_sha256: sourceManifestSha256,
@@ -766,7 +766,7 @@ test('Host lifecycle authority fingerprint is invalidated by unresolved root inv
     entries: rootEntries(digest('changed-root')),
   });
   assert.equal(drift.status, 'NON_READY');
-  assert.equal(journal.getAuthoritySnapshot(trusted).status, 'NON_READY');
+  assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
 });
 
 test('durable Core journal records prepared mutations, blocks overlap, and clears only on a matching commit', (t) => {
