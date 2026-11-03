@@ -1063,7 +1063,6 @@ diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
 +    }
 +    return next();
 +};
- 
 @@ -92,1 +98,1 @@
 -router.post('/install', async (request, response) => {
 +router.post('/install', hostSourceMutationGuard, async (request, response) => {
@@ -1091,5 +1090,4 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +        return response.status(503).json({ error: { code: 'HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED' } });
 +    }
 +    return next();
-+});
- 
++}); 
