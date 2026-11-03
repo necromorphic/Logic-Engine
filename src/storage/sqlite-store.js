@@ -258,6 +258,13 @@ export class SQLiteStore {
         last_operation_id TEXT,
         last_operation_digest TEXT
       );
+      CREATE TABLE IF NOT EXISTS mechanic_policy_authority_state(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        authority_id TEXT NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation>0),
+        fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64),
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
         domain TEXT NOT NULL CHECK(domain IN ('core','provider')),
