@@ -140,8 +140,9 @@ export function createHostInventoryHandler({
         && rootInventory.status === 'AUTHORITATIVE_COMPLETE'
         && /^[a-f0-9]{64}$/.test(rootInventory.attestation_sha256 ?? '')
         && Number.isSafeInteger(rootInventory.lifecycle_sequence)
-        && rootInventory.lifecycle_sequence > 0
-        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '');
+        && rootInventory.lifecycle_sequence >= 0
+        && /^[a-f0-9]{64}$/.test(rootInventory.lifecycle_head_sha256 ?? '')
+        && (rootInventory.lifecycle_sequence !== 0 || rootInventory.lifecycle_head_sha256 === '0'.repeat(64));
       const sourceSnapshotAttested = rootInventoryAuthoritative
         && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
         && /^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
@@ -686,6 +687,15 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     resolveHostConversationId(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         ? authenticatedRequests.get(request)?.conversation_id ?? null : null;
+    },
+    // Core's in-process capability uses PC-NEXT-11, not the Host storage key
+    // installation:account:conversationUuid. Keep both identities explicit.
+    resolveCoreConversationId(request) {
+      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
+      const context = authenticatedRequests.get(request);
+      return context
+        ? [context.host_session_id, context.host_installation_id, context.conversation_uuid].join(':')
+        : null;
     },
     resolveHostContext(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
