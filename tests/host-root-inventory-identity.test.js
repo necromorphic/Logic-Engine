@@ -70,7 +70,9 @@ test('adapter resolver requires the exact adapter, installation, account and roo
 
 test('journal resolver independently checks the registered installation/account/root tuple', () => {
   const registry = parseHostRootIdentityRegistry(JSON.stringify([binding]));
-  assert.equal(resolveRegisteredHostRootIdentity(registry, binding).authorized, true);
+  const accepted = resolveRegisteredHostRootIdentity(registry, binding);
+  assert.equal(accepted.authorized, true);
+  assert.equal(accepted.source_manifest_sha256, binding.source_manifest_sha256);
   assert.equal(resolveRegisteredHostRootIdentity(registry, {
     ...binding, root_id: 'b'.repeat(64),
   }).authorized, false);
