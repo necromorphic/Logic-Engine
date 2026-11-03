@@ -1,5 +1,5 @@
 import { types as utilTypes } from 'node:util';
-import { createNpcGenerationContextBuilder, createNpcGenerationContextReceiver } from './npc-generation-context.js';
+import { createNpcGenerationContextBuilder } from './npc-generation-context.js';
 
 const PURPOSE = 'npc_turn_context';
 const RECIPIENT = 'model';
@@ -330,7 +330,7 @@ export function createCoreNpcGenerationContextRuntime({
     revalidateEvidence: revalidateBuild,
     revalidateScope: resolveScope,
   });
-  const receiver = createNpcGenerationContextReceiver({
+  const receiver = builder.createReceiver({
     resolveScope,
     revalidateEvidence: revalidateIssuedContext,
     revalidateScope: resolveScope,
