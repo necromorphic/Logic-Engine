@@ -16,7 +16,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 ## Pinned source manifest and root-inventory attestation
 
-The pinned-source workflow applies both the lifecycle patch and the fail-closed root-mutation guard patch to the exact SillyTavern commit. After the Windows acceptance suite and source-route audit pass, it generates and uploads the `host-pinned-source-manifest` artifact.
+The pinned-source workflow applies the lifecycle hooks patch, the unenrolled-chat fix, and the fail-closed root-mutation guard patch to the exact SillyTavern commit. After the Windows acceptance suite and source-route audit pass, it generates and uploads the `host-pinned-source-manifest` artifact.
 
 The manifest covers the patched ST mutation route modules, browser lifecycle files, Gateway server/client files, and installed Host handler. The runtime verifier rejects missing manifests, unsafe/symlinked paths, path escapes, digest mismatches, an unexpected pinned commit, or mismatched patch/handler blob identities. The operator build-claim environment variable is informational only.
 
