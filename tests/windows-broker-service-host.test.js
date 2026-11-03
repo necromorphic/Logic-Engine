@@ -37,6 +37,7 @@ test('Windows broker metadata store uses a pinned directory and durable handle-r
   assert.match(store, /le_store_open_parent_chain\(configured_directory/);
   assert.match(store, /le_store_parent_acl_safe\(current\)/);
   assert.match(store, /INHERIT_ONLY_ACE/);
+  assert.match(store, /FILE_DELETE_CHILD \| DELETE \| WRITE_DAC \| WRITE_OWNER \| GENERIC_ALL/);
   assert.match(store, /logic_engine_win_open_relative\(anchor.parent, anchor.basename/);
   assert.doesNotMatch(store, /CreateFileW\(configured_directory/);
   assert.match(store, /FILE_FLAG_OPEN_REPARSE_POINT/);
