@@ -13,7 +13,7 @@ import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/me
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
 import { ProcessStore } from '../storage/process-store.js';
-import { beginCoordinatorLock } from '../storage/coordinator-lock.js';
+import { beginCoordinatorLock, isCoordinatorLease } from '../storage/coordinator-lock.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
@@ -846,7 +846,28 @@ export class LogicEngine {
         items: Object.freeze(items),
       });
     });
-  }  /**
+  }
+
+  /**
+   * Trusted internal variant for a Gateway that already owns the shared
+   * Coordinator lease. The lease is verified against the same database file;
+   * this avoids a nested BEGIN IMMEDIATE on a second Core connection.
+   */
+  readNpcKnowledgeUnderCoordinatorLease(input, coordinatorLease) {
+    if (!isCoordinatorLease(coordinatorLease, this.store?.coordinatorDb)) {
+      throw new EngineError('NPC_KNOWLEDGE_COORDINATOR_LEASE_REQUIRED',
+        'A live shared Coordinator lease is required for this read.', 503);
+    }
+    const previousDepth = this.store.coordinatorLeaseDepth ?? 0;
+    this.store.coordinatorLeaseDepth = 1;
+    try {
+      return this.readNpcKnowledge(input);
+    } finally {
+      this.store.coordinatorLeaseDepth = previousDepth;
+    }
+  }
+
+  /**
    * Build an actor-specific belief context from Core-authorized acquisitions.
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
