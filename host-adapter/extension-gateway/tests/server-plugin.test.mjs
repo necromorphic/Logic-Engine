@@ -26,25 +26,11 @@ test('Extension Gateway owns every public Host route under one server-plugin nam
     'GET /inventory',
     'POST /host-lifecycle/events',
     'GET /host-lifecycle/status',
-    'POST /dispatch',
     'POST /host-version-ledger/capture',
     'POST /host-version-ledger/reconcile',
   ]);
   assert.equal(info.id, 'logic-engine-extension-gateway');
   assert.ok(routes.every(route => typeof route.handler === 'function'));
-});
-
-test('Core dispatch endpoint fails closed until the authenticated Core contract is installed', async () => {
-  const routes = [];
-  await init({
-    get(route, handler) { routes.push({ method: 'GET', route, handler }); },
-    post(route, handler) { routes.push({ method: 'POST', route, handler }); },
-  });
-  const dispatch = routes.find(route => route.route === '/dispatch').handler;
-  const response = responseRecorder();
-  dispatch({ body: { conversation_id: 'attacker-selected' } }, response);
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.payload.code, 'HOST_IDENTITY_STORE_UNCONFIGURED');
 });
 
 test('Gateway source contains no direct SillyTavern endpoint mounting or Core URL supplied by the browser', async () => {
@@ -80,7 +66,7 @@ test('Extension Gateway is a routing-only boundary; Host authentication and Core
   assert.ok(gateway.includes('createSillyTavernHostAdapter'));
   assert.doesNotMatch(gateway, /createHostRequestAuthenticationGate|createHostMemoryDispatchProxyHandler/);
   assert.doesNotMatch(gateway, /request\.(user|session|body)|resolveConversationId|createHmac/);
-  assert.ok(gateway.includes("router.post('/dispatch', hostAdapter.dispatchMiddleware, hostAdapter.dispatch)"));
+  assert.doesNotMatch(gateway, /router\\.post\\(['\"]\\/dispatch/);
 
   assert.match(adapter, /createHostRequestAuthenticationGate/);
   assert.match(adapter, /createHostMemoryDispatchProxyHandler/);
