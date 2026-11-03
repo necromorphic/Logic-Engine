@@ -15,6 +15,7 @@ const conversation = '00000000-0000-4000-8000-000000000001';
 const message = '00000000-0000-4000-8000-000000000002';
 const version = '00000000-0000-4000-8000-000000000003';
 const digest = (text) => createHash('sha256').update(text).digest('hex');
+const sourceManifestSha256 = digest('test-source-manifest');
 
 function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRootAttestation = () => false) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-lifecycle-journal-'));
@@ -39,6 +40,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true, verifyRoot
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
+      source_manifest_sha256: sourceManifestSha256,
     }),
   });
   t.after(() => {
