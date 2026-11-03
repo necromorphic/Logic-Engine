@@ -222,6 +222,47 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
+test('Lane A nested accessors and proxies are rejected before dispatch without executing getters', async () => {
+  const fixture = await createFixture();
+  let getterCalls = 0;
+  try {
+    const item = { acquisition_id: 'acq-1' };
+    Object.defineProperty(item, 'value', {
+      enumerable: true,
+      get() { getterCalls += 1; return 'secret'; },
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('lane-a-nested-getter', {
+      laneA: {
+        lane: 'A', purpose: 'npc_turn_context',
+        authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+        items: [item],
+      },
+      transport: () => {
+        fixture.calls.push('unexpected');
+        return Promise.resolve({ status: 200 });
+      },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(getterCalls, 0);
+    assert.equal(fixture.calls.length, 0);
+
+    const proxiedItem = new Proxy({ acquisition_id: 'acq-2' }, {});
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(validRequest('lane-a-nested-proxy', {
+      laneA: {
+        lane: 'A', purpose: 'npc_turn_context',
+        authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+        items: [proxiedItem],
+      },
+      transport: () => {
+        fixture.calls.push('unexpected-proxy');
+        return Promise.resolve({ status: 200 });
+      },
+    })), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', async () => {
   const fixture = await createFixture();
   try {
