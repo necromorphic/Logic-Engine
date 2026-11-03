@@ -1265,6 +1265,10 @@ static int probe_file_class_is_unhandled(int flags) {
   return (flags & probe_unhandled_file_classes) != 0;
 }
 
+#ifdef _WIN32
+static int probe_win_manifest_role_ready(int role_index);
+#endif
+
 static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
                               int flags, int *out_flags) {
   sqlite3_vfs *parent = (sqlite3_vfs *)vfs->pAppData;
