@@ -3,6 +3,9 @@ import path from 'node:path';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const validAdapterId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 200
+  && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 
 function configuredTarget(env) {
   const coreUrl = env.LOGIC_ENGINE_CORE_URL;
@@ -11,7 +14,7 @@ function configuredTarget(env) {
   const adapterToken = env.LOGIC_ENGINE_ADAPTER_TOKEN;
   if (typeof coreUrl !== 'string' || !coreUrl.trim()
     || typeof apiToken !== 'string' || apiToken.length < 16
-    || typeof adapterId !== 'string' || !adapterId.trim()
+    || !validAdapterId(adapterId)
     || typeof adapterToken !== 'string' || adapterToken.length < 16
     || adapterToken === apiToken) return null;
   let url;
