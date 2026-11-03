@@ -253,6 +253,36 @@ function assertSameProviderEvidenceCursor(current, expected) {
   }
 }
 
+function readDispatchInput(value) {
+  const required = [
+    'requestId', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
+    'actorId', 'purpose', 'sources', 'candidates', 'providerEvidenceCursor',
+    'laneA', 'hostContext', 'transport',
+  ];
+  const optional = ['revalidateLaneA', 'forwardResponse', 'hostTransformsStream', 'signal'];
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const keys = Reflect.ownKeys(value);
+    if (keys.some(key => typeof key !== 'string' || (!required.includes(key) && !optional.includes(key)))
+      || required.some(key => !keys.includes(key))) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const snapshot = Object.create(null);
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+}
+
 function readStrictArray(value, maxLength) {
   if (!Array.isArray(value) || utilTypes.isProxy(value) || value.length > maxLength) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -607,7 +637,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
+  async dispatchProtectedRequest(input) {
+    const {
+      requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose,
+      sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
+      transport, forwardResponse, hostTransformsStream = false, signal,
+    } = readDispatchInput(input);
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
