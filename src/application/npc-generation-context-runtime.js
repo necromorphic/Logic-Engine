@@ -354,5 +354,7 @@ export function createCoreNpcGenerationContextRuntime({
   return Object.freeze({
     build: builder.build,
     receive: receiver.receive,
+    issueDispatchHandoff: receiver.issueDispatchHandoff,
+    consumeDispatchHandoff: receiver.consumeDispatchHandoff,
   });
 }
