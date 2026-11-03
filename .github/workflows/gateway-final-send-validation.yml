@@ -47,6 +47,11 @@ on:
 permissions:
   contents: read
 
+# Prevent stale integration-head test runs from occupying runners indefinitely.
+concurrency:
+  group: gateway-final-send-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gateway-final-send:
     runs-on: ubuntu-latest
