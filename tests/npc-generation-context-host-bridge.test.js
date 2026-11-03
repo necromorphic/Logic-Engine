@@ -54,6 +54,7 @@ test('Host bridge carries one prepared handoff to the exact request/response dis
   assert.equal(accepted.laneB.lane, 'B');
   assert.equal(accepted.revalidateLaneA().status, 'ready');
   assert.equal(bridge.consume(hostRequest, hostResponse).status, 'non_ready');
+  assert.equal((await bridge.prepare(hostRequest, hostResponse)).status, 'non_ready');
 });
 
 test('Host bridge rejects a different response without consuming the valid request handoff', async () => {
