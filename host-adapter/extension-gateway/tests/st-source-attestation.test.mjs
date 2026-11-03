@@ -151,6 +151,22 @@ test('pinned source verifier rejects an unattested server plugin', async t => {
   assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
 });
 
+test('pinned source verifier rejects unpinned files in extension parent roots', async t => {
+  const pluginFixture = await createManifestRoot();
+  t.after(() => rm(pluginFixture.root, { recursive: true, force: true }));
+  await writeFile(path.join(pluginFixture.root, 'plugins', 'unreviewed-loader.js'), 'module.exports = {};');
+  const pluginRejected = await verifyPinnedSourceIdentity({ installRoot: pluginFixture.root });
+  assert.equal(pluginRejected.status, 'NON_READY');
+  assert.equal(pluginRejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
+
+  const browserFixture = await createManifestRoot();
+  t.after(() => rm(browserFixture.root, { recursive: true, force: true }));
+  await writeFile(path.join(browserFixture.root, 'public/scripts/extensions/third-party', 'unreviewed-loader.js'), 'export {};');
+  const browserRejected = await verifyPinnedSourceIdentity({ installRoot: browserFixture.root });
+  assert.equal(browserRejected.status, 'NON_READY');
+  assert.equal(browserRejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
+});
+
 test('pinned source verifier rejects an unattested third-party browser extension', async t => {
   const fixture = await createManifestRoot();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
