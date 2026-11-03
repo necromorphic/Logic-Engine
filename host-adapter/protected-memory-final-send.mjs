@@ -162,9 +162,9 @@ function renderNpcContext(laneAItems, contentBlocks) {
   const sections = [];
   if (Array.isArray(laneAItems) && laneAItems.length > 0) {
     const laneA = projectLaneAItems(laneAItems);
-    sections[sections.length] = '[Logic Engine Core Knowledge — Lane A]\\n'
+    sections[sections.length] = '[Logic Engine Core Knowledge — Lane A]\n'
       + JSON.stringify({ purpose: 'npc_turn_context', completeness: 'complete', items: laneA })
-      + '\\n[/Logic Engine Core Knowledge — Lane A]';
+      + '\n[/Logic Engine Core Knowledge — Lane A]';
   }
   if (contentBlocks.length > 0) {
     const bounded = [];
@@ -192,13 +192,13 @@ function renderNpcContext(laneAItems, contentBlocks) {
         content: content.value,
       };
     }
-    sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\\n'
+    sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\n'
       + JSON.stringify({ purpose: 'npc_decision', items: bounded })
-      + '\\n[/Logic Engine NPC Memory Context — Lane B]';
+      + '\n[/Logic Engine NPC Memory Context — Lane B]';
   }
   let rendered = '';
   for (let index = 0; index < sections.length; index += 1) {
-    if (index > 0) rendered += '\\n';
+    if (index > 0) rendered += '\n';
     rendered += sections[index];
   }
   return rendered;
