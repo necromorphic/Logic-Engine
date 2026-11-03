@@ -36,7 +36,7 @@ const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
 const unenrolledFixBlobSha = gitBlobSha(unenrolledFixPatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
 const patchBlobSha = sha256(Buffer.from(
-  lifecycleBlobSha + '\\n' + unenrolledFixBlobSha + '\\n' + rootMutationBlobSha, 'utf8',
+  lifecycleBlobSha + '\n' + unenrolledFixBlobSha + '\n' + rootMutationBlobSha, 'utf8',
 ));
 const handlerBlobSha = gitBlobSha(handlerSource);
 
