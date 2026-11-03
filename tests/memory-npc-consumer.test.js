@@ -73,7 +73,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
     authorization_generation: 1,
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'core-entity-v1:1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -257,6 +257,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.equal(result.candidates[0].source_version, 'core-entity-v1:1');
   assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
@@ -264,6 +265,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     authorization_generation: 1,
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: 'core-entity-v1:1',
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
