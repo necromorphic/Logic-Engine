@@ -111,6 +111,27 @@ jobs:
           if (-not (Test-PathWithin 'C:\' 'C:\ProgramData')) {
             throw 'Drive-root containment was not detected'
           }
+      - name: Verify Windows installer WhatIf has no filesystem or service side effects
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP ('logic-engine-installer-whatif-' + [guid]::NewGuid().ToString('N'))
+          $install = Join-Path $root 'install'
+          $state = Join-Path $root 'state'
+          $serviceName = 'LEWhatIf' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+          New-Item -ItemType Directory -Path (Join-Path $install 'src') -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $install 'src/index.js') -Value '/* installer WhatIf fixture */'
+          try {
+            $node = (Get-Command node.exe -ErrorAction Stop).Source
+            & deploy/sqlite-security/install-windows-service.ps1 -ServiceName $serviceName -InstallDirectory $install -StateDirectory $state -NodePath $node -WhatIf
+            if (Test-Path -LiteralPath $state) {
+              throw 'WhatIf unexpectedly created the state directory'
+            }
+            if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+              throw 'WhatIf unexpectedly created a Windows service'
+            }
+          } finally {
+            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          }
       - name: Build VFS registration probe
         shell: pwsh
         run: |
