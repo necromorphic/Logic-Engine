@@ -39,6 +39,7 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'src/endpoints/stable-diffusion.js',
   'src/endpoints/stats.js',
   'src/endpoints/themes.js',
+  'src/endpoints/thumbnails.js',
   'src/endpoints/worldinfo.js',
   'src/endpoints/vectors.js',
   'src/endpoints/extensions.js',
