@@ -132,7 +132,8 @@ function isLiveAuthenticatedHostContext(context, conversationId) {
     if (!binding || binding.conversationId !== conversationId) return false;
     if (binding.kind === 'assertion') {
       const currentSeconds = Math.floor(binding.now() / 1000);
-      return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt;
+      return Number.isSafeInteger(currentSeconds) && currentSeconds <= binding.expiresAt
+        && binding.isSessionRevoked(binding.adapterId, binding.identity) !== true;
     }
     if (binding.kind !== 'request') return false;
     const {
@@ -282,13 +283,18 @@ export function createHostSessionAssertionRunner({
   maxFutureSkewSeconds = 5,
   maxRememberedNonces = 10000,
   consumeNonce = null,
+  adapterId = null,
+  isSessionRevoked = null,
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 16
     || typeof now !== 'function'
     || !Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 1 || maxAgeSeconds > 120
     || !Number.isInteger(maxFutureSkewSeconds) || maxFutureSkewSeconds < 0 || maxFutureSkewSeconds > 30
     || !Number.isInteger(maxRememberedNonces) || maxRememberedNonces < 1 || maxRememberedNonces > 100000
-    || (consumeNonce !== null && typeof consumeNonce !== 'function')) {
+    || (consumeNonce !== null && typeof consumeNonce !== 'function')
+    || (adapterId !== null && (typeof adapterId !== 'string' || !adapterId.trim()))
+    || (isSessionRevoked !== null && typeof isSessionRevoked !== 'function')
+    || ((adapterId === null) !== (isSessionRevoked === null))) {
     throw new TypeError('Host session assertion runner configuration is invalid.');
   }
   const usedNonces = new Map();
@@ -326,6 +332,18 @@ export function createHostSessionAssertionRunner({
         if (usedNonces.size >= maxRememberedNonces) throw new Error('HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED');
         usedNonces.set(assertion.nonce, assertion.issued_at + maxAgeSeconds);
       }
+      const identity = Object.freeze({
+        host_installation_id: assertion.host_installation_id,
+        authenticated_account_id: assertion.authenticated_account_id,
+        host_session_id: assertion.host_session_id,
+      });
+      if (isSessionRevoked !== null) {
+        let revoked;
+        try { revoked = isSessionRevoked(adapterId, identity); }
+        catch { throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE'); }
+        if (revoked === true) throw new Error('HOST_SESSION_REVOKED');
+        if (revoked !== false) throw new Error('HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE');
+      }
       const context = Object.freeze({
         host_installation_id: assertion.host_installation_id,
         authenticated_account_id: assertion.authenticated_account_id,
@@ -341,6 +359,9 @@ export function createHostSessionAssertionRunner({
         conversationId: assertion.conversation_id,
         expiresAt: assertion.issued_at + maxAgeSeconds,
         now,
+        adapterId,
+        identity,
+        isSessionRevoked: isSessionRevoked || (() => false),
       });
       const revokeContext = () => {
         contexts.delete(context);
