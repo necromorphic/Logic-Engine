@@ -188,7 +188,7 @@ export function createSillyTavernHostAdapter({
       }, captured);
       if (captured.statusCode !== 200
         || !captured.payload || typeof captured.payload !== 'object'
-        || !captured.payload.host_context || !captured.payload.retrieval) {
+        || !captured.payload.host_context || captured.payload.retrieval?.status !== 'ready') {
         return Object.freeze({
           status: 'NON_READY',
           code: typeof captured.payload?.code === 'string'
