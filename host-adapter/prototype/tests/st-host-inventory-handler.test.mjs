@@ -442,21 +442,49 @@ test('Host session identity is generated once inside the authenticated signed se
   assert.equal(second.body.host_session_id, id);
 });
 
-test('Host session identity rotates when the authenticated account changes', () => {
+test('Host session identity revokes the old session before rotating to another account', async () => {
   const ids = [
     '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
     '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
   ];
   const session = { handle: 'alice' };
-  const handler = createHostSessionHandler({ createId: () => ids.shift() });
+  const revocations = [];
+  const handler = createHostSessionHandler({
+    createId: () => ids.shift(),
+    revokeSession: async (request, reason) => {
+      revocations.push({ sessionId: request.session.logicEngineSessionId, accountHandle: request.session.logicEngineSessionHandle, reason });
+    },
+  });
   const first = makeResponse();
   handler({ session, user: { profile: { handle: 'alice' } } }, first);
   assert.equal(first.body.host_session_id, '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401');
   session.handle = 'bob';
   const second = makeResponse();
-  handler({ session, user: { profile: { handle: 'bob' } } }, second);
+  await handler({ session, user: { profile: { handle: 'bob' } } }, second);
+  assert.deepEqual(revocations, [{
+    sessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+    accountHandle: 'alice',
+    reason: 'session_rotation',
+  }]);
   assert.equal(second.body.host_session_id, '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402');
   assert.equal(session.logicEngineSessionHandle, 'bob');
+});
+
+test('Host session identity preserves the old session when rotation revocation fails', async () => {
+  const session = {
+    handle: 'bob',
+    logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401',
+    logicEngineSessionHandle: 'alice',
+  };
+  const handler = createHostSessionHandler({
+    createId: () => '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402',
+    revokeSession: async () => { throw new Error('Core unavailable'); },
+  });
+  const response = makeResponse();
+  await handler({ session, user: { profile: { handle: 'bob' } } }, response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(session.logicEngineSessionId, '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401');
+  assert.equal(session.logicEngineSessionHandle, 'alice');
 });
 
 test('Host session identity rejects unauthenticated, mismatched, or malformed sessions', () => {
