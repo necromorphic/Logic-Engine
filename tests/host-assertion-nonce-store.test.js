@@ -42,7 +42,7 @@ test('Host session revocation is durable and visible to a read-only Gateway read
       'logout',
     ), true);
     assert.equal(reader.isSessionRevoked('st-adapter', identity), true);
-    assert.equal(store.revokeSession(
+    assert.equal(await store.revokeSession(
       'st-adapter', identity,
       '44444444-4444-4444-8444-444444444444',
       1_800_000_001,
