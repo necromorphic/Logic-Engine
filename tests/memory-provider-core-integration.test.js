@@ -365,15 +365,11 @@ test('Core Host-conversation revocation during record validation blocks disclosu
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
   s.triggerCoreQueryRevocation();
-  const result = await s.consumer.retrieveForNpc({
+  await assert.rejects(() => s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
-  assert.deepEqual(result.candidates, []);
-  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  }), /HOST_SESSION_REVOKED/);
 });
 
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
@@ -788,17 +784,12 @@ test('Core Host-conversation revoke at the final authorization fence blocks resu
     return allowed;
   };
   const consumer = s.createConsumer(s.provider, coreQueryAuthorizer);
-  const result = await consumer.retrieveForNpc({
+  await assert.rejects(() => consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  });
+  }), /HOST_SESSION_REVOKED/);
   assert.equal(checks, 6);
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.candidates, []);
-  assert.doesNotMatch(JSON.stringify(result), /source text|record-a/);
 });
 
 test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
