@@ -1,3 +1,4 @@
+import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-gateway.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -18,4 +19,10 @@ test('unavailable production Gateway is terminal for protected dispatch and fina
   const gateway = source.slice(gatewayStart, gatewayEnd);
   assert.match(gateway, /dispatchProtectedRequest\(\)[\s\S]*throw new Error\('MEMORY_DISPATCH_NOT_READY'\)/);
   assert.match(gateway, /authorizeResponseWrite\(\)[\s\S]*throw new Error\('MEMORY_DISPATCH_NOT_READY'\)/);
+});
+
+test('asynchronous Horde task submission is not a protected Final-Send route', async () => {
+  assert.equal(PROTECTED_MEMORY_SENDER_ROUTES.includes('horde-text'), false);
+  const adapter = await readFile(new URL('../host-adapter/sillytavern-final-send-adapter.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(adapter, /['"]horde-text['"]\s*:/);
 });
