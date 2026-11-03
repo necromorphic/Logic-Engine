@@ -354,6 +354,8 @@ function assertNpcContextBinding({
   context, generationRequest, requestId, worldId, actorId, purpose,
   conversationId, adapterId, candidateSet, contentBlocks, body, hostRoute, senderRoute,
 }) {
+  stableJson(context);
+  stableJson(generationRequest);
   if (!isPlainRecord(context) || !isPlainRecord(generationRequest)
     || Object.keys(generationRequest).length !== 3
     || !['request_id', 'generation_id', 'generation_type'].every((key) => Object.hasOwn(generationRequest, key))
@@ -692,7 +694,9 @@ export class MemoryDispatchGateway {
         npcContextHandoff,
         generationRequest,
       ));
-      if (handoffResult.status !== 'accepted' || !handoffResult.context) {
+      stableJson(handoffResult);
+      if (!Object.hasOwn(handoffResult, 'status') || handoffResult.status !== 'accepted'
+        || !Object.hasOwn(handoffResult, 'context') || !handoffResult.context) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
       npcContext = handoffResult.context;
@@ -716,7 +720,10 @@ export class MemoryDispatchGateway {
         npcContext,
         generationRequest,
       ));
-      if (laneARevalidation.status !== 'ready') throw new Error('MEMORY_DISPATCH_NOT_READY');
+      stableJson(laneARevalidation);
+      if (!Object.hasOwn(laneARevalidation, 'status') || laneARevalidation.status !== 'ready') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
 
       const core = assertSyncResult(this.readCoreEvidence({
         worldId, actorId, purpose, sources: sourceSet,
@@ -919,7 +926,8 @@ export class MemoryDispatchGateway {
       context.npcContext,
       context.generationRequest,
     ));
-    if (laneARevalidation.status !== 'ready') {
+    stableJson(laneARevalidation);
+    if (!Object.hasOwn(laneARevalidation, 'status') || laneARevalidation.status !== 'ready') {
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
     assertNpcContextBinding({
