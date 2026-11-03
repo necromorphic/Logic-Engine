@@ -58,3 +58,31 @@ test('Host session revocation is read by Gateway and serialized with the shared 
   assert.match(store, /await acquireCoordinatorLeaseWithoutBlocking\(this\.\#coordinatorDb\)/);
   assert.match(api, /await hostAssertionNonceStore\.revokeSession\(/);
 });
+
+
+test('production embedded runtime wires separate synchronous Core, Provider and Host evidence readers', async () => {
+  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
+  const provider = await readFile(new URL('../src/application/memory-npc-provider-adapter.js', import.meta.url), 'utf8');
+  assert.match(runtime, /new SQLiteStore\(corePath, \{ readOnly: true \}\)/);
+  assert.match(runtime, /observerOnly: true/);
+  assert.match(runtime, /new MemoryDispatchGateway\(/);
+  assert.match(runtime, /readCoreEvidence: input => providerAdapter\.consumer\.readDispatchEvidenceSync\(input\)/);
+  assert.match(runtime, /readProviderEvidence: input => providerAdapter\.readDispatchEvidenceSync\(input\)/);
+  assert.match(runtime, /readHostEvidence: \(\{ hostContext, coordinatorLease \}\)/);
+  assert.match(runtime, /readAuthoritySnapshotUnderLease\([\s\S]*?coordinatorLease/);
+  assert.match(provider, /readCoreEvidenceSync: input => consumer\.readDispatchEvidenceSync\(input\)/);
+  assert.match(provider, /readProviderEvidenceSync: input => provider\.readDispatchEvidenceSync\(input\)/);
+});
+
+test('final response revalidation re-reads Host root authority before every protected write', async () => {
+  const gateway = await readFile(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url), 'utf8');
+  const start = gateway.indexOf('  #revalidateReleaseContext(context, coordinatorLease)');
+  const end = gateway.indexOf('  /** Revalidate and perform one synchronous Host write', start);
+  assert.ok(start >= 0 && end > start);
+  const release = gateway.slice(start, end);
+  assert.match(release, /this\.readHostEvidence\(/);
+  assert.match(release, /currentHost\.status !== 'READY'/);
+  assert.match(release, /currentHost\.root_inventory_sequence !== context\.hostContext\.root_inventory_sequence/);
+  assert.match(release, /currentHost\.root_manifest_sha256 !== context\.hostContext\.root_manifest_sha256/);
+  assert.match(gateway, /this\.#revalidateReleaseContext\(context, release\)/);
+});
