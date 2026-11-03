@@ -281,9 +281,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const productionAdapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
-    // Keep the production Core proof path real while pinning the source
-    // manifest fixture; the default verifier cannot inspect this test ST root.
-    verifySourceIdentity: testSourceIdentity,
+    // This negative case deliberately supplies an unverified installed manifest.
+    verifySourceIdentity: async () => ({ status: 'SOURCE_IDENTITY_UNVERIFIED' }),
     fetchImpl: async (url, options) => {
       const response = await fetch(url, options);
       productionCoreCalls.push(new URL(url).pathname);
