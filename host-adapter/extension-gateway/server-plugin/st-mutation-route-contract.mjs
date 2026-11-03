@@ -307,10 +307,12 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_EXTENSION_SOURCE_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-admin.js')
-      && (!source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')
-        || !source.includes('router.use(')
-        || !source.includes("request.method === 'POST'")
-        || !source.includes("!['/get', '/slugify'].includes(request.path)"))) {
+      && (!source.includes('const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();')
+        || !source.includes("const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });"))) {
+      // Every users-admin POST route is separately checked against the pinned
+      // route map above. The account guard is route-scoped, not router.use(),
+      // and its default denial code is implemented by the shared Gateway
+      // guard factory rather than duplicated in this endpoint module.
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
