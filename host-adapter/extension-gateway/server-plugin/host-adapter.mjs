@@ -137,7 +137,7 @@ export function createSillyTavernHostAdapter({
     dispatch = createHostMemoryDispatchProxyHandler({
       env,
       fetchImpl,
-      resolveHostContext: authentication.resolveHostContext,
+      resolveHostContext: request => authentication.resolveHostContext(request?.hostRequest ?? request),
     });
   }
 
@@ -150,14 +150,55 @@ export function createSillyTavernHostAdapter({
     dispatchMiddleware,
     dispatch,
     async prepareGenerationContext(request, hostRoute) {
-      const conversationUuid = hostRoute === 'horde-text'
-        ? request?.body?.params?.logic_engine_conversation_uuid
-        : request?.body?.logic_engine_conversation_uuid;
-      const result = identityStore && typeof conversationUuid === 'string'
-        ? await authentication.authenticate(request, conversationUuid)
-        : { status: 'NON_READY', code: 'HOST_GENERATION_CONVERSATION_LOCATOR_MISSING' };
+      const generationBody = hostRoute === 'horde-text'
+        ? request?.body?.params
+        : request?.body;
+      const conversationUuid = generationBody?.logic_engine_conversation_uuid;
+      const requestId = generationBody?.logic_engine_request_id;
+      const contextSize = generationBody?.logic_engine_context_size;
+      const generationType = generationBody?.logic_engine_generation_type;
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!identityStore || !uuid.test(conversationUuid ?? '') || !uuid.test(requestId ?? '')
+        || !Number.isSafeInteger(contextSize) || contextSize < 1 || contextSize > 200000
+        || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
+        return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
+      }
+      const result = await authentication.authenticate(request, conversationUuid);
       if (result.status !== 'READY') return result;
-      return Object.freeze({ status: 'READY', context: result.context });
+      const captured = {
+        statusCode: null,
+        payload: null,
+        set() { return this; },
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; return this; },
+        sendStatus(code) { this.statusCode = code; return this; },
+      };
+      await dispatch({
+        hostRequest: request,
+        body: {
+          request_id: requestId,
+          conversation_uuid: conversationUuid,
+          context_size: contextSize,
+          generation_type: generationType,
+        },
+      }, captured);
+      if (captured.statusCode !== 200
+        || !captured.payload || typeof captured.payload !== 'object'
+        || !captured.payload.host_context || !captured.payload.retrieval) {
+        return Object.freeze({
+          status: 'NON_READY',
+          code: typeof captured.payload?.code === 'string'
+            ? captured.payload.code : 'HOST_NPC_CONTEXT_NON_READY',
+        });
+      }
+      return Object.freeze({
+        status: 'READY',
+        context: result.context,
+        coreContext: captured.payload.host_context,
+        retrieval: captured.payload.retrieval,
+        requestId,
+        generationType,
+      });
     },
     capture: createHostDigestProxyHandler({ env, fetchImpl }),
     reconcile: createHostInventoryReconcileProxyHandler({ env, fetchImpl }),
