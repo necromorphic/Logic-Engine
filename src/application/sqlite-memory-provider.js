@@ -1375,7 +1375,7 @@ export class SQLiteMemoryProvider {
         const candidates = rows.slice(0, 50).map((row) => ({
           record: { ref: row.record_ref, version: row.record_version },
           authorization_generation: row.authorization_generation,
-          source: { kind: row.source_kind, entity_id: row.source_entity_id },
+          source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
           producer: { kind: row.producer_kind },
