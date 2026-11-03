@@ -1446,6 +1446,9 @@ export class HostLifecycleJournal {
     if (!snapshot || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
       return { status: 'NON_READY', reason: 'HOST_ROOT_INVENTORY_NOT_AUTHORITATIVE' };
     }
+    if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
+      return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_MUTATION_PENDING' };
+    }
     // Hash-chain integrity alone is not completeness authority. Final-Send
     // may proceed only when the current signed attestation and deployment
     // manifest pin were both revalidated from Core-owned journal/registry state.
