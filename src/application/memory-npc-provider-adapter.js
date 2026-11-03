@@ -60,7 +60,9 @@ export function createMemoryNpcProviderAdapter({
   isAuthenticatedHostRequest,
   resolveHostConversationId,
   resolveHostIdentity,
+  observerOnly = false,
 }) {
+  if (typeof observerOnly !== 'boolean') throw new TypeError('Memory Provider observerOnly must be boolean');
   if (!engine?.store?.db || typeof engine.getSnapshot !== 'function') {
     throw new TypeError('Memory Provider adapter requires the live Core LogicEngine and persistent store');
   }
@@ -114,6 +116,7 @@ export function createMemoryNpcProviderAdapter({
     },
     validateSourceVersion: canonicalSourceValidator,
     validateInventory: canonicalInventoryValidator,
+    observerOnly,
   });
 
   try {
@@ -155,7 +158,7 @@ export function createMemoryNpcProviderAdapter({
     // Expose only trusted ingestion/grant administration. Retrieval and
     // record-authorization methods remain private to MemoryNpcConsumer so a
     // caller cannot bypass Core's authenticated Host-session query gate.
-    const providerControl = Object.freeze({
+    const providerControl = observerOnly ? null : Object.freeze({
       putRecord: (...args) => provider.putRecord(...args),
       grantQuery: (...args) => provider.grantQuery(...args),
       grantRecord: (...args) => provider.grantRecord(...args),
@@ -204,13 +207,12 @@ export function createMemoryNpcProviderAdapter({
 
     const adapter = {
       adapterId,
-      provider: providerControl,
-      npcGenerationContext,
+      ...(providerControl ? { provider: providerControl } : {}),
       consumer: consumerFacade,
-      // Internal Final-Send composition only. This is a synchronous, read-only
-      // evidence seam and still requires the exact shared Coordinator lease.
+      npcGenerationContext,
       readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
+        if (observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
         await provider.rebuildIndex(worldId);
         return provider.reconcile(worldId);
       },
