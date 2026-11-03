@@ -150,6 +150,11 @@ function assertManifestShape(manifest) {
   }
 }
 
+export function validateWindowsManifest(manifest) {
+  assertManifestShape(manifest);
+  return true;
+}
+
 export function registerWindowsManifestRole(database, manifest, roleName, databasePath) {
   assertManifestShape(manifest);
   const role = manifest.roles.find((entry) => entry.role === roleName);
