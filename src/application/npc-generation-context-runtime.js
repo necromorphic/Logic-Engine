@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types as utilTypes } from 'node:util';
 import { createNpcGenerationContextBuilder, createNpcGenerationContextReceiver } from './npc-generation-context.js';
 
 const PURPOSE = 'npc_turn_context';
@@ -6,7 +6,7 @@ const RECIPIENT = 'model';
 const VISIBILITY_POLICY_REF = 'core:npc-per-acquisition-visibility-v1';
 
 function exactDataRecord(value, keys) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -17,6 +17,20 @@ function exactDataRecord(value, keys) {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
         return descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value');
       });
+  } catch { return false; }
+}
+
+function densePlainArray(value) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return false;
+    }
+    return true;
   } catch { return false; }
 }
 
@@ -97,13 +111,23 @@ export function createCoreNpcGenerationContextRuntime({
       || !validSnapshot(read.snapshot)
       || read.snapshot.world_revision !== scope.snapshot.world_revision
       || read.snapshot.commit_sequence !== scope.snapshot.commit_sequence
-      || !validId(read.authorization_ref) || !Array.isArray(read.items)) {
+      || !validId(read.authorization_ref) || !densePlainArray(read.items)) {
       return Object.freeze({ status: 'non_ready', lane: 'A' });
     }
 
     const visible = [];
-    for (const item of read.items) {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    const itemKeys = [
+      'acquisition_id', 'fact_id', 'subject_ref', 'predicate', 'value',
+      'acquisition_kind', 'provenance_ref', 'provenance_digest',
+      'acquisition_authorization_ref', 'source_event_ids',
+    ];
+    for (let index = 0; index < read.items.length; index += 1) {
+      const itemDescriptor = Object.getOwnPropertyDescriptor(read.items, String(index));
+      if (!itemDescriptor || !Object.hasOwn(itemDescriptor, 'value')) {
+        return Object.freeze({ status: 'non_ready', lane: 'A' });
+      }
+      const item = itemDescriptor.value;
+      if (!exactDataRecord(item, itemKeys)) {
         return Object.freeze({ status: 'non_ready', lane: 'A' });
       }
       let decision;
@@ -148,10 +172,10 @@ export function createCoreNpcGenerationContextRuntime({
       // A denied acquisition is withheld without revealing its value, identity,
       // count, or proposition. An allowed acquisition retains its own decision ref.
       if (decision.status === 'denied') continue;
-      visible.push(Object.freeze({
+      visible[visible.length] = Object.freeze({
         ...item,
         visibility_authorization_ref: decision.authorization_ref,
-      }));
+      });
     }
 
     const snapshot = Object.freeze({
