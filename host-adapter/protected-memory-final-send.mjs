@@ -20,6 +20,33 @@ function arrayContains(values, expected) {
 
 const validRoute = route => arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, route);
 
+function snapshotDataRecord(value, errorCode, maxKeys = 64) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || isProxy(value)) {
+    throw new Error(errorCode);
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error(errorCode);
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > maxKeys) throw new Error(errorCode);
+    const snapshot = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') throw new Error(errorCode);
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error(errorCode);
+      }
+      Object.defineProperty(snapshot, key, {
+        value: descriptor.value, enumerable: true, writable: false, configurable: false,
+      });
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    throw new Error(errorCode);
+  }
+}
+
 function assertProtectedContext(context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)
     || typeof context.requestId !== 'string' || !context.requestId
@@ -287,9 +314,20 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     if (protectedMemory === undefined) throw new Error('MEMORY_DISPATCH_NOT_READY');
 
     // Only an explicit trusted null means this request carries no protected
-    // Memory. Missing/indeterminate classification must never fall through.
+    // Memory. Snapshot trusted Host output before reading any field so an
+    // accidental accessor/Proxy cannot execute during classification.
     if (protectedMemory === null) {
       return (typeof transportImpl === 'function' ? transportImpl : fetchImpl)(endpointUrl, requestInit);
+    }
+    protectedMemory = snapshotDataRecord(protectedMemory, 'MEMORY_DISPATCH_NOT_READY');
+    if (typeof protectedMemory.then === 'function') throw new Error('MEMORY_DISPATCH_NOT_READY');
+    if (protectedMemory.laneA !== undefined && protectedMemory.laneA !== null) {
+      const laneA = snapshotDataRecord(protectedMemory.laneA, 'MEMORY_DISPATCH_NOT_READY');
+      const safeContext = Object.assign(Object.create(null), protectedMemory);
+      Object.defineProperty(safeContext, 'laneA', {
+        value: laneA, enumerable: true, writable: false, configurable: false,
+      });
+      protectedMemory = Object.freeze(safeContext);
     }
 
     if (!validRoute(senderRoute)) throw new Error('MEMORY_DISPATCH_NOT_READY');
