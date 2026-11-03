@@ -237,9 +237,16 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
-      && (!source.includes("throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE')")
-        || !source.includes("throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE')"))) {
+      && (!source.includes("throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED')")
+        || !source.includes("Skipping system prompt migration while Host authority is active.")
+        || !source.includes("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING')"))) {
       throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
+    }
+    if (relative.endsWith('server-main.js')
+      && (!source.includes("const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)")
+        || !source.includes('Skipping account-root startup mutations while Host authority is active.')
+        || !source.includes('if (!hostAuthorityConfigured)'))) {
+      throw new Error('HOST_ST_STARTUP_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-private.js')
       && (!source.includes("router.post('/logout'")
@@ -253,7 +260,8 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');
     }
     if (relative.endsWith('groups.js')
-      && !source.includes('Skipping unreceipted startup group metadata migration while Host inventory is enabled.')) {
+      && (!source.includes('assertHostStartupMigrationAllowed')
+        || !source.includes('Skipping startup group metadata migration:'))) {
       throw new Error('HOST_ST_GROUP_MIGRATION_GUARD_MISSING');
     }
   }
