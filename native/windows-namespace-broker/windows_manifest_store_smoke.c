@@ -24,6 +24,7 @@ int main(void) {
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   static const unsigned char invalid_document[] = { 0x7b, 0x7d };
   int result = 1;
+  const char *stage = "initialization";
   HANDLE token = NULL;
   TOKEN_USER *user = NULL;
   DWORD token_bytes = 0;
@@ -31,16 +32,21 @@ int main(void) {
   PSECURITY_DESCRIPTOR descriptor = NULL;
   SECURITY_ATTRIBUTES security_attributes;
   wchar_t sddl[512];
+  stage = "GetTempPathW";
   if (!GetTempPathW(LE_COUNT_OF(temp), temp)) return 2;
+  stage = "construct temp directory";
   if (FAILED(StringCchPrintfW(directory, LE_COUNT_OF(directory),
       L"%sLogicEngineBrokerStore-%lu-%llu", temp,
       GetCurrentProcessId(), GetTickCount64()))) return 3;
+  stage = "OpenProcessToken";
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return 4;
   GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
+  stage = "read token user";
   if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || token_bytes == 0) goto done;
   user = (TOKEN_USER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, token_bytes);
   if (!user || !GetTokenInformation(token, TokenUser, user, token_bytes, &token_bytes)
       || !ConvertSidToStringSidW(user->User.Sid, &user_sid)) goto done;
+  stage = "build protected ACL";
   if (FAILED(StringCchPrintfW(sddl, LE_COUNT_OF(sddl),
       L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;%s)", user_sid))
       || !ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -48,46 +54,66 @@ int main(void) {
   ZeroMemory(&security_attributes, sizeof(security_attributes));
   security_attributes.nLength = sizeof(security_attributes);
   security_attributes.lpSecurityDescriptor = descriptor;
+  stage = "CreateDirectoryW";
   if (!CreateDirectoryW(directory, &security_attributes)) goto done;
   LocalFree(descriptor); descriptor = NULL;
   LocalFree(user_sid); user_sid = NULL;
   HeapFree(GetProcessHeap(), 0, user); user = NULL;
   CloseHandle(token); token = NULL;
+  stage = "open metadata store";
   if (!le_win_store_open(&store, directory, validate_test_json, validate_test_json, NULL)) goto done;
+  stage = "lock metadata store";
   if (!le_win_store_lock(&store)) goto close_store;
+  stage = "write manifest";
   if (!le_win_store_write_manifest(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
+  stage = "reject invalid manifest";
   if (le_win_store_write_manifest(&store, invalid_document, (DWORD)(sizeof(invalid_document) - 1))) goto unlock_store;
+  stage = "write intent";
   if (!le_win_store_write_intent(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
+  stage = "read manifest";
   if (!le_win_store_read_manifest(&store, &manifest, &manifest_length)) goto unlock_store;
+  stage = "read intent";
   if (!le_win_store_read_intent(&store, &intent, &intent_length)) goto unlock_store;
   if (manifest_length != sizeof(document) - 1 || intent_length != sizeof(document) - 1
       || memcmp(manifest, document, manifest_length) != 0
       || memcmp(intent, document, intent_length) != 0) goto unlock_store;
+  stage = "remove intent";
   if (!le_win_store_remove_intent(&store)) goto unlock_store;
+  stage = "create sidecar";
   if (!le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &sidecar, &sidecar_identity)) goto unlock_store;
+  stage = "reject duplicate sidecar";
   if (le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &reopened, &reopened_identity)) goto unlock_store;
+  stage = "reject invalid sidecar suffix";
   if (le_win_namespace_create_sidecar(store.directory, L"smoke.txt", &reopened, &reopened_identity)) goto unlock_store;
+  stage = "flush sidecar and parent directory";
   if (!le_win_namespace_flush(sidecar) || !le_win_namespace_flush_parent(store.directory)) goto unlock_store;
+  stage = "reopen sidecar";
   if (!le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &sidecar_identity, &reopened, &reopened_identity)) goto unlock_store;
+  stage = "compare reopened identity";
   if (!logic_engine_win_identity_equal(&sidecar_identity, &reopened_identity)) goto unlock_store;
   CloseHandle(reopened);
   reopened = INVALID_HANDLE_VALUE;
   wrong_identity = sidecar_identity;
   wrong_identity.file_id.Identifier[0] ^= 0x01;
+  stage = "reject wrong identity";
   if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) {
     if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
     reopened = INVALID_HANDLE_VALUE;
     goto unlock_store;
   }
+  stage = "reject missing identity";
   if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", NULL, &reopened, &reopened_identity)) {
     if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
     reopened = INVALID_HANDLE_VALUE;
     goto unlock_store;
   }
+  stage = "reject wrong-identity deletion";
   if (le_win_namespace_delete_sidecar(store.directory, &sidecar, &wrong_identity)) goto unlock_store;
+  stage = "delete verified sidecar";
   if (!le_win_namespace_delete_sidecar(store.directory, &sidecar, &sidecar_identity)) goto unlock_store;
   result = 0;
 unlock_store:
+  if (result != 0) fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\n", stage, (unsigned long)GetLastError());
   if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
   if (sidecar != INVALID_HANDLE_VALUE) CloseHandle(sidecar);
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
