@@ -11,18 +11,23 @@ function assertGenerationEnvelope(data) {
 
 async function attachHostConversationLocator(data, getHostContext) {
     assertGenerationEnvelope(data);
-    const host = await resolveGatewayHostContext({ getHostContext });
-    const requestId = globalThis.crypto?.randomUUID?.();
-    if (!UUID.test(host.conversationUuid ?? '') || !UUID.test(requestId ?? '')) {
-        throw new Error('HOST_GENERATION_IDENTITY_UNAVAILABLE');
+    try {
+        const host = await resolveGatewayHostContext({ getHostContext });
+        const requestId = globalThis.crypto?.randomUUID?.();
+        if (!UUID.test(host.conversationUuid ?? '') || !UUID.test(requestId ?? '')) return data;
+        // These are untrusted locators/correlation metadata only. The server-side
+        // Host Adapter re-derives identity and checks the UUID against its complete
+        // authoritative inventory before it can retrieve any NPC context.
+        data.logic_engine_conversation_uuid = host.conversationUuid;
+        data.logic_engine_request_id = requestId;
+        data.logic_engine_context_size = Number.isSafeInteger(host.maxContext)
+            ? Math.max(1, Math.min(200000, host.maxContext)) : 200000;
+        data.logic_engine_generation_type = typeof data.type === 'string' ? data.type : 'normal';
+    } catch {
+        // Ordinary generation remains available while protected Memory is
+        // disabled. If deployment enables it, the server-side Host Adapter
+        // rejects this request as NON_READY because the locator is absent.
     }
-    // These are untrusted locators/correlation metadata only. The server-side
-    // Host Adapter re-derives identity and checks the UUID against its complete
-    // authoritative inventory before it can retrieve any NPC context.
-    data.logic_engine_conversation_uuid = host.conversationUuid;
-    data.logic_engine_request_id = requestId;
-    data.logic_engine_context_size = host.maxContext ?? 200000;
-    data.logic_engine_generation_type = typeof data.type === 'string' ? data.type : 'normal';
     return data;
 }
 
