@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { lstatSync, mkdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 function canonicalFilePath(path) {
