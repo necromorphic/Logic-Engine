@@ -97,6 +97,7 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
       coordinatorPath: process.env.TEST_COORDINATOR_PATH,
       providerDatabasePath: process.env.TEST_PROVIDER_PATH,
     });
+    process.stdout.write('STARTED\\n');
     const result = store.revokeSession(
       'st-adapter',
       {"host_installation_id":"11111111-1111-4111-8111-111111111111","authenticated_account_id":"22222222-2222-4222-8222-222222222222","host_session_id":"33333333-3333-4333-8333-333333333333"},
@@ -122,8 +123,9 @@ test('Host session revocation waits for an in-flight shared Coordinator lease', 
   child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
   child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
   try {
-    await new Promise(resolveTimer => setTimeout(resolveTimer, 150));
-    assert.equal(stdout, '');
+    await once(child.stdout, 'data');
+    assert.match(stdout, /STARTED/);
+    assert.doesNotMatch(stdout, /REVOKED/);
     release();
     const [code] = await once(child, 'exit');
     assert.equal(code, 0, stderr);
