@@ -179,6 +179,27 @@ function normalizeLaneA(value) {
   });
 }
 
+function normalizeProviderEvidenceCursor(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)
+    || Object.getPrototypeOf(value) !== Object.prototype
+    || Reflect.ownKeys(value).length !== 2
+    || !Object.hasOwn(Object.getOwnPropertyDescriptor(value, 'data_version') ?? {}, 'value')
+    || !Object.hasOwn(Object.getOwnPropertyDescriptor(value, 'candidate_digest') ?? {}, 'value')
+    || !Number.isSafeInteger(value.data_version) || value.data_version < 0
+    || typeof value.candidate_digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.candidate_digest)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze({ data_version: value.data_version, candidate_digest: value.candidate_digest });
+}
+
+function assertSameProviderEvidenceCursor(current, expected) {
+  const normalized = normalizeProviderEvidenceCursor(current);
+  if (normalized.data_version !== expected.data_version
+    || normalized.candidate_digest !== expected.candidate_digest) {
+    throw new Error('MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED');
+  }
+}
+
 function normalizeSources(sources) {
   if (!Array.isArray(sources) || sources.length > 256) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -474,7 +495,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, laneA, revalidateLaneA, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
+  async dispatchProtectedRequest({ requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose, sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext, transport, forwardResponse, hostTransformsStream = false, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
@@ -487,6 +508,7 @@ export class MemoryDispatchGateway {
     }
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
+    const providerCursorSnapshot = normalizeProviderEvidenceCursor(providerEvidenceCursor);
     const laneASnapshot = normalizeLaneA(laneA);
     if (sourceSet.length === 0 && candidateSet.length === 0 && laneASnapshot.items.length === 0) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -510,6 +532,7 @@ export class MemoryDispatchGateway {
       purpose,
       sources: sourceSet,
       candidates: candidateSet,
+      provider_evidence_cursor: providerCursorSnapshot,
       lane_a: laneASnapshot,
       host_context: hostContextSnapshot,
     }), 'utf8').digest('hex');
@@ -538,7 +561,7 @@ export class MemoryDispatchGateway {
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
         worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
-        coordinatorLease: release,
+        providerEvidenceCursor: providerCursorSnapshot, coordinatorLease: release,
       }));
       const host = assertSyncResult(this.readHostEvidence({
         hostContext: hostContextSnapshot, worldId, actorId, purpose,
@@ -566,6 +589,7 @@ export class MemoryDispatchGateway {
       assertSameSources(core.sources, sourceSet);
       assertSameSources(provider.sources, sourceSet);
       assertSameCandidates(provider.candidates, candidateSet);
+      assertSameProviderEvidenceCursor(provider.provider_evidence_cursor, providerCursorSnapshot);
       policyAuthority = normalizePolicyAuthority(core.policy_authority);
       if (laneASnapshot.items.length > 0) {
         const laneAResult = revalidateLaneA(release);
@@ -670,8 +694,8 @@ export class MemoryDispatchGateway {
     let finalResponseAllowed = false;
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
-      sources: sourceSet, candidates: candidateSet, laneA: laneASnapshot,
-      revalidateLaneA, hostContext: hostContextSnapshot,
+      sources: sourceSet, candidates: candidateSet, providerEvidenceCursor: providerCursorSnapshot,
+      laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot,
       coreHead, providerHead, policyAuthority,
     };
     try {
@@ -734,7 +758,8 @@ export class MemoryDispatchGateway {
     }));
     const currentProvider = assertSyncResult(this.readProviderEvidence({
       worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
-      sources: context.sources, candidates: context.candidates, coordinatorLease,
+      sources: context.sources, candidates: context.candidates,
+      providerEvidenceCursor: context.providerEvidenceCursor, coordinatorLease,
     }));
     if (currentCore.world_id !== context.worldId || currentCore.actor_id !== context.actorId
       || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
@@ -747,6 +772,7 @@ export class MemoryDispatchGateway {
     assertSameSources(currentCore.sources, context.sources);
     assertSameSources(currentProvider.sources, context.sources);
     assertSameCandidates(currentProvider.candidates, context.candidates);
+    assertSameProviderEvidenceCursor(currentProvider.provider_evidence_cursor, context.providerEvidenceCursor);
     assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
     if (context.laneA.items.length > 0) {
       const laneAResult = context.revalidateLaneA(coordinatorLease);
