@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -68,7 +68,7 @@ const endpointFiles = await listEndpointFiles(endpointDirectory);
 const endpointMutationCandidates = [];
 const filesystemMutationPrimitive = /\b(?:fs|fsPromises|fs\.promises)\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\b|\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\s*\(/;
 for (const fullPath of endpointFiles) {
-  const relative = 'src/endpoints/' + fullPath.slice(endpointDirectory.length + 1).split(path.sep).join('/');
+  const relative = 'src/endpoints/' + fullPath.slice(endpointDirectory.length + 1).split(sep).join('/');
   const source = mutationSources[relative] ?? await readFile(fullPath, 'utf8');
   if (filesystemMutationPrimitive.test(source) && !mutationPaths.includes(relative)) {
     endpointMutationCandidates.push(relative);
