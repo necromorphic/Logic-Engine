@@ -30,6 +30,23 @@ function canonicalFilePath(path) {
   throw new Error('Host assertion nonce database path contains too many symbolic links.');
 }
 
+async function acquireCoordinatorLeaseWithoutBlocking(db, { timeoutMs = 30_000, retryMs = 10 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    try {
+      return beginCoordinatorLock(db);
+    } catch (error) {
+      if (!/SQLITE_BUSY|database is locked|database table is locked/i.test(String(error?.message ?? error))) {
+        throw error;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error('HOST_SESSION_REVOCATION_COORDINATOR_BUSY');
+      }
+      await new Promise(resolveTimer => setTimeout(resolveTimer, retryMs));
+    }
+  }
+}
+
 function aliasesSameFile(left, right) {
   const canonicalLeft = canonicalFilePath(left);
   const canonicalRight = canonicalFilePath(right);
@@ -69,6 +86,7 @@ export class HostAssertionNonceStore {
     }
     mkdirSync(dirname(noncePath), { recursive: true });
     this.#coordinatorDb = openCoordinatorDatabase(coordinatorPath);
+    this.#coordinatorDb.exec('PRAGMA busy_timeout=0;');
     try {
       this.#db = new DatabaseSync(noncePath);
       this.#db.exec(`
@@ -116,7 +134,7 @@ export class HostAssertionNonceStore {
     return result.changes === 1;
   }
 
-  revokeSession(adapterId, identity, eventNonce, revokedAt, reason) {
+  async revokeSession(adapterId, identity, eventNonce, revokedAt, reason) {
     const uuid = value => typeof value === 'string'
       && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
     if (typeof adapterId !== 'string' || !adapterId.trim()
@@ -126,7 +144,7 @@ export class HostAssertionNonceStore {
       || !['logout', 'session_rotation'].includes(reason)) {
       throw new TypeError('Host session revocation input is invalid.');
     }
-    const releaseCoordinator = beginCoordinatorLock(this.#coordinatorDb);
+    const releaseCoordinator = await acquireCoordinatorLeaseWithoutBlocking(this.#coordinatorDb);
     try {
       this.#db.exec('BEGIN IMMEDIATE');
       try {
