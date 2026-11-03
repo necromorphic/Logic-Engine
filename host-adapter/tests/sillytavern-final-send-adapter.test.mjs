@@ -220,6 +220,7 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
     },
   });
   const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
     user: { profile: { handle: 'test-user' } },
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI' },
