@@ -6,7 +6,7 @@ export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
 export const PINNED_PATCH_BUNDLE_SHA256 = '5c02f9ce7e981b7ce069ae7eb91f4dd79e2619e6d04b29e8b5c8917ca1367639';
-export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'a1b0977094c607401e9c565888a21545d58595ed';
+export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'bbba9e5579ac4700dc07ff5d0a15428d2c303802';
 
 export const SOURCE_FILE_PATHS = Object.freeze([
   'public/script.js',
