@@ -725,45 +725,43 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || typeof body.generation_type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(body.generation_type)) {
           throw new EngineError('INVALID_HOST_MEMORY_RETRIEVAL', 'Host Memory retrieval request metadata is invalid.', 400);
         }
-        const assertionConversation = typeof body.assertion?.conversation_id === 'string'
-          ? body.assertion.conversation_id.split(':') : [];
-        if (assertionConversation.length !== 3
-          || assertionConversation[0] !== body.assertion?.host_session_id
-          || assertionConversation[1] !== body.assertion?.host_installation_id
-          || !HOST_SESSION_UUID.test(assertionConversation[2] ?? '')
-          || typeof resolveHostLifecycleIdentity !== 'function') {
-          return send(res, 401, { error: { code: 'HOST_ROOT_IDENTITY_UNAUTHORIZED', message: 'Host installation/account identity is not authorized.' } });
-        }
-        let trustedHostIdentity;
-        try {
-          trustedHostIdentity = resolveHostLifecycleIdentity({
-            adapterId,
-            host_installation_id: body.assertion.host_installation_id,
-            authenticated_account_id: body.assertion.authenticated_account_id,
-            host_session_id: body.assertion.host_session_id,
-            conversation_uuid: assertionConversation[2],
-          });
-        } catch {
-          trustedHostIdentity = null;
-        }
-        if (trustedHostIdentity?.authorized !== true
-          || trustedHostIdentity.adapter_id !== adapterId
-          || trustedHostIdentity.host_installation_id !== body.assertion.host_installation_id
-          || trustedHostIdentity.authenticated_account_id !== body.assertion.authenticated_account_id
-          || trustedHostIdentity.host_session_id !== body.assertion.host_session_id
-          || trustedHostIdentity.conversation_uuid !== assertionConversation[2]
-          || typeof trustedHostIdentity.root_id !== 'string'
-          || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.root_id)
-          || typeof trustedHostIdentity.authority_id !== 'string' || !trustedHostIdentity.authority_id.trim()
-          || !Number.isSafeInteger(trustedHostIdentity.generation)
-          || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
-          return send(res, 401, { error: { code: 'HOST_ROOT_IDENTITY_UNAUTHORIZED', message: 'Host installation/account identity is not authorized.' } });
-        }
         let consumerFailed = false;
         try {
           const retrieval = await hostAssertionRunners[adapterId].run(
             body.assertion, body.signature,
             async () => {
+              const assertionConversation = body.assertion.conversation_id.split(':');
+              let trustedHostIdentity = null;
+              if (typeof resolveHostLifecycleIdentity === 'function'
+                && assertionConversation.length === 3
+                && assertionConversation[0] === body.assertion.host_session_id
+                && assertionConversation[1] === body.assertion.host_installation_id
+                && HOST_SESSION_UUID.test(assertionConversation[2] ?? '')) {
+                try {
+                  trustedHostIdentity = resolveHostLifecycleIdentity({
+                    adapterId,
+                    host_installation_id: body.assertion.host_installation_id,
+                    authenticated_account_id: body.assertion.authenticated_account_id,
+                    host_session_id: body.assertion.host_session_id,
+                    conversation_uuid: assertionConversation[2],
+                  });
+                } catch {
+                  trustedHostIdentity = null;
+                }
+              }
+              if (trustedHostIdentity?.authorized !== true
+                || trustedHostIdentity.adapter_id !== adapterId
+                || trustedHostIdentity.host_installation_id !== body.assertion.host_installation_id
+                || trustedHostIdentity.authenticated_account_id !== body.assertion.authenticated_account_id
+                || trustedHostIdentity.host_session_id !== body.assertion.host_session_id
+                || trustedHostIdentity.conversation_uuid !== assertionConversation[2]
+                || typeof trustedHostIdentity.root_id !== 'string'
+                || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.root_id)
+                || typeof trustedHostIdentity.authority_id !== 'string' || !trustedHostIdentity.authority_id.trim()
+                || !Number.isSafeInteger(trustedHostIdentity.generation)
+                || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
+                throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
+              }
               try {
                 return await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
               } catch (error) {
@@ -794,6 +792,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
+          }
+          if (code === 'HOST_ROOT_IDENTITY_UNAUTHORIZED') {
+            return send(res, 401, { error: { code, message: 'Host installation/account identity is not authorized.' } });
           }
           if (code === 'HOST_SESSION_REVOKED') {
             return send(res, 401, { error: { code, message: 'Host session has been revoked.' } });
