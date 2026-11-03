@@ -16,33 +16,38 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
   }
 
   const preparedByRequest = new WeakMap();
+  const preparingRequests = new WeakSet();
 
   async function prepare(hostRequest, hostResponse) {
     if (!hostRequest || typeof hostRequest !== 'object'
       || !hostResponse || typeof hostResponse !== 'object'
-      || preparedByRequest.has(hostRequest)) {
+      || preparedByRequest.has(hostRequest) || preparingRequests.has(hostRequest)) {
       return Object.freeze({ status: 'non_ready', reason: 'host_request_not_preparable' });
     }
-    let requestMetadata;
+    preparingRequests.add(hostRequest);
     try {
-      requestMetadata = createRequestMetadata(hostRequest, hostResponse);
+      let requestMetadata;
+      try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
+      catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
       if (!requestMetadata || typeof requestMetadata !== 'object'
         || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)) {
         return Object.freeze({ status: 'non_ready', reason: 'request_metadata_not_immutable' });
       }
-    } catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
-    let prepared;
-    try { prepared = await runtime.prepareForDispatch(requestMetadata); }
-    catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
-    if (prepared?.status !== 'ready' || !prepared.handoff) {
-      return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
+      let prepared;
+      try { prepared = await runtime.prepareForDispatch(requestMetadata); }
+      catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
+      if (prepared?.status !== 'ready' || !prepared.handoff) {
+        return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
+      }
+      preparedByRequest.set(hostRequest, Object.freeze({
+        response: hostResponse,
+        requestMetadata,
+        handoff: prepared.handoff,
+      }));
+      return Object.freeze({ status: 'ready', reason: null });
+    } finally {
+      preparingRequests.delete(hostRequest);
     }
-    preparedByRequest.set(hostRequest, Object.freeze({
-      response: hostResponse,
-      requestMetadata,
-      handoff: prepared.handoff,
-    }));
-    return Object.freeze({ status: 'ready', reason: null });
   }
 
   function consume(hostRequest, hostResponse) {
