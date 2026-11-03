@@ -26,6 +26,11 @@ export function resolveHostDataDirectories(directories) {
     if (!path.isAbsolute(absolute)) return null;
     resolved[key] = absolute;
   }
+  for (const key of ['chats', 'groups', 'groupChats', 'extensions']) {
+    const relative = path.relative(resolved.root, resolved[key]);
+    if (!relative || relative === '..' || relative.startsWith('..' + path.sep)
+      || path.isAbsolute(relative)) return null;
+  }
   return Object.freeze(resolved);
 }
 
