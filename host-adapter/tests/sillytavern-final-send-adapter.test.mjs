@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createSillyTavernFinalSendAdapter } from '../sillytavern-final-send-adapter.mjs';
 
 const sourceKeys = [
@@ -81,6 +82,16 @@ test('adapter maps every pinned Chat Completions source key to its protected sen
       sourceKey,
     );
   }
+});
+
+test('native abort bypass is restricted to empty POST control requests', () => {
+  const patch = readFileSync(new URL('../patches/sillytavern-1.19.0-final-send.patch', import.meta.url), 'utf8');
+  assert.ok(patch.includes("requestInit?.method?.toUpperCase() === 'POST'"));
+  assert.ok(patch.includes("requestInit.body === undefined"));
+  assert.ok(patch.includes("requestInit.body === null"));
+  assert.ok(patch.includes("requestInit.body === ''"));
+  assert.ok(!patch.includes("if (/\\/(?:extra\\/abort|abort)(?:[?#]|$)/i.test(String(endpointUrl)))"),
+    'a generation POST with a serialized prompt must never bypass the Gateway by using an /abort URL');
 });
 
 test('adapter maps all pinned non-Chat-Completions route families', () => {
