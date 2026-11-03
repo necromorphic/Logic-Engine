@@ -209,3 +209,19 @@ test('receiver rejects Lane A revocation that occurs during asynchronous Lane B 
   assert.equal(received.status, 'non_ready');
   assert.equal(received.reason, 'context_evidence_changed');
 });
+
+
+test('Core runtime exposes an opaque one-shot handoff only after receiver acceptance', async () => {
+  const { runtime } = setup();
+  const built = await runtime.build(request);
+  assert.equal(built.status, 'ready');
+  const accepted = await runtime.receive(built.context, request);
+  assert.equal(accepted.status, 'accepted');
+
+  const issued = runtime.issueDispatchHandoff(accepted, request);
+  assert.equal(issued.status, 'ready');
+  const consumed = runtime.consumeDispatchHandoff(issued.handoff, request);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.context, built.context);
+  assert.equal(runtime.consumeDispatchHandoff(issued.handoff, request).status, 'non_ready');
+});
