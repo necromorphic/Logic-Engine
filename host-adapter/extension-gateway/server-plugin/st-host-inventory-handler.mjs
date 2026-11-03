@@ -188,7 +188,7 @@ export function createHostInventoryHandler({
  */
 export function createHostSessionHandler({ createId = randomUUID, revokeSession = null } = {}) {
   if (typeof createId !== 'function') throw new TypeError('createId must be a function');
-  return async function hostSessionHandler(request, response) {
+  return function hostSessionHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
     const identity = getAuthenticatedHostIdentity(request);
@@ -203,19 +203,13 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
       });
     }
 
-    let sessionId = currentId;
-    if (sessionId && session.logicEngineSessionHandle !== userHandle) {
-      if (typeof revokeSession !== 'function') {
-        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
-      }
-      try {
-        await revokeSession(request, 'session_rotation');
-      } catch {
-        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
-      }
-    }
-    if (!sessionId || session.logicEngineSessionHandle !== userHandle) {
-      sessionId = createId();
+    const sendSession = sessionId => response.status(200).json({
+      host_session_id: sessionId,
+      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+      host_user_handle: userHandle,
+    });
+    const issueReplacement = () => {
+      const sessionId = createId();
       if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) {
         return response.status(503).json({
           status: 'NON_READY',
@@ -224,13 +218,24 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
       }
       session.logicEngineSessionId = sessionId;
       session.logicEngineSessionHandle = userHandle;
-    }
+      return sendSession(sessionId);
+    };
 
-    return response.status(200).json({
-      host_session_id: sessionId,
-      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
-      host_user_handle: userHandle,
-    });
+    let sessionId = currentId;
+    if (sessionId && session.logicEngineSessionHandle !== userHandle) {
+      if (typeof revokeSession !== 'function') {
+        return response.status(503).json({ status: 'NON_READY', code: 'HOST_SESSION_REVOCATION_UNAVAILABLE' });
+      }
+      return Promise.resolve()
+        .then(() => revokeSession(request, 'session_rotation'))
+        .then(issueReplacement)
+        .catch(() => response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_SESSION_REVOCATION_UNAVAILABLE',
+        }));
+    }
+    if (!sessionId) return issueReplacement();
+    return sendSession(sessionId);
   };
 }
 
