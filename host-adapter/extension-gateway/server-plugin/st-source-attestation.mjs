@@ -5,8 +5,8 @@ import path from 'node:path';
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
-export const PINNED_PATCH_BUNDLE_SHA256 = 'f1697d252d4f3c46ead68dea1cd7d1fe9e1fa76339dd1a1f61579aa56ffd155e';
-export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = '6f1cd4cbef55134d368a4e200c9ba59b2a6e8b3c';
+export const PINNED_PATCH_BUNDLE_SHA256 = '5f71e283c464efecf4d258381bf2b8e78c311777571809c13defd5f01f65d1ca';
+export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'c672ba5ed4ec2b8259ac54f4cbc25b24f8a75e1a';
 
 export const SOURCE_FILE_PATHS = Object.freeze([
   'public/script.js',
@@ -55,12 +55,14 @@ export const SOURCE_FILE_PATHS = Object.freeze([
   'public/scripts/logic-engine-lifecycle/conversation-identity.mjs',
   'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs',
   'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs',
+  'plugins/package.json',
   'plugins/logic-engine-extension-gateway/index.mjs',
   'plugins/logic-engine-extension-gateway/package.json',
   'plugins/logic-engine-extension-gateway/host-adapter.mjs',
   'plugins/logic-engine-extension-gateway/host-data-inventory.mjs',
   'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs',
   'plugins/logic-engine-extension-gateway/st-host-lifecycle-receipt-store.mjs',
+  'plugins/logic-engine-extension-gateway/st-mutation-route-contract.mjs',
   'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
   'plugins/logic-engine-extension-gateway/st-source-inventory.mjs',
   'plugins/logic-engine-extension-gateway/fs-inventory.js',
@@ -105,7 +107,7 @@ async function exactDirectoryFiles(root, relativeDirectory, expectedNames) {
   }
 }
 
-async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
+async function exactDirectoryChildren(root, relativeDirectory, expectedNames, allowedFileNames = []) {
   try {
     const directory = path.resolve(root, relativeDirectory);
     if (!within(root, directory)) return false;
@@ -114,11 +116,14 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
     const actualPath = await realpath(directory);
     if (!within(root, actualPath)) return false;
     const entries = await readdir(directory, { withFileTypes: true });
-    if (entries.length !== expectedNames.length
-      || entries.some(entry => !entry.isDirectory() || entry.isSymbolicLink())) return false;
-    const actual = entries.map(entry => entry.name).sort();
-    const expected = [...expectedNames].sort();
-    return actual.every((name, index) => name === expected[index]);
+    const directories = entries.filter(entry => entry.isDirectory() && !entry.isSymbolicLink());
+    const files = entries.filter(entry => entry.isFile());
+    if (directories.length !== expectedNames.length
+      || entries.length !== directories.length + files.length
+      || files.some(entry => !allowedFileNames.includes(entry.name))) return false;
+    const actualDirectories = directories.map(entry => entry.name).sort();
+    const expectedDirectories = [...expectedNames].sort();
+    return actualDirectories.every((name, index) => name === expectedDirectories[index]);
   } catch {
     return false;
   }
@@ -205,11 +210,11 @@ export async function verifyPinnedSourceIdentity({
     // SillyTavern server plugins and third-party browser extensions can add
     // routes or mutate account data outside the built-in endpoint patch set.
     // Until each extension has its own reviewed source attestation contract,
-    // the only accepted entries in these executable extension roots are the
-    // Logic Engine Gateway itself. Unknown extensions make Host authority
-    // non-ready; a root data scan cannot attest their code.
-    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'])
-      || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'])
+    // the only accepted executable child directory is the Logic Engine Gateway.
+    // The stock .gitkeep placeholders and pinned plugins/package.json are inert;
+    // unknown files or extension directories make Host authority non-ready.
+    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'], ['.gitkeep', 'package.json'])
+      || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'], ['.gitkeep'])
       || !await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
       || !await exactDirectoryFiles(root, 'public/scripts/extensions/third-party/logic-engine-extension-gateway', clientNames)) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH' };

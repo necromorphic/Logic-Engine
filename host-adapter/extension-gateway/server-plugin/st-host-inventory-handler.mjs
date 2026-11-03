@@ -130,6 +130,16 @@ export function createHostInventoryHandler({
         || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
         return response.status(503).json({ status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' });
       }
+      // Do not ask Core to attest a root until the exact pinned ST mutation
+      // surface has been verified. A review-only blocker in the HTTP response
+      // is not sufficient: Core must never persist AUTHORITATIVE_COMPLETE
+      // when route coverage is incomplete.
+      if (!mutationCoverageVerified) {
+        return response.status(503).json({
+          status: 'NON_READY',
+          code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED',
+        });
+      }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
         try {

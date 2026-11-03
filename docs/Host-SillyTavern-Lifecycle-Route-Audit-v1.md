@@ -78,6 +78,29 @@ The recursive pinned-source audit also found filesystem primitives in four endpo
 
 These operations are not used to establish conversation identity, do not write chat histories, and do not mutate the authenticated account root. The source manifest pins their exact implementations so a later change to their path behavior cannot silently enter an authoritative Host deployment. The shared tokenizer cache is explicitly outside the per-user inventory boundary; no claim is made that the per-user root manifest covers it.
 
+### Machine-checked pinned mutation coverage
+
+The exact pinned-source contract now enumerates **91 POST route entries across 27 endpoint modules**. The audit verifies the expected guard on every listed route against the patched SillyTavern source before Host root attestation can be requested:
+
+- 2 supported chat persistence routes use the operation-specific lifecycle save guard.
+- 89 other mutation routes are explicitly fail-closed until an operation-specific persisted receipt exists.
+- The inventory includes account/credential changes, user backups and resets, chat/group/character operations, content imports, files and asset upload/download/delete, image metadata, backgrounds, avatars, presets, quick replies, secrets, sprites, statistics, world information, vectors, settings snapshots, extension lifecycle, and ComfyUI workflow changes.
+- Logout remains separately verified by source-order assertion: Core session revocation must succeed before the SillyTavern session is cleared.
+- The route contract digest is bound into the Host inventory evidence. A missing guard, route rename, source drift, or incomplete route set leaves mutation coverage NON_READY and prevents authoritative root attestation. The HTTP inventory handler now returns `503 HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED` before calling Core when this check fails; it cannot persist an authoritative baseline and merely report a review-only blocker.
+
+This is source-level coverage of the pinned built-in routes, not live runtime acceptance. It does not authorize third-party extensions or arbitrary filesystem writers; those remain excluded/fail-closed by the source attestation boundary.
+
+### External ST-VectorService inventory boundary
+
+The standalone ST-VectorService process is not part of the SillyTavern account data root. Its configured `ST_VECTOR_ROOT` owns a separate `vector_storage` tree, including `vectors.sqlite`, SQLite WAL/SHM sidecars, and per-collection index files. Its `/v1/insert` and `/v1/delete` endpoints are independent mutation routes.
+
+A bearer API key authenticates requests to that service, but does not prove the SillyTavern account, signed session, conversation, or Core lifecycle identity. Therefore:
+
+- SillyTavern `AUTHORITATIVE_COMPLETE` does **not** attest the VectorService database or its backup directories.
+- VectorService writes are not covered by the 91-route SillyTavern mutation contract.
+- Memory Provider must not treat this external store as authoritative Host evidence merely because the ST root inventory is complete.
+- Integrating it requires a separate registered source identity and adapter: account/session binding, consistent SQLite snapshot including WAL/SHM handling, per-file or database manifest, monotonic mutation journal, and Core-verified capability. Until then it remains an external, non-authoritative source.
+
 ## 3. Authentication and session lifecycle
 
 | SillyTavern path | Required ordering | Disposition |

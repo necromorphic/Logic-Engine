@@ -33,48 +33,49 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
     '/duplicate': 'hostBulkMutationGuard',
   }),
   'src/endpoints/avatars.js': Object.freeze({
-    '/delete': 'hostBulkMutationGuard',
-    '/upload': 'hostBulkMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/files.js': Object.freeze({
-    '/upload': 'hostBulkMutationGuard',
-    '/delete': 'hostBulkMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/worldinfo.js': Object.freeze({
-    '/delete': 'hostBulkMutationGuard',
-    '/import': 'hostBulkMutationGuard',
-    '/edit': 'hostBulkMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/import': 'hostUnsupportedMutationGuard',
+    '/edit': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/presets.js': Object.freeze({
-    '/save': 'hostBulkMutationGuard',
-    '/delete': 'hostBulkMutationGuard',
-    '/restore': 'hostBulkMutationGuard',
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/restore': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/quick-replies.js': Object.freeze({
-    '/save': 'hostBulkMutationGuard',
-    '/delete': 'hostBulkMutationGuard',
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/themes.js': Object.freeze({
-    '/save': 'hostBulkMutationGuard',
-    '/delete': 'hostBulkMutationGuard',
+    '/save': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/backgrounds.js': Object.freeze({
-    '/delete': 'hostBulkMutationGuard',
-    '/rename': 'hostBulkMutationGuard',
-    '/upload': 'hostBulkMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/rename': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/assets.js': Object.freeze({
-    '/delete': 'hostBulkMutationGuard',
+    '/download': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/vectors.js': Object.freeze({
-    '/insert': 'hostBulkMutationGuard',
-    '/delete': 'hostBulkMutationGuard',
-    '/purge-all': 'hostBulkMutationGuard',
-    '/purge': 'hostBulkMutationGuard',
+    '/insert': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/purge-all': 'hostUnsupportedMutationGuard',
+    '/purge': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/settings.js': Object.freeze({
-    '/save': 'hostBulkMutationGuard',
-    '/make-snapshot': 'hostBulkMutationGuard',
+    '/save': 'hostUnsupportedMutationGuard',
+    '/make-snapshot': 'hostUnsupportedMutationGuard',
     '/restore-snapshot': 'hostBulkMutationGuard',
   }),
   'src/endpoints/backups.js': Object.freeze({
@@ -84,15 +85,71 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
     '/delete': 'hostBulkMutationGuard',
   }),
   'src/endpoints/extensions.js': Object.freeze({
-    '/install': 'hostSourceMutationGuard',
-    '/update': 'hostSourceMutationGuard',
-    '/switch': 'hostSourceMutationGuard',
-    '/move': 'hostSourceMutationGuard',
-    '/delete': 'hostSourceMutationGuard',
+    '/install': 'hostUnsupportedMutationGuard',
+    '/update': 'hostUnsupportedMutationGuard',
+    '/switch': 'hostUnsupportedMutationGuard',
+    '/move': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/users-private.js': Object.freeze({
-    '/reset-settings': 'hostUserRootResetGuard',
-    '/reset-step2': 'hostUserRootResetGuard',
+    '/change-avatar': 'hostUnsupportedMutationGuard',
+    '/change-password': 'hostUnsupportedMutationGuard',
+    '/backup': 'hostUnsupportedMutationGuard',
+    '/reset-settings': 'hostBulkMutationGuard',
+    '/change-name': 'hostUnsupportedMutationGuard',
+    '/reset-step2': 'hostRootResetGuard',
+  }),
+  'src/endpoints/users-public.js': Object.freeze({
+    '/recover-step2': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/users-admin.js': Object.freeze({
+    '/disable': 'hostUnsupportedMutationGuard',
+    '/enable': 'hostUnsupportedMutationGuard',
+    '/promote': 'hostUnsupportedMutationGuard',
+    '/demote': 'hostUnsupportedMutationGuard',
+    '/create': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostAccountDeleteGuard',
+  }),
+  'src/endpoints/content-manager.js': Object.freeze({
+    '/importURL': 'hostUnsupportedMutationGuard',
+    '/importUUID': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/image-metadata.js': Object.freeze({
+    '/folders/create': 'hostUnsupportedMutationGuard',
+    '/folders/set-thumbnails': 'hostUnsupportedMutationGuard',
+    '/folders/update': 'hostUnsupportedMutationGuard',
+    '/folders/delete': 'hostUnsupportedMutationGuard',
+    '/folders/assign': 'hostUnsupportedMutationGuard',
+    '/folders/unassign': 'hostUnsupportedMutationGuard',
+    '/': 'hostUnsupportedMutationGuard',
+    '/cleanup': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/images.js': Object.freeze({
+    '/upload': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/moving-ui.js': Object.freeze({
+    '/save': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/secrets.js': Object.freeze({
+    '/write': 'hostUnsupportedMutationGuard',
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/rotate': 'hostUnsupportedMutationGuard',
+    '/rename': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/sprites.js': Object.freeze({
+    '/delete': 'hostUnsupportedMutationGuard',
+    '/upload-zip': 'hostUnsupportedMutationGuard',
+    '/upload': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/stats.js': Object.freeze({
+    '/recreate': 'hostUnsupportedMutationGuard',
+    '/update': 'hostUnsupportedMutationGuard',
+  }),
+  'src/endpoints/stable-diffusion.js': Object.freeze({
+    '/save-workflow': 'hostUnsupportedMutationGuard',
+    '/delete-workflow': 'hostUnsupportedMutationGuard',
+    '/rename-workflow': 'hostUnsupportedMutationGuard',
   }),
 });
 
@@ -146,7 +203,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     const source = bytes.toString('utf8');
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     for (const [route, guard] of Object.entries(expectedRoutes)) {
-      const expression = new RegExp("router\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
+      const expression = new RegExp("(?:router|comfy)\\.post\\('" + escapeRegExp(route) + "',([^\\n]*)");
       const match = source.match(expression);
       if (!match || !match[1].includes(guard)) {
         throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route);
@@ -160,26 +217,37 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     'src/endpoints/users-admin.js',
     'src/endpoints/users-private.js',
     'src/users.js',
+    'src/server-main.js',
     'src/endpoints/groups.js',
   ];
   for (const relative of specialFiles) {
     const bytes = await readFile(join(sourceRoot, relative));
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     const source = bytes.toString('utf8');
-    if (relative.endsWith('extensions.js') && !source.includes('HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED')) {
+    if (relative.endsWith('extensions.js')
+      && (!source.includes('hostUnsupportedMutationGuard')
+        || !source.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)')
+        || !source.includes('.filter(f => !hostAuthorityConfigured)')
+        || !source.includes(".filter(f => !hostAuthorityConfigured || f === 'logic-engine-extension-gateway')"))) {
       throw new Error('HOST_ST_EXTENSION_SOURCE_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-admin.js')
-      && (!source.includes('HOST_USER_ACCOUNT_MUTATION_UNSUPPORTED')
-        || !source.includes('router.use(')
-        || !source.includes("request.method === 'POST'")
-        || !source.includes("!['/get', '/slugify'].includes(request.path)"))) {
+      && (!source.includes('hostUnsupportedMutationGuard')
+        || !source.includes('hostAccountDeleteGuard')
+        || !source.includes("HOST_USER_ACCOUNT_DELETE_UNSUPPORTED"))) {
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
-      && (!source.includes("throw new Error('HOST_USER_DATA_MIGRATION_INCOMPLETE')")
-        || !source.includes("throw new Error('HOST_SYSTEM_PROMPT_MIGRATION_INCOMPLETE')"))) {
+      && (!source.includes("throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED')")
+        || !source.includes("Skipping system prompt migration while Host authority is active.")
+        || !source.includes("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING')"))) {
       throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
+    }
+    if (relative.endsWith('server-main.js')
+      && (!source.includes("const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)")
+        || !source.includes('Skipping account-root startup mutations while Host authority is active.')
+        || !source.includes('if (!hostAuthorityConfigured)'))) {
+      throw new Error('HOST_ST_STARTUP_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users-private.js')
       && (!source.includes("router.post('/logout'")
@@ -193,7 +261,8 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');
     }
     if (relative.endsWith('groups.js')
-      && !source.includes('Skipping unreceipted startup group metadata migration while Host inventory is enabled.')) {
+      && (!source.includes('assertHostStartupMigrationAllowed')
+        || !source.includes('Skipping startup group metadata migration:'))) {
       throw new Error('HOST_ST_GROUP_MIGRATION_GUARD_MISSING');
     }
   }
