@@ -46,7 +46,10 @@ function validateRetrieval(retrieval) {
       || typeof candidate.record_ref !== 'string' || !candidate.record_ref
       || typeof candidate.record_version !== 'string' || !candidate.record_version
       || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
+      || candidate.source_kind !== 'canonical_entity'
       || typeof candidate.source_entity_id !== 'string' || !candidate.source_entity_id
+      || typeof candidate.source_version !== 'string'
+      || !/^core-entity-v1:[1-9][0-9]*$/.test(candidate.source_version)
       || typeof candidate.epistemic_kind !== 'string' || !candidate.epistemic_kind
       || typeof candidate.evidence_assessment !== 'string' || !candidate.evidence_assessment
       || !isPlainRecord(candidate.content)
@@ -85,11 +88,13 @@ export function createHostMemoryNpcContextReceiver({
     }
 
     const requestId = randomUUID();
+    let hostBindings = null;
     const handler = createHostMemoryDispatchProxyHandler({
       env,
       fetchImpl,
       timeoutMs,
       resolveHostContext: () => hostContext,
+      onHostBindings: value => { hostBindings = value; },
     });
     let statusCode = 200;
     let payload = null;
@@ -105,9 +110,14 @@ export function createHostMemoryNpcContextReceiver({
     if (statusCode !== 200 || !isPlainRecord(payload) || !Object.hasOwn(payload, 'retrieval')) {
       throw new Error('HOST_MEMORY_NPC_CONTEXT_NOT_READY');
     }
+    if (!hostBindings || typeof hostBindings.world_id !== 'string' || typeof hostBindings.actor_id !== 'string') {
+      throw new Error('HOST_WORLD_ACTOR_BINDING_UNAVAILABLE');
+    }
     return Object.freeze({
       requestId,
       hostContext,
+      worldId: hostBindings.world_id,
+      actorId: hostBindings.actor_id,
       retrieval: validateRetrieval(payload.retrieval),
     });
   };
