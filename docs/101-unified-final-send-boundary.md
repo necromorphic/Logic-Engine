@@ -68,7 +68,7 @@ The same file also contains model-discovery/status fetches (for example model li
 - Gateway now requires a complete Core policy authority tuple `authority_id + generation + fingerprint` before dispatch and repeats the exact tuple check after upstream completion.
 - **FINAL RESPONSE REVALIDATION** now reacquires the shared Coordinator after inference, rejects pending/changed accepted heads, and re-reads Core readiness/source lineage, Provider grant/candidates, and the exact policy tuple before Host release. A failed revalidation suppresses the response and leaves the request `UNKNOWN` / non-replayable.
 - Streaming no longer forwards the upstream response inside the transport Promise. After successful final revalidation, Gateway invokes the Host response writer synchronously while holding the Coordinator lease, then awaits stream I/O after releasing the lease. A revoke during inference therefore prevents the first response write; a stream-forward failure is recorded as ambiguous.
-- Added an actual Gateway integration test over all 25 registered sender families. Each family traverses the shared helper and real Gateway; the test asserts exactly one upstream fetch and one completed ledger row per family. Added revoke-during-send, policy-rotation-during-send, stream-withheld-on-revoke, stream-write-under-lease, and real child-process crash/restart tests.
+- Added an actual Gateway integration test over all 26 registered sender families. Each family traverses the shared helper and real Gateway; the test asserts exactly one upstream fetch and one completed ledger row per family. Added revoke-during-send, policy-rotation-during-send, stream-withheld-on-revoke, stream-write-under-lease, and real child-process crash/restart tests.
 - Added bridge/adapter tests for exact body preservation, dormant capability, unknown-route zero-egress, indeterminate-classification zero-egress, once-only streaming forwarding, and ordinary non-Memory behavior.
 
 These changes implement and test the Logic-Engine-side dispatch/revalidation primitive. They do **not** wire the helper into the supplied SillyTavern 1.19.0 native sender call sites. No source patch to SillyTavern is allowed; the inspected Extension Manager/server-plugin APIs still do not prove an unbypassable native final-send hook. Native Host route coverage and end-to-end zero-egress therefore remain blocked.
@@ -106,14 +106,14 @@ The Google Provider Egress Relay may be the transport implementation selected by
 |---|---|---|
 | Fresh branch from current main; no #646 transplant | Branch `security/unified-final-send-boundary-current-main` created from `0c3debcb...` | PASS |
 | Single Host final-send helper | Shared helper added in Logic-Engine host-adapter; pinned SillyTavern senders not wired | PARTIAL |
-| Every dedicated sender covered | Registry/helper covers 25 sender families; actual pinned sender call sites still direct | BLOCKED |
+| Every dedicated sender covered | Registry/helper covers 26 sender families; actual pinned sender call sites still direct | BLOCKED |
 | Every generic source covered | Registry/helper covers generic source families; actual generic fetch still direct | BLOCKED |
 | Durable `DISPATCH_STARTED` | Existing Gateway transaction; capability invoked after commit under shared coordinator | PARTIAL |
 | Revoke/start serialization | Existing coordinator lock in Gateway; full Host/Core/Provider shared-order proof still required | PARTIAL |
 | Retry and ambiguous outcome | Gateway records `UNKNOWN`, blocks digest replay; full Host retry policy not yet proven | PARTIAL |
 | Streaming | Adapter waits for stream forwarding within transport Promise; pinned Host integration not done | PARTIAL |
 | Crash recovery | Gateway startup converts stranded `DISPATCH_STARTED` to `UNKNOWN` | PARTIAL |
-| Upstream call-count regression across sender families | 25 registered sender families traverse the real Gateway/helper integration test; exactly one upstream call and completed ledger row per family. Native ST sender call sites remain unconnected | PARTIAL |
+| Upstream call-count regression across sender families | 26 registered sender families traverse the real Gateway/helper integration test; exactly one upstream call and completed ledger row per family. Native ST sender call sites remain unconnected | PARTIAL |
 | Relay separate from Memory authorization | Required architectural boundary documented; implementation wiring not yet present | BLOCKED |
 
 **Safety state:** Host integration NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. No merge or production activation is authorized by this document.
