@@ -73,6 +73,7 @@ test('Host inventory route persists digest-only root baselines and deltas throug
   const identity = await identityStore.resolveAuthenticatedAccount('Harness User');
   const rootId = digest(resolve(root));
   const rootIdentity = {
+    adapter_id: ADAPTER_ID,
     host_installation_id: identity.host_installation_id,
     authenticated_account_id: identity.authenticated_account_id,
     root_id: rootId,
