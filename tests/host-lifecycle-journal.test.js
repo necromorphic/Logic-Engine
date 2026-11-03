@@ -35,6 +35,7 @@ function setup(t, authorize = () => true, authorizeRoot = () => true) {
     }),
     resolveRootIdentity: (input) => ({
       authorized: authorizeRoot(input) === true,
+      adapter_id: 'test-adapter',
       host_installation_id: input.host_installation_id,
       authenticated_account_id: input.authenticated_account_id,
       root_id: input.root_id,
