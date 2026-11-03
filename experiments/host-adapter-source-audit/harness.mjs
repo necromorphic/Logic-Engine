@@ -387,10 +387,10 @@ test('every pinned chat-history mutation route is either receipted or fail-close
     const extract = patch => {
       const start = patch.indexOf('diff --git a/' + file + ' ');
       if (start < 0) return '';
-      const end = patch.indexOf('\\ndiff --git ', start + 10);
+      const end = patch.indexOf('\ndiff --git ', start + 10);
       return patch.slice(start, end < 0 ? undefined : end);
     };
-    const combined = [extract(lifecyclePatch), extract(rootMutationPatch)].filter(Boolean).join('\\n');
+    const combined = [extract(lifecyclePatch), extract(rootMutationPatch)].filter(Boolean).join('\n');
     assert.ok(combined, 'missing lifecycle/root-mutation patch section: ' + file);
     return combined;
   };
