@@ -66,7 +66,9 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
   let triggerCoreQueryRevocation = false;
   let sourceValidatorOverride = null;
   let inventoryValidatorOverride = null;
+  let providerSnapshotOverride = null;
   const snapshotReader = async (id) => {
+    if (providerSnapshotOverride) return { ...providerSnapshotOverride };
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
@@ -171,6 +173,7 @@ function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment 
     hostConversationBindings,
     setSourceValidator(fn) { sourceValidatorOverride = fn; },
     setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
+    setProviderSnapshotOverride(value) { providerSnapshotOverride = value ? { ...value } : null; },
     validateCanonicalInventory(...args) { return canonicalInventoryValidator(...args); },
     reopenProvider() {
       provider.close();
@@ -912,3 +915,146 @@ test('record authorization generation survives Provider restart and reconciliati
   }), true);
 });
 
+
+
+function assertRecoveryFailureDoesNotDisclose(result, expectedReason) {
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, expectedReason);
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes('visible source-a'), false);
+  assert.equal(serialized.includes('never disclose source-a'), false);
+  assert.equal(serialized.includes('memory:record-a'), false);
+  assertNoRejectedMetadataDisclosure(result);
+}
+
+test('P1 recovery: revoke, restart, then re-grant preserves generation and rejects the pre-revoke candidate', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const before = await s.provider.retrieveCandidates(s.scope);
+  const oldCandidate = before.candidates[0];
+  const oldGeneration = oldCandidate.authorization_generation;
+
+  s.provider.revokeRecord(s.scope, oldCandidate.record.ref, oldCandidate.record.version);
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(
+    () => reopened.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_INDEX_NOT_READY',
+  );
+  const reopenedConsumer = s.createConsumer(reopened);
+  const restartFailure = await reopenedConsumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(restartFailure, 'memory_index_stale');
+
+  await reopened.rebuildIndex(s.scope.world_id);
+  assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
+  await assert.rejects(
+    () => reopened.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_RECORDS_WITHHELD',
+  );
+  const revokedFailure = await reopenedConsumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(revokedFailure, 'memory_records_withheld');
+
+  reopened.grantRecord(s.scope, oldCandidate.record.ref, oldCandidate.record.version, true);
+  await reopened.rebuildIndex(s.scope.world_id);
+  assert.equal((await reopened.reconcile(s.scope.world_id)).status, 'current');
+  const after = await reopened.retrieveCandidates(s.scope);
+  assert.equal(after.candidates.length, 1);
+  assert.equal(after.candidates[0].authorization_generation, oldGeneration + 2);
+  await assert.rejects(
+    () => reopened.authorizeCandidate({
+      ...s.scope,
+      record_ref: oldCandidate.record.ref,
+      record_version: oldCandidate.record.version,
+      source_kind: oldCandidate.source.kind,
+      source_entity_id: oldCandidate.source.entity_id,
+      authorization_generation: oldGeneration,
+    }),
+    (error) => error.message === 'MEMORY_AUTHORIZATION_CHANGED',
+  );
+  assert.equal(await reopened.authorizeCandidate({
+    ...s.scope,
+    record_ref: after.candidates[0].record.ref,
+    record_version: after.candidates[0].record.version,
+    source_kind: after.candidates[0].source.kind,
+    source_entity_id: after.candidates[0].source.entity_id,
+    authorization_generation: after.candidates[0].authorization_generation,
+  }), true);
+});
+
+test('P1 recovery: revoke from a second Provider while index reconciliation is awaiting validation never publishes current', async (t) => {
+  const s = setup(t);
+  const sibling = s.createSiblingProvider();
+  assert.equal((await s.prepare()).status, 'current');
+
+  let startedResolve;
+  let releaseResolve;
+  const started = new Promise((resolve) => { startedResolve = resolve; });
+  const gate = new Promise((resolve) => { releaseResolve = resolve; });
+  s.setSourceValidator(async () => {
+    startedResolve();
+    await gate;
+    return true;
+  });
+
+  const pending = s.provider.reconcile(s.scope.world_id);
+  try {
+    await started;
+    sibling.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+    releaseResolve();
+    const reconciliation = await pending;
+    assert.equal(reconciliation.status, 'stale');
+    assert.equal(reconciliation.reason, 'PROVIDER_STATE_CHANGED');
+    assert.notEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).index_health, 'ready');
+    const result = await s.consumer.retrieveForNpc({
+      worldId: s.scope.world_id,
+      actorEntityId: s.scope.subject_id,
+      conversationId: HOST_CONVERSATION_ID,
+    });
+    assertRecoveryFailureDoesNotDisclose(result, 'memory_index_stale');
+  } finally {
+    releaseResolve();
+  }
+});
+
+test('P1 recovery: corrupted durable grant generation fails closed without record or metadata disclosure', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.db.prepare(`UPDATE memory_record_grants SET authorization_generation='corrupt'
+    WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+    .run(s.scope.world_id, s.scope.subject_id, s.scope.purpose, 'memory:record-a', 'record-v1');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(result, 'memory_candidate_invalid_or_scope_mismatch');
+});
+
+test('P1 recovery: Core/Provider snapshot mismatch fails closed without record or metadata disclosure', async (t) => {
+  const s = setup(t);
+  const coreSnapshot = s.engine.getSnapshot(s.scope.world_id);
+  s.setProviderSnapshotOverride({
+    world_revision: coreSnapshot.world_revision + 1,
+    commit_sequence: coreSnapshot.commit_sequence,
+  });
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    actorEntityId: s.scope.subject_id,
+    conversationId: HOST_CONVERSATION_ID,
+  });
+  assertRecoveryFailureDoesNotDisclose(result, 'memory_snapshot_stale');
+});
