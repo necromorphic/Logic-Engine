@@ -31,6 +31,14 @@ function sign(assertion) {
   ]);
   return createHmac('sha256', ADAPTER_TOKEN).update(canonical, 'utf8').digest('hex');
 }
+function signRevocation(event) {
+  const canonical = JSON.stringify([
+    event.protocol_version, ADAPTER_ID, event.host_installation_id,
+    event.authenticated_account_id, event.host_session_id, event.issued_at,
+    event.nonce, event.reason,
+  ]);
+  return createHmac('sha256', ADAPTER_TOKEN).update(canonical, 'utf8').digest('hex');
+}
 function post(base, pathname, headers, body) {
   return fetch(base + pathname, {
     method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
@@ -44,7 +52,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   const coordinatorPath = resolve(join(directory, 'coordinator.sqlite'));
   const store = new SQLiteStore(corePath);
   const engine = new LogicEngine(store);
-  const nonceStore = new HostAssertionNonceStore({
+  let nonceStore = new HostAssertionNonceStore({
     path: join(directory, 'host-assertion-nonces.sqlite'),
     coreDatabasePath: corePath,
     coordinatorPath,
@@ -262,6 +270,68 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   assert.equal(parallelPayloads.filter(payload => payload.error?.code === 'HOST_SESSION_ASSERTION_REPLAYED').length, 1);
   assert.equal(calls, 7);
 
+
+  // A signed logout revocation is durable, scoped to the exact installation /
+  // account / session tuple, and invalidates assertions already in flight.
+  const revocation = {
+    protocol_version: 1, host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT, host_session_id: SESSION,
+    issued_at: Math.floor(Date.now() / 1000),
+    nonce: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', reason: 'logout',
+  };
+  const unsignedRevocation = await post(base, '/v1/host/session/revoke', adapterHeaders, {
+    ...revocation, signature: '0'.repeat(64),
+  });
+  assert.equal(unsignedRevocation.status, 401);
+  const revokedResponse = await post(base, '/v1/host/session/revoke', adapterHeaders, {
+    ...revocation, signature: signRevocation(revocation),
+  });
+  assert.equal(revokedResponse.status, 204);
+  const revocationReplay = await post(base, '/v1/host/session/revoke', adapterHeaders, {
+    ...revocation, signature: signRevocation(revocation),
+  });
+  assert.equal(revocationReplay.status, 409);
+  const revokedAssertion = {
+    ...assertion, nonce: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const revokedRead = await post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: revokedAssertion, signature: sign(revokedAssertion),
+    request_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  });
+  assert.equal(revokedRead.status, 401);
+  assert.equal((await revokedRead.json()).error.code, 'HOST_SESSION_REVOKED');
+  assert.equal(calls, 7);
+
+  // Reopen the SQLite file to prove revocation survives a Core process restart.
+  await new Promise(resolve => server.close(resolve));
+  nonceStore.close();
+  nonceStore = new HostAssertionNonceStore({
+    path: join(directory, 'host-assertion-nonces.sqlite'),
+    coreDatabasePath: corePath,
+    coordinatorPath,
+  });
+  server = createApiServer({
+    engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
+    adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
+    memoryNpcConsumers: { [ADAPTER_ID]: consumer },
+    hostAssertionNonceStore: nonceStore,
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const afterRevocationRestart = 'http://127.0.0.1:' + server.address().port;
+  const afterRestartAssertion = {
+    ...assertion, nonce: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const afterRestartRead = await post(afterRevocationRestart, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: afterRestartAssertion, signature: sign(afterRestartAssertion),
+    request_id: 'abababab-abab-4bab-8bab-abababababab',
+  });
+  assert.equal(afterRestartRead.status, 401);
+  assert.equal((await afterRestartRead.json()).error.code, 'HOST_SESSION_REVOKED');
+  assert.equal(calls, 7);
+
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
   await new Promise(resolve => server.close(resolve));
@@ -269,7 +339,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     engine, token: API_TOKEN, adminToken: ADMIN_TOKEN,
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers: { [ADAPTER_ID]: consumer },
-    hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); } },
+    hostAssertionNonceStore: { consume() { throw new Error('simulated SQLite I/O failure'); }, revokeSession() { throw new Error('simulated SQLite I/O failure'); }, isSessionRevoked() { throw new Error('simulated SQLite I/O failure'); } },
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
