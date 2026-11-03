@@ -81,18 +81,30 @@ test('every endpoint module with direct filesystem mutation primitives is in the
     'Add each newly discovered mutating endpoint to mutationPaths, SOURCE_FILE_PATHS, and an explicit route disposition');
 });
 
-test('server plugin loader rejects unreviewed plugins before update or import', () => {
+test('server and browser extension loaders reject unreviewed third-party code before activation', async () => {
   assert.match(pluginLoader, /await updatePlugins\(pluginsPath\)/);
   assert.match(pluginLoader, /await loadFromDirectory\(app, pluginFilePath, exitHooks\)/);
-  const start = rootMutationPatch.indexOf('diff --git a/src/plugin-loader.js ');
-  assert.ok(start >= 0, 'root mutation patch must include the server plugin loader');
-  const end = rootMutationPatch.indexOf('\ndiff --git ', start + 10);
-  const section = rootMutationPatch.slice(start, end < 0 ? undefined : end);
-  const files = section.indexOf('const files = fs.readdirSync(pluginsPath)');
-  const allowlist = section.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
-  const update = section.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
+  const pluginStart = rootMutationPatch.indexOf('diff --git a/src/plugin-loader.js ');
+  assert.ok(pluginStart >= 0, 'root mutation patch must include the server plugin loader');
+  const pluginEnd = rootMutationPatch.indexOf('\ndiff --git ', pluginStart + 10);
+  const pluginSection = rootMutationPatch.slice(pluginStart, pluginEnd < 0 ? undefined : pluginEnd);
+  const files = pluginSection.indexOf('const files = fs.readdirSync(pluginsPath)');
+  const allowlist = pluginSection.indexOf('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED');
+  const update = pluginSection.indexOf('if (!hostAuthorityConfigured) await updatePlugins(pluginsPath)');
   assert.ok(files >= 0 && allowlist > files && update > allowlist,
     'server plugin allowlist must run before automatic updates and plugin imports');
+
+  const extensionStart = rootMutationPatch.indexOf('diff --git a/src/endpoints/extensions.js ');
+  const extensionEnd = rootMutationPatch.indexOf('\ndiff --git ', extensionStart + 10);
+  const extensionSection = rootMutationPatch.slice(extensionStart, extensionEnd < 0 ? undefined : extensionEnd);
+  assert.match(extensionSection, /const hostAuthorityConfigured = Boolean\(process\.env\.LOGIC_ENGINE_HOST_IDENTITY_DIR\)/);
+  assert.match(extensionSection, /\.filter\(f => !hostAuthorityConfigured\)/);
+  assert.match(extensionSection, /f === 'logic-engine-extension-gateway'/);
+
+  const attestation = await readFile(resolve(process.cwd(),
+    'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
+  assert.match(attestation, /HOST_UNREVIEWED_USER_EXTENSION_PRESENT/);
+  assert.match(attestation, /userExtensionsPath/);
 });
  
 test('audit input is the exact pinned SillyTavern commit', async () => {
