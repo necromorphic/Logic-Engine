@@ -158,7 +158,15 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
 
 async function dispatchAndRelease(gateway, request) {
   const response = await gateway.dispatchProtectedRequest(request);
-  gateway.authorizeResponseWrite(request.requestId, () => response, { final: true });
+  const hostResponse = new EventEmitter();
+  hostResponse.writableEnded = false;
+  hostResponse.destroyed = false;
+  gateway.authorizeResponseWrite(request.requestId, () => {
+    hostResponse.writableFinished = true;
+    hostResponse.emit('finish');
+    return response;
+  }, { final: true, response: hostResponse });
+  await Promise.resolve();
   return response;
 }
 
@@ -415,6 +423,9 @@ test('successful stream begins its one Host response write under the Coordinator
       },
       stream: true,
       forwardResponse: () => {
+        const hostResponse = new EventEmitter();
+        hostResponse.writableEnded = false;
+        hostResponse.destroyed = false;
         fixture.gateway.authorizeResponseWrite('stream-response-under-lease', () => {
           hostWrites += 1;
           try {
@@ -423,7 +434,9 @@ test('successful stream begins its one Host response write under the Coordinator
           } catch (error) {
             leaseHeldAtHostWrite = /locked|busy/i.test(String(error?.message || ''));
           }
-        }, { final: true });
+          hostResponse.writableFinished = true;
+          hostResponse.emit('finish');
+        }, { final: true, response: hostResponse });
         return Promise.resolve();
       },
     });
@@ -557,8 +570,13 @@ test('revoke after upstream completion but before response.end prevents the actu
     const request = validRequest('revoke-before-response-end');
     await fixture.gateway.dispatchProtectedRequest(request);
     fixture.setProviderGranted(false);
+    const hostResponse = new EventEmitter();
+    hostResponse.writableEnded = false;
+    hostResponse.destroyed = false;
     assert.throws(
-      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { hostWrites += 1; }, { final: true }),
+      () => fixture.gateway.authorizeResponseWrite(
+        request.requestId, () => { hostWrites += 1; }, { final: true, response: hostResponse },
+      ),
       /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
     );
     assert.equal(hostWrites, 0, 'the final Express write must not occur after revoke');
