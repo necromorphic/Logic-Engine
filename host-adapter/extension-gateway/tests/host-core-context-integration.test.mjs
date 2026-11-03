@@ -5,6 +5,10 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative as pathRelative } from 'node:path';
 import { createHmac } from 'node:crypto';
+import {
+  PINNED_ST_MUTATION_COVERAGE_SHA256,
+  PINNED_ST_MUTATION_ROUTE_COUNT,
+} from '../server-plugin/st-mutation-route-contract.mjs';
 
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
@@ -76,6 +80,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     coordinatorPath,
     resolveIdentity: () => ({ authorized: false }),
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
+    verifyCompletenessProof: ({ proof, proof_signature }) => proof_signature === createHmac('sha256', ADAPTER_TOKEN)
+      .update(JSON.stringify(Object.fromEntries(Object.entries(proof).sort(([a], [b]) => a.localeCompare(b)))), 'utf8').digest('hex'),
   });
   engine.createWorld({
     world_id: 'host-e2e-world',
@@ -231,19 +237,46 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     groups: pathRelative(process.cwd(), groups),
     groupChats: pathRelative(process.cwd(), groupChats),
   };
+  const snapshotId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const authoritativeFixture = async ({ directories }) => {
     assert.deepEqual(directories, { root, chats, groups, groupChats });
     return {
-    filesystem: { status: 'complete', entries: rootEntries },
-    source: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      files: [{ logical_identity: { conversation_uuid: UUID } }],
-    },
-    authority: {
-      status: 'AUTHORITATIVE_COMPLETE',
-      manifest_sha256: 'a'.repeat(64),
-    },
-  };
+      filesystem: {
+        status: 'complete',
+        entries: rootEntries,
+        scope: 'single-root-regular-files-only',
+        scan_passes: 2,
+        snapshot_id: snapshotId,
+        reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
+        file_count: rootEntries.length,
+        total_bytes: 0,
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        host_commit: PINNED_HOST_COMMIT,
+        snapshot_id: snapshotId,
+        logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+        legacy_group_metadata_count: 0,
+        files: [{
+          kind: 'character-chat',
+          locator: 'chat-one.jsonl',
+          content_sha256: rootEntries[0].sha256,
+          file_identity: '1:1',
+          logical_identity: {
+            conversation_uuid: UUID,
+            identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+          },
+        }],
+      },
+      mutation_coverage: {
+        status: 'VERIFIED',
+        source_commit: PINNED_HOST_COMMIT,
+        coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+        route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+        source_files_sha256: 'd'.repeat(64),
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    };
   };
   // This proof stub is test-only. Production uses the Core root-inventory
   // response and must reject its current REVIEW_ONLY result.
@@ -317,13 +350,15 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const productionGateResponse = responseRecorder();
   let productionPassedGate = false;
   await productionAdapter.dispatchMiddleware(productionRequest, productionGateResponse, () => { productionPassedGate = true; });
-  assert.equal(productionPassedGate, false);
-  assert.equal(productionGateResponse.statusCode, 503);
-  assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
-  assert.ok(productionCoreCalls.some(path => path.startsWith('/v1/host-root-inventory/')));
+  assert.equal(productionPassedGate, true);
+  assert.ok(productionCoreCalls.includes('/v1/host-root-inventory/baseline'));
+  assert.ok(productionCoreCalls.includes('/v1/host-root-inventory/complete'));
   assert.equal(productionRootResponses[0].status, 200);
   assert.equal(productionRootResponses[0].payload.inventory_status, 'REVIEW_ONLY');
   assert.equal(productionRootResponses[0].payload.reconciliation.status, 'BASELINED_REVIEW_ONLY');
+  assert.equal(productionRootResponses[1].status, 200);
+  assert.equal(productionRootResponses[1].payload.inventory_status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(productionRootResponses[1].payload.reconciliation.integrity_status, 'INTEGRITY_OK');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
   const sessionResponse = responseRecorder();
