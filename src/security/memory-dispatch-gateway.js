@@ -276,6 +276,9 @@ export class MemoryDispatchGateway {
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
     this.pendingReleases = new Map();
+    this.finalizingRequestIds = new Set();
+    this.awaitFinalOutcomeRequestIds = new Set();
+    this.finalOutcomePromises = new Map();
     let release = () => {};
     let startupError = null;
     try {
@@ -580,13 +583,17 @@ export class MemoryDispatchGateway {
       // writer. Each write/end obtains a short Coordinator lease and rechecks
       // current Core/Provider authorization. No lease spans network I/O.
       try {
+        this.awaitFinalOutcomeRequestIds.add(requestId);
         const streamForwardPromise = forwardResponse(response);
         if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
           throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
         }
         await streamForwardPromise;
-        if (this.pendingReleases.has(requestId)) {
-          throw new Error('MEMORY_DISPATCH_STREAM_ENDED_WITHOUT_HOST_RELEASE');
+        const finalOutcome = this.finalOutcomePromises.get(requestId);
+        if (!finalOutcome) throw new Error('MEMORY_DISPATCH_STREAM_ENDED_WITHOUT_HOST_RELEASE');
+        const settledOutcome = await finalOutcome;
+        if (settledOutcome !== 'COMPLETED' || this.pendingReleases.has(requestId)) {
+          throw new Error('MEMORY_DISPATCH_STREAM_FINAL_OUTCOME_UNKNOWN');
         }
       } catch {
         if (this.pendingReleases.has(requestId)) {
@@ -599,6 +606,9 @@ export class MemoryDispatchGateway {
           }
         }
         throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      } finally {
+        this.awaitFinalOutcomeRequestIds.delete(requestId);
+        this.finalOutcomePromises.delete(requestId);
       }
     }
     return response;
@@ -637,32 +647,77 @@ export class MemoryDispatchGateway {
   }
 
   /** Revalidate and perform one synchronous Host write under the shared lease. */
-  authorizeResponseWrite(requestId, write, { final = false } = {}) {
+  authorizeResponseWrite(requestId, write, { final = false, response = null } = {}) {
     if (!validText(requestId, 200) || typeof write !== 'function'
-      || write.constructor?.name === 'AsyncFunction') {
+      || write.constructor?.name === 'AsyncFunction' || typeof final !== 'boolean') {
       throw new TypeError('Invalid protected response release capability.');
     }
     const context = this.pendingReleases.get(requestId);
-    if (!context) throw new Error('MEMORY_DISPATCH_RELEASE_NOT_PENDING');
+    if (!context || this.finalizingRequestIds.has(requestId)) {
+      throw new Error('MEMORY_DISPATCH_RELEASE_NOT_PENDING');
+    }
     let release;
+    let settleOutcome;
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
       this.#revalidateReleaseContext(context);
+
+      if (final) {
+        if (!response || typeof response.once !== 'function'
+          || response.writableEnded === true || response.destroyed === true) {
+          throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+        }
+        this.finalizingRequestIds.add(requestId);
+        let settled = false;
+        let resolveFinalOutcome;
+        const finalOutcome = new Promise(resolve => { resolveFinalOutcome = resolve; });
+        if (this.awaitFinalOutcomeRequestIds.has(requestId)) {
+          this.finalOutcomePromises.set(requestId, finalOutcome);
+        }
+        settleOutcome = (status) => {
+          if (settled) return;
+          settled = true;
+          queueMicrotask(() => {
+            let outcomeRelease;
+            let outcome = status;
+            try {
+              outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+              if (this.pendingReleases.has(requestId)) {
+                this.#recordOutcome(requestId, status, null);
+                this.pendingReleases.delete(requestId);
+              } else {
+                outcome = 'UNKNOWN';
+              }
+            } catch {
+              outcome = 'UNKNOWN';
+            } finally {
+              try { outcomeRelease?.(); } catch { outcome = 'UNKNOWN'; }
+              this.finalizingRequestIds.delete(requestId);
+              resolveFinalOutcome(outcome);
+            }
+          });
+        };
+        response.once('finish', () => settleOutcome('COMPLETED'));
+        response.once('close', () => {
+          if (response.writableFinished === true) settleOutcome('COMPLETED');
+          else settleOutcome('UNKNOWN');
+        });
+      }
+
       const result = write();
       if (result !== null && (typeof result === 'object' || typeof result === 'function')
         && typeof result.then === 'function') {
         throw new Error('MEMORY_DISPATCH_RELEASE_MUST_BE_SYNCHRONOUS');
       }
-      if (final) {
-        this.#recordOutcome(requestId, 'COMPLETED', null);
-        this.pendingReleases.delete(requestId);
-      }
       return result;
     } catch (error) {
+      if (this.finalizingRequestIds.has(requestId)) this.finalizingRequestIds.delete(requestId);
       try {
-        if (this.pendingReleases.has(requestId)) this.#recordOutcome(requestId, 'UNKNOWN', null);
+        if (this.pendingReleases.has(requestId)) {
+          this.#recordOutcome(requestId, 'UNKNOWN', null);
+          this.pendingReleases.delete(requestId);
+        }
       } catch {}
-      this.pendingReleases.delete(requestId);
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED', { cause: error });
     } finally {
       try { release?.(); } catch {}
