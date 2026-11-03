@@ -265,6 +265,21 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
   assert.deepEqual(calls, routes);
 });
 
+test('adapter rejects native dispatch when the exact request has not been prepared', () => {
+  let transportCalls = 0;
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'unprotected' }) });
+  assert.throws(() => adapter.dispatch({
+    request: {},
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{}' },
+    transport: () => { transportCalls += 1; return { status: 200 }; },
+    response: {},
+  }), /MEMORY_DISPATCH_HOST_PREPARATION_REQUIRED/);
+  assert.equal(transportCalls, 0);
+});
+
 test('adapter never treats null or NON_READY resolution as an unprotected native request', () => {
   for (const resolution of [null, undefined, { status: 'non_ready' }]) {
     let transportCalls = 0;
