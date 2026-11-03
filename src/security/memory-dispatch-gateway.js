@@ -170,7 +170,7 @@ function normalizeHostContext(value) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
-  const snapshot = Object.create(null);
+  const snapshot = {};
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index];
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
