@@ -96,6 +96,21 @@ function buildTestNpcHandoff({
     evidence_assessment: 'unassessed',
     content: { record_ref: candidate.record_ref, summary: 'approved memory' },
   }));
+  const providerCandidates = candidates.map(candidate => ({
+    record_ref: candidate.record_ref,
+    record_version: candidate.record_version,
+    authorization_generation: candidate.authorization_generation,
+    source_kind: candidate.source_kind,
+    source_entity_id: candidate.source_entity_id,
+    source_version: candidate.source_version,
+  })).sort((left, right) => left.record_ref < right.record_ref ? -1
+    : left.record_ref > right.record_ref ? 1
+      : left.record_version < right.record_version ? -1
+        : left.record_version > right.record_version ? 1 : 0);
+  const providerEvidenceCursor = {
+    data_version: 7,
+    candidate_digest: createHash('sha256').update(JSON.stringify(providerCandidates), 'utf8').digest('hex'),
+  };
   const laneB = {
     lane: 'B',
     core_purpose: 'npc_turn_context',
@@ -110,6 +125,7 @@ function buildTestNpcHandoff({
     candidates: laneBCandidates,
     reason: null,
     snapshot,
+    provider_evidence_cursor: providerEvidenceCursor,
   };
   const contentBlocks = [
     ...laneAContext.items.map(item => ({
@@ -203,6 +219,7 @@ function createTestNpcContextRuntime() {
         core_purpose: 'npc_turn_context',
         provider_purpose: laneB.provider_purpose,
         snapshot: context.snapshot,
+        provider_evidence_cursor: laneB.provider_evidence_cursor,
         sources: [...sourceMap.values()].sort((left, right) =>
           left.source_entity_id < right.source_entity_id ? -1
             : left.source_entity_id > right.source_entity_id ? 1
