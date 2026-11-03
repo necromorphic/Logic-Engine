@@ -221,7 +221,9 @@ function inventoryCursorDigest(key, value) {
 }
 
 export class SQLiteStore {
-  constructor(path = ':memory:') {
+  constructor(path = ':memory:', { readOnly = false } = {}) {
+    if (typeof readOnly !== 'boolean') throw new TypeError('SQLiteStore readOnly must be boolean');
+    this.readOnly = readOnly;
     this.inventoryCursorKey = randomBytes(32);
     const corePath = path === ':memory:' ? ':memory:' : resolve(path);
     const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
@@ -243,7 +245,8 @@ export class SQLiteStore {
     this.coordinatorRelease = null;
     this.coordinatorLeaseDepth = 0;
     try {
-      this.db = new DatabaseSync(corePath);
+      if (readOnly && corePath === ':memory:') throw new Error('CORE_READ_ONLY_REQUIRES_FILE_BACKED_STORE');
+      this.db = new DatabaseSync(corePath, readOnly ? { readOnly: true } : undefined);
       if (this.coordinatorDb) {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
@@ -360,7 +363,34 @@ export class SQLiteStore {
       );
       `;
 
-      if (!this.acceptedHeadConfig) {
+      if (readOnly) {
+        if (!this.acceptedHeadConfig) throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map(row => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map(match => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some(objectName => !existingObjects.has(objectName))) {
+          throw new Error('CORE_SCHEMA_INCOMPLETE');
+        }
+        const migration = this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get();
+        if (migration?.version !== 17) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
+        const local = this.db.prepare(
+          'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        const status = getAcceptedHeadStatusSync({
+          port: this.acceptedHeadConfig.port,
+          token: this.acceptedHeadConfig.token,
+        });
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+          || !status.enrolled.core || !status.enrolled.provider
+          || status.pending.core || status.pending.provider
+          || status.operations.core || status.operations.provider
+          || status.heads.core !== local.head || status.heads.provider < 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        }
+      } else {
+        if (!this.acceptedHeadConfig) {
         const hasHeadTable = this.db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
         if (hasHeadTable && this.db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
           throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
@@ -381,6 +411,8 @@ export class SQLiteStore {
         this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
       this.migrate();
+
+      }
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
         this.coordinatorRelease = null;
@@ -832,6 +864,7 @@ export class SQLiteStore {
   }
 
   tx(fn) {
+    if (this.readOnly) throw new Error('CORE_STORE_READ_ONLY');
     requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
       const savepoint = 'logic_engine_nested_' + this.txDepth;
