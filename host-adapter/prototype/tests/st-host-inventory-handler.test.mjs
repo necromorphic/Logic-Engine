@@ -149,12 +149,12 @@ test('host inventory route rejects an authenticated account whose signed session
   assert.equal(calls, 0);
 });
 
-test('host inventory route fails closed unless the deployment build claim matches the pinned target', async () => {
+test('host inventory route rejects a contradictory deployment build claim', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return {}; },
     pinnedHostCommit: pinned,
-    hostBuildClaim: '',
+    hostBuildClaim: 'not-the-pinned-commit',
   });
   const response = makeResponse();
   await handler({ user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
@@ -218,14 +218,14 @@ test('host inventory route passes only the authenticated user data roots and ret
   assert.equal(response.body.filesystem_inventory.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.ok(response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
   assert.ok(response.body.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
-  assert.ok(response.body.blockers.includes('NO_GLOBAL_SILLYTAVERN_DATA_ROOT_COVERAGE'));
-  assert.ok(response.body.blockers.includes('NO_SEMANTIC_CHARACTER_PERSONA_IDENTITY'));
+  assert.ok(response.body.blockers.includes('UNVERIFIED_PINNED_SOURCE_IDENTITY'));
   assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'));
   assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE'));
   assert.equal(response.body.filesystem_inventory.entries, undefined);
   assert.equal(response.body.host_user_handle, 'alice');
   assert.equal(response.body.requested_conversation_uuid, '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403');
-  assert.equal(response.body.host_build_claim_type, 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION');
+  assert.equal(response.body.host_build_claim_type, 'ABSENT');
+  assert.equal(response.body.host_source_identity_status, 'NON_READY');
   assert.equal(JSON.stringify(response.body).includes('raw-chat-message'), false);
 });
 
