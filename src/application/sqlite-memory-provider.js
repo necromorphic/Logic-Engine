@@ -247,6 +247,17 @@ export class SQLiteMemoryProvider {
     this.#stateGeneration = new Map();
     this.#queryAuthorizationGeneration = new Map();
     this.#recordAuthorizationGeneration = new Map();
+    if (observerOnly) {
+      if (!existsSync(path) || !sharedCoordinatorPath || !existsSync(sharedCoordinatorPath)) {
+        throw new Error('PROVIDER_OBSERVER_REQUIRES_EXISTING_FILES');
+      }
+      const coordinatorCheck = new DatabaseSync(sharedCoordinatorPath, { readOnly: true });
+      try {
+        if (!coordinatorCheck.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='coordinator_lock'",
+        ).get()) throw new Error('PROVIDER_COORDINATOR_SCHEMA_UNAVAILABLE');
+      } finally { coordinatorCheck.close(); }
+    }
     // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
     this.#coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
     this.#db = null;
