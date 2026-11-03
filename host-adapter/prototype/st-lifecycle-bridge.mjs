@@ -861,7 +861,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       throw Error('NON_READY: Host lifecycle journal integrity is unavailable; abort export save');
     }
     const persisted = await verifyPersistedInventory(conversationId);
-    if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') {
+    if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
       throw Error('NON_READY: persisted Host state does not match the active conversation; abort export save');
     }
     return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
