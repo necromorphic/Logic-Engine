@@ -182,6 +182,20 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).reconciliation.duplicate, true);
 
+  // Rotating the deployment pin invalidates the previously accepted proof
+  // immediately, even before a new inventory observation is appended.
+  trustedSourceManifestSha256 = digest('rotated-source-manifest-pin');
+  const stalePinSnapshot = journal.getAuthoritySnapshot({
+    authority_id: AUTHORITY_ID,
+    generation: AUTHORITY_GENERATION,
+    adapter_id: ADAPTER_ID,
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+  });
+  assert.equal(stalePinSnapshot.authority_status, 'REVIEW_ONLY');
+  trustedSourceManifestSha256 = SOURCE_MANIFEST_SHA256;
+
   // The Core deployment registry pins the exact accepted source manifest.
   // A self-consistent replacement manifest must not be able to re-authorize
   // the same Host installation without an explicit deployment config update.
