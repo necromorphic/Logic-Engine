@@ -111,7 +111,8 @@
 +        || typeof candidate.prepare !== 'function'
 +        || typeof candidate.dispatch !== 'function'
 +        || typeof candidate.forwardResponse !== 'function'
-+        || typeof candidate.resolveSenderRoute !== 'function') {
++        || typeof candidate.resolveSenderRoute !== 'function'
++        || typeof candidate.authorizeResponseWrite !== 'function') {
 +        throw new TypeError('Invalid Logic-Engine Final-Send adapter.');
 +    }
 +}
@@ -151,16 +152,15 @@
 +    // process-wide registration while Node still has queued response/socket
 +    // callbacks; those callbacks must retain the original final-send authority.
 +    const responseAdapter = adapter;
-+    if (typeof responseAdapter.authorizeResponseWrite === 'function') {
-+        const nativeWrite = response.write.bind(response);
-+        const nativeEnd = response.end.bind(response);
-+        response.write = function (...args) {
-+            return responseAdapter.authorizeResponseWrite(response, () => nativeWrite(...args), false);
-+        };
-+        response.end = function (...args) {
-+            return responseAdapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
-+        };
-+    }
++    const authorizeResponseWrite = responseAdapter.authorizeResponseWrite.bind(responseAdapter);
++    const nativeWrite = response.write.bind(response);
++    const nativeEnd = response.end.bind(response);
++    response.write = function (...args) {
++        return authorizeResponseWrite(response, () => nativeWrite(...args), false);
++    };
++    response.end = function (...args) {
++        return authorizeResponseWrite(response, () => nativeEnd(...args), true);
++    };
 +    return generationContext.run({ request, response, adapter, route, protectedForward: null, prepared: false }, async () => {
 +        try {
 +            await adapter.prepare(request, response);
