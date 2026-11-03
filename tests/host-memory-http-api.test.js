@@ -592,7 +592,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     protocol_version: 1, host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT, host_session_id: ROTATED_SESSION,
     issued_at: Math.floor(Date.now() / 1000),
-    nonce: '15151515-1515-4515-8515-151515151515', reason: 'session_rotation',
+    nonce: 'a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1', reason: 'session_rotation',
   };
   const rotationResponse = await post(base, '/v1/host/session/revoke', adapterHeaders, {
     ...rotationEvent, signature: signRevocation(rotationEvent),
