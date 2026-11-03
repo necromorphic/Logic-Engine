@@ -1128,10 +1128,25 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
-@@ -216,7 +216,12 @@
-     }
- });
- 
+@@ -4,0 +5,2 @@
++import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
+@@ -66 +68 @@
+-router.post('/disable', requireAdminMiddleware, async (request, response) => {
++router.post('/disable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -95 +97 @@
+-router.post('/enable', requireAdminMiddleware, async (request, response) => {
++router.post('/enable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -119 +121 @@
+-router.post('/promote', requireAdminMiddleware, async (request, response) => {
++router.post('/promote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -143 +145 @@
+-router.post('/demote', requireAdminMiddleware, async (request, response) => {
++router.post('/demote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -172 +174 @@
+-router.post('/create', requireAdminMiddleware, async (request, response) => {
++router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
+@@ -216,7 +221,12 @@
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
 +router.post('/delete', requireAdminMiddleware, (request, response, next) => {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
@@ -1139,10 +1154,6 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +    }
 +    return next();
 +}, async (request, response) => {
-     try {
-         if (!request.body.handle) {
-             console.warn('Delete user failed: Missing required fields');
-
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 new file mode 100644
 --- /dev/null
