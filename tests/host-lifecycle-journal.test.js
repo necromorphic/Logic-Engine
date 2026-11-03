@@ -331,6 +331,12 @@ test('Core requires a signed pinned-source completeness attestation before root 
   assert.equal(journal.getAuthoritySnapshot(trusted).authority_status, 'REVIEW_ONLY');
 
   const baselineAttestation = makeRootAttestation(baseline);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: { ...baselineAttestation, signature: '0'.repeat(64) },
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID/);
   const accepted = journal.attestRootInventory({
     host_installation_id: installation,
     authenticated_account_id: account,
@@ -371,6 +377,18 @@ test('Core requires a signed pinned-source completeness attestation before root 
     root_id: rootId,
     attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
   }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
+
+  const changedAgain = journal.observeRootInventory(rootInput({
+    event_id: 'root-event-3',
+    entries: rootEntries(digest('changed-again')),
+  }));
+  const replayedNonce = makeRootAttestation(changedAgain);
+  assert.throws(() => journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation: replayedNonce,
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED/);
 });
 
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
