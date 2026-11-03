@@ -12,18 +12,22 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
   assert.match(source, /runWithAuthenticatedHostSession: memoryEnabled/);
 });
 
-test('non-empty Lane A is terminal until its model projection is explicitly approved', async () => {
+test('Lane A and Lane B remain distinct in the provider projection', async () => {
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
-  assert.match(source, /if \(laneA\.items\.length !== 0\) return undefined/);
-  assert.match(source, /complete, revalidated empty Lane A \+ Lane B is explicitly unprotected/);
-  assert.doesNotMatch(source, /return received;/);
+  const finalSend = await readFile(new URL('../host-adapter/protected-memory-final-send.mjs', import.meta.url), 'utf8');
+  assert.match(source, /laneA,/);
+  assert.match(source, /revalidateLaneAUnderCoordinatorLease/);
+  assert.match(finalSend, /Logic Engine Core Knowledge — Lane A/);
+  assert.match(finalSend, /Logic Engine NPC Memory Context — Lane B/);
+  assert.doesNotMatch(source, /laneA\.items\.length !== 0\) return undefined/);
 });
 
 test('native fallback is limited to a complete-empty two-lane context', async () => {
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  assert.match(source, /laneA\.items\.length === 0/);
   assert.match(source, /accepted\.laneB\.sources\.length === 0/);
   assert.match(source, /accepted\.laneB\.candidates\.length === 0/);
-  assert.match(source, /if \(contentBlocks\.length === 0[\s\S]*?return null/);
+  assert.match(source, /if \(laneA\.items\.length === 0 && contentBlocks\.length === 0[\s\S]*?return null/);
   assert.match(source, /if \(!laneA[\s\S]*?return undefined/);
 });
 
