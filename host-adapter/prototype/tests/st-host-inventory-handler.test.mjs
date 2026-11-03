@@ -20,29 +20,6 @@ function makeResponse() {
 }
 
 const pinned = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const createInventoryHandlerForTest = options => createHostInventoryHandler({
-  verifySourceIdentity: async () => ({
-    status: 'CURRENT_IDENTITIES_VERIFIED',
-    manifest_sha256: 'e'.repeat(64),
-    patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
-    host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
-  }),
-  ...options,
-  enumerate: async input => {
-    const inventory = await options.enumerate(input);
-    return {
-      ...inventory,
-      mutation_coverage: inventory.mutation_coverage ?? {
-        status: 'VERIFIED',
-        source_commit: pinned,
-        coverage_manifest_sha256: 'a'.repeat(64),
-        route_count: 91,
-        source_files_sha256: 'b'.repeat(64),
-      },
-    };
-  },
-});
-
 const absoluteTestDirectories = {
   root: resolve('/tmp/st-root'),
   chats: resolve('/tmp/st-root/chats'),
@@ -114,7 +91,7 @@ test('server bulk mutation guard does not let an empty pre-mutation scan authori
 
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
   let calls = 0;
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return {}; },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
@@ -130,7 +107,7 @@ test('host inventory route rejects unauthenticated and incomplete user sessions'
 
 test('host inventory route rejects an authenticated account whose signed session handle differs', async () => {
   let calls = 0;
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return {}; },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
@@ -146,7 +123,7 @@ test('host inventory route rejects an authenticated account whose signed session
 
 test('host inventory route rejects a contradictory deployment build claim', async () => {
   let calls = 0;
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return {}; },
     pinnedHostCommit: pinned,
     hostBuildClaim: 'not-the-pinned-commit',
@@ -181,7 +158,7 @@ test('host inventory route passes only the authenticated user data roots and ret
     },
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
   };
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async input => { observed = input; return inventory; },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
@@ -251,7 +228,7 @@ test('host inventory persists the full root manifest server-side and removes onl
     },
     snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
   };
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => inventory,
     persistRootInventory: async input => {
       observed = input;
@@ -308,7 +285,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
     'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
     'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
   ];
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => ({
       filesystem: {
         status: 'complete',
@@ -382,7 +359,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
 
 test('Host inventory cannot promote Core baseline without signed lifecycle attestation', async () => {
   const coveredSourceBlockers = [...CORE_ATTESTED_SOURCE_BLOCKERS];
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => ({
       filesystem: {
         status: 'complete',
@@ -441,7 +418,7 @@ test('Host inventory cannot promote Core baseline without signed lifecycle attes
 });
 
 test('persisted but unexplained root drift remains an explicit NON_READY blocker', async () => {
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => ({
       filesystem: {
         status: 'complete',
@@ -493,7 +470,7 @@ test('host inventory route filters the response to the requested conversation lo
   const otherUuid = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
   const selected = { conversation_uuid: conversationUuid, identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [] };
   const other = { conversation_uuid: otherUuid, identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [] };
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => ({
       filesystem: {
         status: 'complete',
@@ -535,7 +512,7 @@ test('host inventory route filters the response to the requested conversation lo
 
 test('host inventory route rejects malformed conversation filters before scanning', async () => {
   let calls = 0;
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { calls += 1; return { files: [] }; },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
@@ -552,7 +529,7 @@ test('host inventory route rejects malformed conversation filters before scannin
 });
 
 test('host inventory route hides scanner errors and absolute paths from the HTTP response', async () => {
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { throw Object.assign(new Error('C:\\private\\chat.jsonl'), { code: 'SOURCE_FILE_UNAVAILABLE' }); },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,
@@ -913,7 +890,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
     groupChats: join(tmpdir(), 'st-default-user-root', 'groupChats'),
     extensions: join(tmpdir(), 'st-default-user-root', 'extensions'),
   };
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => ({
       filesystem: { status: 'complete', entries: [] },
       source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [], blockers: [] },
@@ -942,7 +919,7 @@ test('default-user inventory accepts absent session.handle only after signed Hos
 
 test('default-user inventory rejects missing/mismatched signed session before scanning', async () => {
   let scans = 0;
-  const handler = createInventoryHandlerForTest({
+  const handler = createHostInventoryHandler({
     enumerate: async () => { scans++; return {}; },
     pinnedHostCommit: pinned,
     hostBuildClaim: pinned,

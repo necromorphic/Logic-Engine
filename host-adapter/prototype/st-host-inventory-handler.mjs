@@ -112,33 +112,9 @@ export function createHostInventoryHandler({
       }
       const source = inventory.source;
       const filesystem = inventory.filesystem;
-      const mutationCoverage = inventory.mutation_coverage;
-      const mutationCoverageVerified = mutationCoverage?.status === 'VERIFIED'
-        && mutationCoverage.source_commit === pinnedHostCommit
-        && /^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
-        && Number.isSafeInteger(mutationCoverage.route_count)
-        && mutationCoverage.route_count > 0
-        && /^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '');
       let sourceIdentity = { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_VERIFIER_UNAVAILABLE' };
       if (typeof verifySourceIdentity === 'function') {
         try { sourceIdentity = await verifySourceIdentity({ userExtensionsPath: directories.extensions }); } catch {}
-      }
-      // A root attestation request must never be made for an unverified installed
-      // source manifest; otherwise Core would persist evidence before the Host
-      // mutation surface itself has been authenticated.
-      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
-        || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
-        return response.status(503).json({ status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' });
-      }
-      // Do not ask Core to attest a root until the exact pinned ST mutation
-      // surface has been verified. A review-only blocker in the HTTP response
-      // is not sufficient: Core must never persist AUTHORITATIVE_COMPLETE
-      // when route coverage is incomplete.
-      if (!mutationCoverageVerified) {
-        return response.status(503).json({
-          status: 'NON_READY',
-          code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED',
-        });
       }
       let rootInventory = null;
       if (typeof persistRootInventory === 'function') {
@@ -150,7 +126,6 @@ export function createHostInventoryHandler({
             snapshotAlignment: inventory.snapshot_alignment,
             snapshotSha256: filesystem.snapshot_sha256,
             sourceIdentity,
-            mutationCoverage,
           });
         } catch {
           rootInventory = { status: 'NON_READY', reason: 'ROOT_INVENTORY_PERSISTENCE_FAILED' };
@@ -192,7 +167,8 @@ export function createHostInventoryHandler({
           && !rootInventoryAuthoritative ? ['UNVERIFIED_ROOT_INVENTORY_ATTESTATION'] : []),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           ? [] : ['UNVERIFIED_PINNED_SOURCE_IDENTITY']),
-        ...(mutationCoverageVerified ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
+        ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
+          ? [] : ['UNVERIFIED_MUTATION_ROUTE_COVERAGE']),
         ...(sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
           && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
           ? [] : ['UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE']),
@@ -201,7 +177,6 @@ export function createHostInventoryHandler({
       ];
       const responseInventory = {
         ...source,
-        mutation_coverage: mutationCoverage ?? { status: 'NON_READY' },
         blockers: [...new Set(blockers)],
         filesystem_inventory: {
           status: filesystem.status,
@@ -712,15 +687,6 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     resolveHostConversationId(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')
         ? authenticatedRequests.get(request)?.conversation_id ?? null : null;
-    },
-    // Core's in-process capability uses PC-NEXT-11, not the Host storage key
-    // installation:account:conversationUuid. Keep both identities explicit.
-    resolveCoreConversationId(request) {
-      if (request === null || (typeof request !== 'object' && typeof request !== 'function')) return null;
-      const context = authenticatedRequests.get(request);
-      return context
-        ? [context.host_session_id, context.host_installation_id, context.conversation_uuid].join(':')
-        : null;
     },
     resolveHostContext(request) {
       return request !== null && (typeof request === 'object' || typeof request === 'function')

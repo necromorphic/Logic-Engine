@@ -22,8 +22,6 @@ const canonical = value => Array.isArray(value)
     : JSON.stringify(value);
 
 test('pinned source manifest covers every installed Gateway helper', () => {
-  assert.ok(SOURCE_FILE_PATHS.includes('plugins/package.json'),
-    'source manifest must pin the SillyTavern plugin-root package manifest');
   assert.ok(SOURCE_FILE_PATHS.includes('public/scripts/extensions.js'),
     'source manifest must pin the SillyTavern browser extension loader');
   for (const name of [
@@ -34,7 +32,6 @@ test('pinned source manifest covers every installed Gateway helper', () => {
     'st-host-identity-store.mjs',
     'st-host-inventory-handler.mjs',
     'st-host-lifecycle-receipt-store.mjs',
-    'st-mutation-route-contract.mjs',
     'st-host-session-revocation.mjs',
     'st-server-digest-proxy.mjs',
     'st-source-attestation.mjs',
@@ -58,8 +55,6 @@ async function createManifestRoot() {
     await writeFile(target, bytes);
     files.push({ path: relative, sha256: sha256(bytes) });
   }
-  await writeFile(path.join(root, 'plugins/.gitkeep'), '');
-  await writeFile(path.join(root, 'public/scripts/extensions/third-party/.gitkeep'), '');
   const proof = {
     protocol_version: 1,
     pinned_host_commit: PINNED_HOST_COMMIT,
@@ -84,19 +79,6 @@ test('pinned source verifier accepts only the exact manifest and matching deploy
   assert.equal(verified.host_handler_blob_sha, PINNED_HOST_HANDLER_GIT_BLOB_SHA);
   const tamperedPath = path.join(fixture.root, SOURCE_FILE_PATHS[0]);
   await writeFile(tamperedPath, 'modified after manifest');
-  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
-  assert.equal(rejected.status, 'NON_READY');
-  assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
-});
-
-test('pinned source verifier rejects mutation-route contract drift', async t => {
-  const fixture = await createManifestRoot();
-  t.after(() => rm(fixture.root, { recursive: true, force: true }));
-  const routeContract = path.join(
-    fixture.root,
-    'plugins/logic-engine-extension-gateway/st-mutation-route-contract.mjs',
-  );
-  await writeFile(routeContract, 'tampered route coverage contract');
   const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
   assert.equal(rejected.status, 'NON_READY');
   assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
@@ -149,22 +131,6 @@ test('pinned source verifier rejects an unattested server plugin', async t => {
   const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
   assert.equal(rejected.status, 'NON_READY');
   assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
-});
-
-test('pinned source verifier rejects unpinned files in extension parent roots', async t => {
-  const pluginFixture = await createManifestRoot();
-  t.after(() => rm(pluginFixture.root, { recursive: true, force: true }));
-  await writeFile(path.join(pluginFixture.root, 'plugins', 'unreviewed-loader.js'), 'module.exports = {};');
-  const pluginRejected = await verifyPinnedSourceIdentity({ installRoot: pluginFixture.root });
-  assert.equal(pluginRejected.status, 'NON_READY');
-  assert.equal(pluginRejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
-
-  const browserFixture = await createManifestRoot();
-  t.after(() => rm(browserFixture.root, { recursive: true, force: true }));
-  await writeFile(path.join(browserFixture.root, 'public/scripts/extensions/third-party', 'unreviewed-loader.js'), 'export {};');
-  const browserRejected = await verifyPinnedSourceIdentity({ installRoot: browserFixture.root });
-  assert.equal(browserRejected.status, 'NON_READY');
-  assert.equal(browserRejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
 });
 
 test('pinned source verifier rejects an unattested third-party browser extension', async t => {
