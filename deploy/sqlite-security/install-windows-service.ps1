@@ -139,16 +139,17 @@ Assert-NoReparsePointAncestors $InstallDirectory
 Assert-NoReparsePointAncestors $StateDirectory
 Assert-NoReparsePointAncestors $NodePath
 if ($EnvironmentFile) { Assert-NoReparsePointAncestors $EnvironmentFile }
-if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
-  New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
-}
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) { throw "Service already exists; refusing to replace it." }
 $account = "NT SERVICE\$ServiceName"
 $entry = Join-Path $InstallDirectory 'src\index.js'
 $binary = '"' + $NodePath + '" "' + $entry + '"'
 if ($PSCmdlet.ShouldProcess($ServiceName, "Create isolated virtual-service-account service")) {
-  Invoke-Sc @("create", $ServiceName, "binPath=", $binary, "start=", "demand", "obj=", $account, "password=", "")
   try {
+    # Keep -WhatIf side-effect free: create writable state only after approval.
+    if (-not (Test-Path -LiteralPath $StateDirectory -PathType Container)) {
+      New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
+    }
+    Invoke-Sc @("create", $ServiceName, "binPath=", $binary, "start=", "demand", "obj=", $account, "password=", "")
     Invoke-Sc @("sidtype", $ServiceName, "unrestricted")
     $sid = (New-Object System.Security.Principal.NTAccount($account)).Translate([System.Security.Principal.SecurityIdentifier]).Value
     # Reject reparse points before recursive ACL changes; ancestors still must be admin-controlled.
