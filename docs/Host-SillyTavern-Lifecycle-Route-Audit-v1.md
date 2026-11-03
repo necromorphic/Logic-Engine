@@ -37,13 +37,14 @@ These operations do not yet have operation-specific persisted lineage receipts. 
 | `src/endpoints/backups.js` | `/chat/delete` | Bulk mutation guard |
 | `src/endpoints/data-maid.js` | `/delete` | Bulk mutation guard |
 | `src/endpoints/settings.js` | `/restore-snapshot` | Bulk mutation guard |
-| `src/endpoints/users-private.js` | `/reset-settings` | Bulk mutation guard |
+| `src/endpoints/users-private.js` | `/change-avatar`, `/change-password`, `/backup`, `/change-name`, `/reset-settings` | Unsupported/bulk mutation guard; fail closed while Host authority is active |
 | `src/endpoints/users-private.js` | `/reset-step2` (user-root reset) | Explicitly unsupported; fail closed |
+| `src/endpoints/users-public.js` | `/recover-step2` (password recovery) | Unsupported mutation guard; credential changes are blocked while Host authority is active |
 | `src/endpoints/users-admin.js` | `/delete` (account/root deletion) | Explicitly unsupported; fail closed |
-| Startup group metadata migration | Legacy group metadata rewrite | Skipped when inventory is non-ready or any enrolled conversation exists |
+| Startup group metadata migration | Legacy group metadata rewrite | Blocked whenever Host authority is configured; pre-migration scans cannot authorize writes |
 | Browser character/group import and group-bookmark copy | Import/copy/restore path | Client guard; server bulk guards remain authoritative |
 
-**Consequences:** chat rename/move, import, export, backup restore, group deletion, and account/root reset are not enabled for enrolled data. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add a real-file lineage receipt for each operation before removing its guard.
+**Consequences:** chat rename/move, import, export, backup restore, group deletion, and account/root reset are not enabled for enrolled data. They remain blocked rather than being represented as completed lifecycle operations. A future implementation must add an operation-specific persisted lifecycle receipt for each operation before removing its guard.
 
 Additional unreceipted account-root and installed-source mutation surfaces are now guarded by `createHostUnsupportedMutationGuard`. While Host authority is configured (or a Host-capability session is active), these routes return `503 NON_READY / HOST_MUTATION_ROUTE_UNSUPPORTED` before the SillyTavern handler runs:
 
