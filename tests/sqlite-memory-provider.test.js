@@ -122,10 +122,15 @@ test('final authorized-read lease serializes query and record grants with a sync
     }),
     /PROVIDER_READ_LEASE_MUTATION_FORBIDDEN/,
   );
+  let asyncCallbackInvoked = false;
   assert.throws(
-    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => 'must not await'),
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => {
+      asyncCallbackInvoked = true;
+      return 'must not await';
+    }),
     /must be synchronous/,
   );
+  assert.equal(asyncCallbackInvoked, false, 'async disclosure callback must be rejected before invocation');
 
   s.provider.revokeRecord(s.scope, candidate.record.ref, candidate.record.version);
   assert.throws(
