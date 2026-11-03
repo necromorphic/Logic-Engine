@@ -344,11 +344,13 @@ async function inspectSaveTargetEnrollment(directories, isGroup, locatorParts) {
 
   let parent = base;
   const parentSegments = locatorParts.slice(0, -1);
-  for (const segment of [null, ...parentSegments]) {
+  for (const segment of parentSegments) {
     const stat = await lstat(parent, { bigint: true }).catch(() => null);
     if (!stat?.isDirectory() || stat.isSymbolicLink()) return 'unknown';
-    if (segment !== null) parent = path.join(parent, segment);
+    parent = path.join(parent, segment);
   }
+  const finalParentStat = await lstat(parent, { bigint: true }).catch(() => null);
+  if (!finalParentStat?.isDirectory() || finalParentStat.isSymbolicLink()) return 'unknown';
 
   const targetPath = path.join(parent, locatorParts.at(-1));
   const initial = await lstat(targetPath, { bigint: true }).catch(error =>
