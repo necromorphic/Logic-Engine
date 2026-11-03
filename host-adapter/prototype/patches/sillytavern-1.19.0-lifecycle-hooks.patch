@@ -1146,7 +1146,10 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 @@ -172 +174 @@
 -router.post('/create', requireAdminMiddleware, async (request, response) => {
 +router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -216,7 +221,12 @@
+@@ -216,7 +218,12 @@
+     }
+ });
+ 
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
 +router.post('/delete', requireAdminMiddleware, (request, response, next) => {
 +    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
@@ -1154,6 +1157,8 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +    }
 +    return next();
 +}, async (request, response) => {
+     try {
+         if (!request.body.handle) {
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 new file mode 100644
 --- /dev/null
