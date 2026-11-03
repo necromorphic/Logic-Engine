@@ -203,10 +203,10 @@ test('Windows manifest enrollment retains retired sidecar generations beside one
   );
   assert.equal(registrations.length, 3);
   assert.deepEqual(registrations.map((call) => call.args.slice(1)), [
+    ['wal', '00000000000000A1', '88888888888888888888888888888888', 'active'],
     ['wal', '00000000000000A1', '55555555555555555555555555555555', 'retired'],
     ['wal', '00000000000000A1', '77777777777777777777777777777777', 'retired'],
-    ['wal', '00000000000000A1', '88888888888888888888888888888888', 'active'],
-  ]);
+  ], 'native enrollment must see the live pathname owner before replaying absent retired identities');
 });
 
 test('Windows manifest enrollment rejects an active sidecar generation older than retained retired history', () => {
