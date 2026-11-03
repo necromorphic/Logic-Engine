@@ -151,7 +151,9 @@ static int le_store_parent_acl_safe(HANDLE directory) {
   SECURITY_DESCRIPTOR_CONTROL control = 0;
   DWORD revision = 0, index;
   BOOL valid = FALSE;
-  DWORD mutation_mask = FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL;
+  DWORD mutation_mask = FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_WRITE_EA
+      | FILE_WRITE_ATTRIBUTES | FILE_DELETE_CHILD | DELETE | WRITE_DAC
+      | WRITE_OWNER | GENERIC_WRITE | GENERIC_ALL;
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
   GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
   if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !token_bytes || token_bytes > 65536) goto done;
