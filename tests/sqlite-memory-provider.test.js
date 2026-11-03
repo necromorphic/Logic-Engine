@@ -208,7 +208,7 @@ test('final Provider read lease excludes cross-process authorization revoke unti
     ]);
     assert.match(stdout, /READY/);
     const disclosed = s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
-      child.stdin.write('REVOKE\\n');
+      child.stdin.write('REVOKE\n');
       // Keep the synchronous disclosure lease held while the independent
       // process reaches the shared Coordinator and attempts its revoke.
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 350);
