@@ -142,6 +142,8 @@ function validRootInventoryAttestation(attestation, expected) {
     && validDigest(attestation.source_manifest_sha256)
     && attestation.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
     && validDigest(attestation.snapshot_sha256)
+    && Number.isSafeInteger(attestation.lifecycle_sequence) && attestation.lifecycle_sequence > 0
+    && expected.lifecycle_sequence > 0
     && attestation.lifecycle_sequence === expected.lifecycle_sequence
     && attestation.lifecycle_head_sha256 === expected.lifecycle_head_sha256
     && Number.isSafeInteger(attestation.issued_at) && attestation.issued_at > 0
