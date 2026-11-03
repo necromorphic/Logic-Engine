@@ -90,6 +90,7 @@ test('Host session rotation revokes the old capability before issuing a new sess
     createId: () => '55555555-5555-4555-8555-555555555555',
     revokeSession: async (request, reason) => {
       calls.push({ sessionId: request.session.logicEngineSessionId, reason });
+      return true;
     },
   });
   const response = {
