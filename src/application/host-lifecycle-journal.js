@@ -977,6 +977,27 @@ export class HostLifecycleJournal {
         }) !== true) {
         throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID');
       }
+      const priorProofRows = this.db.prepare(`
+        SELECT event_id,root_inventory_sequence,manifest_sha256,previous_sha256,
+          proof_sha256,proof_signature,canonical_proof_json,sequence
+        FROM host_root_inventory_completeness_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+        ORDER BY sequence
+      `).all(input.host_installation_id, input.authenticated_account_id, input.root_id);
+      if (priorProofRows.length) {
+        const prior = this.#verifyRootCompletenessRows(input.host_installation_id,
+          input.authenticated_account_id, input.root_id, root, identity, priorProofRows);
+        if (!prior.valid) throw new Error('HOST_ROOT_INVENTORY_COMPLETENESS_CHAIN_INVALID');
+        return {
+          status: 'AUTHORITATIVE_COMPLETE',
+          integrity_status: 'INTEGRITY_OK',
+          sequence: root.sequence,
+          manifest_sha256: root.latest_manifest_sha256,
+          proof_sha256: prior.proof_sha256,
+          completeness_sequence: prior.sequence,
+          duplicate: true,
+        };
+      }
       const existing = this.db.prepare(`
         SELECT event_id,proof_signature,canonical_proof_json,proof_sha256,sequence
         FROM host_root_inventory_completeness_events
@@ -1049,6 +1070,17 @@ export class HostLifecycleJournal {
     const root = this.#verifyRootInventoryRows(identity.host_installation_id,
       identity.authenticated_account_id, identity.root_id, rows);
     if (!root.valid || root.status !== 'BASELINED_REVIEW_ONLY') return null;
+    const completenessRows = this.db.prepare(`
+      SELECT event_id,root_inventory_sequence,manifest_sha256,previous_sha256,
+        proof_sha256,proof_signature,canonical_proof_json,sequence
+      FROM host_root_inventory_completeness_events
+      WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+      ORDER BY sequence
+    `).all(identity.host_installation_id, identity.authenticated_account_id, identity.root_id);
+    const completeness = this.#verifyRootCompletenessRows(identity.host_installation_id,
+      identity.authenticated_account_id, identity.root_id, root, identity, completenessRows);
+    if (!completeness.valid || completeness.proof.root_inventory_sequence !== root.sequence
+      || completeness.proof.manifest_sha256 !== root.latest_manifest_sha256) return null;
     const snapshot = {
       authority_id: identity.authority_id,
       generation: identity.generation,
@@ -1059,6 +1091,8 @@ export class HostLifecycleJournal {
       root_inventory_sequence: root.sequence,
       root_manifest_sha256: root.latest_manifest_sha256,
       root_journal_head_sha256: root.head_sha256,
+      root_completeness_sequence: completeness.sequence,
+      root_completeness_proof_sha256: completeness.proof_sha256,
     };
     return {
       sequence: root.sequence,
