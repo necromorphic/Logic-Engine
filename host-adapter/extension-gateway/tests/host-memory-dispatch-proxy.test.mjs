@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { createHostMemoryDispatchProxyHandler } from '../../prototype/st-server-digest-proxy.mjs';
+import { createHostMemoryDispatchProxyHandler } from '../server-plugin/st-server-digest-proxy.mjs';
 
 const installation = '11111111-1111-4111-8111-111111111111';
 const account = '22222222-2222-4222-8222-222222222222';
@@ -94,6 +94,128 @@ test('Host Adapter resolves world and exactly one actor before signing the Host 
   ]);
   const expected = createHmac('sha256', env.LOGIC_ENGINE_ADAPTER_TOKEN).update(canonical, 'utf8').digest('hex');
   assert.equal(body.signature, expected);
+});
+
+test('Host Adapter accepts only a Core-received NPC context projection bound to the exact request and Host scope', async () => {
+  const calls = [];
+  const snapshot = { world_revision: 7, commit_sequence: 11 };
+  const candidate = {
+    record_ref: 'memory:record-1',
+    record_version: 'v1',
+    authorization_generation: 2,
+    source_entity_id: 'source-1',
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: { claim: 'trusted provider content' },
+  };
+  const retrieval = {
+    status: 'ready',
+    admitted: [{ record_ref: candidate.record_ref, record_version: candidate.record_version }],
+    candidates: [candidate],
+    reason: null,
+    snapshot,
+  };
+  const payload = {
+    retrieval,
+    npc_context: {
+      schema: 'npc-generation-context-projection/v1',
+      request_id: requestId,
+      generation_id: requestId,
+      generation_type: 'normal',
+      world_id: worldId,
+      actor_id: actorId,
+      conversation_id: conversationId,
+      adapter_id: 'st-gateway',
+      recipient: 'model',
+      purpose: 'npc_turn_context',
+      snapshot,
+      lanes: {
+        lane_a: {
+          lane: 'A',
+          purpose: 'npc_turn_context',
+          authorization_ref: 'core:read-auth-1',
+          visibility_authorization_ref: 'core:visibility-auth-1',
+          items: [],
+        },
+        lane_b: {
+          lane: 'B',
+          core_purpose: 'npc_turn_context',
+          provider_purpose: 'npc_decision',
+          status: 'ready',
+          admitted: retrieval.admitted,
+          candidates: retrieval.candidates,
+          reason: null,
+          snapshot,
+        },
+      },
+    },
+  };
+  const handler = createHostMemoryDispatchProxyHandler({
+    env,
+    resolveHostContext: () => ({
+      host_installation_id: installation,
+      authenticated_account_id: account,
+      host_session_id: session,
+      conversation_id: hostConversationKey,
+    }),
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (calls.length === 1) {
+        return { ok: true, status: 200, json: async () => ({ context: {
+          adapter_id: 'st-gateway', conversation_id: conversationId,
+          world_id: worldId, actor_id: actorId, actor_type: 'player',
+        } }) };
+      }
+      return { ok: true, status: 200, json: async () => payload };
+    },
+  });
+  const response = recorder();
+  await handler(request(), response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.npc_context.schema, 'npc-generation-context-projection/v1');
+  assert.equal(response.payload.npc_context.conversation_id, conversationId);
+  assert.equal(response.payload.npc_context.lanes.lane_b.candidates[0].content.claim, 'trusted provider content');
+  assert.equal(calls.length, 2);
+});
+
+test('Host Adapter rejects a Core NPC context projection bound to another request', async () => {
+  const handler = createHostMemoryDispatchProxyHandler({
+    env,
+    resolveHostContext: () => ({
+      host_installation_id: installation,
+      authenticated_account_id: account,
+      host_session_id: session,
+      conversation_id: hostConversationKey,
+    }),
+    fetchImpl: async (_url, _options) => {
+      if (!_options.body.includes('assertion')) {
+        return { ok: true, status: 200, json: async () => ({ context: {
+          adapter_id: 'st-gateway', conversation_id: conversationId,
+          world_id: worldId, actor_id: actorId, actor_type: 'player',
+        } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({
+        retrieval: { status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 1, commit_sequence: 1 } },
+        npc_context: {
+          schema: 'npc-generation-context-projection/v1',
+          request_id: '66666666-6666-4666-8666-666666666666',
+          generation_id: '66666666-6666-4666-8666-666666666666',
+          generation_type: 'normal',
+          world_id: worldId, actor_id: actorId, conversation_id: conversationId,
+          adapter_id: 'st-gateway', recipient: 'model', purpose: 'npc_turn_context',
+          snapshot: { world_revision: 1, commit_sequence: 1 },
+          lanes: {
+            lane_a: { lane: 'A', purpose: 'npc_turn_context', authorization_ref: 'a', visibility_authorization_ref: 'b', items: [] },
+            lane_b: { lane: 'B', core_purpose: 'npc_turn_context', provider_purpose: 'npc_decision', status: 'ready', admitted: [], candidates: [], reason: null, snapshot: { world_revision: 1, commit_sequence: 1 } },
+          },
+        },
+      }) };
+    },
+  });
+  const response = recorder();
+  await handler(request(), response);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.payload.code, 'NPC_GENERATION_CONTEXT_UNAVAILABLE');
 });
 
 test('Host Adapter fails closed when Core cannot resolve one unambiguous world/actor binding', async () => {
