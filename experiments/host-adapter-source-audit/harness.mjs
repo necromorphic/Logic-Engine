@@ -54,13 +54,22 @@ const mutationSources = Object.fromEntries(
 );
 
 const endpointDirectory = resolve(root, 'src/endpoints');
-const endpointEntries = await readdir(endpointDirectory, { withFileTypes: true });
+async function listEndpointFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = resolve(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await listEndpointFiles(fullPath));
+    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(fullPath);
+  }
+  return files;
+}
+const endpointFiles = await listEndpointFiles(endpointDirectory);
 const endpointMutationCandidates = [];
 const filesystemMutationPrimitive = /\b(?:fs|fsPromises|fs\.promises)\.(?:writeFile(?:Sync)?|writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync|copyFile(?:Sync)?|rename(?:Sync)?|unlink(?:Sync)?|rm(?:Sync)?|mkdir(?:Sync)?|createWriteStream)\b|\b(?:writeFileAtomicSync?|writeFileSyncAtomic|tryWriteFileSync)\s*\(/;
-for (const entry of endpointEntries) {
-  if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
-  const relative = 'src/endpoints/' + entry.name;
-  const source = mutationSources[relative] ?? await readFile(resolve(root, relative), 'utf8');
+for (const fullPath of endpointFiles) {
+  const relative = 'src/endpoints/' + fullPath.slice(endpointDirectory.length + 1).split(path.sep).join('/');
+  const source = mutationSources[relative] ?? await readFile(fullPath, 'utf8');
   if (filesystemMutationPrimitive.test(source) && !mutationPaths.includes(relative)) {
     endpointMutationCandidates.push(relative);
   }
