@@ -28,6 +28,8 @@ jobs:
           git -C Sillytavern config core.eol lf
           git -C Sillytavern reset --hard 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern checkout could not be normalized to LF' }
+          git -C Sillytavern checkout-index --force --all
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF' }
       - name: Install pinned SillyTavern runtime dependencies
         shell: pwsh
         working-directory: Sillytavern
@@ -41,7 +43,10 @@ jobs:
           Copy-Item host-adapter/extension-gateway/index.js,host-adapter/extension-gateway/gateway-policy.mjs,host-adapter/extension-gateway/host-context.mjs,host-adapter/extension-gateway/conversation-identity.mjs,host-adapter/extension-gateway/manifest.json Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
           # Re-checkout pinned blobs with LF before applying LF-authored patches.
           git -C Sillytavern config core.autocrlf false
+          git -C Sillytavern config core.eol lf
           git -C Sillytavern reset --hard HEAD
+          git -C Sillytavern checkout-index --force --all
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF before patching' }
           $patch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch).Path
           git -C Sillytavern -c core.autocrlf=false apply --unidiff-zero --check $patch
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
