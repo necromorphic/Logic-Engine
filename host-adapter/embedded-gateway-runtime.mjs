@@ -185,6 +185,11 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
           host_installation_id: hostContext.host_installation_id,
           authenticated_account_id: hostContext.authenticated_account_id,
           root_id: hostContext.root_id,
+          root_inventory_sequence: hostContext.root_inventory_sequence,
+          root_manifest_sha256: hostContext.root_manifest_sha256,
+          core_conversation_id: hostContext.core_conversation_id,
+          world_id: hostContext.world_id,
+          actor_id: hostContext.actor_id,
         }, coordinatorLease);
       },
     });
