@@ -616,7 +616,8 @@ export class MemoryDispatchGateway {
     let finalResponseAllowed = false;
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
-      sources: sourceSet, candidates: candidateSet, coreHead, providerHead, policyAuthority,
+      sources: sourceSet, candidates: candidateSet, hostContext: hostContextSnapshot,
+      coreHead, providerHead, policyAuthority,
     };
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
@@ -691,6 +692,21 @@ export class MemoryDispatchGateway {
     assertSameSources(currentProvider.sources, context.sources);
     assertSameCandidates(currentProvider.candidates, context.candidates);
     assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
+    const currentHost = assertSyncResult(this.readHostEvidence({
+      hostContext: context.hostContext,
+      worldId: context.worldId,
+      actorId: context.actorId,
+      purpose: context.purpose,
+    }));
+    if (currentHost.status !== 'READY'
+      || currentHost.adapter_id !== context.hostContext.adapter_id
+      || currentHost.core_conversation_id !== context.hostContext.core_conversation_id
+      || currentHost.world_id !== context.worldId || currentHost.actor_id !== context.actorId
+      || currentHost.root_id !== context.hostContext.root_id
+      || currentHost.root_inventory_sequence !== context.hostContext.root_inventory_sequence
+      || currentHost.root_manifest_sha256 !== context.hostContext.root_manifest_sha256) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
   }
 
   /** Revalidate and perform one synchronous Host write under the shared lease. */
