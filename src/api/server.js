@@ -762,14 +762,41 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
                 throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
               }
+              let retrieval;
               try {
-                return await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
+                retrieval = await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
               } catch (error) {
                 // Keep Consumer/runtime failures distinct from assertion
                 // verification failures even when their messages collide.
                 consumerFailed = true;
                 throw error;
               }
+              let finalHostIdentity;
+              try {
+                finalHostIdentity = resolveHostLifecycleIdentity({
+                  adapterId,
+                  host_installation_id: body.assertion.host_installation_id,
+                  authenticated_account_id: body.assertion.authenticated_account_id,
+                  host_session_id: body.assertion.host_session_id,
+                  conversation_uuid: assertionConversation[2],
+                });
+              } catch {
+                throw new Error('HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE');
+              }
+              if (finalHostIdentity?.authorized !== true
+                || finalHostIdentity.adapter_id !== adapterId
+                || finalHostIdentity.host_installation_id !== body.assertion.host_installation_id
+                || finalHostIdentity.authenticated_account_id !== body.assertion.authenticated_account_id
+                || finalHostIdentity.host_session_id !== body.assertion.host_session_id
+                || finalHostIdentity.conversation_uuid !== assertionConversation[2]
+                || typeof finalHostIdentity.root_id !== 'string'
+                || !/^[a-f0-9]{64}$/.test(finalHostIdentity.root_id)
+                || typeof finalHostIdentity.authority_id !== 'string' || !finalHostIdentity.authority_id.trim()
+                || !Number.isSafeInteger(finalHostIdentity.generation)
+                || !/^[a-f0-9]{64}$/.test(finalHostIdentity.snapshot_fingerprint ?? '')) {
+                throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
+              }
+              return retrieval;
             },
           );
           if (!validMemoryNpcResult(retrieval)) {
@@ -792,6 +819,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           }
           if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
             return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
+          }
+          if (code === 'HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Host Root Inventory authority status is unavailable.' } });
           }
           if (code === 'HOST_ROOT_IDENTITY_UNAUTHORIZED') {
             return send(res, 401, { error: { code, message: 'Host installation/account identity is not authorized.' } });
