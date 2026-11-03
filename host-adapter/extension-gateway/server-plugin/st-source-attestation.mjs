@@ -126,6 +126,9 @@ async function isEmptySafeDirectory(directoryPath) {
     if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
     const actualPath = await realpath(directoryPath);
     if (!path.isAbsolute(actualPath)) return false;
+    const normalizedRequested = process.platform === 'win32' ? path.resolve(directoryPath).toLowerCase() : path.resolve(directoryPath);
+    const normalizedActual = process.platform === 'win32' ? actualPath.toLowerCase() : actualPath;
+    if (normalizedRequested !== normalizedActual) return false;
     return (await readdir(actualPath)).length === 0;
   } catch {
     return false;
