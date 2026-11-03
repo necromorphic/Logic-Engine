@@ -467,6 +467,17 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await adapter.dispatch(request, rotationDispatchResponse);
   assert.equal(rotationDispatchResponse.statusCode, 200);
   const assertionFromOldSession = structuredClone(capturedSuccessfulDispatchBody);
+  assertionFromOldSession.assertion.nonce = '88888888-8888-4888-8888-888888888888';
+  assertionFromOldSession.request_id = '99999999-9999-4999-8999-999999999999';
+  const oldAssertion = assertionFromOldSession.assertion;
+  const oldCanonical = JSON.stringify([
+    oldAssertion.protocol_version, oldAssertion.host_installation_id,
+    oldAssertion.authenticated_account_id, oldAssertion.host_session_id,
+    oldAssertion.conversation_id, oldAssertion.world_id, oldAssertion.actor_id,
+    oldAssertion.issued_at, oldAssertion.nonce,
+  ]);
+  assertionFromOldSession.signature = createHmac('sha256', ADAPTER_TOKEN)
+    .update(oldCanonical, 'utf8').digest('hex');
   const oldSessionId = request.session.logicEngineSessionId;
   const oldAccountHandle = request.session.logicEngineSessionHandle;
   request.user.profile.handle = 'rotated-account';
