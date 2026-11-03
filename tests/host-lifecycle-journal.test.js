@@ -410,6 +410,55 @@ test('Core requires a signed pinned-source completeness attestation before root 
   }), /HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED/);
 });
 
+test('signed root completeness attestation survives SQLite restart and remains bound to the same lifecycle head', t => {
+  const { journal, directory } = setup(t, () => true, () => true, ({ attestation }) =>
+    attestation.signature === signRootAttestation(attestation));
+  const baseline = journal.enrollRootInventory(rootInput({ event_id: 'root-attestation-restart' }));
+  const attestation = makeRootAttestation(baseline);
+  journal.attestRootInventory({
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+    attestation,
+  });
+  journal.close();
+
+  const reopened = new HostLifecycleJournal({
+    path: join(directory, 'host-journal.sqlite'),
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
+    resolveIdentity: input => ({
+      authorized: true,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      adapter_id: 'test-adapter',
+      root_id: rootId,
+      ...authority,
+    }),
+    resolveRootIdentity: input => ({
+      authorized: true,
+      adapter_id: 'test-adapter',
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      root_id: input.root_id,
+    }),
+    verifyRootInventoryAttestation: ({ attestation: stored }) =>
+      stored.signature === signRootAttestation(stored),
+  });
+  t.after(() => { try { reopened.close(); } catch {} });
+  const snapshot = reopened.getAuthoritySnapshot({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    adapter_id: 'test-adapter',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    root_id: rootId,
+  });
+  assert.equal(snapshot.status, 'INTEGRITY_OK');
+  assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+});
+
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-host-root-inventory-restart-'));
   const path = join(directory, 'host-journal.sqlite');
