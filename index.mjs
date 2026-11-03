@@ -5,13 +5,14 @@ import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs
 import { createSillyTavernHostAdapter } from './host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
 import { createSillyTavernFinalSendAdapter } from './host-adapter/sillytavern-final-send-adapter.mjs';
 import { createEmbeddedGatewayRuntime } from './host-adapter/embedded-gateway-runtime.mjs';
-import { createNpcGenerationContextHostBridge } from './src/application/npc-generation-context-host-bridge.js';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
 let registeredHook = null;
 let registeredAdapter = null;
 let registeredRuntime = null;
+const npcHandoffsByRequest = new WeakMap();
+const preparedNpcRequests = new WeakSet();
 
 const unavailableGateway = Object.freeze({
   dispatchProtectedRequest() {
@@ -42,89 +43,6 @@ function generationBody(request) {
   return null;
 }
 
-function createNpcBridge(providerAdapter) {
-  if (typeof providerAdapter?.npcGenerationContext?.prepareForDispatch !== 'function'
-    || typeof providerAdapter?.runWithAuthenticatedHostSession !== 'function') {
-    throw new Error('EMBEDDED_GATEWAY_NPC_HOST_BRIDGE_UNAVAILABLE');
-  }
-  return createNpcGenerationContextHostBridge({
-    runtime: providerAdapter.npcGenerationContext,
-    createRequestMetadata: request => {
-      const body = generationBody(request);
-      return Object.freeze({
-        request_id: body?.logic_engine_request_id,
-        generation_id: body?.logic_engine_generation_id,
-        generation_type: body?.logic_engine_generation_type,
-      });
-    },
-  });
-}
-
-function buildProtectedMemory(request, prepared, npcBridge) {
-  const host = prepared?.hostContext?.host;
-  if (!host || host.status !== 'READY' || !prepared.response) return undefined;
-  const accepted = npcBridge.consume(request, prepared.response);
-  if (accepted?.status !== 'accepted' || !accepted.context || accepted.laneB?.status !== 'ready') {
-    return undefined;
-  }
-
-  const context = accepted.context;
-  const laneA = context.lanes?.lane_a;
-  const laneBContext = context.lanes?.lane_b;
-  if (!laneA || !Array.isArray(laneA.items) || !laneBContext
-    || laneBContext.status !== 'ready' || !Array.isArray(laneBContext.candidates)) {
-    return undefined;
-  }
-
-  // Lane A and Lane B remain distinct in the provider request. Final-Send
-  // serializes each lane under its own label and preserves Lane A provenance.
-
-  const contentBlocks = laneBContext.candidates.map(candidate => Object.freeze({
-    epistemic_kind: candidate.epistemic_kind,
-    evidence_assessment: candidate.evidence_assessment,
-    content: candidate.content,
-  }));
-
-  // A complete, revalidated empty Lane A + Lane B is explicitly unprotected.
-  // Any incomplete or unknown state above returns undefined and is terminal.
-  if (laneA.items.length === 0 && contentBlocks.length === 0
-    && accepted.laneB.sources.length === 0 && accepted.laneB.candidates.length === 0) return null;
-
-  const hostBinding = host.context;
-  const coreContext = host.coreContext;
-  if (!hostBinding || !coreContext) return undefined;
-  const hostContext = Object.freeze({
-    adapter_id: coreContext.adapter_id,
-    core_conversation_id: coreContext.conversation_id,
-    world_id: context.world_id,
-    actor_id: context.actor_id,
-    actor_type: coreContext.actor_type,
-    host_installation_id: hostBinding.host_installation_id,
-    authenticated_account_id: hostBinding.authenticated_account_id,
-    host_session_id: hostBinding.host_session_id,
-    host_conversation_id: hostBinding.conversation_id,
-    conversation_uuid: hostBinding.conversation_uuid,
-    root_id: hostBinding.root_id,
-    root_inventory_sequence: hostBinding.root_inventory_sequence,
-    root_manifest_sha256: hostBinding.root_manifest_sha256,
-  });
-
-  return Object.freeze({
-    requestId: context.request_id,
-    model: resolveRequestModel(request, prepared),
-    worldId: context.world_id,
-    actorId: context.actor_id,
-    purpose: 'npc_decision',
-    sources: accepted.laneB.sources,
-    candidates: accepted.laneB.candidates,
-    providerEvidenceCursor: accepted.laneB.provider_evidence_cursor,
-    laneA,
-    revalidateLaneAUnderCoordinatorLease: accepted.revalidateLaneAUnderCoordinatorLease,
-    contentBlocks: Object.freeze(contentBlocks),
-    hostContext,
-    snapshot: context.snapshot,
-  });
-}
 
 export const info = Object.freeze({
   id: 'logic-engine',
@@ -154,14 +72,16 @@ export async function init(router) {
 
   const memoryEnabled = process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true';
   const hostAdapter = createSillyTavernHostAdapter();
-  let npcBridge = null;
   try {
     if (memoryEnabled) {
       registeredRuntime = createEmbeddedGatewayRuntime({
         hostAdapter,
         adapterId: process.env.LOGIC_ENGINE_ADAPTER_ID,
       });
-      npcBridge = createNpcBridge(registeredRuntime.providerAdapter);
+      if (typeof registeredRuntime.providerAdapter?.npcGenerationContext?.prepareForDispatch !== 'function'
+        || typeof registeredRuntime.providerAdapter?.runWithAuthenticatedHostSession !== 'function') {
+        throw new Error('EMBEDDED_GATEWAY_NPC_CONTEXT_RUNTIME_UNAVAILABLE');
+      }
     }
 
     const hookPath = join(hostRoot, 'src', 'logic-engine-final-send-hook.js');
@@ -184,30 +104,95 @@ export async function init(router) {
         : null,
       prepareHostContext: async (request, response, hostRoute) => {
         if (!memoryEnabled) return null;
+        if (!request || typeof request !== 'object' || !response || typeof response !== 'object'
+          || preparedNpcRequests.has(request)) {
+          return { status: 'NON_READY', code: 'NPC_HOST_REQUEST_REUSED' };
+        }
+        preparedNpcRequests.add(request);
         const host = await hostAdapter.prepareGenerationContext(request, hostRoute);
-        if (host?.status !== 'READY') {
-          return {
-            status: 'NON_READY',
-            code: host?.code || 'HOST_NPC_CONTEXT_NON_READY',
-          };
+        if (host?.status !== 'READY' || !host.context || !host.coreContext) {
+          return { status: 'NON_READY', code: host?.code || 'HOST_NPC_CONTEXT_NON_READY' };
         }
         const coreConversationId = hostAdapter.resolveCoreConversationId(request);
-        if (typeof coreConversationId !== 'string' || !coreConversationId) {
+        if (typeof coreConversationId !== 'string' || !coreConversationId
+          || coreConversationId !== host.coreContext.conversation_id) {
           return { status: 'NON_READY', code: 'HOST_CORE_CONVERSATION_UNAVAILABLE' };
         }
-        const prepared = await registeredRuntime.providerAdapter.runWithAuthenticatedHostSession(
-          request,
-          coreConversationId,
-          () => npcBridge.prepare(request, response),
-        );
-        if (prepared?.status !== 'ready') {
-          return { status: 'NON_READY', code: prepared?.reason || 'NPC_CONTEXT_NOT_READY' };
+        const body = generationBody(request);
+        const generationRequest = Object.freeze({
+          request_id: body?.logic_engine_request_id,
+          generation_id: body?.logic_engine_generation_id,
+          generation_type: body?.logic_engine_generation_type,
+        });
+        let preparedNpc;
+        try {
+          preparedNpc = await registeredRuntime.providerAdapter.runWithAuthenticatedHostSession(
+            request,
+            coreConversationId,
+            () => registeredRuntime.providerAdapter.npcGenerationContext.prepareForDispatch(generationRequest),
+          );
+        } catch {
+          return { status: 'NON_READY', code: 'NPC_CONTEXT_PREPARATION_FAILED' };
         }
+        if (preparedNpc?.status !== 'ready' || !preparedNpc.handoff) {
+          return { status: 'NON_READY', code: preparedNpc?.reason || 'NPC_CONTEXT_NOT_READY' };
+        }
+        npcHandoffsByRequest.set(request, Object.freeze({
+          response,
+          handoff: preparedNpc.handoff,
+          generationRequest,
+          host,
+        }));
         return Object.freeze({ status: 'READY', host, coreConversationId });
       },
       resolveProtectedMemory: (request, prepared) => {
-        if (!memoryEnabled) return null;
-        return buildProtectedMemory(request, prepared, npcBridge);
+        if (!memoryEnabled) return Object.freeze({ status: 'unprotected' });
+        const host = prepared?.hostContext?.host;
+        const handoff = request && typeof request === 'object' ? npcHandoffsByRequest.get(request) : null;
+        if (!host || host.status !== 'READY' || !prepared?.response
+          || !handoff || handoff.response !== prepared.response || handoff.host !== host) {
+          return Object.freeze({ status: 'non_ready' });
+        }
+        npcHandoffsByRequest.delete(request);
+        const hostBinding = host.context;
+        const coreContext = host.coreContext;
+        if (!hostBinding || !coreContext
+          || typeof host.requestId !== 'string' || !host.requestId) {
+          return Object.freeze({ status: 'non_ready' });
+        }
+        const hostContext = Object.freeze({
+          adapter_id: coreContext.adapter_id,
+          core_conversation_id: coreContext.conversation_id,
+          world_id: coreContext.world_id,
+          actor_id: coreContext.actor_id,
+          actor_type: coreContext.actor_type,
+          host_installation_id: hostBinding.host_installation_id,
+          authenticated_account_id: hostBinding.authenticated_account_id,
+          host_session_id: hostBinding.host_session_id,
+          host_conversation_id: hostBinding.conversation_id,
+          conversation_uuid: hostBinding.conversation_uuid,
+          root_id: hostBinding.root_id,
+          root_inventory_sequence: hostBinding.root_inventory_sequence,
+          root_manifest_sha256: hostBinding.root_manifest_sha256,
+        });
+        let model;
+        try { model = resolveRequestModel(request, prepared); }
+        catch { return Object.freeze({ status: 'non_ready' }); }
+        return Object.freeze({
+          status: 'ready',
+          context: Object.freeze({
+            requestId: host.requestId,
+            generationRequest: handoff.generationRequest,
+            npcContextHandoff: handoff.handoff,
+            model,
+            worldId: coreContext.world_id,
+            actorId: coreContext.actor_id,
+            purpose: 'npc_decision',
+            conversationId: coreContext.conversation_id,
+            adapterId: coreContext.adapter_id,
+            hostContext,
+          }),
+        });
       },
     });
     hook.registerLogicEngineFinalSendAdapter(registeredAdapter, PLUGIN_OWNER);
