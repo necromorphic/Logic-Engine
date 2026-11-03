@@ -322,8 +322,8 @@ test('host inventory clears only blockers covered by verified source and Core VS
         sequence: 1,
         manifest_sha256: 'd'.repeat(64),
         attestation_sha256: 'f'.repeat(64),
-        lifecycle_sequence: 1,
-        lifecycle_head_sha256: 'a'.repeat(64),
+        lifecycle_sequence: 0,
+        lifecycle_head_sha256: '0'.repeat(64),
         source_manifest_sha256: 'e'.repeat(64),
         upstream_status: 200,
       };
