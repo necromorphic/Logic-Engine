@@ -287,6 +287,57 @@ test('host inventory persists the full root manifest server-side and removes onl
   assert.equal(JSON.stringify(response.body).includes('chats/main.jsonl'), false);
 });
 
+test('host inventory refuses Core baseline persistence for forged mutation coverage digest or route count', async () => {
+  const inventory = {
+    filesystem: {
+      status: 'complete',
+      root: '/srv/st/data',
+      snapshot_sha256: 'b'.repeat(64),
+      file_count: 1,
+      total_bytes: 64,
+      entries: [{ path: 'chats/main.jsonl', identity: { dev: '1', ino: '2', mode: 33188, size: 64, mtimeMs: 1, ctimeMs: 1 }, sha256: 'c'.repeat(64) }],
+    },
+    source: { status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE', blockers: [], files: [] },
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+  };
+  const directories = {
+    root: '/srv/st/data',
+    chats: '/srv/st/data/chats',
+    groups: '/srv/st/data/groups',
+    groupChats: '/srv/st/data/group chats',
+    extensions: '/srv/st/data/extensions',
+  };
+  for (const mutationCoverage of [
+    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: 'a'.repeat(64), route_count: 92, source_files_sha256: 'b'.repeat(64) },
+    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256, route_count: 91, source_files_sha256: 'b'.repeat(64) },
+  ]) {
+    let persistenceCalls = 0;
+    const handler = createHostInventoryHandler({
+      enumerate: async () => inventory,
+      verifySourceIdentity: async () => ({
+        status: 'CURRENT_IDENTITIES_VERIFIED',
+        manifest_sha256: 'e'.repeat(64),
+        patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+        host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+      }),
+      verifyMutationCoverage: async () => mutationCoverage,
+      persistRootInventory: async () => { persistenceCalls++; return { status: 'AUTHORITATIVE_COMPLETE', integrity_status: 'INTEGRITY_OK' }; },
+      pinnedHostCommit: pinned,
+      hostBuildClaim: '',
+    });
+    const response = makeResponse();
+    await handler({
+      user: { profile: { handle: 'alice' }, directories },
+      session: { handle: 'alice', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'alice' },
+      query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(persistenceCalls, 0);
+    assert.ok(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'));
+    assert.ok(response.body.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
+  }
+});
+
 test('host inventory clears only blockers covered by verified source and Core VSS attestation', async () => {
   let persistedInput;
   const coveredSourceBlockers = [
