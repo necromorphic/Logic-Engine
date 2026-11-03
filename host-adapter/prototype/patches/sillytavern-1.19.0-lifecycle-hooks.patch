@@ -968,7 +968,7 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -11,7 +11,10 @@
+@@ -11,7 +11,11 @@
  import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
@@ -980,6 +980,13 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
  const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
  const RESET_CACHE = new Cache(5 * 60 * 1000);
+@@ -34,0 +35,6 @@
++        try {
++            await revokeHostSessionBeforeLogout(request);
++        } catch {
++            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
++        }
++
 @@ -181,7 +184,7 @@
      }
  });
@@ -1003,13 +1010,6 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
      try {
          if (!request.body.code) {
              console.warn('Reset step 2 failed: Missing required fields');
-@@ -34,0 +35,6 @@
-+        try {
-+            await revokeHostSessionBeforeLogout(request);
-+        } catch {
-+            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
-+        }
-+
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
