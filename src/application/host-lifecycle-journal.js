@@ -1006,6 +1006,22 @@ export class HostLifecycleJournal {
       && attestationRow.inventory_head_sha256 === root.head_sha256) {
       try {
         const attestation = JSON.parse(attestationRow.canonical_attestation_json);
+        // Resolve the manifest pin from deployment-owned registry state at the
+        // moment of verification. Never accept the digest from the caller or
+        // the signed attestation as its own trust anchor.
+        const trustedIdentity = this.resolveRootIdentity({
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          root_id: identity.root_id,
+        });
+        if (!isPlainRecord(trustedIdentity) || trustedIdentity.authorized !== true
+          || trustedIdentity.adapter_id !== identity.adapter_id
+          || trustedIdentity.host_installation_id !== identity.host_installation_id
+          || trustedIdentity.authenticated_account_id !== identity.authenticated_account_id
+          || trustedIdentity.root_id !== identity.root_id
+          || !validDigest(trustedIdentity.source_manifest_sha256)) {
+          throw new Error('HOST_ROOT_INVENTORY_IDENTITY_NOT_AUTHORIZED');
+        }
         const attestationIdentity = {
           adapter_id: identity.adapter_id,
           host_installation_id: identity.host_installation_id,
