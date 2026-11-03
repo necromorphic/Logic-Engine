@@ -254,6 +254,27 @@ test('Gateway snapshots its outer request envelope without invoking getters or P
   }
 });
 
+test('Gateway ignores unrelated protected-context metadata without reading it', async () => {
+  const fixture = await createFixture();
+  let getterCalls = 0;
+  try {
+    const request = {
+      ...validRequest('outer-request-extra-context'),
+      transport: () => Promise.resolve({ status: 200, body: 'accepted' }),
+      contentBlocks: [],
+    };
+    Object.defineProperty(request, 'laneB', {
+      enumerable: true, get() { getterCalls += 1; return []; },
+    });
+    const response = await MemoryDispatchGateway.prototype.dispatchProtectedRequest.call(fixture.gateway, request);
+    assert.equal(response.status, 200);
+    assert.equal(getterCalls, 0);
+    fixture.gateway.authorizeResponseWrite(request.requestId, () => undefined, { final: true });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Lane A nested accessors and proxies are rejected before dispatch without executing getters', async () => {
   const fixture = await createFixture();
   let getterCalls = 0;
