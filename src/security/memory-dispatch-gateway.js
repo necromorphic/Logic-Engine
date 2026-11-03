@@ -677,6 +677,16 @@ export class MemoryDispatchGateway {
         || !authority.enrolled.core || !authority.enrolled.provider) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
+      // Detect durable duplicates before consuming the one-shot NPC capability.
+      // The coordinator lease serializes this preflight with the ledger insert.
+      if (this.db.prepare(
+        'SELECT request_id FROM dispatch_ledger WHERE request_id=? LIMIT 1',
+      ).get(requestId)) throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
+      if (this.db.prepare(`
+        SELECT request_id FROM dispatch_ledger
+        WHERE request_digest=? AND status IN ('DISPATCH_STARTED','UNKNOWN')
+        LIMIT 1
+      `).get(requestDigest)) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
 
       // Consume the Core-issued one-shot capability under the shared lease.
       // A plain NPC projection is never accepted as dispatch authority.
