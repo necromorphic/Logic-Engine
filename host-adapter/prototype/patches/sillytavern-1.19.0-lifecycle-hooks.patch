@@ -2591,11 +2591,10 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,6 @@
+@@ -64,2 +72,5 @@
          for (const file of files) {
 +            if (hostAuthorityConfigured && file !== 'logic-engine-extension-gateway') {
-+                console.warn(`Skipping unreviewed server plugin "${file}" while Host authority is active.`);
-+                continue;
++                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
 +            }
              const pluginFilePath = path.join(pluginsPath, file);
 @@ -80,1 +92,4 @@
