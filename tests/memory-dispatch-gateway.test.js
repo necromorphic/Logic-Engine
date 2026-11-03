@@ -236,15 +236,14 @@ function makeTestNpcContext(request, generationRequest) {
     snapshot,
     lanes: {
       lane_a: {
-        lane: 'A', purpose: 'npc_turn_context', world_id: request.worldId,
-        actor_id: request.actorId, conversation_id: request.conversationId,
-        adapter_id: request.adapterId, recipient: 'model', snapshot, items: [],
+        lane: 'A', purpose: 'npc_turn_context',
+        authorization_ref: 'core-read-1',
+        visibility_authorization_ref: 'core-visibility-1',
+        items: [],
       },
       lane_b: {
         lane: 'B', core_purpose: 'npc_turn_context', provider_purpose: request.purpose,
-        world_id: request.worldId, actor_id: request.actorId,
-        conversation_id: request.conversationId, adapter_id: request.adapterId,
-        recipient: 'model', snapshot, status: 'ready',
+        status: 'ready', snapshot,
         admitted: laneBCandidates.map(({ record_ref, record_version }) => ({ record_ref, record_version })),
         candidates: laneBCandidates, reason: null,
       },
