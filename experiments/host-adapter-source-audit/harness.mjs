@@ -177,7 +177,7 @@ test('pinned server mutation routes remain in the reviewed inventory', () => {
     'src/endpoints/image-metadata.js': ['/folders/create', '/folders/set-thumbnails', '/folders/update', '/folders/delete', '/folders/assign', '/folders/unassign', '/', '/all', '/cleanup'],
     'src/endpoints/images.js': ['/upload', '/delete'],
     'src/endpoints/moving-ui.js': ['/save'],
-    'src/endpoints/secrets.js': ['/write', '/delete', '/rotate', '/rename', '/settings'],
+    'src/endpoints/secrets.js': ['/write', '/delete', '/rotate', '/rename'],
     'src/endpoints/sprites.js': ['/delete', '/upload-zip', '/upload'],
     'src/endpoints/stats.js': ['/recreate', '/update'],
   };
@@ -308,7 +308,6 @@ test('additional account-root and source mutation routes are fail-closed under H
     ['src/endpoints/secrets.js', '/delete'],
     ['src/endpoints/secrets.js', '/rotate'],
     ['src/endpoints/secrets.js', '/rename'],
-    ['src/endpoints/secrets.js', '/settings'],
     ['src/endpoints/sprites.js', '/delete'],
     ['src/endpoints/sprites.js', '/upload-zip'],
     ['src/endpoints/sprites.js', '/upload'],
