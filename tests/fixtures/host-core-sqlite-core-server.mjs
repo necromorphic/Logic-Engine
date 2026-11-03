@@ -126,6 +126,32 @@ try {
     adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
     memoryNpcConsumers,
     hostAssertionNonceStore: nonceStore,
+    resolveHostLifecycleIdentity: input => ({
+      authorized: true,
+      adapter_id: ADAPTER_ID,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      root_id: 'a'.repeat(64),
+      authority_id: 'host-core-sqlite-e2e-authority',
+      authority_status: 'REVIEW_ONLY',
+      generation: 1,
+      snapshot_fingerprint: 'b'.repeat(64),
+    }),
+    resolveHostMemoryIdentity: input => ({
+      authorized: true,
+      adapter_id: ADAPTER_ID,
+      host_installation_id: input.host_installation_id,
+      authenticated_account_id: input.authenticated_account_id,
+      host_session_id: input.host_session_id,
+      conversation_uuid: input.conversation_uuid,
+      root_id: 'a'.repeat(64),
+      authority_id: 'host-core-sqlite-e2e-authority',
+      authority_status: 'AUTHORITATIVE_COMPLETE',
+      generation: 1,
+      snapshot_fingerprint: 'b'.repeat(64),
+    }),
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
