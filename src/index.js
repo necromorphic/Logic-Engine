@@ -208,13 +208,16 @@ function bindHostLifecycleAuthority(resolved) {
       generation: hostLifecycleAuthorityGeneration,
     });
   } catch { return { authorized: false }; }
-  if (snapshot?.status !== 'INTEGRITY_OK' || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+  if (snapshot?.status !== 'INTEGRITY_OK'
+    || snapshot.authority_status !== 'AUTHORITATIVE_COMPLETE'
+    || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
     return { authorized: false };
   }
   return {
     ...resolved,
     authority_id: hostLifecycleAuthorityId.trim(),
     generation: hostLifecycleAuthorityGeneration,
+    authority_status: snapshot.authority_status,
     snapshot_fingerprint: snapshot.snapshot_fingerprint,
   };
 }
