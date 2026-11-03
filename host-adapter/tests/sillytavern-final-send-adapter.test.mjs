@@ -39,7 +39,7 @@ const expectedRoutes = Object.freeze({
   SILICONFLOW: 'siliconflow',
   WORKERS_AI: 'workers-ai',
 });
-const requestInit = { method: 'POST', body: '{"model":"test-model"}', headers: {} };
+const requestInit = { method: 'POST', body: '{"model":"test-model","messages":[{"role":"user","content":"hello"}]}', headers: {} };
 
 function createAdapter({
   resolveProtectedMemory,
@@ -125,6 +125,8 @@ test('CometAPI is registered and protected generation reaches the sole Gateway',
     sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    contentBlocks: [{ epistemic_kind: 'acquired_report', evidence_assessment: 'supported',
+      content: { note: 'The bridge is closed.' } }],
   };
   const gatewayRoutes = [];
   let transportCalls = 0;
@@ -215,6 +217,8 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
       sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
       candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
         source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+      contentBlocks: [{ epistemic_kind: 'acquired_report', evidence_assessment: 'supported',
+        content: { note: 'The bridge is closed.' } }],
     }),
     gateway: {
       dispatchProtectedRequest(request) {
@@ -231,7 +235,10 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
       senderRoute: adapter.resolveSenderRoute(request, hostRoute),
       hostRoute,
       endpointUrl: 'https://provider.example/generate',
-      requestInit,
+      requestInit: {
+        ...requestInit,
+        body: hostRoute === 'novelai-text' ? JSON.stringify({ input: 'hello' }) : JSON.stringify({ prompt: 'hello' }),
+      },
       stream: false,
       transport: async () => ({ status: 200 }),
     });
