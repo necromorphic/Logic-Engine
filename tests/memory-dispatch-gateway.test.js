@@ -1823,3 +1823,151 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     await fixture.close();
   }
 });
+
+
+test('protected dispatch requires an in-process one-shot NPC handoff', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('missing-npc-handoff');
+    delete request.npcContextHandoff;
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+    const noGenerationRequest = validRequest('missing-generation-request');
+    delete noGenerationRequest.generationRequest;
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(noGenerationRequest), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('a consumed NPC handoff cannot be reused after a pre-dispatch Provider denial', async () => {
+  const fixture = await createFixture({ initialProviderGrant: false });
+  try {
+    const request = validRequest('npc-handoff-one-shot');
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+    fixture.setProviderGranted(true);
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke before DISPATCH_STARTED blocks provider transport', async () => {
+  const fixture = await createFixture();
+  try {
+    fixture.setLaneAReady(false);
+    await assert.rejects(() => dispatchAndRelease(fixture.gateway, validRequest('lane-a-revoked-before-send')), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke during model execution blocks final response release', async () => {
+  let fixture;
+  fixture = await createFixture({
+    sendUpstream: async () => {
+      fixture.setLaneAReady(false);
+      return { status: 200, body: 'upstream-complete' };
+    },
+  });
+  try {
+    const request = validRequest('lane-a-revoked-during-send');
+    await assert.rejects(
+      () => dispatchAndRelease(fixture.gateway, request),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    assert.equal(fixture.calls.length, 1);
+    const row = fixture.gateway.db.prepare('SELECT status,outcome_code FROM dispatch_ledger WHERE request_id=?').get(request.requestId);
+    assert.equal(row.status, 'UNKNOWN');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Gateway rejects a body that does not contain the exact admitted NPC context', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('npc-body-mismatch', {
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'no NPC context' }] }),
+    });
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Gateway rejects a Host prompt projection that differs from the consumed NPC context', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('npc-projection-mismatch', {
+      contentBlocks: [{
+        epistemic_kind: 'acquired_report',
+        evidence_assessment: 'supported',
+        content: { note: 'forged projection' },
+      }],
+    });
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Gateway rejects NPC handoffs bound to another conversation or Provider candidate set', async () => {
+  const fixture = await createFixture();
+  try {
+    const original = validRequest('npc-scope-mismatch');
+    const wrongConversation = validRequest('npc-scope-mismatch', {
+      conversationId: 'different-conversation',
+      npcContextHandoff: original.npcContextHandoff,
+      generationRequest: original.generationRequest,
+    });
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(wrongConversation), /MEMORY_DISPATCH_NOT_READY/);
+
+    const candidateBase = validRequest('npc-candidate-mismatch');
+    const wrongCandidates = validRequest('npc-candidate-mismatch', {
+      candidates: [{
+        record_ref: 'different-record',
+        record_version: 'record-version-3',
+        authorization_generation: 1,
+        source_kind: 'canonical_entity',
+        source_entity_id: 'entity-42',
+        source_version: 'version-7',
+      }],
+      npcContextHandoff: candidateBase.npcContextHandoff,
+      generationRequest: candidateBase.generationRequest,
+    });
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(wrongCandidates), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Gateway fails closed while Lane A facts have no approved prompt projection', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('npc-lane-a-projection-pending');
+    request.npcContextHandoff.context.lanes.lane_a.items.push({
+      acquisition_id: 'acquisition-1',
+      fact_id: 'fact-1',
+      predicate: 'location',
+      value: 'Kamurocho',
+      acquisition_kind: 'direct_observation',
+      provenance_ref: 'event-1',
+      provenance_digest: 'e'.repeat(64),
+      acquisition_authorization_ref: 'authorization-1',
+    });
+    await assert.rejects(() => fixture.gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
