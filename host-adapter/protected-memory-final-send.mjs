@@ -11,7 +11,7 @@ import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-
 export { PROTECTED_MEMORY_SENDER_ROUTES };
 
 const validRoute = (route) => PROTECTED_MEMORY_SENDER_ROUTES.includes(route);
-const NON_CHAT_ROUTES = new Set(['text-completions', 'kobold', 'novelai-text']);
+const NON_CHAT_ROUTES = new Set(['text-completions', 'kobold', 'novelai-text', 'horde-text']);
 const HOST_ROUTE_BY_SENDER = new Map(PROTECTED_MEMORY_SENDER_ROUTES.map((senderRoute) => [
   senderRoute,
   NON_CHAT_ROUTES.has(senderRoute) ? senderRoute : 'chat-completions',
