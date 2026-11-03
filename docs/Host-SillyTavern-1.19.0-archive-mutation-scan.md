@@ -61,3 +61,7 @@ This is deliberately a fail-closed interim contract: it prevents unreceipted acc
 For each candidate route, record: (1) exact resolved write targets, (2) whether the target is inside the enrolled account root or the SillyTavern installation/global root, (3) whether the route is receipted, blocked, or invalidates source authority, and (4) a pinned-source test asserting that disposition. Do not turn this candidate scan into a blanket allowlist.
 
 **Acceptance consequence:** the source-completeness attestation producer must remain disabled until every in-scope route has an explicit disposition and the runtime source identity check covers the installed route handlers and plugin/extension mutation boundary.
+
+## CI regression guard added
+
+The pinned source-audit harness now recursively scans `src/endpoints/` for direct filesystem mutation primitives (write, append, copy/cp, rename, unlink/rm, directory creation/removal, truncate, and write streams). Any endpoint module containing one of these primitives but absent from the reviewed `mutationPaths` inventory fails the source audit. The module must then be added to the source manifest and given an explicit receipted, blocked, or out-of-root disposition. This is a candidate-discovery guard, not a substitute for reviewing the resolved target path and route middleware.
