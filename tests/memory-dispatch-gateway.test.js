@@ -1194,6 +1194,34 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('pre-aborted Host generation is rejected before durable start or upstream egress', async () => {
+  const fixture = await createFixture();
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('pre-aborted-generation', {
+        signal: controller.signal,
+      })),
+      /MEMORY_DISPATCH_CANCELLED_BEFORE_START/,
+    );
+    assert.equal(fixture.calls.length, 0, 'pre-cancelled generation must not open upstream transport');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE request_id=?')
+          .get('pre-aborted-generation').n,
+        0,
+        'pre-cancelled generation must not persist DISPATCH_STARTED',
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('cancellation after dispatch-start records UNKNOWN and blocks every retry', async () => {
   const controller = new AbortController();
   let sends = 0;
