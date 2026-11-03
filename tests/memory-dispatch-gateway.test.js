@@ -213,6 +213,100 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
+test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', async () => {
+  const fixture = await createFixture();
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-before-dispatch', {
+      laneA,
+      revalidateLaneA: () => ({ status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
+    assert.equal(fixture.calls.length, 0);
+    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM memory_dispatch_ledger').get().count, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke during model execution blocks final response release', async () => {
+  let laneAReads = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => Promise.resolve({ status: 200, body: 'model-result' }),
+  });
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-during-inference', {
+      laneA,
+      revalidateLaneA: () => (++laneAReads === 1
+        ? { status: 'ready' }
+        : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
+    assert.equal(laneAReads, 2);
+    const row = fixture.gateway.db.prepare(
+      'SELECT dispatch_state, outcome FROM memory_dispatch_ledger WHERE request_id=?',
+    ).get(request.requestId);
+    assert.equal(row.dispatch_state, 'DISPATCH_STARTED');
+    assert.equal(row.outcome, 'UNKNOWN');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Lane A revoke between streamed response writes blocks the next chunk', async () => {
+  let laneAReads = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => Promise.resolve({ status: 200, body: 'stream-result' }),
+  });
+  try {
+    const laneA = {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-auth', visibility_authorization_ref: 'core-visibility-auth',
+      items: [{ acquisition_id: 'acq-1', fact_id: 'fact-1', subject_ref: 'npc-1',
+        predicate: 'knows', value: 'secret', acquisition_kind: 'author_initial',
+        provenance_ref: 'source-1', provenance_digest: digestA,
+        acquisition_authorization_ref: 'acq-auth-1', source_event_ids: ['event-1'] }],
+    };
+    const request = validRequest('lane-a-revoked-between-chunks', {
+      stream: true,
+      laneA,
+      revalidateLaneA: () => (++laneAReads <= 2
+        ? { status: 'ready' }
+        : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
+    });
+    const response = await fixture.gateway.dispatchProtectedRequest(request);
+    let writes = 0;
+    fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return true; }, { final: false });
+    assert.equal(writes, 1);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return true; }, { final: false }),
+      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/,
+    );
+    assert.equal(writes, 1);
+    assert.equal(laneAReads, 3);
+    assert.equal(response.status, 200);
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('dispatch ledger explicitly uses SQLite FULL synchronous durability', async () => {
   const fixture = await createFixture();
   try {
