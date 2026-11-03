@@ -60,6 +60,28 @@ test('logout revocation signs the exact adapter/installation/account/session tup
   assert.equal(body.signature, createHmac('sha256', ADAPTER_TOKEN).update(proof).digest('hex'));
 });
 
+test('remote HTTPS revocation endpoints remain supported', async () => {
+  let target;
+  const revoke = createHostSessionRevocationClient({
+    env: {
+      LOGIC_ENGINE_CORE_URL: 'https://core.example.com:8787',
+      LOGIC_ENGINE_API_TOKEN: API_TOKEN,
+      LOGIC_ENGINE_ADAPTER_ID: 'st-host-adapter',
+      LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
+    },
+    identityStore: {
+      async resolveAuthenticatedAccount() { return { host_installation_id: INSTALLATION, authenticated_account_id: ACCOUNT }; },
+      async assertOutsideRoot() {},
+    },
+    getDataRoot: () => '/srv/st-data',
+    now: () => 1_800_000_000_000,
+    createNonce: () => NONCE,
+    fetchImpl: async (url, options) => { target = { url: String(url), options }; return { status: 204 }; },
+  });
+  assert.equal(await revoke({ session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice' } }, 'logout'), true);
+  assert.equal(target.url, 'https://core.example.com:8787/v1/host/session/revoke');
+});
+
 test('remote HTTP revocation endpoints are rejected before sending credentials', async () => {
   let calls = 0;
   const revoke = createHostSessionRevocationClient({
