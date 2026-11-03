@@ -336,6 +336,9 @@ test('dispatch handoff exposes a Lane B-only provider projection with exact sour
   const evidence = runtime.getLaneBDispatchEvidence(consumed.context, request);
   assert.equal(evidence.status, 'ready');
   assert.equal(evidence.lane, 'B');
+  assert.deepEqual({ ...evidence.provider_evidence_cursor }, {
+    data_version: 12, candidate_digest: 'b'.repeat(64),
+  });
   assert.deepEqual(evidence.sources, [{
     source_kind: 'canonical_entity',
     source_entity_id: 'source-1',
