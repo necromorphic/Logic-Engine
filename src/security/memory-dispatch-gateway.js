@@ -320,7 +320,9 @@ function assertNoHostMetadata(value, depth = 0) {
     if (typeof key !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
     const normalized = key.toLowerCase().replaceAll('-', '_');
     if (normalized.startsWith('logic_engine_') || normalized.startsWith('x_logic_engine_')
-      || normalized.startsWith('x_host_') || HOST_ONLY_BODY_KEYS.has(normalized)) {
+      || normalized.startsWith('x_host_') || normalized.startsWith('x_conversation_')
+      || normalized.startsWith('x_world_') || normalized.startsWith('x_actor_')
+      || normalized.startsWith('x_generation_') || HOST_ONLY_BODY_KEYS.has(normalized)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
