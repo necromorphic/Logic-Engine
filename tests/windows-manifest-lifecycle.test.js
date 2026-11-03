@@ -178,7 +178,7 @@ test('delete recovery retires the manifest record after a crash following namesp
   assert.equal(h.state.intent, null);
 });
 
-test('delete and recovery refuse a replacement file identity', async () => {
+test('delete refuses a replacement file identity before writing a mutation intent', async () => {
   const current = {
     kind: 'wal', identity: identity('5'), state: 'active', generation: 2,
   };
@@ -187,7 +187,30 @@ test('delete and recovery refuse a replacement file identity', async () => {
     files: new Map([[sidecarKey, { identity: identity('6') }]]),
   });
   await assert.rejects(h.coordinator.deleteSidecar('core', 'wal'), /differs from the active manifest/);
-  assert.ok(h.state.intent);
+  assert.equal(h.state.intent, null);
+  assert.equal(h.state.files.has(sidecarKey), true);
+  assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'active');
+});
+
+test('recovery refuses a replacement that appears after a durable delete intent', async () => {
+  const current = {
+    kind: 'wal', identity: identity('5'), state: 'active', generation: 2,
+  };
+  const h = makeHarness({
+    manifest: makeManifest([current], 2),
+    files: new Map([[sidecarKey, { identity: identity('6') }]]),
+  });
+  h.state.intent = {
+    schemaVersion: 1,
+    operationId: 'd'.repeat(32),
+    operation: 'delete-sidecar',
+    role: 'core',
+    kind: 'wal',
+    basename: 'core.sqlite-wal',
+    baseGeneration: 2,
+    targetGeneration: 3,
+    expectedIdentity: identity('5'),
+  };
   await assert.rejects(h.coordinator.reconcile(), /Pending delete target was replaced/);
   assert.equal(h.state.files.has(sidecarKey), true);
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'active');
