@@ -17,6 +17,7 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
 
   const preparedByRequest = new WeakMap();
   const seenRequests = new WeakSet();
+  const seenRequestMetadata = new WeakSet();
 
   async function prepare(hostRequest, hostResponse) {
     if (!hostRequest || typeof hostRequest !== 'object'
@@ -33,6 +34,10 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
         || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)) {
         return Object.freeze({ status: 'non_ready', reason: 'request_metadata_not_immutable' });
       }
+      if (seenRequestMetadata.has(requestMetadata)) {
+        return Object.freeze({ status: 'non_ready', reason: 'request_metadata_reused' });
+      }
+      seenRequestMetadata.add(requestMetadata);
       let prepared;
       try { prepared = await runtime.prepareForDispatch(requestMetadata); }
       catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
