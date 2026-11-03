@@ -16,3 +16,41 @@ test('every reviewed per-user mutation route and global Host guard is present in
   assert.match(coverage.source_files_sha256, /^[a-f0-9]{64}$/);
   assert.match(coverage.coverage_manifest_sha256, /^[a-f0-9]{64}$/);
 });
+
+import { hasPinnedPostRouteGuards } from '../server-plugin/st-mutation-route-contract.mjs';
+
+test('mutation route coverage checks every declaration, not only the first matching route', () => {
+  assert.equal(
+    hasPinnedPostRouteGuards(
+      "router.post('/delete', hostUnsupportedMutationGuard, handler);",
+      '/delete',
+      ['hostUnsupportedMutationGuard'],
+    ),
+    true,
+  );
+
+  assert.equal(
+    hasPinnedPostRouteGuards(
+      "router.post('/delete', hostUnsupportedMutationGuard, handler);\\nrouter.post('/delete', handler);",
+      '/delete',
+      ['hostUnsupportedMutationGuard'],
+    ),
+    false,
+    'a later unguarded duplicate must invalidate route coverage',
+  );
+
+  assert.equal(
+    hasPinnedPostRouteGuards(
+      "router.post('/delete', hostUnsupportedMutationGuard, first);\\nrouter.post(\\"/delete\\", hostUnsupportedMutationGuard, second);",
+      '/delete',
+      ['hostUnsupportedMutationGuard'],
+    ),
+    true,
+    'every duplicate declaration is checked independently',
+  );
+});
+
+test('mutation route coverage rejects missing routes and incomplete guard sets', () => {
+  assert.equal(hasPinnedPostRouteGuards("router.get('/delete', handler);", '/delete', ['guard']), false);
+  assert.equal(hasPinnedPostRouteGuards("router.post('/delete', guardA, handler);", '/delete', ['guardA', 'guardB']), false);
+});
