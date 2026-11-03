@@ -131,6 +131,154 @@ static int le_store_is_ntfs(HANDLE directory) {
   return 1;
 }
 
+static int le_store_sid_trusted(PSID sid, PSID service_sid,
+    PSID system_sid, PSID admins_sid, PSID trusted_installer_sid) {
+  return EqualSid(sid, service_sid) || EqualSid(sid, system_sid)
+      || EqualSid(sid, admins_sid) || EqualSid(sid, trusted_installer_sid);
+}
+
+/* Parent directories may be shared system locations, but no untrusted SID
+ * may create/delete children, rewrite the DACL, or take ownership there. */
+static int le_store_parent_acl_safe(HANDLE directory) {
+  HANDLE token = NULL;
+  TOKEN_USER *user = NULL;
+  DWORD token_bytes = 0;
+  PSECURITY_DESCRIPTOR descriptor = NULL;
+  PSID owner = NULL, service_sid = NULL, system_sid = NULL;
+  PSID admins_sid = NULL, trusted_installer_sid = NULL;
+  PACL dacl = NULL;
+  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  DWORD revision = 0, index;
+  BOOL valid = FALSE;
+  DWORD mutation_mask = FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD
+      | DELETE | WRITE_DAC | WRITE_OWNER | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA
+      | GENERIC_WRITE | GENERIC_ALL;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
+  GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
+  if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || !token_bytes || token_bytes > 65536) goto done;
+  user = (TOKEN_USER *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, token_bytes);
+  if (!user || !GetTokenInformation(token, TokenUser, user, token_bytes, &token_bytes)) goto done;
+  service_sid = user->User.Sid;
+  if (!ConvertStringSidToSidW(L"S-1-5-18", &system_sid)
+      || !ConvertStringSidToSidW(L"S-1-5-32-544", &admins_sid)
+      || !ConvertStringSidToSidW(L"S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+          &trusted_installer_sid)) goto done;
+  if (GetSecurityInfo(directory, SE_FILE_OBJECT,
+      OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+      &owner, NULL, &dacl, NULL, &descriptor) != ERROR_SUCCESS) goto done;
+  if (!GetSecurityDescriptorControl(descriptor, &control, &revision)
+      || (control & SE_DACL_PRESENT) == 0 || !dacl
+      || !le_store_sid_trusted(owner, service_sid, system_sid, admins_sid, trusted_installer_sid)) goto done;
+  for (index = 0; index < dacl->AceCount; ++index) {
+    ACE_HEADER *header = NULL;
+    if (!GetAce(dacl, index, (LPVOID *)&header)) goto done;
+    if (header->AceType == ACCESS_ALLOWED_ACE_TYPE) {
+      ACCESS_ALLOWED_ACE *ace = (ACCESS_ALLOWED_ACE *)header;
+      PSID sid = (PSID)&ace->SidStart;
+      if (!le_store_sid_trusted(sid, service_sid, system_sid, admins_sid, trusted_installer_sid)
+          && (ace->Mask & mutation_mask) != 0) goto done;
+    } else if (header->AceType != ACCESS_DENIED_ACE_TYPE) {
+      goto done;
+    }
+  }
+  valid = TRUE;
+done:
+  if (descriptor) LocalFree(descriptor);
+  if (system_sid) LocalFree(system_sid);
+  if (admins_sid) LocalFree(admins_sid);
+  if (trusted_installer_sid) LocalFree(trusted_installer_sid);
+  if (user) HeapFree(GetProcessHeap(), 0, user);
+  if (token) CloseHandle(token);
+  if (!valid) SetLastError(ERROR_ACCESS_DENIED);
+  return valid ? 1 : 0;
+}
+
+static int le_store_open_parent_chain(const wchar_t *path,
+    HANDLE *parent_out, wchar_t **basename_out) {
+  wchar_t root[8], *copy = NULL, *last_separator, *cursor;
+  HANDLE current = INVALID_HANDLE_VALUE;
+  size_t length, basename_length;
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  if (!path || !parent_out || !basename_out
+      || wcslen(path) < 4
+      || !((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z'))
+      || path[1] != L':' || path[2] != L'\\') {
+    SetLastError(ERROR_INVALID_NAME);
+    return 0;
+  }
+  *parent_out = INVALID_HANDLE_VALUE;
+  *basename_out = NULL;
+  length = wcslen(path);
+  if (length > 32760) { SetLastError(ERROR_FILENAME_EXCED_RANGE); return 0; }
+  copy = (wchar_t *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (length + 1) * sizeof(wchar_t));
+  if (!copy) return 0;
+  wcscpy_s(copy, length + 1, path);
+  last_separator = wcsrchr(copy, L'\\');
+  if (!last_separator || !last_separator[1]) { SetLastError(ERROR_INVALID_NAME); goto fail; }
+  basename_length = wcslen(last_separator + 1);
+  if (basename_length > 255 || !logic_engine_win_valid_basename(last_separator + 1)) {
+    SetLastError(ERROR_INVALID_NAME);
+    goto fail;
+  }
+  *basename_out = (wchar_t *)HeapAlloc(GetProcessHeap(), 0, (basename_length + 1) * sizeof(wchar_t));
+  if (!*basename_out) goto fail;
+  wcscpy_s(*basename_out, basename_length + 1, last_separator + 1);
+  *last_separator = L'\0';
+  root[0] = L'\\'; root[1] = L'\\'; root[2] = L'?'; root[3] = L'\\';
+  root[4] = copy[0]; root[5] = L':'; root[6] = L'\\'; root[7] = L'\0';
+  current = CreateFileW(root,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (current == INVALID_HANDLE_VALUE
+      || !GetFileInformationByHandleEx(current, FileAttributeTagInfo, &tag, sizeof(tag))
+      || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+      || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+      || !le_store_parent_acl_safe(current)) goto fail;
+  cursor = copy + 3;
+  while (*cursor) {
+    wchar_t *end;
+    wchar_t saved;
+    HANDLE next;
+    while (*cursor == L'\\') ++cursor;
+    if (!*cursor) break;
+    end = wcschr(cursor, L'\\');
+    saved = end ? *end : L'\0';
+    if (end) *end = L'\0';
+    if (!logic_engine_win_valid_basename(cursor)) {
+      if (end) *end = saved;
+      SetLastError(ERROR_ACCESS_DENIED);
+      goto fail;
+    }
+    next = logic_engine_win_open_relative(current, cursor,
+        FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
+    if (end) *end = saved;
+    if (next == INVALID_HANDLE_VALUE
+        || !GetFileInformationByHandleEx(next, FileAttributeTagInfo, &tag, sizeof(tag))
+        || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+        || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+        || !le_store_parent_acl_safe(next)) {
+      if (next != INVALID_HANDLE_VALUE) CloseHandle(next);
+      goto fail;
+    }
+    CloseHandle(current);
+    current = next;
+    if (!end) break;
+    cursor = end + 1;
+  }
+  HeapFree(GetProcessHeap(), 0, copy);
+  *parent_out = current;
+  return 1;
+fail:
+  if (current != INVALID_HANDLE_VALUE) CloseHandle(current);
+  if (*basename_out) HeapFree(GetProcessHeap(), 0, *basename_out);
+  *basename_out = NULL;
+  if (copy) HeapFree(GetProcessHeap(), 0, copy);
+  return 0;
+}
+
 int le_win_store_open(
     LE_WIN_MANIFEST_STORE *store,
     const wchar_t *configured_directory,
@@ -138,7 +286,8 @@ int le_win_store_open(
     LE_STORE_VALIDATE validate_intent,
     void *validator_context) {
   HANDLE directory = INVALID_HANDLE_VALUE;
-  LogicEngineWinDirectoryAnchor anchor;
+  HANDLE parent = INVALID_HANDLE_VALUE;
+  wchar_t *basename = NULL;
   FILE_ATTRIBUTE_TAG_INFO tag;
   if (!store || !configured_directory || !configured_directory[0]
       || !validate_manifest || !validate_intent) {
@@ -148,15 +297,14 @@ int le_win_store_open(
   ZeroMemory(store, sizeof(*store));
   store->directory = INVALID_HANDLE_VALUE;
   store->lock = INVALID_HANDLE_VALUE;
-  ZeroMemory(&anchor, sizeof(anchor));
-  anchor.parent = INVALID_HANDLE_VALUE;
-  if (!logic_engine_win_anchor_path(configured_directory, &anchor)) return 0;
-  directory = logic_engine_win_open_relative(anchor.parent, anchor.basename,
+  if (!le_store_open_parent_chain(configured_directory, &parent, &basename)) return 0;
+  directory = logic_engine_win_open_relative(parent, basename,
       FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD |
       FILE_READ_ATTRIBUTES | READ_CONTROL | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
       FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
-  logic_engine_win_anchor_close(&anchor);
+  CloseHandle(parent);
+  HeapFree(GetProcessHeap(), 0, basename);
   if (directory == INVALID_HANDLE_VALUE) return 0;
   if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
