@@ -17,6 +17,7 @@ const ADAPTER_ID = 'st-host-cross-process';
 const SESSION = '33333333-3333-4333-8333-333333333333';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const REQUEST_ID = '55555555-5555-4555-8555-555555555555';
+const SOURCE_MANIFEST_SHA256 = 'c'.repeat(64);
 const CORE_SERVER_FIXTURE = fileURLToPath(new URL('./fixtures/host-core-sqlite-core-server.mjs', import.meta.url));
 
 function responseRecorder() {
@@ -105,25 +106,49 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
       LOGIC_ENGINE_HOST_BUILD_SHA: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
     };
     const authoritativeInventory = {
-      filesystem: { status: 'complete', entries: [] },
+      filesystem: {
+        status: 'complete', entries: [], snapshot_id: 'cross-process-vss-snapshot',
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
-        status: 'AUTHORITATIVE_COMPLETE',
-        files: [{ logical_identity: { conversation_uuid: CONVERSATION } }],
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        authority: 'NON_AUTHORITATIVE',
+        host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+        scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
+        historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
+        logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
+        files: [{
+          logical_identity: {
+            conversation_uuid: CONVERSATION,
+            identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+          },
+        }],
+        blockers: [],
+        snapshot_id: 'cross-process-vss-snapshot',
+        snapshot_provider: 'windows-vss-client-accessible',
+        snapshot_consistency: 'VSS_POINT_IN_TIME_READ_ONLY',
       },
-      authority: {
-        status: 'AUTHORITATIVE_COMPLETE',
-        manifest_sha256: 'a'.repeat(64),
-      },
+      authority: { status: 'AUTHORITATIVE_COMPLETE', manifest_sha256: 'a'.repeat(64) },
     };
     const hostAdapter = createSillyTavernHostAdapter({
       env,
       enumerate: async () => structuredClone(authoritativeInventory),
       fetchImpl: fetch,
+      verifySourceIdentity: async () => ({
+        status: 'CURRENT_IDENTITIES_VERIFIED',
+        manifest_sha256: SOURCE_MANIFEST_SHA256,
+        patch_blob_sha: 'd'.repeat(64),
+        host_handler_blob_sha: 'e'.repeat(40),
+      }),
       persistRootInventory: async () => ({
         status: 'AUTHORITATIVE_COMPLETE',
         integrity_status: 'INTEGRITY_OK',
         sequence: 1,
         manifest_sha256: 'b'.repeat(64),
+        source_manifest_sha256: SOURCE_MANIFEST_SHA256,
+        attestation_sha256: 'f'.repeat(64),
+        lifecycle_sequence: 1,
+        lifecycle_head_sha256: '1'.repeat(64),
       }),
     });
     const request = {
