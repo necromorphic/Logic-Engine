@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import { HostSessionRevocationReader } from '../src/application/host-assertion-nonce-store.js';
 import {
   parseHostRootIdentityRegistry,
   resolveRegisteredHostRootIdentity,
@@ -74,14 +75,21 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
     || './data/logic-engine-memory-dispatch.sqlite');
   const hostLifecyclePath = resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
     || './data/logic-engine-host-lifecycle.sqlite');
+  const assertionNonceRaw = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH;
+  if (typeof assertionNonceRaw !== 'string' || !isAbsolute(assertionNonceRaw)) {
+    throw new Error('EMBEDDED_GATEWAY_HOST_SESSION_REVOCATION_DB_REQUIRED');
+  }
+  const assertionNoncePath = resolve(assertionNonceRaw);
 
   for (const [leftName, left] of [
     ['Core', corePath], ['Provider', providerPath], ['Coordinator', coordinatorPath],
     ['Dispatch ledger', ledgerPath], ['Host lifecycle', hostLifecyclePath],
+    ['Host assertion/revocation ledger', assertionNoncePath],
   ]) {
     for (const [rightName, right] of [
       ['Core', corePath], ['Provider', providerPath], ['Coordinator', coordinatorPath],
       ['Dispatch ledger', ledgerPath], ['Host lifecycle', hostLifecyclePath],
+      ['Host assertion/revocation ledger', assertionNoncePath],
     ]) {
       if (leftName < rightName && aliasesSameFile(left, right)) {
         throw new Error('EMBEDDED_GATEWAY_DATABASE_ALIAS: ' + leftName + '/' + rightName);
@@ -119,6 +127,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
   let store;
   let providerAdapter;
   let hostJournal;
+  let hostSessionRevocationReader;
   let gateway;
   try {
     // This Core connection is read-only. It refuses an unaccepted head or an
@@ -158,9 +167,11 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       throw new Error('EMBEDDED_GATEWAY_NPC_CONTEXT_RUNTIME_UNAVAILABLE');
     }
 
-    // Host root inventory is currently review-only. The read-only journal
-    // adapter intentionally returns NON_READY until Host publishes an
-    // authoritative-complete root inventory contract.
+    // Host root inventory is read-only here. Its signed attestation must match
+    // the deployment-owned root registry; session revocation is read from the
+    // separate Core nonce ledger under the same Coordinator ordering boundary.
+    hostSessionRevocationReader = new HostSessionRevocationReader({ path: assertionNoncePath });
+
     hostJournal = new HostLifecycleJournal({
       path: hostLifecyclePath,
       coordinatorPath,
@@ -193,6 +204,17 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       readCoreEvidence: input => providerAdapter.consumer.readDispatchEvidenceSync(input),
       readProviderEvidence: input => providerAdapter.readDispatchEvidenceSync(input),
       readHostEvidence: ({ hostContext, coordinatorLease }) => {
+        try {
+          if (hostSessionRevocationReader.isSessionRevoked(adapterId, {
+            host_installation_id: hostContext.host_installation_id,
+            authenticated_account_id: hostContext.authenticated_account_id,
+            host_session_id: hostContext.host_session_id,
+          })) {
+            return { status: 'NON_READY', reason: 'HOST_SESSION_REVOKED' };
+          }
+        } catch {
+          return { status: 'NON_READY', reason: 'HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE' };
+        }
         if (typeof hostAuthorityId !== 'string' || !hostAuthorityId.trim()
           || !Number.isSafeInteger(hostAuthorityGeneration) || hostAuthorityGeneration < 1) {
           return { status: 'NON_READY', reason: 'HOST_LIFECYCLE_AUTHORITY_UNCONFIGURED' };
@@ -221,6 +243,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       engine,
       store,
       hostJournal,
+      hostSessionRevocationReader,
       close() {
         try { gateway?.close?.(); } finally {
           try { hostJournal?.close?.(); } finally {
@@ -232,6 +255,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
   } catch (error) {
     try { gateway?.close?.(); } catch {}
     try { hostJournal?.close?.(); } catch {}
+    try { hostSessionRevocationReader?.close?.(); } catch {}
     try { providerAdapter?.close?.(); } catch {}
     try { store?.close?.(); } catch {}
     throw error;
