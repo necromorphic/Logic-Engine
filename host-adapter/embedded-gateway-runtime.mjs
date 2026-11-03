@@ -203,6 +203,7 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       readToken,
       readCoreEvidence: input => providerAdapter.consumer.readDispatchEvidenceSync(input),
       readProviderEvidence: input => providerAdapter.readDispatchEvidenceSync(input),
+      npcContextRuntime: providerAdapter.npcGenerationContext,
       readHostEvidence: ({ hostContext, coordinatorLease }) => {
         try {
           if (hostSessionRevocationReader.isSessionRevoked(adapterId, {
