@@ -2561,7 +2561,7 @@ new file mode 100644
 diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 --- a/src/plugin-loader.js
 +++ b/src/plugin-loader.js
-@@ -42,3 +42,4 @@
+@@ -42,4 +42,5 @@
          const exitHooks = [];
          const emptyFn = () => { };
 +        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
