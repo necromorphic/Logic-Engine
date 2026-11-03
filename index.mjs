@@ -68,11 +68,24 @@ function buildProtectedMemory(request, prepared, npcBridge) {
   // Lane A and Lane B remain distinct in the provider request. Final-Send
   // serializes each lane under its own label and preserves Lane A provenance.
 
-  const contentBlocks = laneBContext.candidates.map(candidate => Object.freeze({
-    epistemic_kind: candidate.epistemic_kind,
-    evidence_assessment: candidate.evidence_assessment,
-    content: candidate.content,
-  }));
+  const contentBlocks = [];
+  for (let index = 0; index < laneBContext.candidates.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(laneBContext.candidates, String(index));
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return undefined;
+    const candidate = descriptor.value;
+    if (!candidate || typeof candidate !== 'object') return undefined;
+    const epistemic = Object.getOwnPropertyDescriptor(candidate, 'epistemic_kind');
+    const assessment = Object.getOwnPropertyDescriptor(candidate, 'evidence_assessment');
+    const content = Object.getOwnPropertyDescriptor(candidate, 'content');
+    if (!epistemic || !Object.hasOwn(epistemic, 'value')
+      || !assessment || !Object.hasOwn(assessment, 'value')
+      || !content || !Object.hasOwn(content, 'value')) return undefined;
+    contentBlocks[contentBlocks.length] = Object.freeze({
+      epistemic_kind: epistemic.value,
+      evidence_assessment: assessment.value,
+      content: content.value,
+    });
+  }
 
   // A complete, revalidated empty Lane A + Lane B is explicitly unprotected.
   // Any incomplete or unknown state above returns undefined and is terminal.
