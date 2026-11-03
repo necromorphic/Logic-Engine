@@ -370,6 +370,33 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(identityResponse.statusCode, 200);
   assert.equal(identityResponse.payload.identity_source, 'SERVER_PERSISTED_OPAQUE_IDENTITY');
 
+  // ST /users-private/logout clears the signed session object. A subsequent
+  // login starts a new ST session and must not reuse the prior Host session ID.
+  const logoutRequest = {
+    user: request.user,
+    session: {
+      handle: ACCOUNT_HANDLE,
+      logicEngineSessionId: sessionResponse.payload.host_session_id,
+      logicEngineSessionHandle: ACCOUNT_HANDLE,
+    },
+  };
+  const beforeLogout = responseRecorder();
+  adapter.session(logoutRequest, beforeLogout);
+  assert.equal(beforeLogout.statusCode, 200);
+  assert.equal(beforeLogout.payload.host_session_id, sessionResponse.payload.host_session_id);
+  logoutRequest.session.handle = null;
+  logoutRequest.session.csrfToken = null;
+  logoutRequest.session.version = null;
+  logoutRequest.session = null;
+  const loggedOut = responseRecorder();
+  adapter.session(logoutRequest, loggedOut);
+  assert.equal(loggedOut.statusCode, 403);
+  const reloginRequest = { user: request.user, session: { handle: ACCOUNT_HANDLE } };
+  const relogin = responseRecorder();
+  adapter.session(reloginRequest, relogin);
+  assert.equal(relogin.statusCode, 200);
+  assert.notEqual(relogin.payload.host_session_id, sessionResponse.payload.host_session_id);
+
   const conversationId = sessionResponse.payload.host_session_id + ':'
     + identityResponse.payload.host_installation_id + ':' + UUID;
   const worldBinding = await post(coreUrl + '/v1/host-conversation-bindings', adminHeaders, {
