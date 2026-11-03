@@ -115,14 +115,14 @@ const validText = (value, max = 200) => {
 function canonicalPath(path) {
   const absolute = resolve(path);
   let candidate = absolute;
-  const suffix = [];
+  let suffix = '';
   while (!existsSync(candidate)) {
     const parent = dirname(candidate);
     if (parent === candidate) throw new TypeError('Cannot resolve dispatch storage path.');
-    suffix.unshift(candidate.slice(parent.length).replace(/^[/\\\\]+/, ''));
+    suffix = candidate.slice(parent.length) + suffix;
     candidate = parent;
   }
-  return resolve(realpathSync(candidate), ...suffix);
+  return resolve(realpathSync(candidate) + suffix);
 }
 
 export function openReadOnlySqliteDatabase(path) {
@@ -485,11 +485,11 @@ function assertSourcesMatchCandidates(sources, candidates) {
     const key = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
     if (seen.has(key)) continue;
     seen.add(key);
-    derived.push({
+    derived[derived.length] = {
       source_kind: candidate.source_kind,
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
-    });
+    };
   }
   if (JSON.stringify(normalizeSources(derived)) !== JSON.stringify(sources)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
