@@ -143,6 +143,30 @@ test('Node 22.13 node:sqlite keeps a loadable default VFS registered after boots
       activatedManifestDb.close();
     }
 
+    const incompleteManifestDbPath = join(directory, 'manifest-incomplete.sqlite');
+    writeFileSync(incompleteManifestDbPath, '');
+    const incompleteIdentity = captureIdentity(incompleteManifestDbPath);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_database_role_manifest(?, ?, ?, ?, ?, ?, ?) AS registered'
+    ).get(
+      incompleteManifestDbPath,
+      'manifest-incomplete',
+      incompleteIdentity.databaseIdentity.volumeSerial,
+      incompleteIdentity.databaseIdentity.fileId,
+      incompleteIdentity.parentIdentity.volumeSerial,
+      incompleteIdentity.parentIdentity.fileId,
+      path.win32.basename(incompleteManifestDbPath),
+    ).registered, 1);
+    assert.equal(roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_set_manifest_sidecar_count(?, ?) AS registered'
+    ).get('manifest-incomplete', 1n).registered, 1);
+    assert.throws(() => roleRegistrar.prepare(
+      'SELECT logic_engine_vfs_probe_activate_manifest_role(?) AS activated'
+    ).get('manifest-incomplete'),
+    'activation must reject a role whose declared sidecar records were not enrolled');
+    assert.throws(() => new DatabaseSync(incompleteManifestDbPath),
+      'a role with an incomplete sidecar set must remain unavailable');
+
     assert.throws(
       () => roleRegistrar.prepare(
         'SELECT logic_engine_vfs_probe_delete_registered_role(?)'
