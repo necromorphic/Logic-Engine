@@ -574,19 +574,23 @@ export class MemoryDispatchGateway {
       this.pendingReleases.set(requestId, releaseContext);
       if (signal) {
         signal.addEventListener('abort', () => {
-          let abortRelease = null;
-          try {
-            abortRelease = beginCoordinatorLock(this.coordinatorDb);
-            if (this.pendingReleases.get(requestId) === releaseContext) {
-              this.#recordOutcome(requestId, 'UNKNOWN', null);
-              this.pendingReleases.delete(requestId);
+          // Defer lock acquisition until the current synchronous Host write
+          // releases its Coordinator lease.
+          queueMicrotask(() => {
+            let abortRelease = null;
+            try {
+              abortRelease = beginCoordinatorLock(this.coordinatorDb);
+              if (this.pendingReleases.get(requestId) === releaseContext) {
+                this.#recordOutcome(requestId, 'UNKNOWN', null);
+                this.pendingReleases.delete(requestId);
+              }
+            } catch {
+              // A failed cancellation settlement remains DISPATCH_STARTED and is
+              // converted to UNKNOWN by durable startup recovery.
+            } finally {
+              try { abortRelease?.(); } catch {}
             }
-          } catch {
-            // A failed cancellation settlement remains DISPATCH_STARTED and is
-            // converted to UNKNOWN by durable startup recovery.
-          } finally {
-            try { abortRelease?.(); } catch {}
-          }
+          });
         }, { once: true });
       }
       finalResponseAllowed = true;
