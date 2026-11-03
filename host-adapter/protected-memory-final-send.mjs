@@ -215,18 +215,19 @@ function assertProtectedContext(context) {
     || typeof context.purpose !== 'string' || !context.purpose
     || typeof context.conversationId !== 'string' || !context.conversationId
     || typeof context.adapterId !== 'string' || !context.adapterId
-    || !context.npcContextHandoff || typeof context.npcContextHandoff !== 'object' || Array.isArray(context.npcContextHandoff)
+    || !context.npcContextHandoff || typeof context.npcContextHandoff !== 'object'
+    || Array.isArray(context.npcContextHandoff)
     || !context.generationRequest || typeof context.generationRequest !== 'object'
     || Array.isArray(context.generationRequest)
     || Object.keys(context.generationRequest).length !== 3
     || context.generationRequest.request_id !== context.requestId
     || typeof context.generationRequest.generation_id !== 'string' || !context.generationRequest.generation_id
     || typeof context.generationRequest.generation_type !== 'string' || !context.generationRequest.generation_type
-    || !Array.isArray(context.sources) || !Array.isArray(context.candidates)
-    || !Array.isArray(context.contentBlocks) || context.contentBlocks.length === 0) {
+    || !context.hostContext || typeof context.hostContext !== 'object' || Array.isArray(context.hostContext)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  stableJson(context.contentBlocks);
+  stableJson(context.generationRequest);
+  stableJson(context.hostContext);
 }
 
 function assertRequest(endpointUrl, requestInit) {
@@ -281,8 +282,6 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     if (resolution && typeof resolution.then === 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    // Native transport is permitted only after an explicit Host classification.
-    // null/undefined/unknown is never interpreted as an ordinary request.
     assertPlainDataRecordShallow(resolution);
     const statusDescriptor = Object.getOwnPropertyDescriptor(resolution, 'status');
     if (!statusDescriptor || !Object.hasOwn(statusDescriptor, 'value')
@@ -308,28 +307,43 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
 
-    let parsedBody;
-    try {
-      parsedBody = JSON.parse(requestInit.body);
-    } catch {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-    const scrubbedBody = cloneProviderValue(parsedBody);
-    const memoryText = formatNpcMemoryContext(protectedMemory.contentBlocks);
-    const injectedBody = injectNpcMemory(hostRoute, scrubbedBody, memoryText);
-    const exactBody = JSON.stringify(injectedBody);
-    if (typeof exactBody !== 'string' || exactBody.length === 0 || exactBody.length > 4_000_000) {
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
-    }
-    const outboundRequestInit = {
-      ...requestInit,
-      headers: scrubHeaders(requestInit.headers),
-      body: exactBody,
+    // Provider-specific body injection is a pure synchronous callback. The
+    // Gateway invokes it only after consuming the exact NPC handoff under the
+    // shared Coordinator, then hashes and durably records the returned bytes.
+    const prepareBody = contentBlocks => {
+      if (!Array.isArray(contentBlocks) || contentBlocks.length > 256) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      let parsedBody;
+      try { parsedBody = JSON.parse(requestInit.body); }
+      catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+      const scrubbedBody = cloneProviderValue(parsedBody);
+      if (contentBlocks.length === 0) {
+        const unchanged = JSON.stringify(scrubbedBody);
+        if (typeof unchanged !== 'string' || unchanged.length === 0 || unchanged.length > 4_000_000) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        return unchanged;
+      }
+      const memoryText = formatNpcMemoryContext(contentBlocks);
+      const injectedBody = injectNpcMemory(hostRoute, scrubbedBody, memoryText);
+      const exactBody = JSON.stringify(injectedBody);
+      if (typeof exactBody !== 'string' || exactBody.length === 0 || exactBody.length > 4_000_000) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      return exactBody;
     };
-    const transport = () => {
-      // Non-async: Gateway invokes this exactly once after durable
-      // DISPATCH_STARTED while holding the shared Coordinator lease.
-      return invokeTransport(transportImpl, fetchImpl, endpointUrl, outboundRequestInit);
+
+    const outboundHeaders = scrubHeaders(requestInit.headers);
+    const transport = exactBody => {
+      if (typeof exactBody !== 'string' || exactBody.length === 0 || exactBody.length > 4_000_000) {
+        throw new Error('MEMORY_DISPATCH_PROVIDER_BODY_INVALID');
+      }
+      return invokeTransport(transportImpl, fetchImpl, endpointUrl, {
+        ...requestInit,
+        headers: outboundHeaders,
+        body: exactBody,
+      });
     };
 
     return gateway.dispatchProtectedRequest({
@@ -339,7 +353,8 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       hostRoute,
       model: protectedMemory.model,
       stream,
-      body: exactBody,
+      body: requestInit.body,
+      prepareBody,
       transport,
       forwardResponse,
       hostTransformsStream,
