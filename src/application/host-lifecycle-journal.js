@@ -1156,6 +1156,26 @@ export class HostLifecycleJournal {
             ...(rows.length > 1 ? { duplicate: true } : {}),
           };
         }
+        // If the latest accepted attestation is bound to this exact inventory
+        // sequence but is no longer valid under the current Core source/secret
+        // policy (e.g. a pinned patch upgrade or attestation expiry), append a
+        // no-op reconciliation event. This advances the root sequence so a new
+        // signed proof can be appended without replacing the old immutable row.
+        const latestAttestation = this.db.prepare(`
+          SELECT inventory_sequence FROM host_root_inventory_attestations
+          WHERE host_installation_id=? AND authenticated_account_id=? AND root_id=?
+          ORDER BY inventory_sequence DESC LIMIT 1
+        `).get(input.host_installation_id, input.authenticated_account_id, input.root_id);
+        if (latestAttestation?.inventory_sequence === integrity.sequence) {
+          const refreshDelta = rootInventoryDelta(latest.entries, entries);
+          const refreshChanged = Object.values(refreshDelta).reduce((sum, items) => sum + items.length, 0);
+          if (refreshChanged === 0) {
+            const refreshDeltaSha256 = sha256(canonical(refreshDelta));
+            const refreshed = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
+              entries, manifest_sha256: manifestSha256, delta: refreshDelta, delta_sha256: refreshDeltaSha256 });
+            return { ...refreshed, delta: refreshDelta, reason: 'HOST_ROOT_INVENTORY_ATTESTATION_REFRESH_REQUIRED' };
+          }
+        }
         if (rows.length > 1) {
           return { status: 'NON_READY', duplicate: true,
             reason: 'previously observed root inventory delta remains unresolved',
