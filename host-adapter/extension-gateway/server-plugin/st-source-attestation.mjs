@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -306,4 +306,35 @@ export function createSignedRootInventoryAttestation({
   const signature = createHmac('sha256', adapterToken)
     .update(canonical(attestation), 'utf8').digest('hex');
   return Object.freeze({ ...attestation, signature });
+}
+
+
+/**
+ * Verify the exact HMAC envelope persisted by Core's HostLifecycleJournal.
+ * The caller must additionally bind source_manifest_sha256 to its
+ * deployment-owned root identity registry; a valid signature alone is not
+ * deployment enrollment.
+ */
+export function verifySignedRootInventoryAttestation({ attestation, identity, adapterToken } = {}) {
+  if (!attestation || typeof attestation !== 'object' || Array.isArray(attestation)
+    || (Object.getPrototypeOf(attestation) !== Object.prototype
+      && Object.getPrototypeOf(attestation) !== null)
+    || !identity || typeof identity !== 'object' || Array.isArray(identity)
+    || typeof adapterToken !== 'string' || adapterToken.length < 16) return false;
+  const keys = Reflect.ownKeys(attestation);
+  if (keys.some(key => typeof key !== 'string')) return false;
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(attestation, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  if (attestation.adapter_id !== identity.adapter_id
+    || attestation.host_installation_id !== identity.host_installation_id
+    || attestation.authenticated_account_id !== identity.authenticated_account_id
+    || attestation.root_id !== identity.root_id
+    || typeof attestation.signature !== 'string'
+    || !/^[a-f0-9]{64}$/.test(attestation.signature)) return false;
+  const { signature, ...proof } = attestation;
+  const expected = createHmac('sha256', adapterToken).update(canonical(proof), 'utf8').digest();
+  const actual = Buffer.from(signature, 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
