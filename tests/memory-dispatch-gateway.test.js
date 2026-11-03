@@ -1067,7 +1067,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
         },
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
-      'changing model or provider body must not bypass the unresolved generation identity',
+      'changing model or provider body must not bypass the durable generation identity',
     );
     assert.equal(sends, 1);
   } finally {
