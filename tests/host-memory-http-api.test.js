@@ -67,6 +67,10 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     effects: [{ kind: 'entity.create', entity_id: 'host-memory-actor', entity_type: 'character' }],
   });
   let hostIdentityAllowed = true;
+  let hostIdentitySnapshot = {
+    root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
+    generation: 1, snapshot_fingerprint: 'b'.repeat(64),
+  };
   const resolveHostLifecycleIdentity = input => hostIdentityAllowed
     && input.adapterId === ADAPTER_ID
     && input.host_installation_id === INSTALLATION
@@ -78,8 +82,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
     authenticated_account_id: input.authenticated_account_id,
     host_session_id: input.host_session_id,
     conversation_uuid: input.conversation_uuid,
-    root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
-    generation: 1, snapshot_fingerprint: 'b'.repeat(64),
+    ...hostIdentitySnapshot,
   }) : ({ authorized: false });
   let calls = 0;
   let failConsumer = false;
@@ -383,6 +386,36 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   hostIdentityAllowed = true;
   consumerStartedResolve = null;
   assert.equal(calls, 8);
+
+  // An authorized but newer Root Inventory generation is a different
+  // authority snapshot. It must not authorize completion of the old read.
+  let snapshotConsumerStarted;
+  const snapshotStarted = new Promise(resolve => { snapshotConsumerStarted = resolve; });
+  pauseConsumer = true;
+  consumerStartedResolve = snapshotConsumerStarted;
+  const snapshotRaceAssertion = {
+    ...assertion, nonce: '29292929-2929-4929-8929-292929292929',
+    issued_at: Math.floor(Date.now() / 1000),
+  };
+  const snapshotRaceRead = post(base, '/v1/host/memory-npc/retrieve', adapterHeaders, {
+    ...body, assertion: snapshotRaceAssertion, signature: sign(snapshotRaceAssertion),
+    request_id: '30303030-3030-4030-8030-303030303030',
+  });
+  await snapshotStarted;
+  hostIdentitySnapshot = {
+    ...hostIdentitySnapshot, generation: 2, snapshot_fingerprint: 'c'.repeat(64),
+  };
+  releaseConsumerResolve?.();
+  pauseConsumer = false;
+  const snapshotRaceResponse = await snapshotRaceRead;
+  assert.equal(snapshotRaceResponse.status, 409);
+  assert.equal((await snapshotRaceResponse.json()).error.code, 'HOST_ROOT_IDENTITY_BINDING_CHANGED');
+  hostIdentitySnapshot = {
+    root_id: 'a'.repeat(64), authority_id: 'test-host-authority',
+    generation: 1, snapshot_fingerprint: 'b'.repeat(64),
+  };
+  consumerStartedResolve = null;
+  assert.equal(calls, 9);
 
   // A signed logout revocation is durable, scoped to the exact installation /
   // account / session tuple, and invalidates assertions already in flight.

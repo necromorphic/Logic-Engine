@@ -796,6 +796,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
                 || !/^[a-f0-9]{64}$/.test(finalHostIdentity.snapshot_fingerprint ?? '')) {
                 throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
               }
+              // A second authorized lookup is not enough: it must still refer
+              // to the exact Root Inventory snapshot that authorized this read.
+              if (finalHostIdentity.root_id !== trustedHostIdentity.root_id
+                || finalHostIdentity.authority_id !== trustedHostIdentity.authority_id
+                || finalHostIdentity.generation !== trustedHostIdentity.generation
+                || finalHostIdentity.snapshot_fingerprint !== trustedHostIdentity.snapshot_fingerprint) {
+                throw new Error('HOST_ROOT_IDENTITY_BINDING_CHANGED');
+              }
               return retrieval;
             },
           );
