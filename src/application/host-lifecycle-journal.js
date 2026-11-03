@@ -4,6 +4,11 @@ import { isProxy } from 'node:util/types';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
+import {
+  PINNED_ST_COMMIT,
+  PINNED_ST_MUTATION_COVERAGE_SHA256,
+  PINNED_ST_MUTATION_ROUTE_COUNT,
+} from '../../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -240,13 +245,15 @@ function validateEvent(event) {
  * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
-  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false }) {
+  constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null, verifyMutationReceipt = () => false, verifyCompletenessProof = () => false }) {
     if (!validText(path) || !isAbsolute(path) || path === ':memory:'
       || !validText(coordinatorPath) || !isAbsolute(coordinatorPath)
       || typeof resolveIdentity !== 'function' || isProxy(resolveIdentity)
       || Object.getPrototypeOf(resolveIdentity) === Object.getPrototypeOf(async function () {})
       || typeof verifyMutationReceipt !== 'function' || isProxy(verifyMutationReceipt)
       || Object.getPrototypeOf(verifyMutationReceipt) === Object.getPrototypeOf(async function () {})
+      || typeof verifyCompletenessProof !== 'function' || isProxy(verifyCompletenessProof)
+      || Object.getPrototypeOf(verifyCompletenessProof) === Object.getPrototypeOf(async function () {})
       || (resolveRootIdentity !== null && (typeof resolveRootIdentity !== 'function'
         || isProxy(resolveRootIdentity)
         || Object.getPrototypeOf(resolveRootIdentity) === Object.getPrototypeOf(async function () {})))) {
@@ -256,6 +263,7 @@ export class HostLifecycleJournal {
     this.resolveIdentity = resolveIdentity;
     this.resolveRootIdentity = resolveRootIdentity;
     this.verifyMutationReceipt = verifyMutationReceipt;
+    this.verifyCompletenessProof = verifyCompletenessProof;
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let release = null;
@@ -348,6 +356,29 @@ export class HostLifecycleJournal {
         CREATE TRIGGER IF NOT EXISTS host_root_inventory_events_no_delete
           BEFORE DELETE ON host_root_inventory_events BEGIN
             SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_APPEND_ONLY');
+          END;
+        CREATE TABLE IF NOT EXISTS host_root_inventory_completeness_events (
+          host_installation_id TEXT NOT NULL,
+          authenticated_account_id TEXT NOT NULL,
+          root_id TEXT NOT NULL CHECK(length(root_id)=64),
+          sequence INTEGER NOT NULL CHECK(sequence > 0),
+          event_id TEXT NOT NULL,
+          root_inventory_sequence INTEGER NOT NULL CHECK(root_inventory_sequence > 0),
+          manifest_sha256 TEXT NOT NULL CHECK(length(manifest_sha256)=64),
+          previous_sha256 TEXT NOT NULL CHECK(length(previous_sha256)=64),
+          proof_sha256 TEXT NOT NULL CHECK(length(proof_sha256)=64),
+          proof_signature TEXT NOT NULL CHECK(length(proof_signature)=64),
+          canonical_proof_json TEXT NOT NULL,
+          PRIMARY KEY(host_installation_id,authenticated_account_id,root_id,sequence),
+          UNIQUE(host_installation_id,authenticated_account_id,event_id)
+        );
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_completeness_no_update
+          BEFORE UPDATE ON host_root_inventory_completeness_events BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_COMPLETENESS_APPEND_ONLY');
+          END;
+        CREATE TRIGGER IF NOT EXISTS host_root_inventory_completeness_no_delete
+          BEFORE DELETE ON host_root_inventory_completeness_events BEGIN
+            SELECT RAISE(ABORT, 'HOST_ROOT_INVENTORY_COMPLETENESS_APPEND_ONLY');
           END;
       `);
       const lifecycleColumns = new Set(this.db.prepare('PRAGMA table_info(host_lifecycle_events)').all().map(column => column.name));
