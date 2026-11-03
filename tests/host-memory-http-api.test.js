@@ -474,7 +474,7 @@ test('Core Host context and Memory retrieval routes enforce PC-NEXT-11 and signe
   });
   assert.equal(afterRestartRead.status, 401);
   assert.equal((await afterRestartRead.json()).error.code, 'HOST_SESSION_REVOKED');
-  assert.equal(calls, 7);
+  assert.equal(calls, 9);
 
   // A durable-store I/O failure is a distinct fail-closed 503, not a generic
   // 500 and never an authentication success.
