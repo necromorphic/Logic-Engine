@@ -16,8 +16,12 @@ import {
 import { HostIdentityStore } from './st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
+import { verifyPinnedSourceIdentity } from './st-source-attestation.mjs';
+import { fileURLToPath } from 'node:url';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+const SILLYTAVERN_INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const verifySourceIdentity = () => verifyPinnedSourceIdentity({ installRoot: SILLYTAVERN_INSTALL_ROOT });
 
 function unavailable(code) {
   return (_request, response) => response.status(503).json({ status: 'NON_READY', code });
@@ -63,6 +67,7 @@ export function createSillyTavernHostAdapter({
     enumerate,
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
     hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
+    verifySourceIdentity,
     persistRootInventory,
   });
 
@@ -107,10 +112,14 @@ export function createSillyTavernHostAdapter({
         // Core must independently accept the full-root manifest before this
         // request can acquire a Host context. A local scan or baseline alone
         // is not proof of completeness and must remain NON_READY.
+        const sourceIdentity = await verifySourceIdentity();
         const rootProof = await persistRootInventory({
           userHandle,
           rootPath: directories.root,
           entries: hostInventory.filesystem.entries,
+          snapshotAlignment: hostInventory.snapshot_alignment,
+          snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+          sourceIdentity,
         });
         if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
           || rootProof.integrity_status !== 'INTEGRITY_OK'
