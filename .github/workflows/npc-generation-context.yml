@@ -17,6 +17,7 @@ on:
       - "src/application/memory-npc-consumer.js"
       - "tests/npc-generation-context*.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
+      - "tests/memory-npc-consumer.test.js"
       - ".github/workflows/npc-generation-context.yml"
 permissions:
   contents: read
