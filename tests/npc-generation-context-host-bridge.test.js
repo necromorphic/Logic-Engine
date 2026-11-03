@@ -87,3 +87,21 @@ test('Host bridge rejects duplicate prepare and never creates a handoff for a no
   assert.equal((await blocked.bridge.prepare(blockedRequest, blockedResponse)).status, 'non_ready');
   assert.equal(blocked.bridge.consume(blockedRequest, blockedResponse).status, 'non_ready');
 });
+
+
+test('Host bridge rejects mutable request metadata before asking Core to prepare', async () => {
+  let prepareCalls = 0;
+  const bridge = createNpcGenerationContextHostBridge({
+    runtime: {
+      async prepareForDispatch() { prepareCalls += 1; return { status: 'ready', handoff: {} }; },
+      consumeDispatchHandoff() { return { status: 'non_ready' }; },
+      getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+    },
+    createRequestMetadata: () => ({ ...requestMetadata }),
+  });
+  const result = await bridge.prepare({}, {});
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'request_metadata_not_immutable');
+  assert.equal(prepareCalls, 0);
+});
