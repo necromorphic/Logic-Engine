@@ -5,6 +5,17 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export const CORE_ATTESTED_SOURCE_BLOCKERS = Object.freeze([
+  'NO_PRE_ENROLLMENT_DELETED_HISTORY',
+  'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
+  'NO_HOST_INSTALLATION_BINDING',
+  'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
+  'NO_ACCEPTED_HEAD_AUTHORITY',
+  'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
+  'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+  'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
+]);
+
 export function resolveHostDataDirectories(directories) {
   if (!directories || typeof directories !== 'object' || Array.isArray(directories)) return null;
   const resolved = {};
@@ -126,16 +137,7 @@ export function createHostInventoryHandler({
         && sourceIdentity?.status === 'CURRENT_IDENTITIES_VERIFIED'
         && rootInventory.source_manifest_sha256 === sourceIdentity.manifest_sha256
         && inventory.snapshot_alignment === 'SHARED_VSS_SNAPSHOT';
-      const coveredSourceBlockers = new Set([
-        'NO_PRE_ENROLLMENT_DELETED_HISTORY',
-        'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
-        'NO_HOST_INSTALLATION_BINDING',
-        'NO_CORE_WORLD_OR_SESSION_AUTHORIZATION',
-        'NO_ACCEPTED_HEAD_AUTHORITY',
-        'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
-        'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
-        'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
-      ]);
+      const coveredSourceBlockers = new Set(CORE_ATTESTED_SOURCE_BLOCKERS);
       const sourceBlockers = sourceSnapshotAttested
         ? source.blockers.filter(code => !coveredSourceBlockers.has(code))
         : source.blockers;
