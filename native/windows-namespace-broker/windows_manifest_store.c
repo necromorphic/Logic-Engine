@@ -455,7 +455,10 @@ static int le_win_store_replace(
   failure_stage = "flush temp file";
 #endif
   if (!FlushFileBuffers(file)) goto cleanup;
-  rename_bytes = offsetof(FILE_RENAME_INFO, FileName) + wcslen(target) * sizeof(wchar_t);
+  /* SetFileInformationByHandle validates the complete fixed structure size,
+   * including FILE_RENAME_INFO's trailing WCHAR and ABI padding, before it
+   * consumes FileNameLength. Allocate sizeof(struct) plus the variable name. */
+  rename_bytes = sizeof(FILE_RENAME_INFO) + wcslen(target) * sizeof(wchar_t);
   rename_info = (FILE_RENAME_INFO *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, rename_bytes);
   if (!rename_info) goto cleanup;
   rename_info->ReplaceIfExists = TRUE;
