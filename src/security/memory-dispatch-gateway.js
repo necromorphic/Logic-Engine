@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { types as utilTypes } from 'node:util';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
@@ -112,7 +113,7 @@ function normalizeHostContext(value) {
     'host_conversation_id', 'conversation_uuid', 'root_id',
     'root_inventory_sequence', 'root_manifest_sha256',
   ];
-  if (!value || typeof value !== 'object' || Array.isArray(value)
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)
     || Object.getPrototypeOf(value) !== Object.prototype
     || Reflect.ownKeys(value).length !== keys.length
     || Reflect.ownKeys(value).some(key => typeof key !== 'string' || !keys.includes(key))) {
