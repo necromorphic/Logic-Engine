@@ -31,6 +31,10 @@ const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
 const patchBlobSha = sha256(Buffer.from(lifecycleBlobSha + '\n' + rootMutationBlobSha, 'utf8'));
 const handlerBlobSha = gitBlobSha(handlerSource);
+const installedHandlerSource = await readFile(path.join(sourceRoot, 'plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'));
+if (gitBlobSha(installedHandlerSource) !== handlerBlobSha) {
+  throw new Error('HOST_INSTALLED_HANDLER_DIFFERS_FROM_PINNED_HANDLER');
+}
 
 const files = [];
 for (const relativePath of SOURCE_FILE_PATHS) {
