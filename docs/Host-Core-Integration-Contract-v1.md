@@ -549,3 +549,22 @@ The pinned SillyTavern integration now revokes the old tuple before each server-
 The runtime verifier rejects missing/malformed manifests, unsafe path components, symlinks, path escapes, or any file digest mismatch. For a shared Windows VSS snapshot, Host sends a server-side HMAC-signed `POST /v1/host-root-inventory/attest` proof containing the exact Core-returned inventory sequence, manifest digest, root journal head, delta digest, lifecycle sequence/head, source-manifest digest, pinned patch/handler identities, VSS snapshot digest/alignment, nonce, and issue time. Core validates the registered adapter/installation/account/root tuple, signature, all expected inventory/lifecycle heads, source identity fields, nonce replay, and expiry before returning `AUTHORITATIVE_COMPLETE`. Host includes the verified source-manifest digest as an observation hint; if it changes while the account-root manifest is unchanged, Core appends a no-op root event so the new attestation is append-only rather than conflicting with the prior immutable row.
 
 **Current acceptance status:** implementation is present in Host PR #874, but the final Windows workflow result, generated artifact, and installation on the actual SillyTavern deployment are still pending. Do not treat this update as production acceptance.
+
+
+## Deployment-pinned SillyTavern source identity — Host P0 follow-up
+
+The Core deployment registry `ENGINE_HOST_ROOT_IDENTITIES` now requires an additional exact field on every Host installation/account/root record:
+
+```json
+{
+  "adapter_id": "st-host-adapter",
+  "host_installation_id": "11111111-1111-4111-8111-111111111111",
+  "authenticated_account_id": "22222222-2222-4222-8222-222222222222",
+  "root_id": "<64-character deployment root digest>",
+  "source_manifest_sha256": "<64-character digest from pinned-source-manifest.json>"
+}
+```
+
+Core compares the attestation's `source_manifest_sha256` with this deployment-owned value when accepting the signed proof and again when reconstructing the authority snapshot. A valid HMAC and a self-consistent manifest are not sufficient if the manifest digest differs from the Core registry pin. Changing the SillyTavern source, Host patches, Gateway package, or extension allowlist requires a reviewed manifest regeneration and an explicit Core registry update. Until then the root remains REVIEW_ONLY / NON_READY.
+
+The Host runtime source verifier also rejects any server plugin or third-party browser extension in the executable extension roots other than the attested Logic Engine Gateway. This prevents an unreviewed extension from adding mutation routes outside the pinned built-in route coverage.
