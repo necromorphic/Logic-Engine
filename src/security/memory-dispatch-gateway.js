@@ -339,9 +339,19 @@ function assertNpcContextBody(body, hostRoute, contentBlocks) {
   const memoryText = formatNpcMemoryContext(contentBlocks);
   if (hostRoute === 'chat-completions') {
     if (!Array.isArray(payload.messages)) throw new Error('MEMORY_DISPATCH_NOT_READY');
-    const matches = payload.messages.filter((message) => isPlainRecord(message)
-      && message.role === 'system' && message.content === memoryText);
-    if (matches.length !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const memoryIndexes = [];
+    for (let index = 0; index < payload.messages.length; index += 1) {
+      const message = payload.messages[index];
+      if (isPlainRecord(message) && message.role === 'system' && message.content === memoryText) {
+        memoryIndexes.push(index);
+      }
+    }
+    let expectedIndex = 0;
+    while (expectedIndex < payload.messages.length
+      && ['system', 'developer'].includes(payload.messages[expectedIndex]?.role)) expectedIndex += 1;
+    if (memoryIndexes.length !== 1 || memoryIndexes[0] !== expectedIndex) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
     return;
   }
   const prompt = hostRoute === 'novelai-text' ? payload.input : payload.prompt;
