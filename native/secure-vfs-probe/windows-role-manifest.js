@@ -111,6 +111,8 @@ function assertManifestShape(manifest) {
     }
     claimIdentity(role.databaseIdentity, `database ${role.role}`);
     const activeSidecarKinds = new Set();
+    const activeSidecarGenerations = new Map();
+    const latestRetiredGeneration = new Map();
     const sidecarGenerations = new Set();
     for (const sidecar of role.sidecars) {
       assertExactKeys(sidecar, ['kind', 'identity', 'state', 'generation'], 'sidecar');
@@ -124,12 +126,25 @@ function assertManifestShape(manifest) {
         throw new TypeError(`Role ${role.role} has a transitional or invalid sidecar record`);
       }
       sidecarGenerations.add(generationKey);
-      if (sidecar.state === 'active') activeSidecarKinds.add(sidecar.kind);
+      if (sidecar.state === 'active') {
+        activeSidecarKinds.add(sidecar.kind);
+        activeSidecarGenerations.set(sidecar.kind, sidecar.generation);
+      } else {
+        latestRetiredGeneration.set(
+          sidecar.kind,
+          Math.max(latestRetiredGeneration.get(sidecar.kind) ?? 0, sidecar.generation),
+        );
+      }
       assertWindowsIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
       // Keep every retired identity as durable history. A new active
       // generation may coexist with older retired generations of the same
       // kind, but there can be only one active identity per kind.
       claimIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
+    }
+    for (const [kind, generation] of activeSidecarGenerations) {
+      if (generation <= (latestRetiredGeneration.get(kind) ?? 0)) {
+        throw new TypeError(`Role ${role.role} has a non-monotonic active ${kind} generation`);
+      }
     }
   }
 }
