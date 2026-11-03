@@ -214,9 +214,12 @@ const canonical = value => Array.isArray(value)
     : JSON.stringify(value);
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const routeCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
+  .reduce((count, routes) => count + Object.keys(routes).length, 0);
+const guardAssertionCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
   .reduce((count, routes) => count + Object.values(routes).reduce((total, guards) => total + guards.length, 0), 0);
 
 export const PINNED_ST_MUTATION_ROUTE_COUNT = routeCount;
+export const PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT = guardAssertionCount;
 export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
   version: 1,
   source_commit: PINNED_ST_COMMIT,
@@ -252,6 +255,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
   }
   const files = new Map();
   let checkedRoutes = 0;
+  let checkedGuards = 0;
   for (const [relative, expectedRoutes] of Object.entries(PINNED_ST_ALL_MUTATION_ROUTES)) {
     const bytes = await readFile(join(sourceRoot, relative));
     const source = bytes.toString('utf8');
@@ -263,7 +267,9 @@ export async function verifyPinnedSillyTavernMutationCoverage({
         if (!match || !match[1].includes(guard)) {
           throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route + ':' + guard);
         }
-        checkedRoutes++;
+        checkedGuards++;
+      }
+      checkedRoutes++;
       }
     }
   }
@@ -310,7 +316,8 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_GROUP_MIGRATION_GUARD_MISSING');
     }
   }
-  if (checkedRoutes !== PINNED_ST_MUTATION_ROUTE_COUNT) {
+  if (checkedRoutes !== PINNED_ST_MUTATION_ROUTE_COUNT
+    || checkedGuards !== PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT) {
     throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_COUNT_MISMATCH');
   }
   const sourceFilesSha256 = sha256(canonical([...files.entries()].sort(([a], [b]) => a.localeCompare(b))));
@@ -319,6 +326,7 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     source_commit: PINNED_ST_COMMIT,
     coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
     route_count: checkedRoutes,
+    guard_assertion_count: checkedGuards,
     source_files_sha256: sourceFilesSha256,
   });
 }
