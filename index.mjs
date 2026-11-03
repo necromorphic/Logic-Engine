@@ -103,7 +103,7 @@ export async function init(router) {
         ? registeredRuntime.providerAdapter.runWithAuthenticatedHostSession
         : null,
       prepareHostContext: async (request, response, hostRoute) => {
-        if (!memoryEnabled) return null;
+        if (!memoryEnabled) return Object.freeze({ status: 'UNPROTECTED' });
         if (!request || typeof request !== 'object' || !response || typeof response !== 'object'
           || preparedNpcRequests.has(request)) {
           return { status: 'NON_READY', code: 'NPC_HOST_REQUEST_REUSED' };
