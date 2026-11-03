@@ -12,7 +12,17 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Strict-durability IndexedDB write transaction. A failed pre-mutation append throws so the caller must abort the mutation.
 - Startup/status verification detects sequence gaps, chain/digest mismatch, schema mismatch, and head-checkpoint mismatch.
 - Reconciliation compares native chat fingerprint **and** the current message/version IDs, active swipe, digests, and lineage against the last journaled identity snapshot. This catches copied/restored sidecar IDs even when message text is unchanged.
-- The prototype never asserts capture readiness from caller-supplied coverage. Without trusted pinned-source hook attestation it remains NON_READY.
+- Lifecycle readiness is gated by the exact pinned-source manifest, Core-accepted root inventory attestation, a matching current conversation/version snapshot, and a complete mutation coverage table. Missing source identity, root drift, or any unresolved coverage blocker remains NON_READY.
+
+## Pinned source manifest and root-inventory attestation
+
+The pinned-source workflow applies both the lifecycle patch and the fail-closed root-mutation guard patch to the exact SillyTavern commit. After the Windows acceptance suite and source-route audit pass, it generates and uploads the `host-pinned-source-manifest` artifact.
+
+The manifest covers the patched ST mutation route modules, browser lifecycle files, Gateway server/client files, and installed Host handler. The runtime verifier rejects missing manifests, unsafe/symlinked paths, path escapes, digest mismatches, an unexpected pinned commit, or mismatched patch/handler blob identities. The operator build-claim environment variable is informational only.
+
+On Windows, the Host Adapter may then submit a signed Root Inventory attestation only for a shared VSS snapshot. The server signs the exact Core-returned inventory sequence, manifest digest, root journal head, lifecycle head, delta digest, source bundle identity, snapshot alignment/digest, expiry, and nonce using the server-side adapter token. Core independently verifies the registered installation/account/root binding, HMAC signature, manifest and journal heads, nonce replay, and expiry.
+
+For deployment, install the workflow artifact's `pinned-source-manifest.json` into `SillyTavern/plugins/logic-engine-extension-gateway/`. Do not generate it from an arbitrary release archive or use a local filesystem scan as a substitute for the pinned CI build.
 
 ## Digest-only Core transport (review-only)
 
@@ -27,7 +37,7 @@ The proxy accepts only conversation/message/version IDs, explicit parent lineage
 
 Before capture can succeed, an administrator must bind the authenticated adapter ID and stable Host conversation ID to a canonical Core world using `/v1/host-conversation-bindings`. The stable ID is returned by `window.logicEngineHostLifecycle.enrollCurrentConversation()`; because the first publication can precede binding, inspect its `coreCaptureStatus`, create the binding, then call `window.logicEngineHostLifecycle.syncCurrentDigestInventory()` and check `getCoreCaptureStatus()`. The bridge publishes current digest entries serially after native save and emits tombstones for versions it observes being removed. This is transport coverage, not a complete source inventory: missed server-side imports/deletions, copy/restore, branch operations, external edits, and crash/restart ordering can still invalidate the ledger.
 
-**Production remains fail-closed.** Core currently composes the digest ledger with a deny-only inventory verifier, so capture can persist digests but reconciliation cannot publish `READY`. This path does not persist raw message text, create semantic Memory records, admit Memory→NPC context, or authorize outbound model dispatch. Do not infer readiness from a successful HTTP response.
+**Production remains fail-closed.** The signed Root Inventory attestation path is implemented, but the separate Host version-ledger reconciliation verifier remains deny-only; digest capture cannot publish `READY`. Lifecycle coverage also remains NON_READY while any required path or source blocker is unresolved. This path does not persist raw message text, create semantic Memory records, admit Memory→NPC context, or authorize outbound model dispatch. Do not infer readiness from a successful HTTP response.
 
 ## Host Lifecycle Journal v1 contract
 
