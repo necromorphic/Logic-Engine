@@ -103,6 +103,25 @@ test('pinned source verifier rejects unmanifested installed Gateway files', asyn
   assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
 });
 
+test('pinned source verifier rejects user-local third-party extensions', async t => {
+  const fixture = await createManifestRoot();
+  const userExtensionsPath = path.join(fixture.root, 'user-data/extensions');
+  await mkdir(userExtensionsPath, { recursive: true });
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const clean = await verifyPinnedSourceIdentity({
+    installRoot: fixture.root,
+    userExtensionsPath,
+  });
+  assert.equal(clean.status, 'CURRENT_IDENTITIES_VERIFIED');
+  await mkdir(path.join(userExtensionsPath, 'unreviewed-local-extension'));
+  const rejected = await verifyPinnedSourceIdentity({
+    installRoot: fixture.root,
+    userExtensionsPath,
+  });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_UNREVIEWED_USER_EXTENSION_PRESENT');
+});
+
 test('pinned source verifier rejects an unattested server plugin', async t => {
   const fixture = await createManifestRoot();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
