@@ -54,7 +54,7 @@ test('Windows service installer rejects reparse-point ancestors before creating 
   assert.match(installer, /Assert-NoReparsePointAncestors \$NodePath/);
   assert.match(installer, /if \(\$EnvironmentFile\) \{ Assert-NoReparsePointAncestors \$EnvironmentFile \}/);
   assert.match(installer, /Assert-NoReparsePoints \$InstallDirectory/);
-  assert.match(installer, /if \(Test-Path -LiteralPath \$StateDirectory -PathType Container\) \{[\s\S]*?Assert-NoReparsePoints \$StateDirectory/);
+  assert.match(installer, /if \(Test-Path -LiteralPath \$StateDirectory\) \{[\s\S]*?StateDirectory exists but is not a directory[\s\S]*?Assert-NoReparsePoints \$StateDirectory/);
   const preflight = installer.indexOf('Assert-NoReparsePointAncestors $InstallDirectory');
   const descendantPreflight = installer.indexOf('Assert-NoReparsePoints $InstallDirectory');
   const shouldProcess = installer.indexOf('if ($PSCmdlet.ShouldProcess(');
