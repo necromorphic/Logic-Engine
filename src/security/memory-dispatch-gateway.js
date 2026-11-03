@@ -306,7 +306,7 @@ function formatNpcMemoryContext(contentBlocks) {
   for (const block of contentBlocks) {
     lines.push(`- epistemic_kind=${block.epistemic_kind}; evidence_assessment=${block.evidence_assessment}; content=${stableJson(block.content)}`);
   }
-  return lines.join('\\n');
+  return lines.join('\n');
 }
 
 function assertNoHostMetadata(value, depth = 0) {
@@ -343,7 +343,7 @@ function assertNpcContextBody(body, hostRoute, contentBlocks) {
     return;
   }
   const prompt = hostRoute === 'novelai-text' ? payload.input : payload.prompt;
-  if (typeof prompt !== 'string' || !prompt.startsWith(memoryText + '\\n\\n')) {
+  if (typeof prompt !== 'string' || !prompt.startsWith(memoryText + '\n\n')) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
 }
