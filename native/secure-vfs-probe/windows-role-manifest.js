@@ -110,22 +110,25 @@ function assertManifestShape(manifest) {
       }
     }
     claimIdentity(role.databaseIdentity, `database ${role.role}`);
-    const sidecarKinds = new Set();
+    const activeSidecarKinds = new Set();
+    const sidecarGenerations = new Set();
     for (const sidecar of role.sidecars) {
       assertExactKeys(sidecar, ['kind', 'identity', 'state', 'generation'], 'sidecar');
+      const generationKey = `${sidecar.kind}:${sidecar.generation}`;
       if (!['wal', 'shm', 'journal'].includes(sidecar.kind)
-          || sidecarKinds.has(sidecar.kind)
           || !['active', 'retired'].includes(sidecar.state)
           || !Number.isSafeInteger(sidecar.generation) || sidecar.generation < 1
-          || sidecar.generation > manifest.generation) {
+          || sidecar.generation > manifest.generation
+          || sidecarGenerations.has(generationKey)
+          || (sidecar.state === 'active' && activeSidecarKinds.has(sidecar.kind))) {
         throw new TypeError(`Role ${role.role} has a transitional or invalid sidecar record`);
       }
-      sidecarKinds.add(sidecar.kind);
+      sidecarGenerations.add(generationKey);
+      if (sidecar.state === 'active') activeSidecarKinds.add(sidecar.kind);
       assertWindowsIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
-      // Retired records remain part of the durable identity history. They
-      // must not alias a live DB/sidecar or another role's retired object:
-      // otherwise restart reconciliation cannot distinguish identity reuse
-      // from reuse of a still-linked file identity.
+      // Keep every retired identity as durable history. A new active
+      // generation may coexist with older retired generations of the same
+      // kind, but there can be only one active identity per kind.
       claimIdentity(sidecar.identity, `${role.role} ${sidecar.kind} sidecar`);
     }
   }
