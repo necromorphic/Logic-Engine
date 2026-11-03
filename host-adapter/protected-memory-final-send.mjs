@@ -18,6 +18,8 @@ function assertProtectedContext(context) {
     || typeof context.model !== 'string' || !context.model
     || typeof context.worldId !== 'string' || !context.worldId
     || typeof context.actorId !== 'string' || !context.actorId
+    || typeof context.adapterId !== 'string' || !context.adapterId
+    || typeof context.conversationId !== 'string' || !context.conversationId
     || typeof context.purpose !== 'string' || !context.purpose
     || !Array.isArray(context.sources) || !Array.isArray(context.candidates)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
