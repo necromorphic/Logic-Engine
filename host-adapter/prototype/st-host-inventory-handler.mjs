@@ -133,6 +133,7 @@ export function createHostInventoryHandler({
         'NO_ACCEPTED_HEAD_AUTHORITY',
         'IMPORT_EXPORT_COPY_BRANCH_RESTORE_UNSUPPORTED',
         'NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT',
+        'PLATFORM_SPECIFIC_RACE_RESISTANCE_REQUIRES_SECURITY_REVIEW',
       ]);
       const sourceBlockers = sourceSnapshotAttested
         ? source.blockers.filter(code => !coveredSourceBlockers.has(code))
