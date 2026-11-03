@@ -258,8 +258,9 @@ export function createSillyTavernFinalSendAdapter({
       }
       return result;
       };
-      if (runWithAuthenticatedHostSession && prepared?.coreConversationId) {
-        return runWithAuthenticatedHostSession(args.request, prepared.coreConversationId, execute);
+      const coreConversationId = prepared?.hostContext?.coreConversationId;
+      if (runWithAuthenticatedHostSession && coreConversationId) {
+        return runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
       }
       return execute();
     },
