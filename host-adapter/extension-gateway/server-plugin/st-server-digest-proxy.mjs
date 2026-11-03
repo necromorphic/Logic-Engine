@@ -770,9 +770,11 @@ export function createHostMemoryDispatchProxyHandler({
   env = process.env,
   fetchImpl = globalThis.fetch,
   resolveHostContext,
+  onHostBindings = null,
   timeoutMs = 5000,
 } = {}) {
-  if (typeof fetchImpl !== 'function' || typeof resolveHostContext !== 'function') {
+  if (typeof fetchImpl !== 'function' || typeof resolveHostContext !== 'function'
+    || (onHostBindings !== null && typeof onHostBindings !== 'function')) {
     throw new TypeError('A fetch implementation and trusted Host context resolver are required');
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
@@ -845,6 +847,7 @@ export function createHostMemoryDispatchProxyHandler({
         return response.status(503).json({ status: 'NON_READY', code: 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE' });
       }
       hostBindings = value;
+      onHostBindings?.(Object.freeze({ ...value }));
     } catch {
       return response.status(503).json({ status: 'NON_READY', code: 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE' });
     }
