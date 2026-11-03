@@ -1,5 +1,5 @@
 import { interceptProtectedGeneration } from './gateway-policy.mjs';
-import { dispatchThroughExtensionGateway, resolveGatewayHostContext } from './host-context.mjs';
+import { resolveGatewayHostContext } from './host-context.mjs';
 
 /**
  * Review-only SillyTavern extension gateway.
@@ -91,7 +91,11 @@ async function prepareConversationIdentityHeader(abort) {
 // This is the only global intentionally registered by the prototype.
 globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (chat, contextSize, abort, type) {
     await prepareConversationIdentityHeader(abort);
-    if (gatewayState.lastStatus === 'HOST_CONTEXT_NON_READY') return;
+    if (gatewayState.protectedFailureLockout) {
+        abort(true);
+        gatewayState.lastStatus = 'BLOCKED_AFTER_PROTECTED_FAILURE';
+        return;
+    }
     const pendingRequest = gatewayState.pendingRequest;
     if (!pendingRequest) {
         // A failed protected dispatch must not turn the next user retry into
