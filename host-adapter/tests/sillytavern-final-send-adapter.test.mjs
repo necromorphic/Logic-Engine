@@ -16,15 +16,32 @@ function createAdapter({
   resolveProtectedMemory,
   gateway = { dispatchProtectedRequest: () => 'gateway' },
   prepareHostContext,
+  chatCompletionSources = sources,
 }) {
   return createSillyTavernFinalSendAdapter({
     gateway,
     resolveProtectedMemory,
     prepareHostContext,
-    chatCompletionSources: sources,
+    chatCompletionSources,
     nativeForwardFetchResponse: async () => undefined,
   });
 }
+
+test('adapter rejects missing or extra pinned source keys instead of silently omitting a sender', () => {
+  const { COMETAPI, ...withoutCometApi } = sources;
+  assert.equal(COMETAPI, 'COMETAPI');
+  assert.throws(
+    () => createAdapter({ resolveProtectedMemory: () => null, chatCompletionSources: withoutCometApi }),
+    /SILLYTAVERN_SOURCE_REGISTRY_MISMATCH/,
+  );
+  assert.throws(
+    () => createAdapter({
+      resolveProtectedMemory: () => null,
+      chatCompletionSources: { ...sources, FUTURE_PROVIDER: 'future-provider' },
+    }),
+    /SILLYTAVERN_SOURCE_REGISTRY_MISMATCH/,
+  );
+});
 
 test('adapter maps all pinned non-Chat-Completions route families', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
