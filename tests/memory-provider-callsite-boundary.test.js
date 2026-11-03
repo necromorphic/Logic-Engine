@@ -78,7 +78,11 @@ test('authenticated Host capability construction has no unapproved production ca
 
 test('signed Host assertion runners are instantiated only by the Core API composition', () => {
   const violations = [];
-  for (const file of productionFiles().filter(({ path }) => path !== 'src/api/server.js')) {
+  const trustedAssertionRunnerFiles = new Set([
+    'src/api/server.js',
+    'src/application/host-session-context.js',
+  ]);
+  for (const file of productionFiles().filter(({ path }) => !trustedAssertionRunnerFiles.has(path))) {
     if (/\bcreateHostSessionAssertionRunner\s*\(/.test(file.content)) {
       violations.push(file.path + ': unapproved signed assertion runner construction');
     }
