@@ -77,14 +77,7 @@ test('Windows service installer does not report provisioning success for WhatIf 
 
 test('Windows service installer enforces the Node-API 10 runtime floor before provisioning', () => {
   assert.match(installer, /\$NodePath --version/);
-  assert.ok(installer.includes("'^v(\\d+)\\.(\\d+)\\.(\\d+)
-  assert.match(installer, /\[version\]'22\.14\.0'/);
-  assert.match(installer, /Node\.js 22\.14\.0 or newer is required for the SQLite addon runtime/);
-  const versionCheck = installer.indexOf('$nodeVersionOutput = & $NodePath --version');
-  const serviceCreate = installer.indexOf('Invoke-Sc @("create", $ServiceName');
-  assert.ok(versionCheck >= 0 && versionCheck < serviceCreate, 'runtime compatibility must be checked before service creation');
-});
-"));
+  assert.ok(installer.includes("'^v(\\d+)\\.(\\d+)\\.(\\d+)$'"));
   assert.match(installer, /\[version\]'22\.14\.0'/);
   assert.match(installer, /Node\.js 22\.14\.0 or newer is required for the SQLite addon runtime/);
   const versionCheck = installer.indexOf('$nodeVersionOutput = & $NodePath --version');
