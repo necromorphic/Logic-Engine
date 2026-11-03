@@ -104,8 +104,8 @@ test('the approved composition factory is the only Provider/Consumer composition
     'The runtime may activate Memory only through the approved Core composition factory.');
   const factoryCallers = productionFiles().filter(({ path, content }) => path !== compositionBoundaryPath
     && /\bcreateMemoryNpcProviderAdapter\s*\(/.test(content)).map(({ path }) => path);
-  assert.deepEqual(factoryCallers, ['src/index.js'],
-    'Only the Core runtime composition root may invoke the approved Provider/Consumer factory.');
+  assert.deepEqual(factoryCallers.sort(), ['host-adapter/embedded-gateway-runtime.mjs', 'src/index.js'].sort(),
+    'Only the API and embedded Gateway composition roots may invoke the approved Provider/Consumer factory.');
   assert.equal(sensitiveModuleReference.test(api), false,
     'The HTTP API must not import Provider/Consumer implementation modules.');
   const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
