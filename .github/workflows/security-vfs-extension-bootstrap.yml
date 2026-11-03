@@ -8,6 +8,10 @@ on:
       - 'security/**'
     paths:
       - 'native/secure-vfs-probe/*.c'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
       - 'native/secure-vfs-probe/*.h'
       - 'native/secure-vfs-probe/*.js'
       - 'tests/windows-manifest-lifecycle.test.js'
@@ -89,6 +93,18 @@ jobs:
           node-version: '22.14.0'
       - name: Test recursive Windows service ACL policy
         run: node --test tests/sqlite-windows-acl-installer.test.js
+      - name: Test Windows broker service host contract
+        run: node --test tests/windows-broker-service-host.test.js
+      - name: Compile Windows broker service host
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\\windows-namespace-broker\\windows_broker_service.c /link advapi32.lib /OUT:native\\windows-namespace-broker\\windows_broker_service.exe'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Windows broker service host compilation failed' }
       - name: Parse and test Windows service installer path guards
         shell: pwsh
         run: |
