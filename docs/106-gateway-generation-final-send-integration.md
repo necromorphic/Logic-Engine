@@ -18,7 +18,7 @@ For non-empty results, the Final-Send serializer injects the admitted content in
 - Chat Completions: a server-created system message after existing leading system messages.
 - Text Completions and Kobold: the prompt field.
 - NovelAI text: the input field.
-- Horde text: the prompt field.
+- Horde text: asynchronous task submission; excluded from protected Final-Send because its result is delivered through a later task-status path, not the synchronous sender response.
 
 Host-only correlation fields are removed from the outbound provider JSON. The exact post-injection body is passed to the Gateway and its digest is bound to the dispatch record. Content itself is not written to the durable dispatch ledger.
 
@@ -34,9 +34,9 @@ The managed patch wraps these five native ST handlers:
 | POST /api/backends/text-completions/generate | text-completions |
 | POST /api/backends/kobold/generate | kobold |
 | POST /api/novelai/generate | novelai-text |
-| POST /api/horde/generate-text | horde-text |
+| POST /api/horde/generate-text | EXCLUDED — asynchronous task submission; no synchronous Final-Send response |
 
-The canonical registry contains 29 sender identities. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model discovery and third-party extension routes are outside this text-generation registry and cannot use protected Memory.
+The pinned-source audit observes 29 sender identities, but the protected synchronous Final-Send registry admits 28. Horde is explicitly excluded because it creates an asynchronous task whose later result does not pass through this sender's response-write hook. A protected request routed to Horde is rejected as an unregistered sender; it must not fall back to native generation. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model discovery and third-party extension routes are outside this text-generation registry and cannot use protected Memory.
 
 ## Host / Core composition changes in this candidate
 
@@ -81,7 +81,7 @@ The real Gateway cannot be activated until all of the following are implemented 
 
 | Requirement | Evidence | State |
 |---|---|---|
-| Five pinned native handlers and 29 sender identities | Exact pinned-source audit and fake-provider harness | PASS at source/test level |
+| Five pinned native handlers and 29 source identities (28 synchronous protected senders; Horde excluded) | Exact pinned-source audit and fake-provider harness | PASS at source/test level |
 | Host conversation locator attached to native generation data | Pinned ST awaited event hooks and Extension source | Implemented; exact-head CI pending |
 | Server-side Host request binding | Host authentication gate + inventory-backed resolver on actual Express request | Implemented; exact-head CI pending |
 | NPC Context Receiver | Exact ready-envelope validation, admission/source-version matching, content bounds | Root ST plugin imports and invokes receiver; protected non-empty result remains denied by Gateway stub |
