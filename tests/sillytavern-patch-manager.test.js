@@ -50,7 +50,7 @@ async function fixture(t) {
   };
   await writeFile(manifestPath, JSON.stringify(manifest));
   const manager = new SillyTavernPatchManager({ extensionRoot, stRoot, manifestPath, patchPath });
-  return { manager, stRoot, original, patched, patchPath };
+  return { manager, stRoot, extensionRoot, original, patched, patchPath };
 }
 
 test('Patch Manager hashes pinned source text canonically across CRLF checkouts', async (t) => {
@@ -136,8 +136,8 @@ test('read-only deployment inspection verifies installed files and every pinned 
   assert.equal(result.status, 'INSTALLED_AND_BACKUPS_VERIFIED');
   assert.equal(result.verifiedBackupCount, 1);
 
-  const backup = join(stRoot, '.logic-engine-patch-manager', 'backups',
-    JSON.parse(await readFile(join(stRoot, '.logic-engine-patch-manager', 'state.json'), 'utf8')).backupId,
+  const backup = join(stRoot, 'data', 'logic-engine', 'final-send-patch', 'backups',
+    JSON.parse(await readFile(join(stRoot, 'data', 'logic-engine', 'final-send-patch', 'state.json'), 'utf8')).backupId,
     'src/host.js');
   await writeFile(backup, 'tampered backup\\n');
   await assert.rejects(manager.inspectInstalledReadOnly(), /PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH/);
@@ -146,16 +146,16 @@ test('read-only deployment inspection verifies installed files and every pinned 
 test('read-only deployment inspection refuses an ambiguous transaction journal', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
-  await writeFile(join(stRoot, '.logic-engine-patch-manager', 'transaction.json'), JSON.stringify({ phase: 'APPLYING' }));
+  await writeFile(join(stRoot, 'data', 'logic-engine', 'final-send-patch', 'transaction.json'), JSON.stringify({ phase: 'APPLYING' }));
   assert.equal((await manager.inspectInstalledReadOnly()).status, 'AMBIGUOUS_TRANSACTION');
 });
 
 test('rollback accepts canonical backup bytes from a CRLF Windows checkout', async (t) => {
   const { manager, stRoot } = await fixture(t);
   await manager.execute('install');
-  const statePath = join(stRoot, '.logic-engine-patch-manager', 'state.json');
+  const statePath = join(stRoot, 'data', 'logic-engine', 'final-send-patch', 'state.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
-  const backupPath = join(stRoot, '.logic-engine-patch-manager', state.backups['src/host.js'].backupPath);
+  const backupPath = join(stRoot, 'data', 'logic-engine', 'final-send-patch', state.backups['src/host.js'].backupPath);
   const originalBackup = await readFile(backupPath, 'utf8');
   await writeFile(backupPath, originalBackup.replace(/\\n/g, '\\r\\n'));
   assert.equal((await manager.execute('uninstall')).status, 'ROLLED_BACK');
@@ -196,7 +196,7 @@ test('Patch Manager refuses rollback when an untouched pinned ST route has drift
 test('Patch Manager recovers an interrupted apply journal to the verified baseline', async (t) => {
   const { manager, stRoot, original } = await fixture(t);
   await manager.execute('install');
-  const managerDir = join(stRoot, '.logic-engine-patch-manager');
+  const managerDir = join(stRoot, 'data', 'logic-engine', 'final-send-patch');
   const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
   await writeFile(join(managerDir, 'transaction.json'), JSON.stringify({
     manifestId: state.manifestId,
@@ -248,4 +248,39 @@ test('Patch Manager updates a changed artifact even when its version label is un
   assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patchedV2);
   assert.equal((await updatedManager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
+});
+
+
+test('Patch Manager backups survive removal of the Logic-Engine Extension directory', async (t) => {
+  const { manager, stRoot, extensionRoot, original } = await fixture(t);
+  await manager.execute('install');
+  const managerDir = join(stRoot, 'data', 'logic-engine', 'final-send-patch');
+  const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
+  const backupPath = join(managerDir, state.backups['src/host.js'].backupPath);
+
+  await rm(extensionRoot, { recursive: true, force: true });
+
+  assert.equal(await readFile(backupPath, 'utf8'), original);
+});
+
+test('Patch Manager recovers an interrupted restore after the Host files were already restored', async (t) => {
+  const { manager, stRoot, original } = await fixture(t);
+  await manager.execute('install');
+  const managerDir = join(stRoot, 'data', 'logic-engine', 'final-send-patch');
+  const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
+
+  await writeFile(join(managerDir, 'transaction.json'), JSON.stringify({
+    manifestId: state.manifestId,
+    phase: 'ROLLING_BACK',
+    backups: state.backups,
+    createdFiles: state.createdFiles,
+    sourceFilesAfter: state.sourceFilesAfter,
+    sourceFilesBefore: state.sourceFilesBefore,
+  }));
+  await writeFile(join(stRoot, 'src/host.js'), original);
+  await rm(join(stRoot, 'src/hook.js'), { force: true });
+
+  assert.equal((await manager.execute('status')).status, 'NOT_INSTALLED');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
+  await assert.rejects(readFile(join(managerDir, 'transaction.json')), { code: 'ENOENT' });
 });
