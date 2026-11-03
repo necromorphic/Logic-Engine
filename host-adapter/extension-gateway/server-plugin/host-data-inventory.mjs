@@ -8,6 +8,7 @@ import {
   enumeratePinnedSillyTavernChatFiles,
   enumeratePinnedSillyTavernChatFilesFromWindowsSnapshot,
 } from './st-source-inventory.mjs';
+import { verifyPinnedSillyTavernMutationCoverage } from './st-mutation-route-contract.mjs';
 
 const fail = code => { throw new Error(code); };
 const isWithin = (parent, candidate) => {
@@ -54,6 +55,7 @@ export async function enumerateHostDataInventory({ directories, hostCommit }) {
   }
 
   return withWindowsVssSnapshot(validated.root, async lease => {
+    const mutationCoverageBefore = await verifyPinnedSillyTavernMutationCoverage();
     const filesystem = await enumerateStableFileInventoryFromWindowsSnapshot(lease);
     if (filesystem.status !== 'complete') fail(filesystem.code ?? 'HOST_DATA_FILESYSTEM_INVENTORY_NON_READY');
 
@@ -71,9 +73,15 @@ export async function enumerateHostDataInventory({ directories, hostCommit }) {
     if (filesystem.snapshot_id !== lease.snapshotId || source.snapshot_id !== lease.snapshotId) {
       fail('HOST_DATA_SNAPSHOT_ALIGNMENT_FAILED');
     }
+    const mutationCoverageAfter = await verifyPinnedSillyTavernMutationCoverage();
+    if (mutationCoverageBefore.source_files_sha256 !== mutationCoverageAfter.source_files_sha256
+      || mutationCoverageBefore.coverage_manifest_sha256 !== mutationCoverageAfter.coverage_manifest_sha256) {
+      fail('HOST_ST_MUTATION_SOURCE_CHANGED_DURING_INVENTORY');
+    }
     return {
       filesystem,
       source,
+      mutation_coverage: mutationCoverageAfter,
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
   });
