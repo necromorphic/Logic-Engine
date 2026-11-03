@@ -22,6 +22,8 @@ const canonical = value => Array.isArray(value)
     : JSON.stringify(value);
 
 test('pinned source manifest covers every installed Gateway helper', () => {
+  assert.ok(SOURCE_FILE_PATHS.includes('public/scripts/extensions.js'),
+    'source manifest must pin the SillyTavern browser extension loader');
   for (const name of [
     'index.mjs',
     'package.json',
