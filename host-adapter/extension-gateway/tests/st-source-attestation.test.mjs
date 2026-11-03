@@ -82,6 +82,16 @@ test('pinned source verifier accepts only the exact manifest and matching deploy
   assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
 });
 
+test('pinned source verifier rejects unmanifested installed Gateway files', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const extra = path.join(fixture.root, 'plugins/logic-engine-extension-gateway/unmanifested-helper.mjs');
+  await writeFile(extra, 'not covered by the deployment manifest');
+  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH');
+});
+
 test('root inventory attestation signs the exact accepted snapshot envelope', async t => {
   const adapterToken = 'test-adapter-secret-at-least-16';
   const sourceIdentity = {
