@@ -848,6 +848,7 @@ export class SQLiteMemoryProvider {
       world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
       record_ref: input.record_ref, record_version: input.record_version,
       source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+      source_version: input.source_version,
       authorization_generation: input.authorization_generation,
     };
     // Take the cross-connection epoch before reading any authorization state.
@@ -878,7 +879,8 @@ export class SQLiteMemoryProvider {
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
-      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id
+      || (input.source_version !== undefined && row.source_version !== input.source_version)) return false;
     let lineage;
     try { lineage = decode(row.lineage_json); } catch {
       throw new Error('MEMORY_LINEAGE_INVALID');
@@ -1375,7 +1377,7 @@ export class SQLiteMemoryProvider {
         const candidates = rows.slice(0, 50).map((row) => ({
           record: { ref: row.record_ref, version: row.record_version },
           authorization_generation: row.authorization_generation,
-          source: { kind: row.source_kind, entity_id: row.source_entity_id },
+          source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
           producer: { kind: row.producer_kind },
