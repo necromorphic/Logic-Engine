@@ -139,6 +139,19 @@ test('Core HTTP accepts only a signed, pinned, lifecycle-complete root attestati
   };
   attestation.signature = sign(attestation);
 
+  const invalidGenesis = {
+    ...attestation,
+    lifecycle_head_sha256: 'c'.repeat(64),
+    nonce: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    signature: '',
+  };
+  invalidGenesis.signature = sign(invalidGenesis);
+  const rejectedGenesis = await post(base, '/v1/host-root-inventory/attest', {
+    ...identity, attestation: invalidGenesis,
+  });
+  assert.equal(rejectedGenesis.status, 409);
+  assert.equal((await rejectedGenesis.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
+
   const invalid = await post(base, '/v1/host-root-inventory/attest', {
     ...identity, attestation: { ...attestation, signature: '0'.repeat(64) },
   });
