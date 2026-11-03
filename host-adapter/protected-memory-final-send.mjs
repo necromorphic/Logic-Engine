@@ -318,13 +318,6 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       try { parsedBody = JSON.parse(requestInit.body); }
       catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
       const scrubbedBody = cloneProviderValue(parsedBody);
-      if (contentBlocks.length === 0) {
-        const unchanged = JSON.stringify(scrubbedBody);
-        if (typeof unchanged !== 'string' || unchanged.length === 0 || unchanged.length > 4_000_000) {
-          throw new Error('MEMORY_DISPATCH_NOT_READY');
-        }
-        return unchanged;
-      }
       const memoryText = formatNpcMemoryContext(contentBlocks);
       const injectedBody = injectNpcMemory(hostRoute, scrubbedBody, memoryText);
       const exactBody = JSON.stringify(injectedBody);
