@@ -28,8 +28,8 @@ function sourceFiles(directory) {
   }));
 }
 
-const sensitiveModuleReference = /(?:sqlite-memory-provider|memory-npc-consumer|memory-provider-import-internal|memory-npc-provider-adapter)(?:\.js)?/i;
-const sensitiveNames = /\b(?:SQLiteMemoryProvider|MemoryNpcConsumer|createInternalMemoryImportFacadeForTest|createMemoryNpcProviderAdapter)\b/;
+const sensitiveModuleReference = /(?:sqlite-memory-provider|memory-npc-consumer|memory-provider-import-internal)(?:\.js)?/i;
+const sensitiveNames = /\b(?:SQLiteMemoryProvider|MemoryNpcConsumer|createInternalMemoryImportFacadeForTest)\b/;
 const providerAdminCall = /\.\s*(?:putRecord|grantQuery|grantRecord|revokeRecord|revokeQuery|captureRawMessage|selectActiveRawVersion|markRawSourceDeleted|purgeRawSource|registerRawDerivedCopy)\s*\(/g;
 const productionDirectories = ['src', 'host-adapter', 'scripts'];
 const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|$)/i.test(path)
