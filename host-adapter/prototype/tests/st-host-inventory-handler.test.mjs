@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
-import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
+import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
 
 function makeResponse() {
