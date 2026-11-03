@@ -588,7 +588,7 @@ function assertSamePolicyAuthority(actual, expected) {
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state,
  * including the complete policy authority tuple. One logical chat-generation
- * route is shared by the explicit 25-family sender registry. There is no
+ * route is shared by the explicit synchronous sender registry. There is no
  * fallback reader or transport.
  */
 export class MemoryDispatchGateway {
@@ -600,6 +600,7 @@ export class MemoryDispatchGateway {
     readCoreEvidence,
     readProviderEvidence,
     readHostEvidence,
+    npcContextRuntime,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -607,7 +608,10 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof readHostEvidence !== 'function') {
+      || typeof readHostEvidence !== 'function'
+      || !npcContextRuntime || typeof npcContextRuntime.projectDispatchHandoff !== 'function'
+      || typeof npcContextRuntime.consumeDispatchHandoff !== 'function'
+      || typeof npcContextRuntime.revalidateLaneAForDispatch !== 'function') {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -621,6 +625,7 @@ export class MemoryDispatchGateway {
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
     this.readHostEvidence = readHostEvidence;
+    this.npcContextRuntime = npcContextRuntime;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
