@@ -265,6 +265,23 @@ test('all three synchronous protected non-Chat-Completions routes dispatch throu
   assert.deepEqual(calls, routes);
 });
 
+test('adapter never treats null or NON_READY resolution as an unprotected native request', () => {
+  for (const resolution of [null, undefined, { status: 'non_ready' }]) {
+    let transportCalls = 0;
+    const adapter = createAdapter({ resolveProtectedMemory: () => resolution });
+    assert.throws(() => adapter.dispatch({
+      request: { body: { chat_completion_source: 'OPENAI', stream: false } },
+      senderRoute: 'openai',
+      hostRoute: 'chat-completions',
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: { method: 'POST', body: '{}' },
+      transport: () => { transportCalls += 1; return { status: 200 }; },
+      response: {},
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(transportCalls, 0);
+  }
+});
+
 test('Horde async task creation remains native only when unprotected', async () => {
   const unprotectedAdapter = createAdapter({ resolveProtectedMemory: () => ({ status: 'unprotected' }) });
   const unprotectedRequest = { body: {} };
