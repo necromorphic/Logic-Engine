@@ -63,6 +63,24 @@ static int le_store_valid_regular(HANDLE file, DWORD *length) {
  * SYSTEM/Administrators). The installer must reject reparse-point ancestors.
  * This function additionally pins and checks the final directory handle.
  */
+static int le_store_is_ntfs(HANDLE directory) {
+  wchar_t final_path[32768];
+  wchar_t volume_root[MAX_PATH];
+  wchar_t filesystem[MAX_PATH];
+  DWORD length;
+  length = GetFinalPathNameByHandleW(directory, final_path, _countof(final_path),
+      FILE_NAME_NORMALIZED | VOLUME_NAME_GUID);
+  if (length == 0 || length >= _countof(final_path)
+      || !GetVolumePathNameW(final_path, volume_root, _countof(volume_root))
+      || !GetVolumeInformationW(volume_root, NULL, 0, NULL, NULL, NULL,
+          filesystem, _countof(filesystem))
+      || wcscmp(filesystem, L"NTFS") != 0) {
+    SetLastError(ERROR_NOT_SUPPORTED);
+    return 0;
+  }
+  return 1;
+}
+
 int le_win_store_open(
     LE_WIN_MANIFEST_STORE *store,
     const wchar_t *configured_directory,
@@ -89,7 +107,8 @@ int le_win_store_open(
   if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
       || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-      || !logic_engine_win_identity(directory, &store->directory_identity, NULL)) {
+      || !logic_engine_win_identity(directory, &store->directory_identity, NULL)
+      || !le_store_is_ntfs(directory)) {
     CloseHandle(directory);
     SetLastError(ERROR_ACCESS_DENIED);
     return 0;
