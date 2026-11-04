@@ -294,3 +294,17 @@ test('production protected-memory projection rejects same-count Lane B candidate
   }) });
   assert.equal(result, undefined);
 });
+
+
+test('production Host revocation evidence requires the active shared Coordinator lease', async () => {
+  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
+  const start = runtime.indexOf('readHostEvidence: ({ hostContext, coordinatorLease }) => {');
+  const end = runtime.indexOf('\n      },\n    });', start);
+  assert.ok(start >= 0 && end > start);
+  const reader = runtime.slice(start, end);
+  const leaseGuard = reader.indexOf('isCoordinatorLease(coordinatorLease, engine.store.coordinatorDb)');
+  const revocationRead = reader.indexOf('hostSessionRevocationReader.isSessionRevoked');
+  const lifecycleRead = reader.indexOf('hostJournal.readAuthoritySnapshotUnderLease');
+  assert.ok(leaseGuard >= 0 && revocationRead > leaseGuard && lifecycleRead > revocationRead);
+  assert.match(reader, /HOST_SESSION_REVOCATION_COORDINATOR_LEASE_REQUIRED/);
+});
