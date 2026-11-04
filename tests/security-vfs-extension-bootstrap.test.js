@@ -204,10 +204,10 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       let diagnostics;
       try {
         diagnostics = diagnosticsDb.prepare(
-          'SELECT logic_engine_vfs_probe_open_count() AS openCount, '
-          + 'logic_engine_vfs_probe_native_open_count() AS nativeOpenCount, '
-          + 'logic_engine_vfs_probe_identity_reject_count() AS identityRejects, '
-          + 'logic_engine_vfs_probe_has_syscall(\'open\') AS openHook'
+          "SELECT logic_engine_vfs_probe_open_count() AS openCount, "
+          + "logic_engine_vfs_probe_native_open_count() AS nativeOpenCount, "
+          + "logic_engine_vfs_probe_identity_reject_count() AS identityRejects, "
+          + "logic_engine_vfs_probe_has_syscall('open') AS openHook"
         ).get();
       } finally {
         diagnosticsDb.close();
