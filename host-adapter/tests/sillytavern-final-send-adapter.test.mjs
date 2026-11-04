@@ -127,7 +127,10 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
     },
   });
   for (const hostRoute of routes) {
-    const request = { body: {} };
+    const body = hostRoute === 'novelai-text' ? { input: 'original prompt' }
+      : hostRoute === 'horde-text' ? { params: { prompt: 'original prompt' } }
+        : { prompt: 'original prompt' };
+    const request = { body };
     const result = await adapter.dispatch({
       request,
       response: {},
@@ -170,7 +173,8 @@ test('registered protected sender is delegated to the Core Gateway', () => {
     },
   };
   const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext, gateway });
-  const request = { body: { chat_completion_source: 'OPENAI', stream: false } };
+  const request = { body: { chat_completion_source: 'OPENAI', stream: false,
+    messages: [{ role: 'user', content: 'original prompt' }] } };
   const response = {};
 
   assert.equal(adapter.dispatch({
