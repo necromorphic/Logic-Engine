@@ -1439,6 +1439,12 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
 
 test('Host abort after upstream headers but before final response release records UNKNOWN and blocks replay', async () => {
   const controller = new AbortController();
+  // Caller-owned own properties must not replace the captured EventTarget
+  // intrinsics used by the Gateway to observe and clean up cancellation.
+  Object.defineProperties(controller.signal, {
+    addEventListener: { configurable: true, value() { throw new Error('POISONED_ABORT_LISTENER'); } },
+    removeEventListener: { configurable: true, value() { throw new Error('POISONED_ABORT_CLEANUP'); } },
+  });
   let sends = 0;
   const fixture = await createFixture({
     createTransport: () => () => {
