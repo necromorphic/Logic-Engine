@@ -1389,20 +1389,24 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
   let signalStarted;
   const transportStarted = new Promise(resolve => { signalStarted = resolve; });
   const fixture = await createFixture({
-    createTransport: () => () => new Promise((_resolve, reject) => {
+    createTransport: (request) => () => new Promise((_resolve, reject) => {
       sends += 1;
       signalStarted();
-      if (controller.signal.aborted) {
+      assert.equal(request.signal, controller.signal,
+        'the caller cancellation signal must reach the actual transport capability');
+      if (request.signal.aborted) {
         reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
         return;
       }
-      controller.signal.addEventListener('abort', () => {
+      request.signal.addEventListener('abort', () => {
         reject(Object.assign(new Error('cancelled'), { name: 'AbortError' }));
       }, { once: true });
     }),
   });
   try {
-    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch'));
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch', {
+      signal: controller.signal,
+    }));
     await transportStarted;
     controller.abort();
     await assert.rejects(pending, /MEMORY_DISPATCH_OUTCOME_UNKNOWN/);
