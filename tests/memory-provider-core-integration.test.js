@@ -907,12 +907,12 @@ test('file-backed Provider restart requires reconciliation before retrieval resu
 });
 
 
-test('real SQLite Provider preserves evidence classification without promoting retrieved knowledge into belief', async (t) => {
+test('real SQLite Provider admits only supported evidence and never promotes retrieval into belief', async (t) => {
   const cases = [
     ['unassessed', null],
     ['supported', 'unconfirmed_report'],
-    ['disputed', 'unconfirmed_report'],
-    ['insufficient', 'unknown'],
+    ['disputed', null],
+    ['insufficient', null],
   ];
   for (const [assessment, expectedEpistemicStatus] of cases) {
     await t.test(assessment, async (subtest) => {
@@ -924,13 +924,20 @@ test('real SQLite Provider preserves evidence classification without promoting r
         conversationId: HOST_CONVERSATION_ID,
       });
       assert.equal(result.status, 'ready', assessment);
-      assert.equal(result.candidates.length, 1, assessment);
-      assert.equal(result.candidates[0].evidence_assessment, assessment);
-      assert.equal(
-        mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
-        expectedEpistemicStatus,
-        assessment,
-      );
+      if (assessment === 'supported') {
+        assert.equal(result.candidates.length, 1, assessment);
+        assert.equal(result.admitted.length, 1, assessment);
+        assert.equal(result.candidates[0].evidence_assessment, 'supported');
+        assert.equal(
+          mapMemoryEvidenceToNpcEpistemicStatus(result.candidates[0].epistemic_kind, assessment),
+          expectedEpistemicStatus,
+          assessment,
+        );
+      } else {
+        assert.deepEqual(result.candidates, [], assessment);
+        assert.deepEqual(result.admitted, [], assessment);
+        assert.equal(JSON.stringify(result).includes(assessment), false);
+      }
       assert.equal(JSON.stringify(result).includes('never disclose'), false);
     });
   }
