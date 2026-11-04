@@ -43,7 +43,7 @@ export function snapshotNpcGenerationContent(value, {
           }
           result[index] = copy(descriptor.value, depth + 1);
         }
-        return result;
+        return Object.freeze(result);
       }
       const prototype = Object.getPrototypeOf(input);
       if (prototype !== Object.prototype && prototype !== null) throw new Error('NPC_GENERATION_CONTENT_INVALID');
@@ -94,6 +94,8 @@ export function projectNpcGenerationContentBlocks(candidates) {
       if (!descriptor || !descriptor.enumerable || !hasOwn(descriptor, 'value')) {
         throw new Error('NPC_GENERATION_CONTENT_INVALID');
       }
+      if (field !== 'content' && (typeof descriptor.value !== 'string' || !descriptor.value
+        || descriptor.value.length > 128)) throw new Error('NPC_GENERATION_CONTENT_INVALID');
       const value = field === 'content'
         ? snapshotNpcGenerationContent(descriptor.value)
         : descriptor.value;
