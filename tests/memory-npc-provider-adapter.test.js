@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { createHash, createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -207,6 +208,21 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
     }));
     if (result.status !== 'ready') console.log('ADAPTER_RESULT', JSON.stringify(result));
     assert.equal(result.status, 'ready', `unexpected retrieval result: ${result.reason}`);
+    if (result.candidates.length === 0) {
+      const diagnosticDb = new DatabaseSync(providerPath, { readOnly: true });
+      try {
+        const providerDiagnostics = {
+          records: diagnosticDb.prepare('SELECT world_id,subject_id,purpose,record_ref,record_version FROM memory_records').all(),
+          index: diagnosticDb.prepare('SELECT world_id,record_ref,record_version FROM memory_index_entries').all(),
+          recordGrants: diagnosticDb.prepare('SELECT world_id,record_ref,record_version,subject_id,purpose,allowed,authorization_generation FROM memory_record_grants').all(),
+          queryGrants: diagnosticDb.prepare('SELECT world_id,subject_id,purpose,allowed FROM memory_query_grants').all(),
+          state: diagnosticDb.prepare('SELECT world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code FROM memory_index_state').all(),
+        };
+        console.log('ADAPTER_PROVIDER_DB_DIAGNOSTICS', JSON.stringify(providerDiagnostics));
+      } finally {
+        diagnosticDb.close();
+      }
+    }
     assert.equal(result.candidates.length, 1);
     assert.deepEqual(result.candidates[0].content, {
       'attributes.public_note': 'real Core source value',
