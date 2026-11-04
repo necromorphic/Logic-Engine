@@ -996,9 +996,9 @@ test('all protected sender families share one real Gateway and each causes exact
             generationId: 'sender-generation-' + routeIndex,
             body: senderRoute === 'novelai-text'
               ? { input: 'original host prompt' }
-              : senderRoute === 'chat-completions'
-                ? { messages: [{ role: 'user', content: 'original host prompt' }] }
-                : { prompt: 'original host prompt' },
+              : ['text-completions', 'kobold', 'horde-text'].includes(senderRoute)
+                ? { prompt: 'original host prompt' }
+                : { messages: [{ role: 'user', content: 'original host prompt' }] },
           },
         });
       } catch (error) {
