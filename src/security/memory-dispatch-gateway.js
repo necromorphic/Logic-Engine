@@ -165,7 +165,9 @@ function isDispatchContractError(error) {
   const message = descriptor.value;
   return message === 'MEMORY_DISPATCH_DUPLICATE_ID'
     || message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
-    || message === 'MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED';
+    || message === 'MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED'
+    || message === 'MEMORY_DISPATCH_CANCELLED_BEFORE_START'
+    || message === 'MEMORY_DISPATCH_ABORT_SIGNAL_INVALID';
 }
 
 function arrayContains(values, expected) {
