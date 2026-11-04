@@ -69,6 +69,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
+    source_manifest_sha256: DIGEST('test-source-manifest'),
   }]));
   const authority = { authority_id: AUTHORITY_ID, generation: AUTHORITY_GENERATION };
   let journal;
@@ -189,6 +190,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     route_coverage_status: 'VERIFIED',
     route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
     source_files_sha256: DIGEST('verified-pinned-source-files'),
+    source_manifest_sha256: DIGEST('test-source-manifest'),
     occurred_at: '2026-11-02T00:00:00.000Z',
   };
   const proofSignature = createHmac('sha256', ADAPTER_TOKEN)
