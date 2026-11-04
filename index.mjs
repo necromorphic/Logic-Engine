@@ -189,12 +189,22 @@ export async function init(router) {
         const prepared = await registeredRuntime.providerAdapter.runWithAuthenticatedHostSession(
           request,
           coreConversationId,
-          () => npcBridge.prepare(request, response),
+          async () => {
+            const npc = await npcBridge.prepare(request, response);
+            if (npc?.status !== 'ready') return { status: 'NON_READY', reason: npc?.reason };
+            const coreContext = registeredRuntime.providerAdapter.resolveAuthenticatedHostContext();
+            return { status: 'READY', coreContext };
+          },
         );
-        if (prepared?.status !== 'ready') {
+        if (prepared?.status !== 'READY' || !prepared.coreContext) {
           return { status: 'NON_READY', code: prepared?.reason || 'NPC_CONTEXT_NOT_READY' };
         }
-        return Object.freeze({ status: 'READY', host, coreConversationId });
+        return Object.freeze({
+          status: 'READY',
+          host: Object.freeze({ context: host.context }),
+          coreContext: prepared.coreContext,
+          coreConversationId,
+        });
       },
       resolveProtectedMemory: (request, prepared) => {
         if (!memoryEnabled) return null;
