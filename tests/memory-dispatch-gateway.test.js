@@ -194,6 +194,7 @@ async function dispatchAndRelease(gateway, request) {
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   generationId: 'generation-' + requestId,
+  replayIdentity: createHash('sha256').update('original-host-prompt-' + requestId, 'utf8').digest('hex'),
   route: 'host-selected-chat-generation',
   senderRoute: 'google-ai-studio',
   model: 'selected-model',
@@ -1341,7 +1342,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id', {
-        generationId: 'generation-ambiguous-request',
+        generationId: 'generation-ambiguous-request', replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
