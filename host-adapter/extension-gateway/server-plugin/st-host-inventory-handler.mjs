@@ -631,7 +631,8 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     throw new TypeError('A trusted Host conversation resolver is required.');
   }
   const authenticatedRequests = new WeakMap();
-  async function authenticate(request, conversationUuid = request?.body?.conversation_uuid) {
+  async function authenticate(request, conversationUuid = request?.body?.conversation_uuid, signal) {
+    if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
     const identity = getAuthenticatedHostIdentity(request, {
       requireDirectories: true,
       requireSessionIdentity: true,
@@ -640,7 +641,8 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       return Object.freeze({ status: 'DENIED' });
     }
     try {
-      const binding = await resolveConversationId(request, conversationUuid);
+      const binding = await resolveConversationId(request, conversationUuid, signal);
+      if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (binding === null || binding === undefined || binding?.status === 'NON_READY') {
         return Object.freeze({
           status: 'NON_READY',
