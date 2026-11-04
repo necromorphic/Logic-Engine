@@ -178,7 +178,7 @@ function validateLaneB(envelope, scope) {
         || typeof candidate.source_version !== 'string'
         || !/^core-entity-v1:[1-9][0-9]*$/.test(candidate.source_version)
         || !validId(candidate.epistemic_kind)
-        || !['unassessed', 'supported', 'disputed', 'insufficient'].includes(candidate.evidence_assessment)
+        || candidate.evidence_assessment !== 'supported'
         || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version
         || (Object.hasOwn(admitted, 'epistemic_kind')
           && admitted.epistemic_kind !== candidate.epistemic_kind)
