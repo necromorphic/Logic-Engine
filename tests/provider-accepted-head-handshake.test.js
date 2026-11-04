@@ -143,12 +143,15 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       ...providerOptions(providerPath, coordinatorPath),
       observerOnly: true,
     });
+    // Provider retrieval owns its own Coordinator transaction. Capture the
+    // cursor before acquiring the synchronous Final-Send lease; the lease then
+    // pins the evidence validation/read without attempting a nested BEGIN IMMEDIATE.
+    const providerRetrieval = await provider.retrieveCandidates(scope);
     const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
     const providerLease = beginCoordinatorLock(coordinatorObserver);
     try {
       // Bind the dispatch proof to the exact indexed candidate projection returned
       // by Provider retrieval; a hand-built candidate list alone is not authority.
-      const providerRetrieval = await provider.retrieveCandidates(scope);
       const evidence = dispatchObserver.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
