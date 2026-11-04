@@ -408,3 +408,36 @@ test('authority restarts fail-closed with pending enrollment and permits explici
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('authority rejects an un-enrolled head backed by a pending mutation instead of a pending enrollment', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const authority = new AcceptedHeadAuthority({ path, installationId: 'pending-mutation-installation' });
+  authority.close();
+
+  const db = new DatabaseSync(path);
+  try {
+    db.exec("UPDATE authority_domain_heads SET head=1 WHERE domain='core'");
+    db.prepare(`
+      INSERT INTO authority_operations(
+        operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at
+      ) VALUES(?,?,?,?,?,?,?)
+    `).run(
+      'corrupt-pending-mutation',
+      'core',
+      1,
+      digestA,
+      'mutation',
+      'pending',
+      new Date().toISOString(),
+    );
+  } finally {
+    db.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'pending-mutation-installation' }),
+    /ACCEPTED_HEAD_STATE_INVALID/,
+  );
+  rmSync(dir, { recursive: true, force: true });
+});
