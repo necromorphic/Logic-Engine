@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createNpcGenerationContextBuilder } from '../src/application/npc-generation-context.js';
+import { projectNpcGenerationContentBlocks } from '../host-adapter/npc-generation-content-projection.mjs';
 
 const scope = Object.freeze({
   world_id: 'world-1', actor_id: 'npc-1', conversation_id: 'conversation-1',
@@ -332,4 +333,25 @@ test('Lane B rejects a malformed Provider evidence cursor before context issuanc
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'lane_b_result_invalid');
   assert.equal(result.context, null);
+});
+
+
+test('Final-Send Lane B projection accepts supported evidence and rejects unsupported assessments', () => {
+  const supported = projectNpcGenerationContentBlocks([{
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: { note: 'bounded report' },
+  }]);
+  assert.equal(supported.length, 1);
+  assert.equal(supported[0].evidence_assessment, 'supported');
+  assert.equal(Object.isFrozen(supported), true);
+  assert.equal(Object.isFrozen(supported[0].content), true);
+
+  for (const evidence_assessment of ['unassessed', 'disputed', 'insufficient', 'unknown']) {
+    assert.throws(() => projectNpcGenerationContentBlocks([{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment,
+      content: { note: 'must not reach Final-Send' },
+    }]), /NPC_GENERATION_CONTENT_INVALID/);
+  }
 });
