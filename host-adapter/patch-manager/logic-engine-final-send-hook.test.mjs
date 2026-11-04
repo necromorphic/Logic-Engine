@@ -40,3 +40,27 @@ test('Final-Send hook preserves native Host route for non-chat generation', asyn
     unregisterLogicEngineFinalSendAdapter(adapter, owner);
   }
 });
+
+
+test('Final-Send hook rejects unknown Host generation routes instead of defaulting to chat-completions', async () => {
+  let dispatchCalls = 0;
+  const adapter = {
+    async prepare() {},
+    resolveSenderRoute(_request, hostRoute) { return hostRoute; },
+    dispatch() { dispatchCalls += 1; return { status: 200 }; },
+    forwardResponse() {},
+  };
+  const owner = 'logic-engine-extension:test-unknown-route';
+  registerLogicEngineFinalSendAdapter(adapter, owner);
+  try {
+    const request = { originalUrl: '/api/plugins/other/generate', body: { stream: false } };
+    await assert.rejects(
+      runWithLogicEngineFinalSend(request, {}, async () =>
+        logicEngineFetch('https://provider.example/generate', { method: 'POST' })),
+      /LOGIC_ENGINE_FINAL_SEND_HOST_ROUTE_UNKNOWN/,
+    );
+    assert.equal(dispatchCalls, 0);
+  } finally {
+    unregisterLogicEngineFinalSendAdapter(adapter, owner);
+  }
+});
