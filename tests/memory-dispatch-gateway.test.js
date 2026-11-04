@@ -1074,7 +1074,8 @@ test('Gateway migrates sender constraints to the complete registry without losin
     const history = fixture.gateway.db.prepare(
       'SELECT sender_route,status FROM dispatch_ledger WHERE request_id=?',
     ).get(legacyRequest.requestId);
-    assert.deepEqual(history, { sender_route: 'horde-text', status: 'COMPLETED' });
+    assert.equal(history.sender_route, 'horde-text');
+    assert.equal(history.status, 'COMPLETED');
 
     const expandedRequest = validRequest('cometapi-after-sender-migration', {
       senderRoute: 'cometapi',
