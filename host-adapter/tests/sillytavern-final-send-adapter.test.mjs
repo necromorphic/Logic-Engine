@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSillyTavernFinalSendAdapter } from '../sillytavern-final-send-adapter.mjs';
+import { createHash } from 'node:crypto';
 
 const sourceKeys = [
   'CLAUDE', 'AI21', 'MAKERSUITE', 'VERTEXAI', 'MISTRALAI', 'COHERE',
@@ -450,4 +451,53 @@ test('Host preparation receives the request AbortSignal and rejects cancellation
   controller.abort(new Error('client disconnected'));
   finishPreparation({ status: 'READY', context: {} });
   await assert.rejects(pending, /LOGIC_ENGINE_HOST_GENERATION_CANCELLED/);
+});
+
+test('Host preparation snapshots replay identity before native sender mutation', async () => {
+  const protectedContext = {
+    requestId: 'request-ingress-snapshot',
+    generationId: 'generation-ingress-snapshot',
+    model: 'test-model',
+    worldId: 'world-1',
+    actorId: 'actor-1',
+    purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+  };
+  let dispatchRequest;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => protectedContext,
+    gateway: {
+      dispatchProtectedRequest(request) {
+        dispatchRequest = request;
+        return request.transport();
+      },
+    },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: {
+      chat_completion_source: 'OPENAI',
+      model: 'model-before',
+      messages: [{ role: 'user', content: 'original prompt' }],
+    },
+  };
+  await adapter.prepare(request, {});
+  const expected = createHash('sha256')
+    .update(JSON.stringify(request.body.messages), 'utf8').digest('hex');
+  request.body.messages = [{ role: 'user', content: 'mutated after Host ingress' }];
+  await adapter.dispatch({
+    request,
+    response: [...[]],
+    senderRoute: 'openai',
+    hostRoute: 'chat-completions',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { ...requestInit, body: JSON.stringify({ model: 'model-after', messages: request.body.messages }) },
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  });
+  assert.equal(dispatchRequest.replayIdentity, expected);
 });
