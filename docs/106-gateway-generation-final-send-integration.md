@@ -145,3 +145,10 @@ The current integration branch includes the fresh-account lifecycle genesis cons
 
 
 **Safety state:** NON_READY; Memory → NPC remains DISABLED / FAIL-CLOSED. PR merge, production route enrollment and activation are not authorized by this candidate.
+
+
+## 4 Nov 2026 — Host preparation lifecycle binding
+
+The native Final-Send Hook now treats Host preparation as a one-shot operation for the exact Express request object. The adapter reserves that request before awaiting asynchronous inventory/context preparation. A second or concurrent preparation attempt is terminal, and a failed preparation cannot be retried on the same request object to obtain a different context or response binding. The resulting preparation remains bound to the exact response object and resolved Host route; dispatch cannot switch either after preparation.
+
+Regression coverage includes duplicate preparation, concurrent preparation, failed-preparation retry, response-object substitution, and route substitution. This is a request-lifecycle integrity guard; it does not replace the Gateway's evidence lease, durable dispatch ledger, or final response revalidation.
