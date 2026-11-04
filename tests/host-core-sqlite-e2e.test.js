@@ -181,6 +181,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       filesystem: {
         status: 'complete', entries: [], snapshot_id: 'sqlite-e2e-vss-snapshot',
       },
+      mutation_coverage: { status: 'VERIFIED', source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127', coverage_manifest_sha256: 'c'.repeat(64), route_count: 1, source_files_sha256: 'd'.repeat(64) },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
         status: 'DOUBLE_SCAN_CANDIDATE',
