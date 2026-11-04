@@ -115,7 +115,7 @@ The native sender path is fail-closed:
 ### Remaining P0 acceptance gates
 
 1. Exact-head CI for the current integration commit must finish green. Queued workflows are not passing evidence.
-2. Run the full sender matrix against the pinned SillyTavern 1.19.0 installation: all five native handlers and all 29 sender identities, including unknown-sender rejection.
+2. Run the full sender matrix against the pinned SillyTavern 1.19.0 installation: all five native handlers and all 30 sender identities, including unknown-sender rejection.
 3. Run real-provider streaming and non-streaming acceptance, including client disconnect/cancellation, response transform, error paths and duplicate end/write behavior.
 4. Prove revoke-before-start produces zero upstream calls; revoke during inference blocks response release; revoke between stream chunks blocks the next chunk.
 5. Prove retry, ambiguous/UNKNOWN outcome, crash/restart and new request IDs cannot cause a second upstream dispatch.
@@ -130,7 +130,7 @@ The current integration branch includes the fresh-account lifecycle genesis cons
 
 | Requirement | Current implementation evidence | State |
 |---|---|---|
-| Five pinned native handlers and 29 sender identities | Managed source patch, exact sender registry, route/identity tests and pinned-source audit | Implemented; exact-head CI pending |
+| Five pinned native handlers and 30 sender identities | Managed source patch, exact sender registry, route/identity tests and pinned-source audit | Implemented; exact-head CI pending |
 | Authenticated Host request and conversation binding | Server-side signed ST session, complete inventory, Core World/Actor binding | Implemented; live ST acceptance pending |
 | NPC Context Receiver and one-shot handoff | In-process NPC runtime/receiver, exact request/response WeakMap handoff | Implemented; exact-head CI pending |
 | Lane A + Lane B model projection | Separate serialization, Lane A provenance and lease-bound revalidation | Implemented; full model/provider acceptance pending |
