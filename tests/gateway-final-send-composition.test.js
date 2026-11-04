@@ -310,13 +310,14 @@ test('production Host revocation evidence requires the active shared Coordinator
 });
 
 
-test('Gateway replay digest is bound to the authenticated Host session', async () => {
+test('Gateway replay digest remains stable across Host session rotation', async () => {
   const gateway = await readFile(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url), 'utf8');
   const start = gateway.indexOf('const requestDigest = createHash');
   const end = gateway.indexOf("), 'utf8').digest('hex');", start);
   assert.ok(start >= 0 && end > start);
   const digestInput = gateway.slice(start, end);
-  assert.match(digestInput, /host_session_id: hostContextSnapshot\.host_session_id/);
+  assert.doesNotMatch(digestInput, /host_session_id/);
   assert.match(digestInput, /host_installation_id: hostContextSnapshot\.host_installation_id/);
   assert.match(digestInput, /authenticated_account_id: hostContextSnapshot\.authenticated_account_id/);
+  assert.match(digestInput, /host_conversation_id: hostContextSnapshot\.host_conversation_id/);
 });
