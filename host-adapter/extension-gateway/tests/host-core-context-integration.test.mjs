@@ -240,6 +240,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   // This proof stub is test-only. Production uses the signed Core root-inventory
   // response; a local candidate scan without that proof must remain NON_READY.
   let includeLifecycleProof = true;
+  let lifecycleSequence = 0;
+  let lifecycleHeadSha256 = '0'.repeat(64);
   const testOnlyAuthoritativeRootProof = async ({
     userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity,
   }) => {
@@ -258,8 +260,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       source_manifest_sha256: TEST_SOURCE_MANIFEST_SHA,
       attestation_sha256: 'd'.repeat(64),
       ...(includeLifecycleProof ? {
-        lifecycle_sequence: 1,
-        lifecycle_head_sha256: 'e'.repeat(64),
+        lifecycle_sequence: lifecycleSequence,
+        lifecycle_head_sha256: lifecycleHeadSha256,
       } : {}),
     };
   };
@@ -342,6 +344,15 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     world_id: 'host-e2e-world',
   });
   assert.equal(worldBinding.status, 201);
+
+  lifecycleHeadSha256 = 'e'.repeat(64);
+  const malformedGenesisGate = responseRecorder();
+  let malformedGenesisPassed = false;
+  await adapter.dispatchMiddleware(request, malformedGenesisGate, () => { malformedGenesisPassed = true; });
+  assert.equal(malformedGenesisPassed, false);
+  assert.equal(malformedGenesisGate.statusCode, 503);
+  assert.equal(malformedGenesisGate.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
+  lifecycleHeadSha256 = '0'.repeat(64);
 
   includeLifecycleProof = false;
   const incompleteLifecycleGate = responseRecorder();
