@@ -131,7 +131,19 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
             // Disconnect while asynchronous Host preparation was pending:
             // do not enter the native sender or create a dispatch attempt.
             if (abortController.signal.aborted || response.destroyed === true) return undefined;
-            return await handler();
+            try {
+                return await handler();
+            } catch (error) {
+                // A terminal Gateway denial must not reach Express' generic
+                // error middleware, which could otherwise attempt a fallback
+                // response after the protected release capability was revoked.
+                if (abortController.signal.aborted || response.destroyed === true) return undefined;
+                if (error?.logicEngineFinalSendTerminal === true) {
+                    if (typeof response.destroy === 'function' && !response.destroyed) response.destroy();
+                    return undefined;
+                }
+                throw error;
+            }
         } finally {
             cleanup();
         }
