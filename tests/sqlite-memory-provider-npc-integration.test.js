@@ -110,22 +110,16 @@ function setup(t) {
         entityIds: [record.source_entity_id],
         fields: ['entity_id'],
       });
+      if (pauseAuthorization?.recordRef === record.record_ref) {
+        const pause = pauseAuthorization;
+        pause.entered();
+        await pause.releasePromise;
+      }
       return sourceVersions.get(record.source_entity_id) === record.source_version;
     },
     validateInventory: async (requestedWorldId, rows) => requestedWorldId === worldId
       && isDeepStrictEqual(canonicalInventory(rows), canonicalInventory([...expectedInventory.values()])),
   });
-
-  const originalAuthorizeCandidate = provider.authorizeCandidate.bind(provider);
-  provider.authorizeCandidate = async (input) => {
-    const allowed = await originalAuthorizeCandidate(input);
-    if (pauseAuthorization?.recordRef === input.record_ref) {
-      const pause = pauseAuthorization;
-      pause.entered();
-      await pause.releasePromise;
-    }
-    return allowed;
-  };
 
   const scope = { world_id: worldId, subject_id: actorId, purpose };
   provider.grantQuery(scope, true);
