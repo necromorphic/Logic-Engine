@@ -141,6 +141,10 @@ export function createSillyTavernFinalSendAdapter({
   // ID after a completed first dispatch and send the same prompt again.
   const protectedDispatchByResponse = new WeakSet();
   const preparedContextByRequest = new WeakMap();
+  // Host preparation is a one-shot capability for the exact request object.
+  // Re-preparing the same request with another response must not replace the
+  // response/context binding held by the first preparation.
+  const preparedRequests = new WeakSet();
   const finalSend = createProtectedMemoryFinalSend({
     gateway,
     resolveProtectedMemory,
@@ -153,6 +157,9 @@ export function createSillyTavernFinalSendAdapter({
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
       assertAuthenticatedHostRequest(request);
+      if (preparedRequests.has(request)) {
+        throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE'));
+      }
       const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
       const hostContext = prepareHostContext
         ? await prepareHostContext(request, response, hostRoute) : null;
@@ -160,6 +167,7 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
       preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute }));
+      preparedRequests.add(request);
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
