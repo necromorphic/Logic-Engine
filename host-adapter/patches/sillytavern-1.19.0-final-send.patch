@@ -98,11 +98,36 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,199 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
 +const generationContext = new AsyncLocalStorage();
++function composeAbortSignals(signals, registerCleanup) {
++    const controller = new AbortController();
++    const subscriptions = [];
++    const cleanup = () => {
++        for (const [signal, listener] of subscriptions.splice(0)) {
++            signal.removeEventListener('abort', listener);
++        }
++    };
++    for (const signal of signals) {
++        if (!signal) continue;
++        if (signal.aborted) {
++            controller.abort(signal.reason);
++            cleanup();
++            break;
++        }
++        const listener = () => {
++            if (!controller.signal.aborted) controller.abort(signal.reason);
++            cleanup();
++        };
++        signal.addEventListener('abort', listener, { once: true });
++        subscriptions.push([signal, listener]);
++    }
++    registerCleanup(cleanup);
++    return controller.signal;
++}
 +let adapter = null;
 +let adapterOwner = null;
 +
@@ -157,12 +182,16 @@
 +            abortController.abort(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
 +        }
 +    };
++    const cleanupCallbacks = [];
 +    const cleanup = () => {
 +        request.off?.('aborted', abortGeneration);
 +        request.off?.('aborted', cleanup);
 +        response.off?.('close', abortGeneration);
 +        response.off?.('close', cleanup);
 +        response.off?.('finish', cleanup);
++        for (const callback of cleanupCallbacks.splice(0)) {
++            try { callback(); } catch {}
++        }
 +    };
 +    request.once?.('aborted', abortGeneration);
 +    request.once?.('aborted', cleanup);
@@ -182,7 +211,7 @@
 +    }
 +    const activeContext = {
 +        request, response, adapter: responseAdapter, route,
-+        protectedForward: null, prepared: false, abortController,
++        protectedForward: null, prepared: false, abortController, cleanupCallbacks,
 +    };
 +    return generationContext.run(activeContext, async () => {
 +        try {
@@ -231,7 +260,8 @@
 +    const hostTransformsStream = active.route === 'text-completions' && body.api_type === 'ollama' && stream;
 +    // Propagate a disconnected Host client to the real provider request.
 +    const signal = requestInit?.signal
-+        ? AbortSignal.any([requestInit.signal, active.abortController.signal])
++        ? composeAbortSignals([requestInit.signal, active.abortController.signal],
++            (cleanup) => active.cleanupCallbacks.push(cleanup))
 +        : active.abortController.signal;
 +    const outboundInit = { ...requestInit, signal };
 +    const transport = () => nativeFetch(endpointUrl, outboundInit);
