@@ -212,23 +212,21 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       } finally {
         diagnosticsDb.close();
       }
-      let db;
-      try {
-        db = new DatabaseSync(workerData.path);
-      } catch (error) {
-        parentPort.postMessage({ openError: error.message, diagnostics });
-        return;
-      }
       let result;
       try {
-        db.exec('CREATE TABLE worker_probe(value TEXT);');
-        result = {
-          ...diagnostics,
-          openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
-          sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
-        };
-      } finally {
-        db.close();
+        const db = new DatabaseSync(workerData.path);
+        try {
+          db.exec('CREATE TABLE worker_probe(value TEXT);');
+          result = {
+            ...diagnostics,
+            openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
+            sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
+          };
+        } finally {
+          db.close();
+        }
+      } catch (error) {
+        result = { openError: error.message, diagnostics };
       }
       parentPort.postMessage(result);
     `, { eval: true, workerData: { extensionPath, path: workerPath } });
