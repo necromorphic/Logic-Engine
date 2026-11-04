@@ -256,6 +256,32 @@ test('dispatch rejects a Host route changed after preparation', async () => {
   assert.equal(transportCalls, 0);
 });
 
+test('dispatch cannot change the default route when preparation has no pinned path', async () => {
+  let resolverCalls = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+  });
+  const request = {
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+  const response = {};
+  await adapter.prepare(request, response);
+
+  assert.throws(() => adapter.dispatch({
+    request,
+    response,
+    senderRoute: 'text-completions',
+    hostRoute: 'text-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit,
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  }), /LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH/);
+  assert.equal(resolverCalls, 0);
+});
+
 test('dispatch rejects a response object different from the one bound during Host preparation', async () => {
   let resolverCalls = 0;
   const adapter = createAdapter({
