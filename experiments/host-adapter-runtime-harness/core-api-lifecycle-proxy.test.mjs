@@ -80,6 +80,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
   const chats = join(root, 'chats');
   const groups = join(root, 'groups');
   const groupChats = join(root, 'group chats');
+  const extensions = join(root, 'extensions');
   const identityDirectory = join(parent, 'host-identity');
   const coreDirectory = join(parent, 'core-state');
   const coreDbPath = join(coreDirectory, 'host-lifecycle.sqlite');
@@ -89,6 +90,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     mkdir(chats, { recursive: true }),
     mkdir(groups, { recursive: true }),
     mkdir(groupChats, { recursive: true }),
+    mkdir(extensions, { recursive: true }),
     mkdir(identityDirectory, { recursive: true }),
     mkdir(coreDirectory, { recursive: true }),
   ]);
@@ -111,7 +113,7 @@ test('SillyTavern lifecycle proxy authenticates PREPARED/COMMITTED receipts and 
     authenticated_account_id: identity.authenticated_account_id,
     root_id: rootId,
   };
-  const directories = { root, chats, groups, groupChats };
+  const directories = { root, chats, groups, groupChats, extensions };
 
   const enumerate = async () => {
     const bytes = await readFile(filePath);
