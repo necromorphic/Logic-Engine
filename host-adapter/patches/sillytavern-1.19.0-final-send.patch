@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,169 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -165,6 +165,7 @@
 +        response.off?.('finish', cleanup);
 +    };
 +    request.once?.('aborted', abortGeneration);
++    request.once?.('aborted', cleanup);
 +    response.once?.('close', abortGeneration);
 +    response.once?.('close', cleanup);
 +    response.once?.('finish', cleanup);
