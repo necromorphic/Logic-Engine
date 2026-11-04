@@ -3,6 +3,15 @@ on:
   pull_request:
     paths:
       - '.github/workflows/provider-blocker3.yml'
+      - 'index.mjs'
+      - 'host-adapter/embedded-gateway-runtime.mjs'
+      - 'host-adapter/npc-generation-content-projection.mjs'
+      - 'src/application/npc-generation-context-runtime.js'
+      - 'src/application/npc-generation-context-host-bridge.js'
+      - 'src/application/memory-npc-consumer.js'
+      - 'src/application/memory-npc-provider-adapter.js'
+      - 'src/security/memory-dispatch-gateway.js'
+      - 'tests/gateway-final-send-composition.test.js'
       - 'src/application/sqlite-memory-provider.js'
       - 'src/storage/sqlite-store.js'
       - 'src/security/accepted-head-*.js'
