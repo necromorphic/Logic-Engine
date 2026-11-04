@@ -83,21 +83,26 @@ const timeTrigger = (row, includePayload = true) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
-const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
+const relationshipRef = (subjectId, targetId, dimension = null) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId) + (dimension === null ? '' : '/' + encodeURIComponent(dimension));
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
   const pair = value.slice('relationship:'.length).split('/');
-  if (pair.length !== 2) return null;
+  if (pair.length !== 2 && pair.length !== 3) return null;
   try {
     const subjectId = decodeURIComponent(pair[0]);
     const targetId = decodeURIComponent(pair[1]);
-    return subjectId && targetId ? { subjectId, targetId } : null;
+    const dimension = pair.length === 3 ? decodeURIComponent(pair[2]) : null;
+    return subjectId && targetId && (dimension === null || dimension) ? { subjectId, targetId, dimension } : null;
   } catch { return null; }
 };
-const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' || e.kind === 'npc.belief.transition' ? [] : [e.kind === 'relationship.transition'
-  ? relationshipRef(e.subject_id, e.target_id)
-  : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id]);
+const refs = (effects) => effects.flatMap((e) => {
+  if (e.kind === 'knowledge.acquire' || e.kind === 'npc.belief.transition') return [];
+  if (e.kind === 'relationship.transition') {
+    return Object.keys(e.patch || {}).map((dimension) => relationshipRef(e.subject_id, e.target_id, dimension));
+  }
+  return [e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
+    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id];
+});
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -2660,7 +2665,8 @@ export class SQLiteStore {
           if (!pair) return false;
           const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence);
           const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, invalid);
-          return !isDeepStrictEqual(before, after);
+          if (pair.dimension === null) return !isDeepStrictEqual(before, after);
+          return !isDeepStrictEqual(before[pair.dimension], after[pair.dimension]);
         }
         return false;
       };
