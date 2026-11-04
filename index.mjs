@@ -51,8 +51,9 @@ function createNpcBridge(providerAdapter) {
 }
 
 function buildProtectedMemory(request, prepared, npcBridge) {
-  const host = prepared?.hostContext?.host;
-  if (!host || host.status !== 'READY' || !prepared.response) return undefined;
+  const preparedHostContext = prepared?.hostContext;
+  const host = preparedHostContext?.host;
+  if (preparedHostContext?.status !== 'READY' || !host || !prepared.response) return undefined;
   const accepted = npcBridge.consume(request, prepared.response);
   if (accepted?.status !== 'accepted' || !accepted.context || accepted.laneB?.status !== 'ready') {
     return undefined;
