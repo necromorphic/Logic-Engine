@@ -155,6 +155,7 @@ typedef struct ProbeSidecarIdentity {
   int retired; /* pathname deleted, but another hardlink may keep the object alive */
   dev_t device;
   ino_t inode;
+  int retained_fd; /* pins retired inode until its last external hardlink is gone */
 } ProbeSidecarIdentity;
 static ProbeSidecarIdentity g_sidecar_identities[PROBE_MAX_SIDECAR_IDENTITIES];
 static int g_sidecar_identity_count = 0;
@@ -1037,6 +1038,23 @@ static int probe_open(const char *name, int flags, int mode) {
   }
   probe_registry_lock();
   {
+    /* A retired record is needed only while the deleted sidecar still has
+       external hardlinks. Keep an fd to prevent inode reuse, then release the
+       record once the last pathname link disappears. */
+    for (int i = 0; i < g_sidecar_identity_count;) {
+      ProbeSidecarIdentity *entry = &g_sidecar_identities[i];
+      struct stat retained_info;
+      if (entry->retired && entry->retained_fd >= 0
+          && fstat(entry->retained_fd, &retained_info) == 0
+          && retained_info.st_nlink == 0) {
+        close(entry->retained_fd);
+        g_sidecar_identity_count--;
+        if (i < g_sidecar_identity_count) memmove(entry, entry + 1,
+          (size_t)(g_sidecar_identity_count - i) * sizeof(g_sidecar_identities[0]));
+        continue;
+      }
+      i++;
+    }
     int reject = fstat(fd, &info) != 0 || info.st_dev == 0 || info.st_ino == 0;
     if (!reject && g_current_role_index >= 0 && !g_current_role_captured) {
       ProbeDatabaseRole *role = &g_database_roles[g_current_role_index];
@@ -1091,6 +1109,7 @@ static int probe_open(const char *name, int flags, int mode) {
           entry->retired = 0;
           entry->device = info.st_dev;
           entry->inode = info.st_ino;
+          entry->retained_fd = -1;
         }
       }
     }
@@ -2163,6 +2182,7 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
      * immediately before the atomic quarantine rename. The moved identity must
      * mismatch and the replacement must be retained, never unlinked.
      */
+    int retained_sidecar_fd = -1;
     if (g_race_inject_once && g_race_path && name
         && strcmp(name, g_race_path) == 0) {
       g_race_inject_once = 0;
@@ -2172,9 +2192,22 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
         return SQLITE_IOERR_DELETE;
       probe_counter_increment(&g_race_injection_count);
     }
+    if (kind > 0 && sidecar_info.st_nlink > 1) {
+      struct stat retained_info;
+      retained_sidecar_fd = openat(role->trusted_parent_fd, relative_name,
+          O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+      if (retained_sidecar_fd < 0 || fstat(retained_sidecar_fd, &retained_info) != 0
+          || retained_info.st_dev != sidecar_info.st_dev
+          || retained_info.st_ino != sidecar_info.st_ino) {
+        if (retained_sidecar_fd >= 0) close(retained_sidecar_fd);
+        return SQLITE_IOERR_DELETE;
+      }
+    }
     if (probe_posix_quarantine_delete(role->trusted_parent_fd, relative_name,
-                                      &sidecar_info) != 0)
+                                      &sidecar_info) != 0) {
+      if (retained_sidecar_fd >= 0) close(retained_sidecar_fd);
       return SQLITE_IOERR_DELETE;
+    }
 #else
     return SQLITE_IOERR_DELETE;
 #endif
@@ -2187,7 +2220,10 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
             && entry->inode == sidecar_info.st_ino) {
           if (sidecar_info.st_nlink > 1) {
             entry->retired = 1;
+            entry->retained_fd = retained_sidecar_fd;
+            retained_sidecar_fd = -1;
           } else {
+            if (entry->retained_fd >= 0) close(entry->retained_fd);
             g_sidecar_identity_count--;
             if (i < g_sidecar_identity_count) memmove(&g_sidecar_identities[i],
               &g_sidecar_identities[i + 1],
@@ -2197,6 +2233,7 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
         }
       }
       probe_registry_unlock();
+      if (retained_sidecar_fd >= 0) close(retained_sidecar_fd);
     }
     if (sync_dir && fsync(role->trusted_parent_fd) != 0) return SQLITE_IOERR_DIR_FSYNC;
     return SQLITE_OK;
