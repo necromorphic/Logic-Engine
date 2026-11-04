@@ -1437,6 +1437,59 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
   }
 });
 
+test('Host abort after upstream headers but before final response release records UNKNOWN and blocks replay', async () => {
+  const controller = new AbortController();
+  let sends = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      sends += 1;
+      // Model fetch resolving at response headers while a Host-transformed
+      // stream is still pending and no final Host write has been authorized.
+      return Promise.resolve({ status: 200, body: 'stream-open' });
+    },
+  });
+  const request = validRequest('host-abort-after-headers', {
+    stream: true,
+    hostTransformsStream: true,
+    signal: controller.signal,
+  });
+  try {
+    const response = await fixture.gateway.dispatchProtectedRequest(request);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.gateway.pendingReleases.has(request.requestId), true);
+
+    controller.abort();
+
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get(request.requestId).status,
+        'UNKNOWN',
+        'disconnect after upstream headers must terminally resolve the ambiguous dispatch',
+      );
+    } finally {
+      ledger.close();
+    }
+    assert.equal(fixture.gateway.pendingReleases.has(request.requestId), false);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => undefined, { final: true }),
+      /MEMORY_DISPATCH_RELEASE_NOT_PENDING/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers')),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(sends, 1, 'disconnect after headers must never reopen the provider transport');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('serialized Gateway endpoint rejects dispatch because it cannot carry an in-process transport capability', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
