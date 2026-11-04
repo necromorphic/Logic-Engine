@@ -485,13 +485,14 @@ test('Host preparation snapshots replay identity before native sender mutation',
       messages: [{ role: 'user', content: 'original prompt' }],
     },
   };
-  await adapter.prepare(request, {});
+  const response = {};
+  await adapter.prepare(request, response);
   const expected = createHash('sha256')
     .update(JSON.stringify(request.body.messages), 'utf8').digest('hex');
   request.body.messages = [{ role: 'user', content: 'mutated after Host ingress' }];
   await adapter.dispatch({
     request,
-    response: [...[]],
+    response,
     senderRoute: 'openai',
     hostRoute: 'chat-completions',
     endpointUrl: 'https://provider.example/v1/chat/completions',
