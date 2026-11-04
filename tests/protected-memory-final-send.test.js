@@ -245,6 +245,7 @@ test('protected NPC content is serialized into the exact outbound request and Ho
       senderRoute,
       endpointUrl: 'https://provider.example/generate',
       requestInit: init(body),
+      hostRequestContext,
     });
     assert.equal(dispatched.body, outbound, senderRoute);
     const parsed = JSON.parse(outbound);
@@ -272,6 +273,7 @@ test('Horde text generation uses the protected Gateway and performs exactly one 
     senderRoute: 'horde-text',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(JSON.stringify({ prompt: 'hello' })),
+    hostRequestContext,
   });
   assert.equal(result.status, 200);
   assert.equal(dispatched.senderRoute, 'horde-text');
