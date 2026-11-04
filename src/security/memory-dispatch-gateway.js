@@ -824,7 +824,18 @@ export class MemoryDispatchGateway {
       world_id: worldId,
       actor_id: actorId,
       purpose,
-      host_context: hostContextSnapshot,
+      // Root inventory revisions are revalidated for authorization, but are
+      // not idempotency identity: an unrelated file change must not reopen an
+      // UNKNOWN generation for replay.
+      host_scope: {
+        adapter_id: hostContextSnapshot.adapter_id,
+        core_conversation_id: hostContextSnapshot.core_conversation_id,
+        host_installation_id: hostContextSnapshot.host_installation_id,
+        authenticated_account_id: hostContextSnapshot.authenticated_account_id,
+        host_session_id: hostContextSnapshot.host_session_id,
+        host_conversation_id: hostContextSnapshot.host_conversation_id,
+        conversation_uuid: hostContextSnapshot.conversation_uuid,
+      },
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
