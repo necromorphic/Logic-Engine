@@ -36,7 +36,7 @@ test('adapter maps every pinned Chat Completions sender key and leaves unknown s
     assert.notEqual(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }), 'unregistered', key);
   }
   assert.equal(adapter.resolveSenderRoute({
-    body: { chat_completion_source: 'cometapi' },
+    body: { chat_completion_source: 'not-registered' },
   }), 'unregistered');
 });
 
