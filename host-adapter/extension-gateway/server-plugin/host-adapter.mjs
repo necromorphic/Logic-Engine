@@ -258,39 +258,14 @@ export function createSillyTavernHostAdapter({
         || typeof generationType !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(generationType)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ENVELOPE_INVALID' });
       }
+      // This is the Host half of preparation only. World/Actor binding and both
+      // NPC evidence lanes are resolved by the embedded Core runtime in-process;
+      // generation must never fall back to the legacy HTTP resolve/retrieve proxy.
       const result = await authentication.authenticate(request, conversationUuid);
       if (result.status !== 'READY') return result;
-      const captured = {
-        statusCode: null,
-        payload: null,
-        set() { return this; },
-        status(code) { this.statusCode = code; return this; },
-        json(payload) { this.payload = payload; return this; },
-        sendStatus(code) { this.statusCode = code; return this; },
-      };
-      await dispatch({
-        hostRequest: request,
-        body: {
-          request_id: requestId,
-          conversation_uuid: conversationUuid,
-          context_size: contextSize,
-          generation_type: generationType,
-        },
-      }, captured);
-      if (captured.statusCode !== 200
-        || !captured.payload || typeof captured.payload !== 'object'
-        || !captured.payload.host_context || captured.payload.retrieval?.status !== 'ready') {
-        return Object.freeze({
-          status: 'NON_READY',
-          code: typeof captured.payload?.code === 'string'
-            ? captured.payload.code : 'HOST_NPC_CONTEXT_NON_READY',
-        });
-      }
       return Object.freeze({
         status: 'READY',
         context: result.context,
-        coreContext: captured.payload.host_context,
-        retrieval: captured.payload.retrieval,
         requestId,
         generationType,
       });
