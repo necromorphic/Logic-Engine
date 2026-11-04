@@ -173,9 +173,12 @@ export async function init(router) {
       runWithAuthenticatedHostSession: memoryEnabled
         ? registeredRuntime.providerAdapter.runWithAuthenticatedHostSession
         : null,
-      prepareHostContext: async (request, response, hostRoute) => {
+      prepareHostContext: async (request, response, hostRoute, signal) => {
+        const cancelled = () => signal?.aborted === true;
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         if (!memoryEnabled) return null;
-        const host = await hostAdapter.prepareGenerationContext(request, hostRoute);
+        const host = await hostAdapter.prepareGenerationContext(request, hostRoute, signal);
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         if (host?.status !== 'READY') {
           return {
             status: 'NON_READY',
@@ -190,12 +193,15 @@ export async function init(router) {
           request,
           coreConversationId,
           async () => {
-            const npc = await npcBridge.prepare(request, response);
+            if (cancelled()) return { status: 'NON_READY', reason: 'generation_cancelled' };
+            const npc = await npcBridge.prepare(request, response, signal);
+            if (cancelled()) return { status: 'NON_READY', reason: 'generation_cancelled' };
             if (npc?.status !== 'ready') return { status: 'NON_READY', reason: npc?.reason };
             const coreContext = registeredRuntime.providerAdapter.resolveAuthenticatedHostContext();
             return { status: 'READY', coreContext };
           },
         );
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         if (prepared?.status !== 'READY' || !prepared.coreContext) {
           return { status: 'NON_READY', code: prepared?.reason || 'NPC_CONTEXT_NOT_READY' };
         }
