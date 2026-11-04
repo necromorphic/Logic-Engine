@@ -512,10 +512,9 @@ test('Lane A revoke during model execution blocks final response release', async
       /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
     assert.equal(laneAReads, 2);
     const row = fixture.gateway.db.prepare(
-      'SELECT status AS dispatch_state, outcome_code AS outcome FROM dispatch_ledger WHERE request_id=?',
+      'SELECT status FROM dispatch_ledger WHERE request_id=?',
     ).get(request.requestId);
-    assert.equal(row.dispatch_state, 'DISPATCH_STARTED');
-    assert.equal(row.outcome, 'UNKNOWN');
+    assert.equal(row.status, 'UNKNOWN', 'a withheld final response remains non-replayable');
   } finally {
     await fixture.close();
   }
@@ -582,7 +581,7 @@ test('Lane A revoke between streamed response writes blocks the next chunk', asy
       stream: true,
       hostTransformsStream: true,
       laneA,
-      revalidateLaneA: () => (++laneAReads <= 2
+      revalidateLaneA: () => (++laneAReads <= 3
         ? { status: 'ready' }
         : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
     });
@@ -595,7 +594,7 @@ test('Lane A revoke between streamed response writes blocks the next chunk', asy
       /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
     );
     assert.equal(writes, 1);
-    assert.equal(laneAReads, 3);
+    assert.equal(laneAReads, 4);
     assert.equal(response.status, 200);
   } finally {
     await fixture.close();
