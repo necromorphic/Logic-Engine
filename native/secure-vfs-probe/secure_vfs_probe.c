@@ -1091,6 +1091,10 @@ static int probe_open(const char *name, int flags, int mode) {
         int same_owner = entry->role_index == anchored_role_index && entry->kind == kind;
         if (same_identity) {
           if (same_owner) {
+            if (entry->retained_fd >= 0) {
+              close(entry->retained_fd);
+              entry->retained_fd = -1;
+            }
             entry->retired = 0;
             existing = i;
           } else {
