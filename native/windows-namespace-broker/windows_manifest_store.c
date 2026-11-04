@@ -469,7 +469,7 @@ static int le_win_rename_relative(
     return 0;
   }
   name_length = wcslen(target) * sizeof(wchar_t);
-  buffer_length = offsetof(FILE_RENAME_INFO, FileName) + name_length;
+  buffer_length = sizeof(FILE_RENAME_INFO) + name_length;
   if (name_length > 0xffffffffu || buffer_length > 0xffffffffu) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
