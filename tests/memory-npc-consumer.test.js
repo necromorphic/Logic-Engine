@@ -404,7 +404,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
 
   assert.equal(emptyChecks, 2);
   assert.equal(emptyResult.status, 'non_ready');
-  assert.equal(emptyResult.reason, 'authorized_source_read_unavailable');
+  assert.equal(emptyResult.reason, 'query_access_unconfirmed');
   assert.deepEqual(emptyResult.admitted, []);
   assert.deepEqual(emptyResult.candidates, []);
 
@@ -490,7 +490,7 @@ test('empty retrieval is non-ready when the current Core snapshot cannot be veri
   const result = await empty.consumer.retrieveForNpc(request());
 
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.equal(result.reason, 'authorized_source_read_unavailable');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('private Core diagnostic'), false);
