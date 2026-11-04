@@ -166,7 +166,10 @@ function validateLaneB(envelope, scope) {
     || result.admitted.length > result.candidates.length) return 'lane_b_result_invalid';
   try {
     const admittedByIdentity = new Map();
-    for (const admitted of result.admitted) {
+    for (let index = 0; index < result.admitted.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(result.admitted, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) return 'lane_b_candidate_invalid';
+      const admitted = descriptor.value;
       if (!plainDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(admitted.record_ref) || !validId(admitted.record_version)
         || !validId(admitted.epistemic_kind) || admitted.evidence_assessment !== 'supported') {
