@@ -154,3 +154,41 @@ test('Final-Send hook derives streaming from the native Kobold request field', a
     unregisterLogicEngineFinalSendAdapter(adapter, owner);
   }
 });
+
+test('managed Host response writes and final end pass through Gateway authorization', async () => {
+  const writes = [];
+  const response = {
+    writableEnded: false,
+    write(chunk) { writes.push(['write', chunk]); return true; },
+    end() { writes.push(['end']); this.writableEnded = true; },
+  };
+  const adapter = {
+    async prepare() {},
+    resolveSenderRoute: () => 'chat-completions',
+    dispatch() {},
+    forwardResponse() {},
+    authorizeResponseWrite(_response, write, final) {
+      writes.push(['authorized', final]);
+      return write();
+    },
+  };
+  const owner = 'logic-engine-extension:test-response-write-authorization';
+  registerLogicEngineFinalSendAdapter(adapter, owner);
+  try {
+    await runWithLogicEngineFinalSend({
+      originalUrl: '/api/backends/chat-completions/generate',
+      body: { stream: false },
+    }, response, async () => {
+      response.write('protected chunk');
+      response.end();
+    });
+    assert.deepEqual(writes, [
+      ['authorized', false],
+      ['write', 'protected chunk'],
+      ['authorized', true],
+      ['end'],
+    ]);
+  } finally {
+    unregisterLogicEngineFinalSendAdapter(adapter, owner);
+  }
+});
