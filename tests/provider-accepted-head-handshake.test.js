@@ -31,7 +31,7 @@ async function startAuthorityProcess(path) {
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "provider-handshake-test-installation" });',
     'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
-    'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
+    'process.stdin.on("data", () => { server.close(() => { authority.close(); process.exit(0); }); server.closeAllConnections(); });',
   ].join('\n');
   const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
     stdio: ['pipe', 'pipe', 'pipe'],
