@@ -33,7 +33,7 @@ const laneB = () => ({
       record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
       source_kind: 'canonical_entity', source_entity_id: 'source-1',
       source_version: 'core-entity-v1:1', epistemic_kind: 'acquired_report',
-      evidence_assessment: 'disputed', content: { note: 'Lane B report' },
+      evidence_assessment: 'supported', content: { note: 'Lane B report' },
     }],
     reason: null, snapshot: { ...scope.snapshot },
     provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
@@ -63,7 +63,7 @@ test('builds immutable generation context with isolated Lane A and Lane B envelo
   assert.equal(result.status, 'ready');
   assert.equal(calls.length, 2);
   assert.equal(result.context.lanes.lane_a.items[0].value.text, 'Lane A source');
-  assert.equal(result.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
+  assert.equal(result.context.lanes.lane_b.candidates[0].evidence_assessment, 'supported');
   assert.equal(result.context.lanes.lane_b.provider_purpose, 'npc_decision');
   assert.deepEqual({ ...result.context.lanes.lane_b.provider_evidence_cursor }, {
     data_version: 12, candidate_digest: 'b'.repeat(64),
@@ -136,14 +136,19 @@ test('Lane B admission assessment must match its exact candidate evidence', asyn
   assert.equal(result.context, null);
 });
 
-test('conflicting and insufficient assessments remain evidence labels, never belief assertions', async () => {
-  const b = laneB();
-  b.result.candidates[0].evidence_assessment = 'insufficient';
-  const { builder } = setup({ laneB: () => b });
-  const result = await builder.build(request);
-  assert.equal(result.status, 'ready');
-  assert.equal(result.context.lanes.lane_b.candidates[0].evidence_assessment, 'insufficient');
-  assert.equal(Object.hasOwn(result.context.lanes.lane_b.candidates[0], 'belief'), false);
+test('unassessed, disputed and insufficient Lane B evidence cannot enter immutable context', async t => {
+  for (const evidence_assessment of ['unassessed', 'disputed', 'insufficient']) {
+    await t.test(evidence_assessment, async () => {
+      const b = laneB();
+      b.result.candidates[0].evidence_assessment = evidence_assessment;
+      b.result.admitted[0].evidence_assessment = evidence_assessment;
+      const { builder } = setup({ laneB: () => b });
+      const result = await builder.build(request);
+      assert.equal(result.status, 'non_ready');
+      assert.equal(result.context, null);
+      assert.doesNotMatch(JSON.stringify(result), /Lane B report|memory:1/);
+    });
+  }
 });
 
 test('context is rejected when Core snapshot or scope changes during construction', async () => {
