@@ -64,21 +64,66 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   const laneBContext = context.lanes?.lane_b;
   if (!laneA || !Array.isArray(laneA.items) || !laneBContext
     || laneBContext.status !== 'ready' || !Array.isArray(laneBContext.candidates)
-    || !Array.isArray(accepted.laneB.sources) || !Array.isArray(accepted.laneB.candidates)
-    || accepted.laneB.candidates.length !== laneBContext.candidates.length) {
+    || !Array.isArray(accepted.laneB.sources) || !Array.isArray(accepted.laneB.candidates)) {
     return undefined;
   }
 
-  // The content projected into the outbound prompt must be one-for-one with
-  // the candidate identities independently admitted by Core/Provider evidence.
-  // A mismatch is terminal; never send prompt content that has no matching
-  // dispatch candidate in the Gateway authorization set.
+  // Bind every prompt payload to the exact Provider record/version and
+  // authorization generation admitted by Core. Equal array lengths are not
+  // sufficient: a same-sized substitution must never reach the model.
+  const contentByIdentity = new Map();
+  for (const candidate of laneBContext.candidates) {
+    if (!candidate || typeof candidate !== 'object'
+      || typeof candidate.record_ref !== 'string' || typeof candidate.record_version !== 'string') {
+      return undefined;
+    }
+    const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
+    if (contentByIdentity.has(identity)) return undefined;
+    contentByIdentity.set(identity, candidate);
+  }
+
+  const admittedContent = [];
+  const expectedSources = new Set();
+  for (const admitted of accepted.laneB.candidates) {
+    if (!admitted || typeof admitted !== 'object'
+      || typeof admitted.record_ref !== 'string' || typeof admitted.record_version !== 'string'
+      || !Number.isSafeInteger(admitted.authorization_generation)
+      || admitted.source_kind !== 'canonical_entity'
+      || typeof admitted.source_entity_id !== 'string'
+      || typeof admitted.source_version !== 'string') return undefined;
+    const identity = JSON.stringify([admitted.record_ref, admitted.record_version]);
+    const candidate = contentByIdentity.get(identity);
+    if (!candidate || candidate.authorization_generation !== admitted.authorization_generation
+      || candidate.source_kind !== admitted.source_kind
+      || candidate.source_entity_id !== admitted.source_entity_id
+      || candidate.source_version !== admitted.source_version
+      || candidate.epistemic_kind !== admitted.epistemic_kind
+      || candidate.evidence_assessment !== 'supported') return undefined;
+    contentByIdentity.delete(identity);
+    admittedContent.push(candidate);
+    expectedSources.add(JSON.stringify([admitted.source_entity_id, admitted.source_version]));
+  }
+  // Unadmitted supported content is also a mismatch. Unsupported evidence may
+  // remain in the Core context, but is never projected into the model prompt.
+  for (const candidate of contentByIdentity.values()) {
+    if (candidate.evidence_assessment === 'supported') return undefined;
+  }
+  const actualSources = new Set();
+  for (const source of accepted.laneB.sources) {
+    if (!source || source.source_kind !== 'canonical_entity'
+      || typeof source.source_entity_id !== 'string' || typeof source.source_version !== 'string') return undefined;
+    const key = JSON.stringify([source.source_entity_id, source.source_version]);
+    if (actualSources.has(key)) return undefined;
+    actualSources.add(key);
+  }
+  if (actualSources.size !== expectedSources.size
+    || [...expectedSources].some(source => !actualSources.has(source))) return undefined;
+
   // Lane A and Lane B remain distinct in the provider request. Final-Send
   // serializes each lane under its own label and preserves Lane A provenance.
-
   let contentBlocks;
   try {
-    contentBlocks = projectNpcGenerationContentBlocks(laneBContext.candidates);
+    contentBlocks = projectNpcGenerationContentBlocks(admittedContent);
   } catch {
     return undefined;
   }
