@@ -96,6 +96,23 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
         request, response, adapter, abortController, cleanupCallbacks,
         protectedForward: null, dispatchInvoked: false,
     };
+    // Bind the Host response to the Gateway's request-scoped release
+    // capability. Every byte and the terminal end are re-authorized; a
+    // revoked request cannot fall back to Express' native writer.
+    if (typeof active.adapter.authorizeResponseWrite === 'function') {
+        if (typeof response.write !== 'function' || typeof response.end !== 'function') {
+            cleanup();
+            throw new TypeError('Invalid Host response writer.');
+        }
+        const nativeWrite = response.write.bind(response);
+        const nativeEnd = response.end.bind(response);
+        response.write = function (...args) {
+            return active.adapter.authorizeResponseWrite(response, () => nativeWrite(...args), false);
+        };
+        response.end = function (...args) {
+            return active.adapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
+        };
+    }
 
     return generationContext.run(active, async () => {
         try {
