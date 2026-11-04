@@ -910,6 +910,9 @@ test('Gateway rejects a missing or malformed policy authority tuple before upstr
 });
 
 test('all protected sender families share one real Gateway and each causes exactly one upstream call', async () => {
+  assert.equal(PROTECTED_MEMORY_SENDER_ROUTES.length, 29);
+  assert.ok(PROTECTED_MEMORY_SENDER_ROUTES.includes('cometapi'));
+  assert.ok(!PROTECTED_MEMORY_SENDER_ROUTES.includes('horde-text'));
   const fixture = await createFixture();
   let upstreamCalls = 0;
   const prepared = {
