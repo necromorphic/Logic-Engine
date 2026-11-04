@@ -273,6 +273,30 @@ test('protected complete-empty context is not misrepresented as an admitted sour
   assert.equal(directCalls, 1);
 });
 
+test('Final-Send blocks unsupported Lane B assessments before provider egress', () => {
+  let calls = 0;
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'disputed',
+      content: { note: 'must not be sent' },
+    }],
+  };
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('Gateway must not be called'); } },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async () => { calls += 1; return { status: 200 }; },
+  });
+  assert.throws(() => finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(),
+    hostRequestContext: { trusted: true },
+  }), /PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID/);
+  assert.equal(calls, 0);
+});
+
 test('Core Lane A and Provider Lane B are projected separately with Lane A provenance preserved', async () => {
   let outbound;
   const laneAItem = {
