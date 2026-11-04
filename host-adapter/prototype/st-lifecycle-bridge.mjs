@@ -30,6 +30,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   if (getLifecycleStatus !== null && typeof getLifecycleStatus !== 'function') throw TypeError('getLifecycleStatus must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
+  const persistedInventoryRevocationPublished = new Set();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -716,7 +717,22 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     if (getPersistedInventory) {
       const persisted = await verifyPersistedInventory(conversationId);
-      if (persisted.status !== 'MATCHED_AUTHORITATIVE') return persisted;
+      if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
+        // Reconcile one incomplete digest-only snapshot so Core can revoke any
+        // previously accepted projection. Once that fail-closed notice is
+        // durably attempted, repeated mismatches must not flood Core.
+        if (!persistedInventoryRevocationPublished.has(conversationId)) {
+          try {
+            const published = await publishCurrentDigestInventory(conversationId, getChat(), []);
+            if (published.code !== 'HOST_INVENTORY_TRANSPORT_FAILED'
+              && published.status !== 'NOT_CONFIGURED') {
+              persistedInventoryRevocationPublished.add(conversationId);
+            }
+          } catch {}
+        }
+        return persisted;
+      }
+      persistedInventoryRevocationPublished.delete(conversationId);
     }
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
