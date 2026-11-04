@@ -1349,6 +1349,13 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing sender family must not bypass the unresolved request digest',
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-model', {
+        model: 'different-model',
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+      'changing the model must not bypass the unresolved request digest',
+    );
     assert.equal(sends, 1);
   } finally {
     await fixture.close();
