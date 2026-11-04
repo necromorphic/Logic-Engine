@@ -13,7 +13,7 @@ const outputPath = path.join(sourceRoot, 'plugins', 'logic-engine-extension-gate
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // Windows checkout/apply may differ only in CRLF vs LF. Compare normalized source
 // text, but retain the installed file's exact bytes in the emitted deployment pin.
-const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8');
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
