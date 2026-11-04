@@ -7,6 +7,7 @@ import { createSillyTavernFinalSendAdapter } from './host-adapter/sillytavern-fi
 import { createEmbeddedGatewayRuntime } from './host-adapter/embedded-gateway-runtime.mjs';
 import { createNpcGenerationContextHostBridge } from './src/application/npc-generation-context-host-bridge.js';
 import { createNpcGenerationRequestMetadata } from './host-adapter/npc-generation-request-metadata.mjs';
+import { projectNpcGenerationContentBlocks } from './host-adapter/npc-generation-content-projection.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -68,23 +69,11 @@ function buildProtectedMemory(request, prepared, npcBridge) {
   // Lane A and Lane B remain distinct in the provider request. Final-Send
   // serializes each lane under its own label and preserves Lane A provenance.
 
-  const contentBlocks = [];
-  for (let index = 0; index < laneBContext.candidates.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(laneBContext.candidates, String(index));
-    if (!descriptor || !Object.hasOwn(descriptor, 'value')) return undefined;
-    const candidate = descriptor.value;
-    if (!candidate || typeof candidate !== 'object') return undefined;
-    const epistemic = Object.getOwnPropertyDescriptor(candidate, 'epistemic_kind');
-    const assessment = Object.getOwnPropertyDescriptor(candidate, 'evidence_assessment');
-    const content = Object.getOwnPropertyDescriptor(candidate, 'content');
-    if (!epistemic || !Object.hasOwn(epistemic, 'value')
-      || !assessment || !Object.hasOwn(assessment, 'value')
-      || !content || !Object.hasOwn(content, 'value')) return undefined;
-    contentBlocks[contentBlocks.length] = Object.freeze({
-      epistemic_kind: epistemic.value,
-      evidence_assessment: assessment.value,
-      content: content.value,
-    });
+  let contentBlocks;
+  try {
+    contentBlocks = projectNpcGenerationContentBlocks(laneBContext.candidates);
+  } catch {
+    return undefined;
   }
 
   // A complete, revalidated empty Lane A + Lane B is explicitly unprotected.
