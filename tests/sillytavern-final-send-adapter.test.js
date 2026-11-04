@@ -75,25 +75,26 @@ test('adapter sends exact native transport through Core Gateway for protected co
 });
 
 
-test('Horde route is excluded from protected Gateway sender admission', () => {
+test('Horde text route is admitted through the protected Gateway sender registry', async () => {
   const adapter = createSillyTavernFinalSendAdapter({
-    gateway: { dispatchProtectedRequest() { throw new Error('Horde must not dispatch protected Memory'); } },
+    gateway: { dispatchProtectedRequest(request) { return request.transport(); } },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
   const request = { body: { stream: false } };
   assert.equal(adapter.resolveSenderRoute(request, 'horde-text'), 'horde-text');
-  assert.throws(() => adapter.dispatch({
+  const result = await adapter.dispatch({
     request, response: {}, senderRoute: 'horde-text', hostRoute: 'horde-text',
     endpointUrl: 'https://provider.example/generate',
     requestInit: { method: 'POST', body: '{"model":"test"}' },
     stream: false, transport: async () => ({ status: 200 }),
-  }), /MEMORY_DISPATCH_NOT_READY/);
+  });
+  assert.equal(result.status, 200);
 });
 
 test('all registered non-Chat-Completions generation routes enter the shared Gateway', async () => {
-  const routes = ['text-completions', 'kobold', 'novelai-text'];
+  const routes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
   const gatewayRoutes = [];
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: {
