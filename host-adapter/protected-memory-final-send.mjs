@@ -304,7 +304,9 @@ export function createHostReplayIdentity(hostRequestContext, hostRoute, senderRo
     : senderRoute === 'novelai-text' ? 'novelai-text'
       : senderRoute === 'text-completions' ? 'text-completions'
         : senderRoute === 'kobold' ? 'kobold' : 'chat-completions');
-  const generationBody = route === 'horde-text' ? body.params : body;
+  // SillyTavern's pinned /api/horde/generate-text handler serializes request.body directly.
+  // Unlike chat-completions, Horde has no nested params envelope.
+  const generationBody = body;
   let prompt;
   if (route === 'chat-completions') prompt = generationBody?.messages;
   else if (route === 'novelai-text') prompt = generationBody?.input ?? generationBody?.prompt;
