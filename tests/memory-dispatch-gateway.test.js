@@ -1340,19 +1340,22 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id', {
+        generationId: 'generation-ambiguous-request',
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
-        senderRoute: 'openai',
+        senderRoute: 'openai', generationId: 'generation-ambiguous-request',
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing sender family must not bypass the unresolved request digest',
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-model', {
-        model: 'different-model',
+        model: 'different-model', generationId: 'generation-ambiguous-request',
+        body: JSON.stringify({ model: 'different-model', prompt: 'different provider serialization' }),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing the model must not bypass the unresolved request digest',
