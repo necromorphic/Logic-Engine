@@ -1043,33 +1043,23 @@ test('Relationship pair read brackets dimensions and freshness cursor in a read 
 });
 
 
-test('rollback currently treats distinct dimensions on the same directed pair as pair-level dependent', async () => {
+test('rollback invalidates only the affected relationship dimension', async () => {
   const { store, engine, seed } = await fixture();
   try {
     const trustTransition = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
-      patch: { trust: 'low' },
-      idempotency_key: 'pair-contract-trust',
+      patch: { trust: 'low' }, idempotency_key: 'dimension-contract-trust',
     }));
     const affinityTransition = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
-      patch: { affinity: 'low' },
-      expected_revision: 2,
-      expected_commit_sequence: 2,
-      idempotency_key: 'pair-contract-affinity',
+      patch: { affinity: 'low' }, expected_revision: 2, expected_commit_sequence: 2,
+      idempotency_key: 'dimension-contract-affinity',
     }));
-    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
-    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.affinity, 'low');
-
     const rollback = engine.rollbackEvent('world-relationship-test', {
-      root_event_id: trustTransition.event_id,
-      idempotency_key: 'rollback-pair-level-cross-dimension',
+      root_event_id: trustTransition.event_id, idempotency_key: 'rollback-trust-dimension-only',
     });
     assert.ok(rollback.invalidated_event_ids.includes(trustTransition.event_id));
-    assert.ok(rollback.invalidated_event_ids.includes(affinityTransition.event_id));
-    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
-    assert.equal(engine.getState('world-relationship-test').world_revision, 4);
-  } finally {
-    store.close();
-  }
+    assert.equal(rollback.invalidated_event_ids.includes(affinityTransition.event_id), false);
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, { affinity: 'low' });
+  } finally { store.close(); }
 });
 
 
