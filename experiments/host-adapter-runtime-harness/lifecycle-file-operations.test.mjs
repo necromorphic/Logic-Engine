@@ -744,7 +744,12 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     chat_metadata: { legacy: true },
     past_metadata: {},
   };
-  await writeFile(groupMetadataPath, JSON.stringify(legacyGroupMetadata));
+  const legacyMetadataWrite = await observe(async () => {
+    await writeFile(groupMetadataPath, JSON.stringify(legacyGroupMetadata));
+    return { status: 'SEEDED_LEGACY_GROUP_METADATA' };
+  }, 'modified');
+  assert.ok(legacyMetadataWrite.result.delta.modified.some(entry => entry.path.endsWith('group-harness.json')),
+    'the legacy metadata rewrite must be recorded before testing startup migration');
   const groupMetadataBeforeMigration = await readFile(groupMetadataPath, 'utf8');
   const groupChatBeforeMigration = await readFile(groupChatPath, 'utf8');
   await migrateGroupChatsMetadataFormat([directories]);
