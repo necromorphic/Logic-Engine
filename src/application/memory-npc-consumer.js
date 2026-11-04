@@ -484,9 +484,36 @@ export class MemoryNpcConsumer {
       recipient: 'model',
       purpose: 'npc_turn_context',
     });
+    // Provider reads are asynchronous. Re-resolve the canonical Host→World
+    // and adapter→Actor bindings at every later Core authorization fence so a
+    // revoke/rebind after retrieval cannot rely on the initially captured IDs.
+    const coreBindingsStillCurrent = () => {
+      try {
+        if (!isAuthenticatedHostSessionContext(hostSessionContext, conversationId)
+          || hostSessionContext.world_id !== worldId
+          || hostSessionContext.actor_id !== actorEntityId) return false;
+        const currentConversation = this.hostConversationWorldBindingService.resolve({
+          adapterId, conversationId,
+        });
+        if (!object(currentConversation) || currentConversation.world_id !== worldId) return false;
+        const currentActor = this.actorBindingService.resolveForAdapter(worldId, adapterId);
+        if (!object(currentActor) || currentActor.actor?.entity_id !== actorEntityId) return false;
+        const exactActor = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+        return object(exactActor)
+          && exactActor.world_id === worldId
+          && exactActor.adapter_id === adapterId
+          && exactActor.actor?.entity_id === actorEntityId;
+      } catch {
+        return false;
+      }
+    };
     const coreQueryAllowed = () => {
-      try { return this.coreQueryAuthorizer(coreQueryScope, hostSessionContext) === true; }
-      catch { return false; }
+      try {
+        return coreBindingsStillCurrent()
+          && this.coreQueryAuthorizer(coreQueryScope, hostSessionContext) === true;
+      } catch {
+        return false;
+      }
     };
 
     let queryAllowed = false;
