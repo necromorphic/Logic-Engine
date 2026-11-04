@@ -82,7 +82,9 @@ function buildProtectedMemory(request, prepared, npcBridge) {
     && accepted.laneB.sources.length === 0 && accepted.laneB.candidates.length === 0) return null;
 
   const hostBinding = host.context;
-  const coreContext = host.coreContext;
+  // prepareHostContext stores coreContext beside host in the authenticated
+  // Host context envelope; it is not nested inside host.context.
+  const coreContext = prepared.hostContext.coreContext;
   if (!hostBinding || !coreContext) return undefined;
   const hostContext = Object.freeze({
     adapter_id: coreContext.adapter_id,
