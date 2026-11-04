@@ -20,7 +20,7 @@ const identity = Object.freeze({
   host_session_id: '33333333-3333-4333-8333-333333333333',
 });
 
-test('Host session revocation is durable and visible to a read-only Gateway reader', () => {
+test('Host session revocation is durable and visible to a read-only Gateway reader', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-host-revocation-'));
   const corePath = join(directory, 'core.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
