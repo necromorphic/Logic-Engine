@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,167 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -185,7 +185,9 @@
 +    };
 +    return generationContext.run(activeContext, async () => {
 +        try {
-+            await adapter.prepare(request, response);
++            if (abortController.signal.aborted) return;
++            await responseAdapter.prepare(request, response);
++            if (abortController.signal.aborted) return;
 +            const active = generationContext.getStore();
 +            if (active) active.prepared = true;
 +        } catch {
