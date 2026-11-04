@@ -228,3 +228,68 @@ test('terminal Gateway denial destroys the Host response instead of reaching fal
     unregisterLogicEngineFinalSendAdapter(adapter, owner);
   }
 });
+
+test('pre-aborted Host request is rejected before preparation and provider dispatch', async () => {
+  let prepareCalls = 0;
+  let dispatchCalls = 0;
+  const adapter = {
+    async prepare() { prepareCalls += 1; },
+    resolveSenderRoute: () => 'chat-completions',
+    dispatch() { dispatchCalls += 1; },
+    forwardResponse() {},
+  };
+  const owner = 'logic-engine-extension:test-pre-aborted';
+  registerLogicEngineFinalSendAdapter(adapter, owner);
+  try {
+    const request = {
+      aborted: true,
+      originalUrl: '/api/backends/chat-completions/generate',
+      body: { stream: false },
+    };
+    const result = await runWithLogicEngineFinalSend(request, {}, () => {
+      throw new Error('aborted request entered native sender');
+    });
+    assert.equal(result, undefined);
+    assert.equal(prepareCalls, 0);
+    assert.equal(dispatchCalls, 0);
+  } finally {
+    unregisterLogicEngineFinalSendAdapter(adapter, owner);
+  }
+});
+
+test('provider caller cancellation is composed with Host disconnect cancellation', async () => {
+  const { EventEmitter } = await import('node:events');
+  const caller = new AbortController();
+  let providerSignal;
+  const adapter = {
+    async prepare() {},
+    resolveSenderRoute: () => 'chat-completions',
+    dispatch({ requestInit }) {
+      providerSignal = requestInit.signal;
+      return new Promise((resolve) => {
+        providerSignal.addEventListener('abort', () => resolve('aborted'), { once: true });
+      });
+    },
+    forwardResponse() {},
+  };
+  const owner = 'logic-engine-extension:test-composed-abort';
+  registerLogicEngineFinalSendAdapter(adapter, owner);
+  const request = new EventEmitter();
+  request.originalUrl = '/api/backends/chat-completions/generate';
+  request.body = { stream: false };
+  const response = new EventEmitter();
+  response.writableEnded = false;
+  try {
+    const pending = runWithLogicEngineFinalSend(request, response, () =>
+      logicEngineFetch('https://provider.example/generate', {
+        method: 'POST', signal: caller.signal,
+      }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(providerSignal.aborted, false);
+    caller.abort(new Error('caller cancelled'));
+    assert.equal(await pending, 'aborted');
+    assert.equal(providerSignal.aborted, true);
+  } finally {
+    unregisterLogicEngineFinalSendAdapter(adapter, owner);
+  }
+});
