@@ -1085,15 +1085,29 @@ export class MemoryNpcConsumer {
 
     if (decision.status !== 'ready') return nonReady(decision.reason || 'candidate_admission_not_ready');
 
-    const admitted = decision.admitted
-      .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
+    const admittedIdentities = new Set();
+    for (const item of decision.admitted) {
+      const identity = recordIdentityKey(item.record_ref, item.record_version);
+      if (!contentByIdentity.has(identity) || admittedIdentities.has(identity)) {
+        return nonReady('memory_candidate_projection_unavailable');
+      }
+      admittedIdentities.add(identity);
+    }
+    // Preserve all Core-readable, authorized candidates and their epistemic
+    // classifications in the internal result. The separate admitted list is
+    // the strict supported-evidence subset consumed by the Host receiver.
+    const retrievedCandidates = oracleCandidates
+      .map((candidate) => contentByIdentity.get(recordIdentityKey(candidate.record.ref, candidate.record.version)))
       .filter(Boolean);
+    if (retrievedCandidates.length !== oracleCandidates.length) {
+      return nonReady('memory_candidate_projection_unavailable');
+    }
 
     // A record may be revoked while Core is reading its canonical source.
-    // Recheck every record that would actually be returned after that read.
-    // If any final check fails, reject the whole result rather than leaking a
-    // partial set or silently turning a revoked result into complete-empty.
-    for (const item of admitted) {
+    // Recheck every record that will remain in the internal result, including
+    // non-supported evidence whose content is preserved only for classification.
+    // The Host receiver projects content only for entries in decision.admitted.
+    for (const item of retrievedCandidates) {
       let stillAllowed;
       try {
         stillAllowed = await this.#memoryProvider.authorizeCandidate({
@@ -1162,7 +1176,7 @@ export class MemoryNpcConsumer {
       return nonReady('authorized_source_missing');
     }
     const finalContentByIdentity = new Map();
-    for (const item of admitted) {
+    for (const item of retrievedCandidates) {
       const source = finalSourceById.get(item.source_entity_id);
       if (!source || this.contentFields.some((field) => !Object.hasOwn(source, field))) {
         return nonReady('authorized_source_read_unavailable');
@@ -1174,7 +1188,7 @@ export class MemoryNpcConsumer {
     // Recheck exact Provider record grants after the final field-bearing read.
     // SQLite checks are synchronous, so no event-loop yield occurs between the
     // final Core authorization fence and envelope construction.
-    for (const item of admitted) {
+    for (const item of retrievedCandidates) {
       try {
         if (this.#memoryProvider.checkCandidateGrant({
           ...scope,
@@ -1186,14 +1200,14 @@ export class MemoryNpcConsumer {
         return nonReady(providerAuthorizationFailureReason(error, 'memory_record_authorization_unavailable'));
       }
     }
-    return finalizeUnderProviderLease(admitted.map(item => ({
+    return finalizeUnderProviderLease(retrievedCandidates.map(item => ({
       record_ref: item.record_ref,
       record_version: item.record_version,
       authorization_generation: item.authorization_generation,
     })), () => Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
-      candidates: Object.freeze(admitted.map((item) => {
+      candidates: Object.freeze(retrievedCandidates.map((item) => {
         // Source-version lineage is independently attached by the NPC context
         // runtime from a fresh canonical Core snapshot. Keep the Provider's
         // checked source version private to this consumer result.
