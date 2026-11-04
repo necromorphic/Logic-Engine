@@ -68,7 +68,9 @@ const isPlainDataRecord = (value) => {
   // must be rejected even when the caller supplied a null-prototype record.
   if (!hasSafeObjectPrototype()) return false;
   if (prototype !== Object.prototype && prototype !== null) return false;
-  for (const key of Reflect.ownKeys(value)) {
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     if (typeof key !== 'string') return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
@@ -80,16 +82,33 @@ const isPlainDataArray = (value) => {
     || Object.getPrototypeOf(Array.prototype) !== Object.prototype
     || Object.hasOwn(Array.prototype, 'toJSON')) return false;
   const keys = Reflect.ownKeys(value);
-  if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+  if (keys.length !== value.length + 1) return false;
+  let hasLength = false;
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    if (keys[keyIndex] === 'length') hasLength = true;
+  }
+  if (!hasLength) return false;
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
   }
   return true;
 };
-const copyDataRecord = (value) => Object.fromEntries(
-  Reflect.ownKeys(value).map((key) => [key, Object.getOwnPropertyDescriptor(value, key).value]),
-);
+const copyDataRecord = (value) => {
+  const keys = Reflect.ownKeys(value);
+  const snapshot = {};
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    Object.defineProperty(snapshot, key, {
+      value: descriptor.value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return snapshot;
+};
 const snapshotProviderRecord = (value) => {
   if (!isPlainDataRecord(value)) return null;
   const snapshot = copyDataRecord(value);
@@ -102,8 +121,11 @@ const snapshotProviderRecord = (value) => {
   const lineage = snapshot.lineage[0];
   const lineageKeys = Reflect.ownKeys(lineage);
   const allowedLineageKeys = new Set(['source_kind', 'entity_id', 'source_version']);
-  if (lineageKeys.length !== allowedLineageKeys.size
-    || lineageKeys.some((key) => typeof key !== 'string' || !allowedLineageKeys.has(key))) return null;
+  if (lineageKeys.length !== allowedLineageKeys.size) return null;
+  for (let index = 0; index < lineageKeys.length; index += 1) {
+    const key = lineageKeys[index];
+    if (typeof key !== 'string' || !allowedLineageKeys.has(key)) return null;
+  }
   if (typeof lineage.source_kind !== 'string' || typeof lineage.entity_id !== 'string'
     || typeof lineage.source_version !== 'string') return null;
   snapshot.lineage = [{
@@ -113,9 +135,14 @@ const snapshotProviderRecord = (value) => {
   }];
   return snapshot;
 };
-const validId = (value) => typeof value === 'string' && value === value.trim()
-  && value.length > 0 && value.length <= 200
-  && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
+const validId = (value) => {
+  if (typeof value !== 'string' || value !== value.trim() || value.length === 0 || value.length > 200) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 const validSnapshotPart = (value) => (typeof value === 'number' && Number.isFinite(value))
   || (typeof value === 'string' && value.trim().length > 0);
 const snapshotOf = (value) => isPlainDataRecord(value)
