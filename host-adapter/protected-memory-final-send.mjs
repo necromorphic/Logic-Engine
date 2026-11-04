@@ -325,7 +325,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
     }
   }
   const serialized = JSON.stringify(body);
-  if (serialized.length === 0 || serialized.length > 4_000_000) {
+  if (serialized.length === 0 || Buffer.byteLength(serialized, 'utf8') > 4_000_000) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
   }
   return serialized;
@@ -334,7 +334,7 @@ function assertRequest(endpointUrl, requestInit) {
   if (typeof endpointUrl !== 'string' || !/^https?:\/\//i.test(endpointUrl)
     || !requestInit || typeof requestInit !== 'object'
     || typeof requestInit.body !== 'string' || requestInit.body.length === 0
-    || requestInit.body.length > 4_000_000
+    || Buffer.byteLength(requestInit.body, 'utf8') > 4_000_000
     || typeof requestInit.method !== 'string' || requestInit.method.toUpperCase() !== 'POST') {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_INVALID');
   }
