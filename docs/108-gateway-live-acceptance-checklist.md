@@ -24,7 +24,7 @@
 | Scenario | Procedure | Required result |
 |---|---|---|
 | Native route coverage | Exercise the five pinned text-generation handlers: Chat Completions, Text Completions, Kobold, NovelAI text and Horde text | Protected dispatch is routed only through the registered Gateway path |
-| Sender registry | Run the fixture matrix for all 29 registered identities; include an unknown sender | Registered identities map deterministically; unknown sender is denied before upstream transport |
+| Sender registry | Run the fixture matrix for all 30 registered identities; include an unknown sender | Registered identities map deterministically; unknown sender is denied before upstream transport |
 | Non-streaming | Send a protected request through a test provider | Exactly one upstream call; response released only after evidence revalidation |
 | Streaming | Send a protected streaming request and capture multiple chunks | Every protected write is revalidated; no unguarded fallback write/end |
 | Cancellation/disconnect | Cancel before dispatch and disconnect during streaming | No dispatch before start; after start, outcome is terminal/UNKNOWN as applicable and no unauthorized response release occurs |
