@@ -83,7 +83,7 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
   'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
   'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
-  'workers-ai', 'cometapi', 'text-completions', 'kobold', 'novelai-text',
+  'workers-ai', 'cometapi', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
 ]);
 
 const intrinsicFunctionToString = Function.prototype.toString;
