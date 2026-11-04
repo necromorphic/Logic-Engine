@@ -30,13 +30,13 @@ The managed patch wraps these five native ST handlers:
 
 | Native route | Sender identities |
 |---|---|
-| POST /api/backends/chat-completions/generate | 25: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
+| POST /api/backends/chat-completions/generate | 26: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
 | POST /api/backends/text-completions/generate | text-completions |
 | POST /api/backends/kobold/generate | kobold |
 | POST /api/novelai/generate | novelai-text |
 | POST /api/horde/generate-text | horde-text |
 
-The canonical registry contains 29 sender identities. Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model discovery and third-party extension routes are outside this text-generation registry and cannot use protected Memory.
+The canonical registry contains 30 sender identities (26 Chat Completions identities and four additional text-generation handlers). Unknown sender identities are not admitted for protected Memory. Image generation, TTS/audio, embeddings, translation, model discovery and third-party extension routes are outside this text-generation registry and cannot use protected Memory.
 
 ## Host / Core composition changes in this candidate
 
