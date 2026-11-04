@@ -11,7 +11,9 @@
    ```powershell
    npm ci
    npm test
+   $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = "C:\path\to\SillyTavern"
    npm run host:patch:preflight
+   npm run host:patch:install
    npm run host:patch:verify
    ```
 4. Record the Logic-Engine commit, ST commit, Windows version, Node version, test totals and patch verification output.
