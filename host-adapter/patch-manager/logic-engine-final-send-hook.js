@@ -5,6 +5,32 @@ const generationContext = new AsyncLocalStorage();
 let adapter = null;
 let adapterOwner = null;
 
+function composeAbortSignals(signals, registerCleanup) {
+    const controller = new AbortController();
+    const subscriptions = [];
+    const cleanup = () => {
+        for (const [signal, listener] of subscriptions.splice(0)) {
+            signal.removeEventListener('abort', listener);
+        }
+    };
+    for (const signal of signals) {
+        if (!signal) continue;
+        if (signal.aborted) {
+            controller.abort(signal.reason);
+            cleanup();
+            break;
+        }
+        const listener = () => {
+            if (!controller.signal.aborted) controller.abort(signal.reason);
+            cleanup();
+        };
+        signal.addEventListener('abort', listener, { once: true });
+        subscriptions.push([signal, listener]);
+    }
+    registerCleanup(cleanup);
+    return controller.signal;
+}
+
 function assertAdapter(candidate) {
     if (!candidate || typeof candidate !== 'object'
         || typeof candidate.prepare !== 'function'
@@ -43,29 +69,55 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
     }
     if (!adapter) throw new Error('LOGIC_ENGINE_FINAL_SEND_ADAPTER_UNAVAILABLE');
 
+    const abortController = new AbortController();
+    const abortGeneration = () => {
+        if (!response.writableEnded && !abortController.signal.aborted) {
+            abortController.abort(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
+        }
+    };
+    const cleanupCallbacks = [];
+    const cleanup = () => {
+        request.off?.('aborted', abortGeneration);
+        response.off?.('close', abortGeneration);
+        response.off?.('finish', cleanup);
+        for (const callback of cleanupCallbacks.splice(0)) {
+            try { callback(); } catch {}
+        }
+    };
+    request.once?.('aborted', abortGeneration);
+    response.once?.('close', abortGeneration);
+    response.once?.('close', cleanup);
+    response.once?.('finish', cleanup);
+    if (request.aborted === true || (response.destroyed === true && response.writableEnded !== true)) {
+        abortGeneration();
+    }
+
     const active = {
-        request,
-        response,
-        adapter,
-        protectedForward: null,
-        dispatchInvoked: false,
+        request, response, adapter, abortController, cleanupCallbacks,
+        protectedForward: null, dispatchInvoked: false,
     };
 
     return generationContext.run(active, async () => {
-        // Host preparation is asynchronous and happens inside the native
-        // authenticated route, before any provider-specific sender is entered.
         try {
-            await active.adapter.prepare(request, response);
-        } catch {
-            // Never return Core/Provider diagnostics through the native route.
-            if (!response.headersSent) {
-                response.status(503).send({ error: { message: 'Protected generation unavailable' } });
-            } else if (!response.writableEnded) {
-                response.end();
+            if (abortController.signal.aborted) return undefined;
+            try {
+                await active.adapter.prepare(request, response);
+            } catch {
+                if (abortController.signal.aborted || response.destroyed === true) return undefined;
+                if (!response.headersSent) {
+                    response.status(503).send({ error: { message: 'Protected generation unavailable' } });
+                } else if (!response.writableEnded) {
+                    response.end();
+                }
+                return undefined;
             }
-            return undefined;
+            // Disconnect while asynchronous Host preparation was pending:
+            // do not enter the native sender or create a dispatch attempt.
+            if (abortController.signal.aborted || response.destroyed === true) return undefined;
+            return await handler();
+        } finally {
+            cleanup();
         }
-        return handler();
     });
 }
 
@@ -88,6 +140,9 @@ export function logicEngineFetch(endpointUrl, requestInit) {
     const active = generationContext.getStore();
     if (!active) return nativeFetch(endpointUrl, requestInit);
 
+    if (active.abortController.signal.aborted) {
+        throw new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED');
+    }
     if (active.dispatchInvoked) {
         throw new Error('LOGIC_ENGINE_FINAL_SEND_DUPLICATE_TRANSPORT');
     }
@@ -102,11 +157,19 @@ export function logicEngineFetch(endpointUrl, requestInit) {
         throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
     }
 
-    const stream = active.request.body?.stream === true;
-    let forwardCalled = false;
+    const body = active.request.body ?? {};
+    const stream = hostRoute === 'kobold' || hostRoute === 'novelai-text'
+        ? Boolean(body.streaming)
+        : hostRoute === 'horde-text' ? false : Boolean(body.stream);
+    const hostTransformsStream = hostRoute === 'text-completions'
+        && body.api_type === 'ollama' && stream;
+    const signal = requestInit?.signal
+        ? composeAbortSignals([requestInit.signal, active.abortController.signal],
+            (cleanup) => active.cleanupCallbacks.push(cleanup))
+        : active.abortController.signal;
+    const outboundInit = { ...requestInit, signal };
     const forwardResponse = stream ? (upstream) => {
-        if (forwardCalled) throw new Error('LOGIC_ENGINE_FINAL_SEND_DUPLICATE_RESPONSE_WRITE');
-        forwardCalled = true;
+        if (active.protectedForward) return active.protectedForward;
         const pending = active.adapter.forwardResponse(upstream, active.response);
         active.protectedForward = Promise.resolve(pending);
         return active.protectedForward;
@@ -118,10 +181,14 @@ export function logicEngineFetch(endpointUrl, requestInit) {
         senderRoute,
         hostRoute,
         endpointUrl,
-        requestInit,
+        requestInit: outboundInit,
         stream,
-        transport: () => nativeFetch(endpointUrl, requestInit),
+        transport: () => {
+            if (signal.aborted) throw new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED');
+            return nativeFetch(endpointUrl, outboundInit);
+        },
         forwardResponse,
+        hostTransformsStream,
     });
 }
 
