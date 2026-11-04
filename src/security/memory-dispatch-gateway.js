@@ -228,7 +228,11 @@ function normalizeHostContext(value) {
   }
   let ownKeys;
   try {
-    if (Object.getPrototypeOf(value) !== Object.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const prototype = Object.getPrototypeOf(value);
+    // Final-Send creates null-prototype snapshots to eliminate inherited
+    // properties. Accept that trusted data-record shape alongside plain
+    // records; arrays, proxies, accessors and custom prototypes remain denied.
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
     ownKeys = Reflect.ownKeys(value);
   } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
   if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
