@@ -11,6 +11,9 @@ const sourceRoot = path.resolve(process.env.SILLYTAVERN_DIR || path.join(repoRoo
 const outputPath = path.join(sourceRoot, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+// Windows checkout/apply may differ only in CRLF vs LF. Compare normalized source
+// text, but retain the installed file's exact bytes in the emitted deployment pin.
+const normalizeLineEndings = bytes => Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -102,7 +105,7 @@ try {
     }
     const actualBytes = await readFile(actualPath);
     const expectedBytes = await readFile(expectedPath);
-    if (sha256(actualBytes) !== sha256(expectedBytes)) {
+    if (sha256(normalizeLineEndings(actualBytes)) !== sha256(normalizeLineEndings(expectedBytes))) {
       let firstDifference = 0;
       const limit = Math.min(actualBytes.length, expectedBytes.length);
       while (firstDifference < limit && actualBytes[firstDifference] === expectedBytes[firstDifference]) firstDifference += 1;
