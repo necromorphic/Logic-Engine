@@ -509,7 +509,7 @@ test('Lane A revoke during model execution blocks final response release', async
         : { status: 'non_ready', reason: 'dispatch_lane_a_changed' }),
     });
     await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
-      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/);
     assert.equal(laneAReads, 2);
     const row = fixture.gateway.db.prepare(
       'SELECT status AS dispatch_state, outcome_code AS outcome FROM dispatch_ledger WHERE request_id=?',
@@ -592,7 +592,7 @@ test('Lane A revoke between streamed response writes blocks the next chunk', asy
     assert.equal(writes, 1);
     assert.throws(
       () => fixture.gateway.authorizeResponseWrite(request.requestId, () => { writes += 1; return true; }, { final: false }),
-      /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/,
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
     );
     assert.equal(writes, 1);
     assert.equal(laneAReads, 3);
@@ -980,16 +980,21 @@ test('all protected sender families share one real Gateway and each causes exact
     for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
       routeIndex += 1;
       const requestId = 'sender-route-' + routeIndex;
-      await finalSend({
-        senderRoute,
-        endpointUrl: 'https://provider.example/v1/chat/completions',
-        requestInit: {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
-        },
-        hostRequestContext: { ...prepared, requestId },
-      });
+      try {
+        await finalSend({
+          senderRoute,
+          endpointUrl: 'https://provider.example/v1/chat/completions',
+          requestInit: {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
+          },
+          hostRequestContext: { ...prepared, requestId },
+        });
+      } catch (error) {
+        throw new Error('Protected sender route failed (' + senderRoute + '): '
+          + String(error?.cause?.stack || error?.cause?.message || error?.stack || error?.message), { cause: error });
+      }
       fixture.gateway.authorizeResponseWrite(requestId, () => undefined, { final: true });
     }
     assert.equal(upstreamCalls, PROTECTED_MEMORY_SENDER_ROUTES.length);
