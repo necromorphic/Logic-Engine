@@ -1,7 +1,7 @@
 import {
   PROTECTED_MEMORY_SENDER_ROUTES,
 } from '../src/security/memory-dispatch-gateway.js';
-import { createProtectedMemoryFinalSend } from './protected-memory-final-send.mjs';
+import { createHostReplayIdentity, createProtectedMemoryFinalSend } from './protected-memory-final-send.mjs';
 
 const ROUTE_BY_SOURCE_KEY = Object.freeze({
   CLAUDE: 'claude',
@@ -163,7 +163,14 @@ export function createSillyTavernFinalSendAdapter({
       // Reserve before awaiting Host work so concurrent prepare calls cannot
       // race past the one-shot check. A failed preparation remains terminal.
       preparedRequests.add(request);
-      const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
+      const hostRoute = resolveHostRoute(request);
+      // Snapshot the original Host prompt before native sender code can mutate
+      // request.body or serialize a provider-specific payload.
+      let replayIdentity = null;
+      if (hostRoute) {
+        try { replayIdentity = createHostReplayIdentity(request, hostRoute, hostRoute); }
+        catch { replayIdentity = null; }
+      }
       if (signal?.aborted === true) throw terminalError(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
       const hostContext = prepareHostContext
         ? await prepareHostContext(request, response, hostRoute, signal) : null;
@@ -171,7 +178,7 @@ export function createSillyTavernFinalSendAdapter({
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
-      preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute }));
+      preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute, replayIdentity }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
@@ -273,6 +280,10 @@ export function createSillyTavernFinalSendAdapter({
       }
 
       const hostRoute = dispatchHostRoute;
+      if (protectedMemory !== null && prepared
+        && !/^[a-f0-9]{64}$/.test(prepared.replayIdentity ?? '')) {
+        return deny(new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE'));
+      }
       const expectedRoute = hostRoute === 'chat-completions'
         ? sourceMap.get(args.request?.body?.chat_completion_source)
         : ROUTE_BY_HOST_ROUTE[hostRoute];
@@ -290,6 +301,7 @@ export function createSillyTavernFinalSendAdapter({
           requestInit: args.requestInit,
           hostRequestContext: args.request,
           hostRoute,
+          replayIdentity: prepared?.replayIdentity,
           stream: args.stream,
           forwardResponse: args.forwardResponse,
           transport: args.transport,
