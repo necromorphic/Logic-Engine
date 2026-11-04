@@ -23,7 +23,7 @@ function walk(directory) {
 
 function sourceFiles(directory) {
   return walk(join(root, directory)).map((absolute) => ({
-    path: relative(root, absolute).replaceAll('\', '/'),
+    path: relative(root, absolute).split(String.fromCharCode(92)).join('/'),
     content: readFileSync(absolute, 'utf8'),
   }));
 }
