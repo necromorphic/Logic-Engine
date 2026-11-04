@@ -10,6 +10,7 @@ const ROUTE_BY_SOURCE_KEY = Object.freeze({
   VERTEXAI: 'vertex-ai',
   MISTRALAI: 'mistral',
   COHERE: 'cohere',
+  COMETAPI: 'cometapi',
   DEEPSEEK: 'deepseek',
   AIMLAPI: 'aimlapi',
   XAI: 'xai',
