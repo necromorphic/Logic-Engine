@@ -93,7 +93,8 @@ export function logicEngineFetch(endpointUrl, requestInit) {
     }
     active.dispatchInvoked = true;
 
-    const hostRoute = resolveHostGenerationRoute(active.request);\n    const senderRoute = active.adapter.resolveSenderRoute(active.request, hostRoute);
+    const hostRoute = resolveHostGenerationRoute(active.request);
+    const senderRoute = active.adapter.resolveSenderRoute(active.request, hostRoute);
     if (typeof senderRoute !== 'string' || !senderRoute) {
         throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
     }
@@ -112,6 +113,7 @@ export function logicEngineFetch(endpointUrl, requestInit) {
         request: active.request,
         response: active.response,
         senderRoute,
+        hostRoute,
         endpointUrl,
         requestInit,
         stream,
