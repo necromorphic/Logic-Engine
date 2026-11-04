@@ -20,7 +20,9 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
   const seenRequests = new WeakSet();
   const seenRequestMetadata = new WeakSet();
 
-  async function prepare(hostRequest, hostResponse) {
+  async function prepare(hostRequest, hostResponse, signal) {
+    const cancelled = () => signal?.aborted === true;
+    if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
     if (!hostRequest || typeof hostRequest !== 'object'
       || !hostResponse || typeof hostResponse !== 'object'
       || seenRequests.has(hostRequest)) {
@@ -28,6 +30,7 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
     }
     seenRequests.add(hostRequest);
     try {
+      if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
       let requestMetadata;
       try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
       catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
@@ -40,8 +43,9 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       }
       seenRequestMetadata.add(requestMetadata);
       let prepared;
-      try { prepared = await runtime.prepareForDispatch(requestMetadata); }
-      catch { return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' }); }
+      try { prepared = await runtime.prepareForDispatch(requestMetadata, { signal }); }
+      catch { return Object.freeze({ status: 'non_ready', reason: cancelled() ? 'generation_cancelled' : 'npc_context_preparation_failed' }); }
+      if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
       if (prepared?.status !== 'ready' || !prepared.handoff) {
         return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
       }
