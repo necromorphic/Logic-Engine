@@ -18,6 +18,7 @@ test('Provider content is copied into frozen JSON-only snapshots', () => {
   assert.equal(projected[0].content.nested[0].value, 7);
   assert.equal(Object.isFrozen(projected), true);
   assert.equal(Object.isFrozen(projected[0]), true);
+  assert.equal(Object.getPrototypeOf(projected[0]), Object.prototype);
   assert.equal(Object.isFrozen(projected[0].content), true);
   assert.equal(Object.isFrozen(projected[0].content.nested), true);
   assert.equal(Object.getPrototypeOf(projected[0].content), null);
