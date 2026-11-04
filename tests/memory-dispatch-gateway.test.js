@@ -990,6 +990,7 @@ test('all protected sender families share one real Gateway and each causes exact
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
           },
+          hostRequestContext: { body: { messages: [{ role: 'user', content: 'original host prompt' }] } },
           hostRequestContext: { ...prepared, requestId },
         });
       } catch (error) {
