@@ -58,8 +58,6 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     const identityStore = new HostIdentityStore({ directory: identityDirectory });
     const hostIdentity = await identityStore.resolveAuthenticatedAccount('e2e-user');
     const conversationId = SESSION + ':' + hostIdentity.host_installation_id + ':' + CONVERSATION;
-    const hostConversationKey = hostIdentity.host_installation_id + ':'
-      + hostIdentity.authenticated_account_id + ':' + CONVERSATION;
     const directories = {
       root: join(dataRoot, 'default-user'),
       chats: join(dataRoot, 'default-user', 'chats'),
@@ -92,7 +90,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     });
     new ActorBindingService(engine).bind(worldId, ADAPTER_ID, actorId);
     new HostConversationWorldBindingService(engine).bind({
-      adapterId: ADAPTER_ID, conversationId: hostConversationKey, worldId,
+      adapterId: ADAPTER_ID, conversationId, worldId,
     });
 
     providerAdapter = createMemoryNpcProviderAdapter({
