@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,163 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -164,6 +164,7 @@
 +    };
 +    request.once?.('aborted', abortGeneration);
 +    response.once?.('close', abortGeneration);
++    response.once?.('close', cleanup);
 +    response.once?.('finish', cleanup);
 +    if (request.aborted === true || (response.destroyed === true && response.writableEnded !== true)) abortGeneration();
 +    if (typeof responseAdapter.authorizeResponseWrite === 'function') {
@@ -186,6 +187,7 @@
 +            const active = generationContext.getStore();
 +            if (active) active.prepared = true;
 +        } catch {
++            if (abortController.signal.aborted || response.destroyed === true) return;
 +            if (!response.headersSent) {
 +                response.set('cache-control', 'no-store');
 +                response.status(503).send({ error: { code: 'LOGIC_ENGINE_HOST_PREPARATION_FAILED' } });
