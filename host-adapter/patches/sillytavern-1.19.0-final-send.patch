@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,168 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -203,6 +203,7 @@
 +        try {
 +            return await handler();
 +        } catch (error) {
++            if (abortController.signal.aborted || response.destroyed === true) return;
 +            if (error?.logicEngineFinalSendTerminal === true) {
 +                if (typeof response.destroy === 'function' && !response.destroyed) response.destroy();
 +                return;
