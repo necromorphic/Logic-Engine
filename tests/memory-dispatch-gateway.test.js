@@ -296,7 +296,14 @@ test('Gateway ignores unrelated protected-context metadata without reading it', 
     Object.defineProperty(request, 'laneB', {
       enumerable: true, get() { getterCalls += 1; return []; },
     });
-    const response = await MemoryDispatchGateway.prototype.dispatchProtectedRequest.call(fixture.gateway, request);
+    let response;
+    try {
+      response = await MemoryDispatchGateway.prototype.dispatchProtectedRequest.call(fixture.gateway, request);
+    } catch (error) {
+      const cause = error?.cause;
+      throw new Error('Unexpected Gateway dispatch rejection: '
+        + String(cause?.stack || cause?.message || error?.message), { cause: error });
+    }
     assert.equal(response.status, 200);
     assert.equal(getterCalls, 0);
     fixture.gateway.authorizeResponseWrite(request.requestId, () => undefined, { final: true });
