@@ -119,7 +119,7 @@ export class AcceptedHeadAuthority {
                SELECT 1 FROM authority_operations o WHERE o.domain=h.domain AND o.status='pending'
              ))
              OR (h.enrolled=0 AND h.head<>0 AND (
-               (SELECT COUNT(*) FROM authority_operations o WHERE o.domain=h.domain AND o.status='pending') <> 1
+               (SELECT COUNT(*) FROM authority_operations o WHERE o.domain=h.domain) <> 1
                OR NOT EXISTS (
                  SELECT 1 FROM authority_operations o
                  WHERE o.domain=h.domain AND o.resulting_head=h.head
@@ -127,6 +127,15 @@ export class AcceptedHeadAuthority {
                )
              ))
              OR (h.enrolled=1 AND h.head=0)
+             OR (h.enrolled=1 AND (
+               (SELECT COUNT(*) FROM authority_operations o
+                WHERE o.domain=h.domain AND o.operation_kind='enroll'
+                  AND o.resulting_head=1 AND o.status='committed') <> 1
+               OR EXISTS (
+                 SELECT 1 FROM authority_operations o
+                 WHERE o.domain=h.domain AND o.operation_kind='enroll' AND o.status='pending'
+               )
+             ))
           LIMIT 1
         `).get();
         if (inconsistent) throw new Error('ACCEPTED_HEAD_STATE_INVALID');
