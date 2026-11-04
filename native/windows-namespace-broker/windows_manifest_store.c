@@ -470,9 +470,9 @@ static int le_win_rename_relative(
     return 0;
   }
   name_length = wcslen(target) * sizeof(wchar_t);
-  /* SetFileInformationByHandle validates the complete fixed structure size,
-   * including FILE_RENAME_INFO's trailing WCHAR and ABI padding. */
-  buffer_length = sizeof(FILE_RENAME_INFO) + name_length;
+  /* FileNameLength is measured in bytes and excludes a terminator.
+   * The variable buffer ends immediately after the supplied UTF-16 name. */
+  buffer_length = offsetof(FILE_RENAME_INFO, FileName) + name_length;
   if (name_length > 0xffffffffu || buffer_length > 0xffffffffu) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
