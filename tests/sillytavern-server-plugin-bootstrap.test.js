@@ -24,7 +24,7 @@ test('server plugin composes authenticated Host, embedded Gateway and one-shot N
   assert.match(source, /hostAdapter\.prepareGenerationContext\(request, hostRoute, signal\)/);
   assert.match(source, /createEmbeddedGatewayRuntime/);
   assert.match(source, /createNpcGenerationContextHostBridge/);
-  assert.match(source, /npcBridge\.prepare\(request, response\)/);
+  assert.match(source, /npcBridge\.prepare\(request, response, signal\)/);
   assert.match(source, /npcBridge\.consume\(request, prepared\.response\)/);
   assert.match(source, /createSillyTavernFinalSendAdapter/);
   assert.match(source, /LOGIC_ENGINE_MEMORY_NPC_ENABLED/);
