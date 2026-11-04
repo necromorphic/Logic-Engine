@@ -544,7 +544,12 @@ export function createCoreNpcGenerationContextRuntime({
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
     }
     const admittedByIdentity = new Map();
-    for (const admitted of laneB.admitted) {
+    for (let index = 0; index < laneB.admitted.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(laneB.admitted, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_admission_invalid' });
+      }
+      const admitted = descriptor.value;
       if (!exactDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(admitted.record_ref) || !validId(admitted.record_version)
         || !validId(admitted.epistemic_kind) || admitted.evidence_assessment !== 'supported') {
