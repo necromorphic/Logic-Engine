@@ -199,6 +199,45 @@ function projectLaneAItems(items) {
   return projected;
 }
 
+const LANE_B_EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
+
+function snapshotLaneBContent(value, depth = 0, state = { nodes: 0, ancestors: [] }) {
+  state.nodes += 1;
+  if (state.nodes > 10_000 || depth > 32) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'object' || isProxy(value)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  for (let index = 0; index < state.ancestors.length; index += 1) if (state.ancestors[index] === value) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  state.ancestors[state.ancestors.length] = value;
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype || value.length > 1000) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1 || !arrayContains(keys, 'length')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const result = new Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+        result[index] = snapshotLaneBContent(descriptor.value, depth + 1, state);
+      }
+      return result;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 1000) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+    const result = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      Object.defineProperty(result, key, { value: snapshotLaneBContent(descriptor.value, depth + 1, state), enumerable: true, writable: false, configurable: false });
+    }
+    return result;
+  } finally { state.ancestors.length -= 1; }
+}
+
 function renderNpcContext(laneAItems, contentBlocks) {
   if (!Array.isArray(contentBlocks) || isProxy(contentBlocks)
     || Object.getPrototypeOf(contentBlocks) !== Array.prototype || contentBlocks.length > 50) {
@@ -226,16 +265,19 @@ function renderNpcContext(laneAItems, contentBlocks) {
       const epistemic = Object.getOwnPropertyDescriptor(block, 'epistemic_kind');
       const assessment = Object.getOwnPropertyDescriptor(block, 'evidence_assessment');
       const content = Object.getOwnPropertyDescriptor(block, 'content');
-      if (!epistemic || !Object.hasOwn(epistemic, 'value')
+      if (Reflect.ownKeys(block).length !== 3
+        || !epistemic || !Object.hasOwn(epistemic, 'value')
         || !assessment || !Object.hasOwn(assessment, 'value')
         || assessment.value !== 'supported'
-        || !content || !Object.hasOwn(content, 'value')) {
+        || !content || !Object.hasOwn(content, 'value')
+        || typeof epistemic.value !== 'string'
+        || !LANE_B_EPISTEMIC_KINDS.has(epistemic.value)) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
       }
       bounded[bounded.length] = {
         epistemic_kind: epistemic.value,
         evidence_assessment: assessment.value,
-        content: content.value,
+        content: snapshotLaneBContent(content.value),
       };
     }
     sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\n'
