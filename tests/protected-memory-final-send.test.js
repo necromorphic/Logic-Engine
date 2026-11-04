@@ -213,7 +213,6 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     ['text-completions', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
     ['kobold', JSON.stringify({ prompt: 'hello', logic_engine_context_size: 9000 }), parsed => parsed.prompt],
     ['novelai-text', JSON.stringify({ input: 'hello', logic_engine_generation_type: 'untrusted' }), parsed => parsed.input],
-    ['horde-text', JSON.stringify({ prompt: 'hello', params: { logic_engine_conversation_uuid: 'untrusted' } }), parsed => parsed.prompt],
   ]) {
     let dispatched;
     let outbound;
@@ -242,6 +241,21 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     assert.equal(JSON.stringify(parsed).includes('logic_engine_'), false, senderRoute);
     assert.equal(JSON.stringify(parsed).includes('memory_dispatch'), false, senderRoute);
   }
+});
+
+test('Horde text generation is classified but protected Memory is denied before transport', async () => {
+  let calls = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: () => { throw new Error('Horde must not enter protected Gateway dispatch'); } },
+    resolveProtectedMemory: () => context,
+    fetchImpl: async () => { calls += 1; return { status: 200 }; },
+  });
+  assert.throws(() => finalSend({
+    senderRoute: 'horde-text',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(JSON.stringify({ prompt: 'hello' })),
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.equal(calls, 0);
 });
 
 test('protected complete-empty context is not misrepresented as an admitted source set', async () => {
