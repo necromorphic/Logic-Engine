@@ -59,6 +59,7 @@ test('unregistered SillyTavern sender remains native for explicitly unprotected 
 test('unregistered SillyTavern sender is denied for protected Memory generation', () => {
   const protectedContext = {
     requestId: 'request-1',
+    generationId: 'generation-request-1',
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
@@ -83,6 +84,7 @@ test('unregistered SillyTavern sender is denied for protected Memory generation'
 test('unknown native route remains unregistered and cannot enter protected dispatch', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => ({
     requestId: 'request-non-chat',
+    generationId: 'generation-request-non-chat',
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
@@ -108,6 +110,7 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
   const adapter = createAdapter({
     resolveProtectedMemory: () => ({
       requestId: 'request-routes',
+    generationId: 'generation-request-routes',
       model: 'test-model',
       worldId: 'world-1',
       actorId: 'actor-1',
@@ -143,6 +146,7 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
 test('registered protected sender is delegated to the Core Gateway', () => {
   const protectedContext = {
     requestId: 'request-2',
+    generationId: 'generation-request-2',
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
