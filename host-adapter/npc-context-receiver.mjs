@@ -9,6 +9,10 @@ const ID = value => typeof value === 'string'
     return code < 32 || code === 127;
   });
 
+const KNOWN_EVIDENCE_ASSESSMENTS = new Set([
+  'unassessed', 'supported', 'disputed', 'insufficient',
+]);
+
 const UUID = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -140,12 +144,24 @@ export function receiveNpcContext({
   ])
     || retrieval.status !== 'ready' || retrieval.reason !== null
     || !denseArray(retrieval.admitted, 50) || !denseArray(retrieval.candidates, 50)
-    || retrieval.admitted.length !== retrieval.candidates.length
+    || retrieval.admitted.length > retrieval.candidates.length
     || !validProviderEvidenceCursor(retrieval.provider_evidence_cursor)
     || !exactDataRecord(retrieval.snapshot, ['world_revision', 'commit_sequence'])
     || !Number.isSafeInteger(retrieval.snapshot.world_revision) || retrieval.snapshot.world_revision < 0
     || !Number.isSafeInteger(retrieval.snapshot.commit_sequence) || retrieval.snapshot.commit_sequence < 0) {
     throw new Error('NPC_CONTEXT_NON_READY');
+  }
+
+  const admittedByIdentity = new Map();
+  for (const admitted of retrieval.admitted) {
+    if (!exactDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
+      || !ID(admitted.record_ref) || !ID(admitted.record_version)
+      || !ID(admitted.epistemic_kind) || admitted.evidence_assessment !== 'supported') {
+      throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
+    }
+    const identity = JSON.stringify([admitted.record_ref, admitted.record_version]);
+    if (admittedByIdentity.has(identity)) throw new Error('NPC_CONTEXT_DUPLICATE_RECORD');
+    admittedByIdentity.set(identity, admitted);
   }
 
   const sourcesByIdentity = new Map();
@@ -155,27 +171,40 @@ export function receiveNpcContext({
   let totalContentBytes = 0;
 
   for (let index = 0; index < retrieval.candidates.length; index += 1) {
-    const admitted = retrieval.admitted[index];
     const candidate = retrieval.candidates[index];
-    if (!exactDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
-      || !exactDataRecord(candidate, [
-        'record_ref', 'record_version', 'authorization_generation', 'source_entity_id',
-        'source_version', 'epistemic_kind', 'evidence_assessment', 'content',
-      ])) throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+    if (!exactDataRecord(candidate, [
+      'record_ref', 'record_version', 'authorization_generation', 'source_entity_id',
+      'source_version', 'epistemic_kind', 'evidence_assessment', 'content',
+    ])) throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
 
     if (!ID(candidate.record_ref) || !ID(candidate.record_version)
       || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || !ID(candidate.source_entity_id) || !ID(candidate.source_version)
-      || !ID(candidate.epistemic_kind) || candidate.evidence_assessment !== 'supported'
+      || !ID(candidate.epistemic_kind) || !KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.evidence_assessment)) {
+      throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
+    }
+    const recordIdentity = JSON.stringify([candidate.record_ref, candidate.record_version]);
+    if (seenRecords.has(recordIdentity)) throw new Error('NPC_CONTEXT_DUPLICATE_RECORD');
+    seenRecords.add(recordIdentity);
+
+    const admitted = admittedByIdentity.get(recordIdentity);
+    if (!admitted) {
+      // Non-supported evidence remains available to Core for classification,
+      // but it must never be projected into model context. A supported record
+      // without an admission proof is an incomplete result, not an empty one.
+      if (candidate.evidence_assessment === 'supported') {
+        throw new Error('NPC_CONTEXT_NON_READY');
+      }
+      continue;
+    }
+    if (candidate.evidence_assessment !== 'supported'
       || admitted.record_ref !== candidate.record_ref
       || admitted.record_version !== candidate.record_version
       || admitted.epistemic_kind !== candidate.epistemic_kind
       || admitted.evidence_assessment !== candidate.evidence_assessment) {
       throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
     }
-    const recordIdentity = JSON.stringify([candidate.record_ref, candidate.record_version]);
-    if (seenRecords.has(recordIdentity)) throw new Error('NPC_CONTEXT_DUPLICATE_RECORD');
-    seenRecords.add(recordIdentity);
+    admittedByIdentity.delete(recordIdentity);
 
     const content = copyContent(candidate.content);
     if (!content) throw new Error('NPC_CONTEXT_CONTENT_INVALID');
@@ -203,6 +232,7 @@ export function receiveNpcContext({
       content,
     }));
   }
+  if (admittedByIdentity.size !== 0) throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
 
   const sources = [...sourcesByIdentity.values()];
   if (sources.length === 0 && candidates.length !== 0) throw new Error('NPC_CONTEXT_SOURCE_SET_INVALID');
