@@ -993,7 +993,7 @@ export class MemoryDispatchGateway {
     const releaseContext = {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
       sources: sourceSet, candidates: candidateSet, providerEvidenceCursor: providerCursorSnapshot,
-      laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot,
+      laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot, signal,
       coreHead, providerHead, policyAuthority,
     };
     try {
@@ -1040,6 +1040,9 @@ export class MemoryDispatchGateway {
   }
 
   #revalidateReleaseContext(context, coordinatorLease) {
+    // Cancellation remains authoritative after upstream completion and before
+    // every response write/end. A disconnected Host must never release bytes.
+    assertDispatchNotAborted(context.signal);
     const currentAuthority = getAcceptedHeadStatusSync({
       port: this.authorityPort,
       token: this.readToken,
