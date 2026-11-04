@@ -191,50 +191,9 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
   );
 
   const workerResult = await new Promise((resolve, reject) => {
-    const worker = new Worker(`
-      const { parentPort, workerData } = require('node:worker_threads');
-      const { DatabaseSync } = require('node:sqlite');
-      const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
-      try {
-        bootstrap.loadExtension(workerData.extensionPath, 'sqlite3_secure_vfs_probe_init');
-        bootstrap.enableLoadExtension(false);
-      } finally {
-        bootstrap.close();
-      }
-      const openAndCreate = () => {
-        const db = new DatabaseSync(workerData.path);
-        try {
-          db.exec('CREATE TABLE worker_probe(value TEXT);');
-          return {
-            openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
-            sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
-          };
-        } finally {
-          db.close();
-        }
-      };
-      let result;
-      // Prefer a process-shared role if the worker sees it. If this Node build
-      // has an isolate-local VFS registry, the first write fails closed and
-      // this worker must enroll its own exact path before retrying.
-      try {
-        result = openAndCreate();
-      } catch {
-        const localRegistry = new DatabaseSync(':memory:');
-        try {
-          const enrollment = localRegistry.prepare(
-            'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
-          ).get(workerData.path, 'worker');
-          if (enrollment.registered !== 1) {
-            throw new Error('Worker-local VFS role enrollment was not accepted');
-          }
-          result = openAndCreate();
-        } finally {
-          localRegistry.close();
-        }
-      }
-      parentPort.postMessage(result);
-    `, { eval: true, workerData: { extensionPath, path: workerPath } });
+    const worker = new Worker(new URL('./fixtures/secure-vfs-worker.cjs', import.meta.url), {
+      workerData: { extensionPath, path: workerPath },
+    });
     worker.once('message', resolve);
     worker.once('error', reject);
     worker.once('exit', (code) => {
