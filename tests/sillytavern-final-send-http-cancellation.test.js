@@ -11,8 +11,11 @@ const hookMarker = '--- /dev/null\n+++ b/src/logic-engine-final-send-hook.js\n';
 const hookStart = patch.indexOf(hookMarker);
 assert.notEqual(hookStart, -1, 'Final-Send Hook must be present in the pinned patch');
 const hunkStart = patch.indexOf('\n', patch.indexOf('@@ -0,0 +1,169 @@', hookStart)) + 1;
-const hookEnd = patch.indexOf('\n--- a/', hunkStart);
-assert.ok(hunkStart > 0 && hookEnd > hunkStart, 'Final-Send Hook patch section must be bounded');
+const nextFileHeaders = [patch.indexOf('\n--- a/', hunkStart), patch.indexOf('\n--- /dev/null', hunkStart)]
+  .filter((index) => index >= 0);
+const hookEnd = Math.min(...nextFileHeaders);
+assert.ok(hunkStart > 0 && Number.isFinite(hookEnd) && hookEnd > hunkStart,
+  'Final-Send Hook patch section must be bounded');
 const hookSource = patch.slice(hunkStart, hookEnd).split('\n')
   .map((line) => line.startsWith('+') ? line.slice(1) : line).join('\n');
 
