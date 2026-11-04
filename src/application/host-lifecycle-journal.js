@@ -292,6 +292,7 @@ function validateEvent(event) {
  * authorization and mutation-receipt contracts are implemented.
  */
 export class HostLifecycleJournal {
+  #writeDepth = 0;
   constructor({ path, coordinatorPath, resolveIdentity, resolveRootIdentity = null,
     verifyMutationReceipt = () => false, verifyRootInventoryAttestation = () => false,
     readOnly = false }) {
@@ -473,9 +474,14 @@ export class HostLifecycleJournal {
 
   #withWrite(work) {
     if (this.readOnly) throw new Error('HOST_JOURNAL_READ_ONLY');
+    // Identity resolvers may call getAuthoritySnapshot while append() already
+    // owns this journal's write transaction. Reuse that transaction rather
+    // than attempting a nested Coordinator lease / BEGIN IMMEDIATE.
+    if (this.#writeDepth > 0) return work();
     const release = beginCoordinatorLock(this.coordinator);
     try {
       this.db.exec('BEGIN IMMEDIATE');
+      this.#writeDepth = 1;
       try {
         const result = work();
         this.db.exec('COMMIT');
@@ -483,6 +489,8 @@ export class HostLifecycleJournal {
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
         throw error;
+      } finally {
+        this.#writeDepth = 0;
       }
     } finally {
       release();
