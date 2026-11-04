@@ -23,6 +23,13 @@ function exactDataRecord(value, keys) {
   });
 }
 
+function validProviderEvidenceCursor(value) {
+  return exactDataRecord(value, ['data_version', 'candidate_digest'])
+    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
+    && typeof value.candidate_digest === 'string'
+    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
+}
+
 function denseArray(value, max) {
   if (!Array.isArray(value) || utilTypes.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype
     || value.length > max) return false;
@@ -107,10 +114,16 @@ export function receiveNpcContext({
     || !exactDataRecord(hostBinding, [
       'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_id',
       'conversation_uuid', 'root_id', 'root_inventory_sequence', 'root_manifest_sha256',
+      'adapter_id', 'world_id', 'actor_id', 'actor_type',
     ])
     || !UUID(hostBinding.host_installation_id) || !UUID(hostBinding.authenticated_account_id)
     || !UUID(hostBinding.host_session_id) || !UUID(hostBinding.conversation_uuid)
-    || !ID(hostBinding.conversation_id)
+    || !ID(hostBinding.conversation_id) || !ID(hostBinding.adapter_id)
+    || !ID(hostBinding.world_id) || !ID(hostBinding.actor_id) || !ID(hostBinding.actor_type)
+    || hostBinding.adapter_id !== hostContext.adapter_id
+    || hostBinding.world_id !== hostContext.world_id
+    || hostBinding.actor_id !== hostContext.actor_id
+    || hostBinding.actor_type !== hostContext.actor_type
     || hostBinding.conversation_id !== [
       hostBinding.host_installation_id, hostBinding.authenticated_account_id, hostBinding.conversation_uuid,
     ].join(':')
@@ -122,10 +135,13 @@ export function receiveNpcContext({
     || !/^[a-f0-9]{64}$/.test(hostBinding.root_manifest_sha256 ?? '')) {
     throw new Error('NPC_CONTEXT_SCOPE_INVALID');
   }
-  if (!exactDataRecord(retrieval, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+  if (!exactDataRecord(retrieval, [
+    'status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor',
+  ])
     || retrieval.status !== 'ready' || retrieval.reason !== null
     || !denseArray(retrieval.admitted, 50) || !denseArray(retrieval.candidates, 50)
     || retrieval.admitted.length !== retrieval.candidates.length
+    || !validProviderEvidenceCursor(retrieval.provider_evidence_cursor)
     || !exactDataRecord(retrieval.snapshot, ['world_revision', 'commit_sequence'])
     || !Number.isSafeInteger(retrieval.snapshot.world_revision) || retrieval.snapshot.world_revision < 0
     || !Number.isSafeInteger(retrieval.snapshot.commit_sequence) || retrieval.snapshot.commit_sequence < 0) {
