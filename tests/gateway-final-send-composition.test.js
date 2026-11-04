@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { buildProtectedMemory } from '../index.mjs';
 
 test('Memory-enabled native Final-Send composes the embedded Gateway and one-shot NPC bridge', async () => {
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
@@ -120,4 +121,81 @@ test('protected Memory projection reads Core context from the prepared Host enve
   assert.match(source, /const preparedHostContext = prepared\?\.hostContext;[\s\S]*?preparedHostContext\?\.status !== 'READY'/);
   assert.match(source, /const hostBinding = host\.context;\s*\/\/ prepareHostContext stores coreContext beside host[\s\S]*?const coreContext = prepared\.hostContext\.coreContext;/);
   assert.doesNotMatch(source, /const coreContext = host\.coreContext;/);
+});
+
+test('production protected-memory projection accepts the actual prepared Host/Core envelope', () => {
+  const candidate = {
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: 'A verified memory candidate',
+  };
+  const hostBinding = {
+    host_installation_id: 'host-installation',
+    authenticated_account_id: 'account',
+    host_session_id: 'session',
+    conversation_id: 'conversation',
+    conversation_uuid: '11111111-1111-4111-8111-111111111111',
+    root_id: 'root',
+    root_inventory_sequence: 7,
+    root_manifest_sha256: 'a'.repeat(64),
+  };
+  const coreContext = {
+    adapter_id: 'st-host-adapter',
+    conversation_id: 'core-conversation',
+    actor_type: 'character',
+  };
+  const prepared = {
+    response: {},
+    hostRoute: 'horde-text',
+    hostContext: {
+      status: 'READY',
+      host: { context: hostBinding },
+      coreContext,
+    },
+  };
+  const acceptedContext = {
+    request_id: 'request-id',
+    generation_id: 'generation-id',
+    world_id: 'world',
+    actor_id: 'actor',
+    snapshot: { world_revision: 3, commit_sequence: 9 },
+    lanes: {
+      lane_a: { items: [] },
+      lane_b: { status: 'ready', candidates: [candidate] },
+    },
+  };
+  const npcBridge = {
+    consume: () => ({
+      status: 'accepted',
+      context: acceptedContext,
+      laneB: {
+        status: 'ready',
+        sources: [{ source_id: 'source' }],
+        candidates: [candidate],
+        provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
+      },
+      revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
+    }),
+  };
+
+  const result = buildProtectedMemory({ body: { model: 'horde-model' } }, prepared, npcBridge);
+  assert.equal(result.model, 'horde-model');
+  assert.equal(result.hostContext.adapter_id, coreContext.adapter_id);
+  assert.equal(result.hostContext.core_conversation_id, coreContext.conversation_id);
+  assert.equal(result.hostContext.host_session_id, hostBinding.host_session_id);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.contentBlocks[0].content, candidate.content);
+  assert.equal(result.providerEvidenceCursor.data_version, 4);
+});
+
+test('production protected-memory projection fails closed when the prepared Host envelope is not READY', () => {
+  const result = buildProtectedMemory({}, {
+    response: {},
+    hostContext: {
+      status: 'NON_READY',
+      host: { context: {} },
+      coreContext: {},
+    },
+  }, { consume: () => { throw new Error('must not consume'); } });
+  assert.equal(result, undefined);
 });
