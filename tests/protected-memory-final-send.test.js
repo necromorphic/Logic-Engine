@@ -595,3 +595,34 @@ test('Host cancellation signal reaches the actual protected upstream fetch and i
   await assert.rejects(pending, error => error?.name === 'AbortError');
   assert.equal(upstreamCalls, 1, 'an aborted upstream handoff must never be retried');
 });
+
+test('replay identity is stable across provider and model changes to the same Host prompt', async () => {
+  const identities = [];
+  for (const [senderRoute, model] of [['openai', 'model-a'], ['google-ai-studio', 'model-b']]) {
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: {
+        dispatchProtectedRequest(request) {
+          identities.push(request.replayIdentity);
+          return request.transport();
+        },
+      },
+      resolveProtectedMemory: () => context,
+      fetchImpl: async () => ({ status: 200 }),
+    });
+    const response = await finalSend({
+      senderRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(JSON.stringify({ model, provider_specific: senderRoute })),
+      hostRequestContext: {
+        body: {
+          chat_completion_source: senderRoute,
+          model,
+          messages: [{ role: 'user', content: 'same original prompt' }],
+        },
+      },
+    });
+    assert.equal(response.status, 200);
+  }
+  assert.equal(identities.length, 2);
+  assert.equal(identities[0], identities[1]);
+});
