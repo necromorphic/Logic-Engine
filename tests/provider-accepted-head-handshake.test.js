@@ -77,6 +77,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
   let child;
   let provider;
   let providerDb;
+  let dispatchObserver;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
@@ -138,10 +139,14 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     // cross-process Coordinator lease and must not mutate Provider state.
     await provider.rebuildIndex(scope.world_id);
     await provider.reconcile(scope.world_id);
+    dispatchObserver = new SQLiteMemoryProvider({
+      ...providerOptions(providerPath, coordinatorPath),
+      observerOnly: true,
+    });
     const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
     const providerLease = beginCoordinatorLock(coordinatorObserver);
     try {
-      const evidence = provider.readDispatchEvidenceSync({
+      const evidence = dispatchObserver.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
@@ -189,13 +194,13 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       providerLease();
       coordinatorObserver.close();
     }
-    assert.throws(() => provider.readDispatchEvidenceSync({
+    assert.throws(() => dispatchObserver.readDispatchEvidenceSync({
       worldId: scope.world_id,
       actorId: scope.subject_id,
       purpose: scope.purpose,
       sources: [],
       candidates: [],
-    }), /MEMORY_DISPATCH_NOT_READY/);
+    }), /PROVIDER_COORDINATOR_LEASE_REQUIRED/);
 
     // A durable revoke advances Provider state and must invalidate the
     // previously admitted candidate before Gateway can write DISPATCH_STARTED.
@@ -213,7 +218,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const revokeCoordinator = openCoordinatorDatabase(coordinatorPath);
     const revokeLease = beginCoordinatorLock(revokeCoordinator);
     try {
-      assert.throws(() => provider.readDispatchEvidenceSync({
+      assert.throws(() => dispatchObserver.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
@@ -374,6 +379,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       source_entity_id: 'entity-source-a',
     }), /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
   } finally {
+    try { dispatchObserver?.close(); } catch {}
     try { provider?.close(); } catch {}
     try { providerDb?.close(); } catch {}
     if (child) {
