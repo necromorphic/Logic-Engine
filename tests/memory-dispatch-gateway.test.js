@@ -126,7 +126,7 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       actor_id: actorId,
       readiness: 'READY',
       inventory_status: 'READY',
-      policy_authority,
+      policy_authority: policyAuthority,
       sources,
     }),
     readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
