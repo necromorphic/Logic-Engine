@@ -213,6 +213,7 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     ['text-completions', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
     ['kobold', JSON.stringify({ prompt: 'hello', logic_engine_context_size: 9000 }), parsed => parsed.prompt],
     ['novelai-text', JSON.stringify({ input: 'hello', logic_engine_generation_type: 'untrusted' }), parsed => parsed.input],
+    ['horde-text', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
   ]) {
     let dispatched;
     let outbound;
