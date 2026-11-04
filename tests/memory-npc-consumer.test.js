@@ -404,7 +404,7 @@ test('query access revoked during retrieval prevents ready-empty and content-bea
 
   assert.equal(emptyChecks, 2);
   assert.equal(emptyResult.status, 'non_ready');
-  assert.equal(emptyResult.reason, 'query_access_unconfirmed');
+  assert.equal(emptyResult.reason, 'authorized_source_read_unavailable');
   assert.deepEqual(emptyResult.admitted, []);
   assert.deepEqual(emptyResult.candidates, []);
 
