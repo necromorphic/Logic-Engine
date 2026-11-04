@@ -829,10 +829,8 @@ export class MemoryDispatchGateway {
       // UNKNOWN generation for replay.
       host_scope: {
         adapter_id: hostContextSnapshot.adapter_id,
-        core_conversation_id: hostContextSnapshot.core_conversation_id,
         host_installation_id: hostContextSnapshot.host_installation_id,
         authenticated_account_id: hostContextSnapshot.authenticated_account_id,
-        host_session_id: hostContextSnapshot.host_session_id,
         host_conversation_id: hostContextSnapshot.host_conversation_id,
         conversation_uuid: hostContextSnapshot.conversation_uuid,
       },
