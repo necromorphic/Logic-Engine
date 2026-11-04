@@ -837,6 +837,25 @@ export class MemoryDispatchGateway {
     let release = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
+    let abortSignalCleanup = null;
+    const cleanupAbortSignal = () => {
+      try { abortSignalCleanup?.(); } catch {}
+      abortSignalCleanup = null;
+    };
+    const markAbortedOutcomeUnknown = () => {
+      let abortRelease = null;
+      try {
+        abortRelease = beginCoordinatorLock(this.coordinatorDb);
+        this.#recordOutcome(requestId, 'UNKNOWN', null);
+        this.pendingReleases.delete(requestId);
+      } catch {
+        // DISPATCH_STARTED remains unresolved and therefore replay-blocking
+        // even if a concurrent durable outcome transition wins this race.
+      } finally {
+        try { abortRelease?.(); } catch {}
+        cleanupAbortSignal();
+      }
+    };
 
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
@@ -947,14 +966,28 @@ export class MemoryDispatchGateway {
         }
         throw error;
       }
+      // Keep the durable ledger terminally unresolved if the Host cancels
+      // after dispatch-start, including when fetch has returned headers but
+      // the Host has not finished releasing a streamed response.
+      if (signal) {
+        const abortListener = () => markAbortedOutcomeUnknown();
+        signal.addEventListener('abort', abortListener, { once: true });
+        abortSignalCleanup = () => signal.removeEventListener('abort', abortListener);
+      }
       // The dormant capability is invoked exactly once, synchronously after
       // durable DISPATCH_STARTED and before releasing the shared coordinator.
       // It must initiate the final outbound request immediately and return the
       // response Promise; network I/O itself is awaited only after lock release.
       try {
-        upstreamPromise = transport();
-        if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
-          throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
+        if (signal?.aborted) {
+          this.#recordOutcome(requestId, 'UNKNOWN', null);
+          cleanupAbortSignal();
+          upstreamStartError = new Error('MEMORY_DISPATCH_CANCELLED_AFTER_START');
+        } else {
+          upstreamPromise = transport();
+          if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
+            throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
+          }
         }
       } catch (error) {
         upstreamStartError = error;
@@ -974,6 +1007,7 @@ export class MemoryDispatchGateway {
     // coordinator was held. Never await network I/O under the coordinator.
     // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
     if (upstreamStartError) {
+      cleanupAbortSignal();
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
@@ -981,7 +1015,13 @@ export class MemoryDispatchGateway {
     try {
       response = await upstreamPromise;
     } catch {
-      this.#recordOutcome(requestId, 'UNKNOWN', null);
+      cleanupAbortSignal();
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+    }
+    if (signal?.aborted) {
+      cleanupAbortSignal();
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
@@ -994,7 +1034,8 @@ export class MemoryDispatchGateway {
       requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
       sources: sourceSet, candidates: candidateSet, providerEvidenceCursor: providerCursorSnapshot,
       laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot,
-      coreHead, providerHead, policyAuthority,
+      coreHead, providerHead, policyAuthority, signal,
+      cleanupAbortSignal,
     };
     try {
       finalRelease = beginCoordinatorLock(this.coordinatorDb);
@@ -1007,6 +1048,7 @@ export class MemoryDispatchGateway {
       try { finalRelease?.(); } catch { finalResponseAllowed = false; }
     }
     if (!finalResponseAllowed) {
+      cleanupAbortSignal();
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
     }
 
@@ -1044,7 +1086,8 @@ export class MemoryDispatchGateway {
       port: this.authorityPort,
       token: this.readToken,
     });
-    if (currentAuthority.pending.core || currentAuthority.pending.provider
+    if (context.signal?.aborted
+      || currentAuthority.pending.core || currentAuthority.pending.provider
       || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
       || currentAuthority.heads.core !== context.coreHead
       || currentAuthority.heads.provider !== context.providerHead) {
@@ -1115,6 +1158,7 @@ export class MemoryDispatchGateway {
       if (final) {
         this.#recordOutcome(requestId, 'COMPLETED', null);
         this.pendingReleases.delete(requestId);
+        context.cleanupAbortSignal?.();
       }
       return result;
     } catch (error) {
@@ -1122,6 +1166,7 @@ export class MemoryDispatchGateway {
         if (this.pendingReleases.has(requestId)) this.#recordOutcome(requestId, 'UNKNOWN', null);
       } catch {}
       this.pendingReleases.delete(requestId);
+      context.cleanupAbortSignal?.();
       throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED', { cause: error });
     } finally {
       try { release?.(); } catch {}
@@ -1134,7 +1179,12 @@ export class MemoryDispatchGateway {
       const result = this.db.prepare(
         'UPDATE dispatch_ledger SET status=?,outcome_code=?,finished_at=? WHERE request_id=? AND status=?',
       ).run(status, outcomeCode, new Date().toISOString(), requestId, 'DISPATCH_STARTED');
-      if (result.changes !== 1) throw new Error('DISPATCH_LEDGER_OUTCOME_CONFLICT');
+      if (result.changes !== 1) {
+        const current = this.db.prepare(
+          'SELECT status FROM dispatch_ledger WHERE request_id=?',
+        ).get(requestId);
+        if (current?.status !== status) throw new Error('DISPATCH_LEDGER_OUTCOME_CONFLICT');
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       try { this.db.exec('ROLLBACK'); } catch {}
