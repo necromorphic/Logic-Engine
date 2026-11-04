@@ -7,6 +7,7 @@ import {
 
 const context = {
   requestId: 'host-request-1',
+  generationId: 'host-generation-1',
   model: 'google/gemini-test',
   worldId: 'world-1',
   actorId: 'npc-1',
