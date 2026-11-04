@@ -290,7 +290,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   }
   return serialized;
 }
-function createHostReplayIdentity(hostRequestContext, senderRoute) {
+function createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute) {
   let body = hostRequestContext?.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch {
@@ -300,10 +300,14 @@ function createHostReplayIdentity(hostRequestContext, senderRoute) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
   }
-  const generationBody = senderRoute === 'horde-text' ? body.params : body;
+  const route = hostRoute ?? (senderRoute === 'horde-text' ? 'horde-text'
+    : senderRoute === 'novelai-text' ? 'novelai-text'
+      : senderRoute === 'text-completions' ? 'text-completions'
+        : senderRoute === 'kobold' ? 'kobold' : 'chat-completions');
+  const generationBody = route === 'horde-text' ? body.params : body;
   let prompt;
-  if (senderRoute === 'chat-completions') prompt = generationBody?.messages;
-  else if (senderRoute === 'novelai-text') prompt = generationBody?.input ?? generationBody?.prompt;
+  if (route === 'chat-completions') prompt = generationBody?.messages;
+  else if (route === 'novelai-text') prompt = generationBody?.input ?? generationBody?.prompt;
   else prompt = generationBody?.prompt ?? generationBody?.input ?? generationBody?.messages;
   if (prompt === undefined || prompt === null) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
@@ -346,6 +350,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     endpointUrl,
     requestInit,
     hostRequestContext,
+    hostRoute,
     stream = false,
     forwardResponse,
     transport: transportImpl,
@@ -412,7 +417,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       protectedMemory.laneA?.items ?? [], protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
-    const replayIdentity = createHostReplayIdentity(hostRequestContext, senderRoute);
+    const replayIdentity = createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute);
     const transport = () => {
       // Calling fetchImpl is the actual transport handoff. This function is
       // deliberately non-async so the handoff happens synchronously under the
