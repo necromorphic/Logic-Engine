@@ -1442,7 +1442,8 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       'const gateway = new MemoryDispatchGateway({',
       '  ledgerPath, coordinatorPath, authorityPort: Number(authorityPort), readToken,',
       '  readCoreEvidence: ({ worldId, actorId, sources }) => ({ head: 1, world_id: worldId, actor_id: actorId, readiness: "READY", inventory_status: "READY", policy_authority: { authority_id: "test-memory-policy", generation: 1, fingerprint: "' + 'd'.repeat(64) + '" }, sources }),',
-      '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates }),',
+      '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates, provider_evidence_cursor: providerEvidenceCursor }),',
+      '  readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: "READY", adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),',
       '});',
       'const request = JSON.parse(requestJson);',
       'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
@@ -1462,8 +1463,13 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       },
     });
     const exitPromise = once(child, 'exit');
-    const [chunk] = await once(child.stdout, 'data');
-    assert.match(String(chunk), /HANDOFF/);
+    const firstChildEvent = await Promise.race([
+      once(child.stdout, 'data').then(([chunk]) => ({ chunk })),
+      exitPromise.then(([exitCode, signal]) => ({ exitCode, signal })),
+    ]);
+    assert.ok(firstChildEvent.chunk, 'child must reach the protected transport handoff before exiting; exit='
+      + String(firstChildEvent.exitCode) + ' signal=' + String(firstChildEvent.signal));
+    assert.match(String(firstChildEvent.chunk), /HANDOFF/);
     const [exitCode] = await exitPromise;
     assert.equal(exitCode, 77, 'child must terminate immediately after the one transport handoff');
 
