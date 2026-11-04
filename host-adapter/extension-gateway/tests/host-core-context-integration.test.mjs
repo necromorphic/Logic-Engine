@@ -547,6 +547,16 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(coreCalls.length, coreCallsBeforeGeneration);
   assert.equal(resolvedCoreContexts.length, resolvedContextsBeforeGeneration);
 
+  // The pinned Horde endpoint carries its prompt and Logic Engine metadata
+  // directly on request.body (the Horde params object is only generation settings).
+  const nativeHordeRequest = {
+    ...nativeGenerationRequest,
+    body: { ...nativeGenerationRequest.body, prompt: 'native Horde prompt' },
+  };
+  const preparedHordeGeneration = await adapter.prepareGenerationContext(nativeHordeRequest, 'horde-text');
+  assert.equal(preparedHordeGeneration.status, 'READY');
+  assert.equal(preparedHordeGeneration.requestId, '88888888-8888-4888-8888-888888888888');
+  assert.equal(coreCalls.length, coreCallsBeforeGeneration);
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
