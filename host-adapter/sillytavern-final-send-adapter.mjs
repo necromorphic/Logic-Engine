@@ -152,7 +152,7 @@ export function createSillyTavernFinalSendAdapter({
   });
 
   return Object.freeze({
-    async prepare(request, response) {
+    async prepare(request, response, signal) {
       if (!request || typeof request !== 'object' || !response || typeof response !== 'object') {
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
@@ -164,8 +164,10 @@ export function createSillyTavernFinalSendAdapter({
       // race past the one-shot check. A failed preparation remains terminal.
       preparedRequests.add(request);
       const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
+      if (signal?.aborted === true) throw terminalError(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
       const hostContext = prepareHostContext
-        ? await prepareHostContext(request, response, hostRoute) : null;
+        ? await prepareHostContext(request, response, hostRoute, signal) : null;
+      if (signal?.aborted === true) throw terminalError(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
       if (hostContext?.status === 'NON_READY') {
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
