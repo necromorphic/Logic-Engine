@@ -490,7 +490,7 @@ test('empty retrieval is non-ready when the current Core snapshot cannot be veri
   const result = await empty.consumer.retrieveForNpc(request());
 
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.equal(result.reason, 'query_access_unconfirmed');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('private Core diagnostic'), false);
