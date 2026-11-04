@@ -200,18 +200,38 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       } finally {
         bootstrap.close();
       }
-      const db = new DatabaseSync(workerData.path);
-      let result;
+      let db;
+      let localRegistry;
       try {
-        db.exec('CREATE TABLE worker_probe(value TEXT);');
-        result = {
-          openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
-          sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
-        };
+        // Some Node builds maintain a separate SQLite VFS registry per worker
+        // isolate. Prefer the process-shared role if visible; otherwise require
+        // this worker to enroll the exact path before its first file-backed open.
+        try {
+          db = new DatabaseSync(workerData.path);
+        } catch {
+          localRegistry = new DatabaseSync(':memory:');
+          const enrollment = localRegistry.prepare(
+            'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
+          ).get(workerData.path, 'worker');
+          if (enrollment.registered !== 1) {
+            throw new Error('Worker-local VFS role enrollment was not accepted');
+          }
+          db = new DatabaseSync(workerData.path);
+        }
+        let result;
+        try {
+          db.exec('CREATE TABLE worker_probe(value TEXT);');
+          result = {
+            openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
+            sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
+          };
+        } finally {
+          db.close();
+        }
+        parentPort.postMessage(result);
       } finally {
-        db.close();
+        localRegistry?.close();
       }
-      parentPort.postMessage(result);
     `, { eval: true, workerData: { extensionPath, path: workerPath } });
     worker.once('message', resolve);
     worker.once('error', reject);
