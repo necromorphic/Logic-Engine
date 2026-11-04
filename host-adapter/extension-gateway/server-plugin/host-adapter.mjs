@@ -254,9 +254,9 @@ export function createSillyTavernHostAdapter({
       if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
       }
-      const generationBody = hostRoute === 'horde-text'
-        ? request?.body?.params
-        : request?.body;
+      // SillyTavern's pinned /api/horde/generate-text handler sends request.body
+      // directly to Horde; its prompt and Logic Engine envelope are not under params.
+      const generationBody = request?.body;
       const conversationUuid = generationBody?.logic_engine_conversation_uuid;
       const requestId = generationBody?.logic_engine_request_id;
       const generationId = generationBody?.logic_engine_generation_id;
