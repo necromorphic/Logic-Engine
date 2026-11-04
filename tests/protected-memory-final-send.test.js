@@ -19,6 +19,16 @@ const context = {
   }],
 };
 
+const hostRequestContext = Object.freeze({
+  trusted: true,
+  body: Object.freeze({
+    messages: Object.freeze([{ role: 'user', content: 'original host prompt' }]),
+    prompt: 'original host prompt',
+    input: 'original host prompt',
+    params: Object.freeze({ prompt: 'original host prompt' }),
+  }),
+});
+
 const init = (body = '{"messages":[{"role":"user","content":"exact bytes"}]}') => ({
   method: 'POST',
   headers: { authorization: 'Bearer server-secret', 'content-type': 'application/json' },
@@ -48,7 +58,7 @@ test('all registered provider sender families share the same protected final-sen
       senderRoute,
       endpointUrl: 'https://provider.example/v1/chat/completions',
       requestInit: init(body),
-      hostRequestContext: { trusted: true },
+      hostRequestContext,
     });
     assert.equal(response.status, 200, senderRoute);
     assert.equal(calls, 1, senderRoute);
@@ -78,7 +88,7 @@ test('protected transport remains dormant until Gateway invokes the capability',
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   });
   assert.deepEqual(result, { status: 'held' });
   assert.equal(calls, 0);
@@ -144,7 +154,7 @@ test('unknown protected sender route fails closed with zero egress', async () =>
     senderRoute: 'unregistered-provider',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   }), /MEMORY_DISPATCH_NOT_READY/);
   assert.equal(calls, 0);
 });
@@ -172,7 +182,7 @@ test('stream forwarding is inside the transport promise so forwarding failure is
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/stream',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
     stream: true,
     forwardResponse: async () => { throw new Error('client disconnected during stream'); },
   }), /client disconnected during stream/);
@@ -194,7 +204,7 @@ test('ordinary non-Memory generation keeps its direct provider path', async () =
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   });
   assert.equal(result.status, 200);
   assert.equal(calls, 1);
@@ -302,7 +312,7 @@ test('Final-Send blocks unsupported Lane B assessments before provider egress', 
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   }), /PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID/);
   assert.equal(calls, 0);
 });
@@ -356,7 +366,7 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
     requestInit: init(JSON.stringify({
       messages: [{ role: 'user', content: 'continue' }],
     })),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   });
   const prompt = outbound.messages.map(message => message.content).join('\\n');
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
@@ -428,7 +438,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
         senderRoute: 'google-ai-studio',
         endpointUrl: 'https://provider.example/generate',
         requestInit: init(JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] })),
-        hostRequestContext: { trusted: true },
+        hostRequestContext,
       });
     } catch (error) {
       failure = error;
@@ -479,7 +489,7 @@ test('Final-Send rejects top-level and Lane A accessors without executing them',
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   }), /MEMORY_DISPATCH_NOT_READY/);
   assert.equal(topLevelCalls, 0);
 
@@ -496,7 +506,7 @@ test('Final-Send rejects top-level and Lane A accessors without executing them',
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   }), /MEMORY_DISPATCH_NOT_READY/);
   assert.equal(laneCalls, 0);
 });
@@ -534,7 +544,7 @@ test('Lane A projection rejects accessors instead of invoking them', async () =>
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   }), /PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID/);
   assert.equal(calls, 0);
 });
@@ -577,7 +587,7 @@ test('Host cancellation signal reaches the actual protected upstream fetch and i
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: { ...init(), signal: controller.signal },
-    hostRequestContext: { trusted: true },
+    hostRequestContext,
   });
   await started;
   assert.equal(observedSignal, controller.signal, 'the exact Host AbortSignal must reach provider fetch');
