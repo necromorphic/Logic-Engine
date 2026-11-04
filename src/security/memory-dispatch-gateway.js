@@ -932,8 +932,14 @@ export class MemoryDispatchGateway {
         upstreamStartError = error;
       }
     } catch (error) {
-      if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
+      // Preserve explicit fail-closed contract codes (for example Lane A
+      // revalidation denial and invalid transport capability). Collapsing them
+      // into NOT_READY hides the security decision from the Host and makes
+      // callers unable to distinguish a revoked context from missing readiness.
+      // Unexpected errors and generic readiness failures remain fail-closed.
+      if (typeof error?.message === 'string'
+        && error.message.startsWith('MEMORY_DISPATCH_')
+        && error.message !== 'MEMORY_DISPATCH_NOT_READY') throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY', { cause: error });
     } finally {
       try { release?.(); } catch {}
