@@ -72,15 +72,36 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     // correctly leaves the connection unusable after xDelete returns IOERR.
     const raceFilename = path.join(directory, 'delete-race.sqlite');
     const raceRegistrar = new Database(':memory:');
+    let raceDb;
     try {
       const enrolled = raceRegistrar.prepare(
         'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered',
       ).get(raceFilename, 'better-sqlite3-vfs-delete-race');
       assert.equal(enrolled.registered, 1, 'the race DB role must be enrolled before open');
+      try {
+        raceDb = new Database(raceFilename);
+      } catch (error) {
+        let diagnostics = 'unavailable';
+        try {
+          diagnostics = JSON.stringify(raceRegistrar.prepare(`
+            SELECT
+              logic_engine_vfs_probe_open_count() AS mainOpens,
+              logic_engine_vfs_probe_journal_open_count() AS journalOpens,
+              logic_engine_vfs_probe_native_open_count() AS nativeOpens,
+              logic_engine_vfs_probe_identity_reject_count() AS identityRejects,
+              logic_engine_vfs_probe_reused_descriptor_accept_count() AS acceptedMainOpens,
+              logic_engine_vfs_probe_parent_xopen_diagnostics() AS parentXOpen
+          `).get());
+        } catch (diagnosticError) {
+          diagnostics = String(diagnosticError?.stack || diagnosticError);
+        }
+        throw new Error('Race database open failed: ' + error.message + '; VFS diagnostics: ' + diagnostics, {
+          cause: error,
+        });
+      }
     } finally {
       raceRegistrar.close();
     }
-    const raceDb = new Database(raceFilename);
     const replacementPath = path.join(directory, 'replacement.bin');
     const journalPath = `${raceFilename}-journal`;
     const quarantinePath = path.join(directory, '.logic-engine-vfs-quarantine');
