@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import nativeFetch from 'node-fetch';
+const nativeFetch = (...args) => globalThis.fetch(...args);
 
 const generationContext = new AsyncLocalStorage();
 let adapter = null;
