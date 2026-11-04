@@ -15,6 +15,7 @@ import { HostAssertionNonceStore } from '../src/application/host-assertion-nonce
 import { createApiServer } from '../src/api/server.js';
 import { createSillyTavernHostAdapter } from '../host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
 import { HostIdentityStore } from '../host-adapter/extension-gateway/server-plugin/st-host-identity-store.mjs';
+import { PINNED_ST_MUTATION_COVERAGE_SHA256, PINNED_ST_MUTATION_ROUTE_COUNT } from '../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 
 const API_TOKEN = 'host-core-sqlite-api-token-long-enough';
 const ADAPTER_TOKEN = 'host-core-sqlite-adapter-token-long-enough';
@@ -181,7 +182,6 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       filesystem: {
         status: 'complete', entries: [], snapshot_id: 'sqlite-e2e-vss-snapshot',
       },
-      mutation_coverage: { status: 'VERIFIED', source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127', coverage_manifest_sha256: 'c'.repeat(64), route_count: 1, source_files_sha256: 'd'.repeat(64) },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
         status: 'DOUBLE_SCAN_CANDIDATE',
@@ -219,6 +219,13 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       },
       enumerate: async () => structuredClone(authoritativeInventory),
       fetchImpl: hostFetch,
+      verifyMutationCoverage: async () => ({
+        status: 'VERIFIED',
+        source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+        coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+        route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+        source_files_sha256: 'd'.repeat(64),
+      }),
       verifySourceIdentity: async () => ({
         status: 'CURRENT_IDENTITIES_VERIFIED',
         manifest_sha256: SOURCE_MANIFEST_SHA256,
