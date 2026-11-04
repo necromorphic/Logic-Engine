@@ -87,6 +87,14 @@ export function projectNpcGenerationContentBlocks(candidates) {
     const prototype = Object.getPrototypeOf(candidate);
     if (prototype !== Object.prototype && prototype !== null) throw new Error('NPC_GENERATION_CONTENT_INVALID');
     const fields = ['epistemic_kind', 'evidence_assessment', 'content'];
+    const ownKeys = Reflect.ownKeys(candidate);
+    if (ownKeys.length !== fields.length) throw new Error('NPC_GENERATION_CONTENT_INVALID');
+    for (let keyIndex = 0; keyIndex < ownKeys.length; keyIndex += 1) {
+      if (typeof ownKeys[keyIndex] !== 'string'
+        || (ownKeys[keyIndex] !== fields[0] && ownKeys[keyIndex] !== fields[1] && ownKeys[keyIndex] !== fields[2])) {
+        throw new Error('NPC_GENERATION_CONTENT_INVALID');
+      }
+    }
     const projected = Object.create(null);
     for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
       const field = fields[fieldIndex];
