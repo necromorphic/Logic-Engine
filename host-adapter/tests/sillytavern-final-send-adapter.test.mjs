@@ -345,3 +345,23 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
   assert.equal(resolvedContext.request, request);
   assert.equal(resolvedContext.hostRoute, 'chat-completions');
 });
+
+
+test('Host preparation is one-shot for the exact request object', async () => {
+  let preparations = 0;
+  let resolverCalls = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+    prepareHostContext: async () => { preparations += 1; return { status: 'READY', context: {} }; },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+  await adapter.prepare(request, {});
+  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  assert.equal(preparations, 1);
+  assert.equal(resolverCalls, 0);
+});
