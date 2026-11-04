@@ -29,9 +29,12 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /#include \"\.\.\/secure-vfs-probe\/windows_relative_open\.h\"/);
   assert.match(store, /le_store_parent_acl_safe\(current\)/);
   assert.match(store, /INHERIT_ONLY_ACE/);
-  assert.match(store, /FILE_ADD_FILE \| FILE_ADD_SUBDIRECTORY \| FILE_WRITE_EA/);
-  assert.match(store, /FILE_WRITE_ATTRIBUTES \| FILE_DELETE_CHILD \| DELETE \| WRITE_DAC/);
-  assert.match(store, /WRITE_OWNER \| GENERIC_WRITE \| GENERIC_ALL/);
+  const parentMutationMask = store.match(/DWORD mutation_mask = ([\\s\\S]*?);/)?.[1] ?? '';
+  assert.match(parentMutationMask, /FILE_DELETE_CHILD/);
+  assert.match(parentMutationMask, /WRITE_DAC/);
+  assert.match(parentMutationMask, /WRITE_OWNER/);
+  assert.doesNotMatch(parentMutationMask, /FILE_ADD_FILE|FILE_ADD_SUBDIRECTORY/,
+    'creating a new sibling cannot replace a pinned existing path component');
   assert.match(store, /logic_engine_win_open_relative\(parent, basename/);
   assert.doesNotMatch(store, /CreateFileW\(configured_directory/);
   assert.match(store, /FILE_FLAG_OPEN_REPARSE_POINT/);
