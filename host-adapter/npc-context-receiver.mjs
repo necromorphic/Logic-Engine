@@ -150,7 +150,7 @@ export function receiveNpcContext({
     if (!ID(candidate.record_ref) || !ID(candidate.record_version)
       || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || !ID(candidate.source_entity_id) || !ID(candidate.source_version)
-      || !ID(candidate.epistemic_kind) || !ID(candidate.evidence_assessment)
+      || !ID(candidate.epistemic_kind) || candidate.evidence_assessment !== 'supported'
       || admitted.record_ref !== candidate.record_ref
       || admitted.record_version !== candidate.record_version
       || admitted.epistemic_kind !== candidate.epistemic_kind
