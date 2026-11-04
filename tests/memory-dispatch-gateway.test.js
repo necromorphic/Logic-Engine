@@ -1448,7 +1448,7 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       'const request = JSON.parse(requestJson);',
       'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
       'setTimeout(() => process.exit(78), 5000);',
-    ].join('\\n');
+    ].join('\n');
     const child = spawn(process.execPath, [
       '--input-type=module', '-e', script,
       fixture.ledgerPath, fixture.coordinatorPath, String(fixture.port), readToken,
