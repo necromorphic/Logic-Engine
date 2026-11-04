@@ -35,9 +35,10 @@ on:
 
 permissions:
   contents: read
+# Keep active exact-head VFS validation running across newer integration commits.
 concurrency:
   group: better-sqlite3-vfs-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   linux-x64:
     runs-on: ubuntu-latest
