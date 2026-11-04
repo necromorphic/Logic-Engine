@@ -392,7 +392,7 @@ test('Core requires a signed pinned-source completeness attestation before root 
     authenticated_account_id: account,
     root_id: rootId,
     attestation: { ...changedAttestation, covered_delta_sha256: digest('wrong-delta') },
-  }), /HOST_ROOT_INVENTORY_ATTESTATION_INVALID/);
+  }), /HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT/);
 
   const authorityBeforeMutation = journal.getAuthoritySnapshot(trusted);
   authority.snapshot_fingerprint = authorityBeforeMutation.snapshot_fingerprint;
@@ -560,17 +560,20 @@ test('signed root completeness attestation survives SQLite restart and remains b
     verifyRootInventoryAttestation: ({ attestation: stored }) =>
       stored.signature === signRootAttestation(stored),
   });
-  t.after(() => { try { reopened.close(); } catch {} });
-  const snapshot = reopened.getAuthoritySnapshot({
-    authority_id: authority.authority_id,
-    generation: authority.generation,
-    adapter_id: 'test-adapter',
-    host_installation_id: installation,
-    authenticated_account_id: account,
-    root_id: rootId,
-  });
-  assert.equal(snapshot.status, 'INTEGRITY_OK');
-  assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+  try {
+    const snapshot = reopened.getAuthoritySnapshot({
+      authority_id: authority.authority_id,
+      generation: authority.generation,
+      adapter_id: 'test-adapter',
+      host_installation_id: installation,
+      authenticated_account_id: account,
+      root_id: rootId,
+    });
+    assert.equal(snapshot.status, 'INTEGRITY_OK');
+    assert.equal(snapshot.authority_status, 'AUTHORITATIVE_COMPLETE');
+  } finally {
+    try { reopened.close(); } catch {}
+  }
 });
 
 test('root inventory baseline is installation/account/root scoped and survives SQLite restart', (t) => {
