@@ -86,7 +86,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCoreQue
     lifecycle: {
       content_disposition: 'usable',
       source_reconciliation: 'current',
-      evidence_assessment: 'unassessed',
+      evidence_assessment: 'supported',
       access_outcome: 'deny',
       index_health: 'ready',
     },
