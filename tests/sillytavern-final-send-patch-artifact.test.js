@@ -70,7 +70,20 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   }
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
+  assert.match(source, /const responseAdapter = adapter/);
   assert.match(source, /hostTransformsStream/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /request\.once\?\.\('aborted'/);
+  assert.match(source, /request\.once\?\.\('aborted', cleanup\)/);
+  assert.match(source, /response\.once\?\.\('close', cleanup\)/);
+  assert.match(source, /request\.off\?\.\('aborted', cleanup\)/);
+  assert.match(source, /response\.off\?\.\('close', cleanup\)/);
+  assert.match(source, /abortController\.signal\.aborted \|\| response\.destroyed === true/);
+  assert.match(source, /await responseAdapter\.prepare\(request, response\)/);
+  assert.match(source, /if \(abortController\.signal\.aborted\) return/);
+  assert.match(source, /if \(abortController\.signal\.aborted \|\| response\.destroyed === true\) return/);
+  assert.match(source, /composeAbortSignals\(\[requestInit\.signal, active\.abortController\.signal\]/);
+  assert.equal(source.includes('AbortSignal.any'), false, 'the Hook must support the full SillyTavern Node >=20 engine range');
   assert.ok(source.includes("from '../logic-engine-final-send-hook.js'"),
     'endpoint modules must resolve the Hook from src/endpoints to src/');
   assert.equal(source.includes("from './logic-engine-final-send-hook.js'"), false,
