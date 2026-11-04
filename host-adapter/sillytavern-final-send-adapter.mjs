@@ -107,7 +107,7 @@ function assertSourceMap(sources) {
   // the unregistered/native path merely because this adapter was not updated.
   const hostRoutes = new Set(Object.values(ROUTE_BY_HOST_ROUTE));
   for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
-    if (!hostRoutes.has(senderRoute) && !map.has(senderRoute)) {
+    if (!hostRoutes.has(senderRoute) && !Array.from(map.values()).includes(senderRoute)) {
       throw new Error('SILLYTAVERN_SOURCE_REGISTRY_ROUTE_MISSING: ' + senderRoute);
     }
   }
