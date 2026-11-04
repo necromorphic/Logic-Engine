@@ -104,6 +104,9 @@ export function projectNpcGenerationContentBlocks(candidates) {
       }
       if (field !== 'content' && (typeof descriptor.value !== 'string' || !descriptor.value
         || descriptor.value.length > 128)) throw new Error('NPC_GENERATION_CONTENT_INVALID');
+      if (field === 'evidence_assessment' && descriptor.value !== 'supported') {
+        throw new Error('NPC_GENERATION_CONTENT_INVALID');
+      }
       const value = field === 'content'
         ? snapshotNpcGenerationContent(descriptor.value)
         : descriptor.value;
