@@ -1348,18 +1348,27 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
-        senderRoute: 'openai', generationId: 'generation-ambiguous-request',
+        senderRoute: 'openai', generationId: 'generation-ambiguous-request', replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing sender family must not bypass the unresolved request digest',
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-model', {
-        model: 'different-model', generationId: 'generation-ambiguous-request',
+        model: 'different-model', generationId: 'generation-ambiguous-request', replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
         body: JSON.stringify({ model: 'different-model', prompt: 'different provider serialization' }),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing the model must not bypass the unresolved request digest',
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-root-revision', {
+        generationId: 'generation-ambiguous-request',
+        replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
+        hostContext: Object.freeze({ ...hostContext, root_inventory_sequence: 2, root_manifest_sha256: '9'.repeat(64) }),
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+      'an unrelated Host root inventory revision must not reopen an UNKNOWN generation',
     );
     assert.equal(sends, 1);
   } finally {
