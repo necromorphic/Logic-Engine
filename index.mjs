@@ -25,9 +25,9 @@ const unavailableGateway = Object.freeze({
 });
 
 function resolveRequestModel(request, prepared) {
-  const body = prepared.hostRoute === 'horde-text'
-    ? request?.body?.params
-    : request?.body;
+  // SillyTavern's pinned Horde text route sends the generation payload as
+  // request.body directly; it does not wrap it in a `params` object.
+  const body = request?.body;
   const candidate = body?.model ?? body?.model_name ?? body?.model_id ?? 'native-' + prepared.hostRoute;
   if (typeof candidate !== 'string' || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(candidate)
     || candidate.length > 128) {
