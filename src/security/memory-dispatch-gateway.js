@@ -934,7 +934,7 @@ export class MemoryDispatchGateway {
     } catch (error) {
       if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
         || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
+      throw new Error('MEMORY_DISPATCH_NOT_READY', { cause: error });
     } finally {
       try { release?.(); } catch {}
     }
