@@ -216,7 +216,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     worker.once('message', resolve);
     worker.once('error', reject);
     worker.once('exit', (code) => {
-      if (code !== 0) reject(new Error(`VFS worker exited with code ${code}`));
+      if (code !== 0) reject(new Error('VFS worker exited with code ' + code));
     });
   });
   assert.ok(workerResult.openCount > 0,
