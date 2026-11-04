@@ -850,12 +850,16 @@ test('Core Host-conversation revoke at the final authorization fence blocks resu
     return allowed;
   };
   const consumer = s.createConsumer(s.provider, coreQueryAuthorizer);
-  await assert.rejects(() => consumer.retrieveForNpc({
+  const result = await consumer.retrieveForNpc({
     worldId: s.scope.world_id,
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
-  }), /HOST_SESSION_REVOKED/);
-  assert.equal(checks, 6);
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+  // The live binding fence detects the revoke before invoking the authorizer again.
+  assert.equal(checks, 5);
 });
 
 test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
