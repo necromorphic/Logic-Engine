@@ -69,6 +69,21 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
     });
 }
 
+function resolveHostGenerationRoute(request) {
+    const rawPath = typeof request?.originalUrl === 'string'
+        ? request.originalUrl
+        : typeof request?.baseUrl === 'string' && typeof request?.path === 'string'
+            ? request.baseUrl + request.path : '';
+    switch (rawPath.split('?')[0]) {
+        case '/api/backends/text-completions/generate': return 'text-completions';
+        case '/api/backends/kobold/generate': return 'kobold';
+        case '/api/novelai/generate': return 'novelai-text';
+        case '/api/horde/generate-text': return 'horde-text';
+        case '/api/backends/chat-completions/generate': return 'chat-completions';
+        default: return 'chat-completions';
+    }
+}
+
 export function logicEngineFetch(endpointUrl, requestInit) {
     const active = generationContext.getStore();
     if (!active) return nativeFetch(endpointUrl, requestInit);
@@ -78,7 +93,7 @@ export function logicEngineFetch(endpointUrl, requestInit) {
     }
     active.dispatchInvoked = true;
 
-    const senderRoute = active.adapter.resolveSenderRoute(active.request);
+    const hostRoute = resolveHostGenerationRoute(active.request);\n    const senderRoute = active.adapter.resolveSenderRoute(active.request, hostRoute);
     if (typeof senderRoute !== 'string' || !senderRoute) {
         throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
     }
