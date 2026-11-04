@@ -200,37 +200,40 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       } finally {
         bootstrap.close();
       }
-      let db;
-      let localRegistry;
-      try {
-        // Some Node builds maintain a separate SQLite VFS registry per worker
-        // isolate. Prefer the process-shared role if visible; otherwise require
-        // this worker to enroll the exact path before its first file-backed open.
-        try {
-          db = new DatabaseSync(workerData.path);
-        } catch {
-          localRegistry = new DatabaseSync(':memory:');
-          const enrollment = localRegistry.prepare(
-            'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
-          ).get(workerData.path, 'worker');
-          if (enrollment.registered !== 1) {
-            throw new Error('Worker-local VFS role enrollment was not accepted');
-          }
-          db = new DatabaseSync(workerData.path);
-        }
-        let result;
+      const openAndCreate = () => {
+        const db = new DatabaseSync(workerData.path);
         try {
           db.exec('CREATE TABLE worker_probe(value TEXT);');
-          result = {
+          return {
             openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
             sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
           };
         } finally {
           db.close();
         }
+      };
+      let result;
+      try {
+        // Prefer a process-shared role if the worker sees it. If this Node build
+        // has an isolate-local VFS registry, the first write fails closed and
+        // this worker must enroll its own exact path before retrying.
+        try {
+          result = openAndCreate();
+        } catch {
+          const localRegistry = new DatabaseSync(':memory:');
+          try {
+            const enrollment = localRegistry.prepare(
+              'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
+            ).get(workerData.path, 'worker');
+            if (enrollment.registered !== 1) {
+              throw new Error('Worker-local VFS role enrollment was not accepted');
+            }
+            result = openAndCreate();
+          } finally {
+            localRegistry.close();
+          }
+        }
         parentPort.postMessage(result);
-      } finally {
-        localRegistry?.close();
       }
     `, { eval: true, workerData: { extensionPath, path: workerPath } });
     worker.once('message', resolve);
