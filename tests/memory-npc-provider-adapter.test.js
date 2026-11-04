@@ -169,7 +169,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
       epistemic_kind: 'acquired_report',
       producer_kind: 'real-provider-adapter-test',
       content_disposition: 'usable',
-      evidence_assessment: 'unassessed',
+      evidence_assessment: 'supported',
       lineage: [{
         source_kind: 'canonical_entity',
         entity_id: sourceId,
