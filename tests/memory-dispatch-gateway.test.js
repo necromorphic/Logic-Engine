@@ -1487,7 +1487,10 @@ test('Host abort after upstream headers but before final response release record
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers-new-id', {
+        stream: true,
+        hostTransformsStream: true,
+      })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(sends, 1, 'disconnect after headers must never reopen the provider transport');
@@ -2285,7 +2288,7 @@ test('client cancellation after upstream completion blocks the first response re
     });
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(request),
-      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
     );
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
