@@ -1612,6 +1612,94 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
+test('existing dispatch ledger migrates its sender CHECK to the complete registry without losing history', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-route-migration-'));
+  const ledgerPath = join(directory, 'ledger.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const legacyRoutes = PROTECTED_MEMORY_SENDER_ROUTES.filter(route => route !== 'cometapi');
+  const legacyCheck = legacyRoutes.map(route => "'" + route + "'").join(',');
+  const db = new DatabaseSync(ledgerPath);
+  try {
+    db.exec(`
+      CREATE TABLE dispatch_ledger (
+        request_id TEXT PRIMARY KEY,
+        request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
+        route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+        sender_route TEXT NOT NULL CHECK(sender_route IN (${legacyCheck})),
+        model TEXT NOT NULL,
+        stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+        world_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        purpose TEXT NOT NULL,
+        sources_json TEXT NOT NULL,
+        candidates_json TEXT NOT NULL,
+        core_head INTEGER NOT NULL CHECK(core_head > 0),
+        provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+        policy_authority_id TEXT NOT NULL,
+        policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+        policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
+        status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
+        outcome_code INTEGER,
+        started_at TEXT NOT NULL,
+        finished_at TEXT
+      );
+      CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+      CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+        ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+    `);
+    db.prepare(`
+      INSERT INTO dispatch_ledger(
+        request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+        sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+        policy_fingerprint,status,outcome_code,started_at,finished_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      'legacy-history-row', 'a'.repeat(64), 'host-selected-chat-generation', 'horde-text',
+      'legacy-model', 0, 'world-legacy', 'npc-legacy', 'npc_decision',
+      '[]', '[]', 1, 1, 'legacy-policy', 1, 'b'.repeat(64),
+      'COMPLETED', null, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z',
+    );
+  } finally {
+    db.close();
+  }
+
+  let gateway;
+  try {
+    gateway = new MemoryDispatchGateway({
+      ledgerPath,
+      coordinatorPath,
+      authorityPort: 1,
+      readToken,
+      readCoreEvidence: () => ({}),
+      readProviderEvidence: () => ({}),
+      readHostEvidence: () => ({}),
+    });
+    const verify = new DatabaseSync(ledgerPath);
+    try {
+      const schema = verify.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+      ).get().sql;
+      assert.ok(schema.includes("'cometapi'"));
+      assert.ok(schema.includes("'horde-text'"));
+      assert.equal(
+        verify.prepare('SELECT sender_route,status FROM dispatch_ledger WHERE request_id=?')
+          .get('legacy-history-row').sender_route,
+        'horde-text',
+      );
+      assert.equal(
+        verify.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get('legacy-history-row').status,
+        'COMPLETED',
+      );
+    } finally {
+      verify.close();
+    }
+  } finally {
+    try { gateway?.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('existing dispatch ledger with missing schema fails closed without auto-repair', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-schema-'));
   const ledgerPath = join(directory, 'ledger.sqlite');
