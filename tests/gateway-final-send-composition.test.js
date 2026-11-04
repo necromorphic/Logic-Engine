@@ -117,6 +117,7 @@ test('Horde model identity is resolved from the native request body, not a nonex
 test('protected Memory projection reads Core context from the prepared Host envelope', async () => {
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
   assert.match(source, /host: Object\.freeze\(\{ context: host\.context \}\),\s*coreContext: prepared\.coreContext/);
+  assert.match(source, /const preparedHostContext = prepared\?\.hostContext;[\s\S]*?preparedHostContext\?\.status !== 'READY'/);
   assert.match(source, /const hostBinding = host\.context;\s*\/\/ prepareHostContext stores coreContext beside host[\s\S]*?const coreContext = prepared\.hostContext\.coreContext;/);
   assert.doesNotMatch(source, /const coreContext = host\.coreContext;/);
 });
