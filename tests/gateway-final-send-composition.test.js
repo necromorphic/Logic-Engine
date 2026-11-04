@@ -199,3 +199,51 @@ test('production protected-memory projection fails closed when the prepared Host
   }, { consume: () => { throw new Error('must not consume'); } });
   assert.equal(result, undefined);
 });
+
+test('production protected-memory projection rejects Lane B content without a matching admitted candidate', () => {
+  const candidate = {
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: 'Content without an admitted candidate',
+  };
+  const result = buildProtectedMemory({ body: { model: 'horde-model' } }, {
+    response: {},
+    hostRoute: 'horde-text',
+    hostContext: {
+      status: 'READY',
+      host: { context: {
+        host_installation_id: 'host-installation',
+        authenticated_account_id: 'account',
+        host_session_id: 'session',
+        conversation_id: 'conversation',
+        conversation_uuid: '11111111-1111-4111-8111-111111111111',
+        root_id: 'root',
+        root_inventory_sequence: 7,
+        root_manifest_sha256: 'a'.repeat(64),
+      } },
+      coreContext: { adapter_id: 'adapter', conversation_id: 'core-conversation', actor_type: 'character' },
+    },
+  }, {
+    consume: () => ({
+      status: 'accepted',
+      context: {
+        request_id: 'request-id',
+        generation_id: 'generation-id',
+        world_id: 'world',
+        actor_id: 'actor',
+        snapshot: { world_revision: 3, commit_sequence: 9 },
+        lanes: {
+          lane_a: { items: [] },
+          lane_b: { status: 'ready', candidates: [candidate] },
+        },
+      },
+      laneB: {
+        status: 'ready',
+        sources: [],
+        candidates: [],
+        provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
+      },
+    }),
+  });
+  assert.equal(result, undefined);
+});
