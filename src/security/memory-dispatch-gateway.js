@@ -102,6 +102,9 @@ const abortSignalPrototype = typeof AbortSignal === 'function' ? AbortSignal.pro
 const abortSignalAbortedGetter = abortSignalPrototype
   ? Object.getOwnPropertyDescriptor(abortSignalPrototype, 'aborted')?.get
   : null;
+const eventTargetPrototype = typeof EventTarget === 'function' ? EventTarget.prototype : null;
+const eventTargetAddEventListener = eventTargetPrototype?.addEventListener;
+const eventTargetRemoveEventListener = eventTargetPrototype?.removeEventListener;
 
 function assertDispatchNotAborted(signal) {
   if (signal === undefined || signal === null) return;
@@ -972,8 +975,14 @@ export class MemoryDispatchGateway {
       // the Host has not finished releasing a streamed response.
       if (signal) {
         const abortListener = () => markAbortedOutcomeUnknown();
-        signal.addEventListener('abort', abortListener, { once: true });
-        abortSignalCleanup = () => signal.removeEventListener('abort', abortListener);
+        if (typeof eventTargetAddEventListener !== 'function'
+          || typeof eventTargetRemoveEventListener !== 'function') {
+          throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+        }
+        intrinsicReflectApply(eventTargetAddEventListener, signal, ['abort', abortListener, { once: true }]);
+        abortSignalCleanup = () => intrinsicReflectApply(
+          eventTargetRemoveEventListener, signal, ['abort', abortListener],
+        );
       }
       // The dormant capability is invoked exactly once, synchronously after
       // durable DISPATCH_STARTED and before releasing the shared coordinator.
