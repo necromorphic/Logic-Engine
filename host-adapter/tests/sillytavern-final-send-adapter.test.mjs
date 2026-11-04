@@ -365,3 +365,29 @@ test('Host preparation is one-shot for the exact request object', async () => {
   assert.equal(preparations, 1);
   assert.equal(resolverCalls, 0);
 });
+
+
+test('concurrent Host preparation calls cannot race the one-shot reservation', async () => {
+  let release;
+  let preparations = 0;
+  const wait = new Promise(resolve => { release = resolve; });
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => null,
+    prepareHostContext: async () => {
+      preparations += 1;
+      await wait;
+      return { status: 'READY', context: {} };
+    },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+  const first = adapter.prepare(request, {});
+  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  release();
+  await first;
+  assert.equal(preparations, 1);
+});
