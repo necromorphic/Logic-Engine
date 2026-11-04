@@ -80,7 +80,7 @@ function resolveHostGenerationRoute(request) {
         case '/api/novelai/generate': return 'novelai-text';
         case '/api/horde/generate-text': return 'horde-text';
         case '/api/backends/chat-completions/generate': return 'chat-completions';
-        default: return 'chat-completions';
+        default: return null;
     }
 }
 
@@ -94,6 +94,9 @@ export function logicEngineFetch(endpointUrl, requestInit) {
     active.dispatchInvoked = true;
 
     const hostRoute = resolveHostGenerationRoute(active.request);
+    if (hostRoute === null) {
+        throw new Error('LOGIC_ENGINE_FINAL_SEND_HOST_ROUTE_UNKNOWN');
+    }
     const senderRoute = active.adapter.resolveSenderRoute(active.request, hostRoute);
     if (typeof senderRoute !== 'string' || !senderRoute) {
         throw new Error('LOGIC_ENGINE_FINAL_SEND_SENDER_UNKNOWN');
