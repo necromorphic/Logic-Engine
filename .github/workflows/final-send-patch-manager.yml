@@ -17,7 +17,7 @@ on:
       - "manifest.json"
       - "tests/sillytavern-patch-manager.test.js"
       - "tests/sillytavern-final-send-patch-artifact.test.js"
-      - ".github/workflows/final-send-patch-manager.yml"
+      - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"\n      - ".github/workflows/final-send-patch-manager.yml"
   workflow_dispatch:
 
 permissions:
@@ -57,4 +57,4 @@ jobs:
       - name: Test unified Patch Manager and Final-Send contracts against exact Host source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js host-adapter/patch-manager/manager.test.mjs
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js host-adapter/patch-manager/manager.test.mjs host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs
