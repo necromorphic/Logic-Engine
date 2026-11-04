@@ -48,9 +48,10 @@ on:
 permissions:
   contents: read
 
+# Keep active exact-head VFS bootstrap probes running across newer integration commits.
 concurrency:
   group: sqlite-vfs-probe-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   linux:
