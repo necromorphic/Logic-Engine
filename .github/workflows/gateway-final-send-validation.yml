@@ -47,10 +47,11 @@ on:
 permissions:
   contents: read
 
-# Prevent stale integration-head test runs from occupying runners indefinitely.
+# Preserve an active exact-head validation run when newer commits are pushed.
+# GitHub may replace an older pending run, but must not cancel the running job.
 concurrency:
   group: gateway-final-send-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   gateway-final-send:
