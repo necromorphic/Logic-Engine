@@ -5,9 +5,12 @@ on:
       - "src/application/npc-generation-context*.js"
       - "src/application/memory-npc-provider-adapter.js"
       - "src/application/memory-npc-consumer.js"
+      - "src/npc/memory-candidate-eligibility.js"
       - "host-adapter/npc-generation-content-projection.mjs"
       - "host-adapter/npc-context-receiver.mjs"
       - "tests/npc-context-receiver.test.mjs"
+      - "tests/npc-memory-candidate-eligibility.test.js"
+      - "tests/memory-provider-core-integration.test.js"
       - "tests/npc-generation-context*.test.js"
       - "tests/memory-npc-consumer.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
@@ -18,9 +21,12 @@ on:
       - "src/application/npc-generation-context*.js"
       - "src/application/memory-npc-provider-adapter.js"
       - "src/application/memory-npc-consumer.js"
+      - "src/npc/memory-candidate-eligibility.js"
       - "host-adapter/npc-generation-content-projection.mjs"
       - "host-adapter/npc-context-receiver.mjs"
       - "tests/npc-context-receiver.test.mjs"
+      - "tests/npc-memory-candidate-eligibility.test.js"
+      - "tests/memory-provider-core-integration.test.js"
       - "tests/npc-generation-context*.test.js"
       - "tests/memory-npc-consumer.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
@@ -45,5 +51,7 @@ jobs:
           tests/npc-generation-context-runtime.test.js
           tests/npc-generation-context-host-bridge.test.js
           tests/npc-context-receiver.test.mjs
+          tests/npc-memory-candidate-eligibility.test.js
+          tests/memory-provider-core-integration.test.js
           tests/memory-npc-consumer.test.js
           tests/memory-npc-provider-adapter.test.js
