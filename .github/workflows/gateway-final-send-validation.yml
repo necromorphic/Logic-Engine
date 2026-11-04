@@ -71,7 +71,7 @@ jobs:
           node --check index.mjs
       - name: Memory Dispatch Gateway tests
         timeout-minutes: 10
-        run: node --test --test-reporter=spec tests/memory-dispatch-gateway.test.js
+        run: node --test --test-reporter=tap tests/memory-dispatch-gateway.test.js
       - name: Protected Memory Final-Send tests
         timeout-minutes: 10
         run: node --test --test-reporter=spec tests/protected-memory-final-send.test.js

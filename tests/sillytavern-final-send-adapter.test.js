@@ -4,7 +4,7 @@ import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-f
 
 const sources = {
   CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertexai',
-  MISTRALAI: 'mistralai', COHERE: 'cohere', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
+  MISTRALAI: 'mistralai', COHERE: 'cohere', COMETAPI: 'cometapi', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
   XAI: 'xai', CHUTES: 'chutes', MINIMAX: 'minimax', ELECTRONHUB: 'electronhub',
   AZURE_OPENAI: 'azure_openai', OPENAI: 'openai', OPENROUTER: 'openrouter', CUSTOM: 'custom',
   PERPLEXITY: 'perplexity', GROQ: 'groq', FIREWORKS: 'fireworks', NANOGPT: 'nanogpt',
@@ -36,7 +36,7 @@ test('adapter maps every pinned Chat Completions sender key and leaves unknown s
     assert.notEqual(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }), 'unregistered', key);
   }
   assert.equal(adapter.resolveSenderRoute({
-    body: { chat_completion_source: 'cometapi' },
+    body: { chat_completion_source: 'not-registered' },
   }), 'unregistered');
 });
 
@@ -318,4 +318,59 @@ test('one protected Host response cannot dispatch the model twice after a comple
   assert.throws(() => dispatch(), /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/);
   assert.equal(gatewayCalls, 1);
   assert.equal(upstreamCalls, 1);
+});
+
+
+test('authenticated Host session remains active across async provider handoff and response release', async () => {
+  const { AsyncLocalStorage } = await import('node:async_hooks');
+  const session = new AsyncLocalStorage();
+  const response = {};
+  const observed = [];
+  let adapter;
+  adapter = createSillyTavernFinalSendAdapter({
+    gateway: {
+      async dispatchProtectedRequest(request) {
+        return request.transport();
+      },
+      authorizeResponseWrite(_requestId, write) {
+        observed.push({ phase: 'release', conversationId: session.getStore() });
+        return write();
+      },
+    },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+    prepareHostContext: async () => ({ coreConversationId: 'core-conversation-1' }),
+    runWithAuthenticatedHostSession(_request, conversationId, execute) {
+      return session.run(conversationId, execute);
+    },
+  });
+
+  const request = {
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false },
+  };
+  await adapter.prepare(request, response);
+  await adapter.dispatch({
+    request,
+    response,
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    stream: false,
+    transport: async () => new Promise(resolve => {
+      setImmediate(() => {
+        observed.push({ phase: 'provider', conversationId: session.getStore() });
+        adapter.authorizeResponseWrite(response, () => ({ status: 200 }), true);
+        resolve({ status: 200 });
+      });
+    }),
+  });
+
+  assert.deepEqual(observed, [
+    { phase: 'provider', conversationId: 'core-conversation-1' },
+    { phase: 'release', conversationId: 'core-conversation-1' },
+  ]);
 });
