@@ -907,7 +907,7 @@ test('file-backed Provider restart requires reconciliation before retrieval resu
 });
 
 
-test('real SQLite Provider admits only supported evidence and never promotes retrieval into belief', async (t) => {
+test('real SQLite Provider preserves evidence classification but admits only supported evidence', async (t) => {
   const cases = [
     ['unassessed', null],
     ['supported', 'unconfirmed_report'],
@@ -934,9 +934,12 @@ test('real SQLite Provider admits only supported evidence and never promotes ret
           assessment,
         );
       } else {
-        assert.deepEqual(result.candidates, [], assessment);
+        // Core retains authorized evidence for classification; the separate
+        // admission list is the only subset eligible for Host model projection.
+        assert.equal(result.candidates.length, 1, assessment);
         assert.deepEqual(result.admitted, [], assessment);
-        assert.equal(JSON.stringify(result).includes(assessment), false);
+        assert.equal(result.candidates[0].evidence_assessment, assessment);
+        assert.equal(result.candidates[0].content['attributes.public_note'], 'visible source-a');
       }
       assert.equal(JSON.stringify(result).includes('never disclose'), false);
     });
