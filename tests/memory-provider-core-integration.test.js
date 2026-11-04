@@ -40,7 +40,7 @@ function assertNoRejectedMetadataDisclosure(result) {
   assert.equal(Object.hasOwn(result, 'diagnostics'), false);
 }
 
-function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'unassessed' } = {}) {
+function setup(t, { twoRecords = false, providerPath = null, evidenceAssessment = 'supported' } = {}) {
   const testDb = createProviderTestDb(t, {
     path: providerPath && providerPath !== ':memory:' ? providerPath : null,
     prefix: 'logic-memory-core-integration-',
