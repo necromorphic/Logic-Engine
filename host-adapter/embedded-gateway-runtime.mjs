@@ -17,6 +17,7 @@ import {
 } from '../src/application/mechanic-policy-authority.js';
 import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
 import { MemoryDispatchGateway } from '../src/security/memory-dispatch-gateway.js';
+import { isCoordinatorLease } from '../src/storage/coordinator-lock.js';
 
 function aliasesSameFile(left, right) {
   const identity = value => {
@@ -204,6 +205,13 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       readCoreEvidence: input => providerAdapter.consumer.readDispatchEvidenceSync(input),
       readProviderEvidence: input => providerAdapter.readDispatchEvidenceSync(input),
       readHostEvidence: ({ hostContext, coordinatorLease }) => {
+        // Revocation and lifecycle evidence must be observed under the same
+        // cross-process Coordinator lease as dispatch/release. Otherwise a
+        // concurrent logout could commit between the revocation read and the
+        // protected response write.
+        if (!isCoordinatorLease(coordinatorLease, engine.store.coordinatorDb)) {
+          return { status: 'NON_READY', reason: 'HOST_SESSION_REVOCATION_COORDINATOR_LEASE_REQUIRED' };
+        }
         try {
           if (hostSessionRevocationReader.isSessionRevoked(adapterId, {
             host_installation_id: hostContext.host_installation_id,
