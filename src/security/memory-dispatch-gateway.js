@@ -843,16 +843,17 @@ export class MemoryDispatchGateway {
       abortSignalCleanup = null;
     };
     const markAbortedOutcomeUnknown = () => {
-      let abortRelease = null;
       try {
-        abortRelease = beginCoordinatorLock(this.coordinatorDb);
+        // The conditional ledger transition is sufficient to serialize this
+        // terminal outcome against COMPLETED; avoiding a second Coordinator
+        // lease also prevents a disconnect callback from waiting behind the
+        // request's own final-response lifecycle.
         this.#recordOutcome(requestId, 'UNKNOWN', null);
-        this.pendingReleases.delete(requestId);
       } catch {
         // DISPATCH_STARTED remains unresolved and therefore replay-blocking
         // even if a concurrent durable outcome transition wins this race.
       } finally {
-        try { abortRelease?.(); } catch {}
+        this.pendingReleases.delete(requestId);
         cleanupAbortSignal();
       }
     };
