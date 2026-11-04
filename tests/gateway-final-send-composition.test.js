@@ -125,6 +125,12 @@ test('protected Memory projection reads Core context from the prepared Host enve
 
 test('production protected-memory projection accepts the actual prepared Host/Core envelope', () => {
   const candidate = {
+    record_ref: 'record-1',
+    record_version: 'version-1',
+    authorization_generation: 3,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-1',
+    source_version: 'core-entity-v1:2',
     epistemic_kind: 'acquired_report',
     evidence_assessment: 'supported',
     content: 'A verified memory candidate',
@@ -170,8 +176,8 @@ test('production protected-memory projection accepts the actual prepared Host/Co
       context: acceptedContext,
       laneB: {
         status: 'ready',
-        sources: [{ source_id: 'source' }],
-        candidates: [candidate],
+        sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2' }],
+        candidates: [{ record_ref: 'record-1', record_version: 'version-1', authorization_generation: 3, source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
         provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
       },
       revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
@@ -202,6 +208,12 @@ test('production protected-memory projection fails closed when the prepared Host
 
 test('production protected-memory projection rejects Lane B content without a matching admitted candidate', () => {
   const candidate = {
+    record_ref: 'record-2',
+    record_version: 'version-2',
+    authorization_generation: 4,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-2',
+    source_version: 'core-entity-v1:3',
     epistemic_kind: 'acquired_report',
     evidence_assessment: 'supported',
     content: 'Content without an admitted candidate',
@@ -239,11 +251,46 @@ test('production protected-memory projection rejects Lane B content without a ma
       },
       laneB: {
         status: 'ready',
-        sources: [],
-        candidates: [],
+        sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-2', source_version: 'core-entity-v1:3' }],
+        candidates: [{ record_ref: 'different-record', record_version: 'version-2', authorization_generation: 4, source_kind: 'canonical_entity', source_entity_id: 'entity-2', source_version: 'core-entity-v1:3', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
         provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
       },
     }),
   });
+  assert.equal(result, undefined);
+});
+
+test('production protected-memory projection rejects same-count Lane B candidate substitution', () => {
+  const contextCandidate = {
+    record_ref: 'record-context',
+    record_version: 'version-1',
+    authorization_generation: 5,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-1',
+    source_version: 'core-entity-v1:1',
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'supported',
+    content: 'Substituted prompt content',
+  };
+  const result = buildProtectedMemory({ body: { model: 'horde-model' } }, {
+    response: {}, hostRoute: 'horde-text',
+    hostContext: { status: 'READY', host: { context: {
+      host_installation_id: 'host-installation', authenticated_account_id: 'account',
+      host_session_id: 'session', conversation_id: 'conversation',
+      conversation_uuid: '11111111-1111-4111-8111-111111111111',
+      root_id: 'root', root_inventory_sequence: 7, root_manifest_sha256: 'a'.repeat(64),
+    } }, coreContext: { adapter_id: 'adapter', conversation_id: 'core-conversation', actor_type: 'character' } },
+  }, { consume: () => ({
+    status: 'accepted',
+    context: { request_id: 'request-id', generation_id: 'generation-id', world_id: 'world', actor_id: 'actor',
+      snapshot: { world_revision: 3, commit_sequence: 9 },
+      lanes: { lane_a: { items: [] }, lane_b: { status: 'ready', candidates: [contextCandidate] } } },
+    laneB: { status: 'ready',
+      sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:1' }],
+      candidates: [{ record_ref: 'different-record', record_version: 'version-1', authorization_generation: 5,
+        source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:1',
+        epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
+    },
+  }) });
   assert.equal(result, undefined);
 });
