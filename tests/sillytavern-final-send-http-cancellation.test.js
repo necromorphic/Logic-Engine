@@ -10,7 +10,9 @@ const patch = await readFile(patchPath, 'utf8');
 const hookMarker = '--- /dev/null\n+++ b/src/logic-engine-final-send-hook.js\n';
 const hookStart = patch.indexOf(hookMarker);
 assert.notEqual(hookStart, -1, 'Final-Send Hook must be present in the pinned patch');
-const hunkStart = patch.indexOf('\n', patch.indexOf('@@ -0,0 +1,169 @@', hookStart)) + 1;
+const hookHunkHeader = patch.slice(hookStart).match(/@@ -0,0 \+1,\d+ @@/);
+assert.ok(hookHunkHeader, 'Final-Send Hook must have a valid added-file hunk');
+const hunkStart = patch.indexOf('\n', hookStart + hookHunkHeader.index + hookHunkHeader[0].length) + 1;
 const nextFileHeaders = [patch.indexOf('\n--- a/', hunkStart), patch.indexOf('\n--- /dev/null', hunkStart)]
   .filter((index) => index >= 0);
 const hookEnd = Math.min(...nextFileHeaders);
