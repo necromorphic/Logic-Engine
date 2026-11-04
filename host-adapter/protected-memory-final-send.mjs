@@ -1,4 +1,5 @@
 import { types as utilTypes } from 'node:util';
+import { createHash } from 'node:crypto';
 import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-gateway.js';
 
 /**
@@ -289,6 +290,29 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   }
   return serialized;
 }
+function createHostReplayIdentity(hostRequestContext, senderRoute) {
+  const body = hostRequestContext?.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+  }
+  const generationBody = senderRoute === 'horde-text' ? body.params : body;
+  let prompt;
+  if (senderRoute === 'chat-completions') prompt = generationBody?.messages;
+  else if (senderRoute === 'novelai-text') prompt = generationBody?.input ?? generationBody?.prompt;
+  else prompt = generationBody?.prompt ?? generationBody?.input ?? generationBody?.messages;
+  if (prompt === undefined || prompt === null) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+  }
+  let serialized;
+  try { serialized = JSON.stringify(prompt); } catch {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+  }
+  if (typeof serialized !== 'string' || serialized.length === 0 || serialized.length > 4_000_000) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+  }
+  return createHash('sha256').update(serialized, 'utf8').digest('hex');
+}
+
 function assertRequest(endpointUrl, requestInit) {
   if (typeof endpointUrl !== 'string' || !/^https?:\/\//i.test(endpointUrl)
     || !requestInit || typeof requestInit !== 'object'
@@ -383,6 +407,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       protectedMemory.laneA?.items ?? [], protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
+    const replayIdentity = createHostReplayIdentity(hostRequestContext, senderRoute);
     const transport = () => {
       // Calling fetchImpl is the actual transport handoff. This function is
       // deliberately non-async so the handoff happens synchronously under the
@@ -395,6 +420,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
 
     return gateway.dispatchProtectedRequest({
       ...protectedMemory,
+      replayIdentity,
       revalidateLaneA: laneARevalidator,
       route: 'host-selected-chat-generation',
       senderRoute,
