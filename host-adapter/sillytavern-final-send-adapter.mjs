@@ -102,6 +102,15 @@ function assertSourceMap(sources) {
     if (map.has(sourceValue)) throw new Error('SILLYTAVERN_SOURCE_REGISTRY_DUPLICATE: ' + key);
     map.set(sourceValue, senderRoute);
   }
+  // Keep the Host source registry and Core's protected sender registry in
+  // lockstep. A newly protected chat sender must not silently fall through to
+  // the unregistered/native path merely because this adapter was not updated.
+  const hostRoutes = new Set(Object.values(ROUTE_BY_HOST_ROUTE));
+  for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+    if (!hostRoutes.has(senderRoute) && !map.has(senderRoute)) {
+      throw new Error('SILLYTAVERN_SOURCE_REGISTRY_ROUTE_MISSING: ' + senderRoute);
+    }
+  }
   return map;
 }
 
