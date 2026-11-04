@@ -29,7 +29,7 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /#include \"\.\.\/secure-vfs-probe\/windows_relative_open\.h\"/);
   assert.match(store, /le_store_parent_acl_safe\(current\)/);
   assert.match(store, /INHERIT_ONLY_ACE/);
-  const parentMutationMask = store.match(/DWORD mutation_mask = ([\\s\\S]*?);/)?.[1] ?? '';
+  const parentMutationMask = store.match(/DWORD mutation_mask = ([\s\S]*?);/)?.[1] ?? '';
   assert.match(parentMutationMask, /FILE_DELETE_CHILD/);
   assert.match(parentMutationMask, /WRITE_DAC/);
   assert.match(parentMutationMask, /WRITE_OWNER/);
