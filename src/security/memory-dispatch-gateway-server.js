@@ -80,6 +80,7 @@ export async function createMemoryDispatchGatewayServer({
       worldId: payload?.world_id,
       actorId: payload?.actor_id,
       purpose: payload?.purpose,
+      hostContext: payload?.host_context,
       sources: payload?.sources,
       candidates: payload?.candidates,
     };
