@@ -412,3 +412,34 @@ test('failed Host preparation remains terminal and cannot be retried on the same
   await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
   assert.equal(preparations, 1);
 });
+
+test('Host preparation receives the request AbortSignal and rejects cancellation after its await', async () => {
+  let receivedSignal;
+  let finishPreparation;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => null,
+    prepareHostContext: (_request, _response, _route, signal) => {
+      receivedSignal = signal;
+      return new Promise(resolve => { finishPreparation = resolve; });
+    },
+  });
+  const request = {
+    user: { profile: { handle: 'default-user' } },
+    session: { handle: 'default-user', logicEngineSessionId: '33333333-3333-4333-8333-333333333333' },
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: {
+      logic_engine_conversation_uuid: '44444444-4444-4444-8444-444444444444',
+      logic_engine_request_id: '55555555-5555-4555-8555-555555555555',
+      logic_engine_generation_id: '66666666-6666-4666-8666-666666666666',
+      logic_engine_context_size: 8192,
+      logic_engine_generation_type: 'normal',
+    },
+  };
+  const controller = new AbortController();
+  const pending = adapter.prepare(request, {}, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort(new Error('client disconnected'));
+  finishPreparation({ status: 'READY', context: {} });
+  await assert.rejects(pending, /LOGIC_ENGINE_HOST_GENERATION_CANCELLED/);
+});
