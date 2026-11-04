@@ -370,6 +370,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
     },
   });
   const names = ['map', 'filter', 'includes', 'some', 'push', 'join', 'splice', Symbol.iterator];
+  const originalAssign = Object.assign;
   const descriptors = new Array(names.length);
   const setNames = ['has', 'add'];
   const setDescriptors = new Array(setNames.length);
@@ -377,6 +378,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   let failure = null;
   let pending;
   try {
+    Object.assign = poison;
     for (let index = 0; index < names.length; index += 1) {
       const key = names[index];
       descriptors[index] = Object.getOwnPropertyDescriptor(Array.prototype, key);
@@ -398,6 +400,7 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
       failure = error;
     }
   } finally {
+    Object.assign = originalAssign;
     for (let index = 0; index < names.length; index += 1) {
       const key = names[index];
       const descriptor = descriptors[index];
