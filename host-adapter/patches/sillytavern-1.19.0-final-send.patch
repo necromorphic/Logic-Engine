@@ -216,7 +216,7 @@
 +    return generationContext.run(activeContext, async () => {
 +        try {
 +            if (abortController.signal.aborted) return;
-+            await responseAdapter.prepare(request, response);
++            await responseAdapter.prepare(request, response, abortController.signal);
 +            if (abortController.signal.aborted) return;
 +            const active = generationContext.getStore();
 +            if (active) active.prepared = true;
