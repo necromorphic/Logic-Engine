@@ -4,6 +4,7 @@ import { createNpcGenerationContextBuilder } from './npc-generation-context.js';
 const PURPOSE = 'npc_turn_context';
 const RECIPIENT = 'model';
 const VISIBILITY_POLICY_REF = 'core:npc-per-acquisition-visibility-v1';
+const KNOWN_EVIDENCE_ASSESSMENTS = new Set(['unassessed', 'supported', 'disputed', 'insufficient']);
 
 function exactDataRecord(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) return false;
@@ -538,11 +539,26 @@ export function createCoreNpcGenerationContextRuntime({
       || laneB.snapshot.world_revision !== context.snapshot.world_revision
       || laneB.snapshot.commit_sequence !== context.snapshot.commit_sequence
       || !validProviderEvidenceCursor(laneB.provider_evidence_cursor)
-      || !densePlainArray(laneB.candidates) || laneB.candidates.length > 50) {
+      || !densePlainArray(laneB.admitted) || !densePlainArray(laneB.candidates)
+      || laneB.candidates.length > 50 || laneB.admitted.length > laneB.candidates.length) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
+    }
+    const admittedByIdentity = new Map();
+    for (const admitted of laneB.admitted) {
+      if (!exactDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
+        || !validId(admitted.record_ref) || !validId(admitted.record_version)
+        || !validId(admitted.epistemic_kind) || admitted.evidence_assessment !== 'supported') {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_admission_invalid' });
+      }
+      const identity = JSON.stringify([admitted.record_ref, admitted.record_version]);
+      if (admittedByIdentity.has(identity)) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_admission_duplicated' });
+      }
+      admittedByIdentity.set(identity, admitted);
     }
     const candidates = [];
     const sourceMap = new Map();
+    const seenCandidates = new Set();
     for (let index = 0; index < laneB.candidates.length; index += 1) {
       const candidate = laneB.candidates[index];
       if (!exactDataRecord(candidate, [
@@ -552,9 +568,28 @@ export function createCoreNpcGenerationContextRuntime({
       ]) || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
         || candidate.source_kind !== 'canonical_entity' || !validId(candidate.source_entity_id)
-        || !validSourceVersion(candidate.source_version)) {
+        || !validSourceVersion(candidate.source_version) || !validId(candidate.epistemic_kind)
+        || !KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.evidence_assessment)) {
         return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_lineage_invalid' });
       }
+      const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
+      if (seenCandidates.has(identity)) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_candidate_duplicated' });
+      }
+      seenCandidates.add(identity);
+      const admitted = admittedByIdentity.get(identity);
+      if (!admitted) {
+        if (candidate.evidence_assessment === 'supported') {
+          return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_admission_missing' });
+        }
+        continue;
+      }
+      if (candidate.evidence_assessment !== 'supported'
+        || admitted.epistemic_kind !== candidate.epistemic_kind
+        || admitted.evidence_assessment !== candidate.evidence_assessment) {
+        return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_admission_mismatch' });
+      }
+      admittedByIdentity.delete(identity);
       const source = Object.freeze({
         source_kind: 'canonical_entity',
         source_entity_id: candidate.source_entity_id,
@@ -569,6 +604,9 @@ export function createCoreNpcGenerationContextRuntime({
         source_entity_id: candidate.source_entity_id,
         source_version: candidate.source_version,
       }));
+    }
+    if (admittedByIdentity.size !== 0) {
+      return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_candidate_missing' });
     }
     const sources = [...sourceMap.values()].sort((left, right) =>
       left.source_entity_id < right.source_entity_id ? -1
