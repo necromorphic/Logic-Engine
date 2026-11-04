@@ -223,6 +223,21 @@ export function createMemoryNpcProviderAdapter({
       // Provider evidence comes from the read-only SQLite Provider observer.
       readCoreEvidenceSync: input => consumer.readDispatchEvidenceSync(input),
       readProviderEvidenceSync: input => provider.readDispatchEvidenceSync(input),
+      // Resolve the same Core-owned binding used by NPC preparation. This method
+      // is valid only inside the branded authenticated Host-session scope.
+      resolveAuthenticatedHostContext() {
+        const scope = resolveAuthenticatedNpcScope();
+        const binding = actorBindingService.resolve(scope.world_id, adapterId, scope.actor_id);
+        const actorType = binding?.actor?.entity_type;
+        if (!validCoreId(actorType)) throw new Error('HOST_ACTOR_BINDING_CHANGED');
+        return Object.freeze({
+          adapter_id: adapterId,
+          conversation_id: scope.conversation_id,
+          world_id: scope.world_id,
+          actor_id: scope.actor_id,
+          actor_type: actorType,
+        });
+      },
       // Compatibility alias for callers that previously meant Provider evidence.
       readDispatchEvidenceSync: input => provider.readDispatchEvidenceSync(input),
       async prepareWorld(worldId) {
