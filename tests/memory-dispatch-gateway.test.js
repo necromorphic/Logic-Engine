@@ -1682,7 +1682,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       readProviderEvidence: ({ worldId, actorId, purpose }) => {
         const head = providerReader.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get();
         const queryGrant = providerReader.prepare('SELECT allowed FROM memory_query_grants WHERE world_id=? AND subject_id=? AND purpose=?').get(worldId, actorId, purpose);
-        const recordGrant = providerReader.prepare('SELECT allowed FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?').get(worldId, actorId, purpose, record.record_ref, record.record_version);
+        const recordGrant = providerReader.prepare('SELECT allowed,authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?').get(worldId, actorId, purpose, record.record_ref, record.record_version);
         const stored = providerReader.prepare('SELECT * FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?').get(worldId, record.record_ref, record.record_version);
         const index = providerReader.prepare('SELECT index_health,source_reconciliation FROM memory_index_state WHERE world_id=?').get(worldId);
         return {
@@ -1691,7 +1691,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           granted: queryGrant?.allowed === 1 && recordGrant?.allowed === 1,
           readiness: index?.index_health === 'ready' && index?.source_reconciliation === 'current' ? 'READY' : 'NOT_READY',
           sources: stored ? [{ source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
-          candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: 1, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+          candidates: stored && recordGrant ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: recordGrant.authorization_generation, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
       readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: 'READY', adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),
@@ -1767,7 +1767,12 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     // Reverse-order control: durable dispatch-start wins first. A later revoke
     // cannot recall the in-flight request; exactly one transport call is allowed.
     provider.grantRecord(scope, record.record_ref, record.record_version, true);
-    const inFlight = gateway.dispatchProtectedRequest(validRequest('dispatch-start-wins-before-revoke'));
+    const currentAuthorizationGeneration = providerReader.prepare(
+      'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+    ).get(scope.world_id, scope.subject_id, scope.purpose, record.record_ref, record.record_version).authorization_generation;
+    const inFlight = gateway.dispatchProtectedRequest(validRequest('dispatch-start-wins-before-revoke', {
+      candidates: [{ ...validRequest().candidates[0], authorization_generation: currentAuthorizationGeneration }],
+    }));
     await transportStarted;
     provider.revokeRecord(scope, record.record_ref, record.record_version);
     releaseTransport();
