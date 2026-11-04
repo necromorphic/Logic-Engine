@@ -384,3 +384,23 @@ test('complete-empty Lane B remains an explicit empty Lane B projection without 
   assert.deepEqual(evidence.sources, []);
   assert.deepEqual(evidence.candidates, []);
 });
+
+test('prepareForDispatch rejects a pre-aborted Host generation before building context', async () => {
+  const { runtime } = setup();
+  const controller = new AbortController();
+  controller.abort(new Error('client disconnected'));
+  const prepared = await runtime.prepareForDispatch(request, { signal: controller.signal });
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.reason, 'generation_cancelled');
+  assert.equal(prepared.handoff, null);
+});
+
+test('prepareForDispatch stops before issuing a handoff when cancellation occurs during evidence revalidation', async () => {
+  const { runtime, setAfterMemoryRevalidation } = setup();
+  const controller = new AbortController();
+  setAfterMemoryRevalidation(() => controller.abort(new Error('client disconnected')));
+  const prepared = await runtime.prepareForDispatch(request, { signal: controller.signal });
+  assert.equal(prepared.status, 'non_ready');
+  assert.equal(prepared.reason, 'generation_cancelled');
+  assert.equal(prepared.handoff, null);
+});
