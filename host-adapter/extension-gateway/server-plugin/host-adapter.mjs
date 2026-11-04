@@ -162,8 +162,9 @@ export function createSillyTavernHostAdapter({
           || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
           || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
           || !/^[a-f0-9]{64}$/.test(rootProof.attestation_sha256 ?? '')
-          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 1
+          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 0
           || !/^[a-f0-9]{64}$/.test(rootProof.lifecycle_head_sha256 ?? '')
+          || (rootProof.lifecycle_sequence === 0 && rootProof.lifecycle_head_sha256 !== '0'.repeat(64))
           || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
           || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
           || rootProof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
