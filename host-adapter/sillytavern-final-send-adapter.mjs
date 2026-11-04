@@ -194,7 +194,7 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_REQUIRED'));
       }
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
-      if (prepared?.hostRoute && prepared.hostRoute !== dispatchHostRoute) {
+      if (prepared && (prepared.hostRoute ?? 'chat-completions') !== dispatchHostRoute) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
         }
