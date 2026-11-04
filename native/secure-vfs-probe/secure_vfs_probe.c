@@ -2199,8 +2199,9 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
     if (kind > 0) {
       struct stat retained_info;
       retained_sidecar_fd = openat(role->trusted_parent_fd, relative_name,
-          O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+          O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
       if (retained_sidecar_fd < 0 || fstat(retained_sidecar_fd, &retained_info) != 0
+          || !S_ISREG(retained_info.st_mode)
           || retained_info.st_dev != sidecar_info.st_dev
           || retained_info.st_ino != sidecar_info.st_ino) {
         if (retained_sidecar_fd >= 0) close(retained_sidecar_fd);
