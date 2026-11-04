@@ -73,6 +73,7 @@ function snapshotDataRecord(value, errorCode, maxKeys = 64) {
 function assertProtectedContext(context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)
     || typeof context.requestId !== 'string' || !context.requestId
+    || typeof context.generationId !== 'string' || !context.generationId
     || typeof context.model !== 'string' || !context.model
     || typeof context.worldId !== 'string' || !context.worldId
     || typeof context.actorId !== 'string' || !context.actorId
