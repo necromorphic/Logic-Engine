@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { types as utilTypes } from 'node:util';
-import { constants as fsConstants, fstatSync, closeSync, lstatSync, realpathSync } from 'node:fs';
+import { constants as fsConstants, openSync, fstatSync, closeSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
