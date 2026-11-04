@@ -95,7 +95,7 @@ export function projectNpcGenerationContentBlocks(candidates) {
         throw new Error('NPC_GENERATION_CONTENT_INVALID');
       }
     }
-    const projected = Object.create(null);
+    const projected = {};
     for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex += 1) {
       const field = fields[fieldIndex];
       const descriptor = Object.getOwnPropertyDescriptor(candidate, field);
