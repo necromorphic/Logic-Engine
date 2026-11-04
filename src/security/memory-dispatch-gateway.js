@@ -831,9 +831,6 @@ export class MemoryDispatchGateway {
         adapter_id: hostContextSnapshot.adapter_id,
         host_installation_id: hostContextSnapshot.host_installation_id,
         authenticated_account_id: hostContextSnapshot.authenticated_account_id,
-        // A rotated/revoked Host session is a different replay principal even
-        // when installation, account, and conversation UUID remain unchanged.
-        host_session_id: hostContextSnapshot.host_session_id,
         host_conversation_id: hostContextSnapshot.host_conversation_id,
         conversation_uuid: hostContextSnapshot.conversation_uuid,
       },
