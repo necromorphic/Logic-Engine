@@ -146,6 +146,9 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
     const providerLease = beginCoordinatorLock(coordinatorObserver);
     try {
+      // Bind the dispatch proof to the exact indexed candidate projection returned
+      // by Provider retrieval; a hand-built candidate list alone is not authority.
+      const providerRetrieval = await provider.retrieveCandidates(scope);
       const evidence = dispatchObserver.readDispatchEvidenceSync({
         worldId: scope.world_id,
         actorId: scope.subject_id,
@@ -155,6 +158,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
           source_entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
         }],
+        providerEvidenceCursor: providerRetrieval.provider_evidence_cursor,
         candidates: [{
           record_ref: dispatchRecord.record_ref,
           record_version: dispatchRecord.record_version,
