@@ -244,19 +244,27 @@ test('protected NPC content is serialized into the exact outbound request and Ho
   }
 });
 
-test('Horde text generation is classified but protected Memory is denied before transport', async () => {
+test('Horde text generation uses the protected Gateway and performs exactly one transport handoff', async () => {
   let calls = 0;
+  let dispatched;
   const finalSend = createProtectedMemoryFinalSend({
-    gateway: { dispatchProtectedRequest: () => { throw new Error('Horde must not enter protected Gateway dispatch'); } },
+    gateway: {
+      dispatchProtectedRequest(request) {
+        dispatched = request;
+        return request.transport();
+      },
+    },
     resolveProtectedMemory: () => context,
-    fetchImpl: async () => { calls += 1; return { status: 200 }; },
+    fetchImpl: async (_url, request) => { calls += 1; return { status: 200, body: request.body }; },
   });
-  assert.throws(() => finalSend({
+  const result = await finalSend({
     senderRoute: 'horde-text',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(JSON.stringify({ prompt: 'hello' })),
-  }), /MEMORY_DISPATCH_NOT_READY/);
-  assert.equal(calls, 0);
+  });
+  assert.equal(result.status, 200);
+  assert.equal(dispatched.senderRoute, 'horde-text');
+  assert.equal(calls, 1);
 });
 
 test('protected complete-empty context is not misrepresented as an admitted source set', async () => {
