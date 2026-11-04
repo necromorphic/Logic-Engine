@@ -414,7 +414,7 @@ test('Lane A revoke before DISPATCH_STARTED blocks the upstream transport', asyn
     await assert.rejects(fixture.gateway.dispatchProtectedRequest(request),
       /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
     assert.equal(fixture.calls.length, 0);
-    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM memory_dispatch_ledger').get().count, 0);
+    assert.equal(fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
   } finally {
     await fixture.close();
   }
@@ -512,7 +512,7 @@ test('Lane A revoke during model execution blocks final response release', async
       /MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED/);
     assert.equal(laneAReads, 2);
     const row = fixture.gateway.db.prepare(
-      'SELECT dispatch_state, outcome FROM memory_dispatch_ledger WHERE request_id=?',
+      'SELECT status AS dispatch_state, outcome_code AS outcome FROM dispatch_ledger WHERE request_id=?',
     ).get(request.requestId);
     assert.equal(row.dispatch_state, 'DISPATCH_STARTED');
     assert.equal(row.outcome, 'UNKNOWN');
@@ -580,6 +580,7 @@ test('Lane A revoke between streamed response writes blocks the next chunk', asy
     };
     const request = validRequest('lane-a-revoked-between-chunks', {
       stream: true,
+      hostTransformsStream: true,
       laneA,
       revalidateLaneA: () => (++laneAReads <= 2
         ? { status: 'ready' }
@@ -958,6 +959,13 @@ test('all protected sender families share one real Gateway and each causes exact
     purpose: 'recall',
     sources: sourceSet,
     candidates: validRequest().candidates,
+    hostContext,
+    laneA: {
+      lane: 'A', purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-authorization',
+      visibility_authorization_ref: 'core-visibility-policy', items: [],
+    },
+    providerEvidenceCursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
   };
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
@@ -1880,7 +1888,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
       authorityPort: fixture.port,
       readToken,
       readCoreEvidence,
-      readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
+      readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
         head: 1,
         world_id: worldId,
         actor_id: actorId,
@@ -1889,6 +1897,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         readiness: 'READY',
         sources,
         candidates,
+        provider_evidence_cursor: providerEvidenceCursor,
       }),
       readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: 'READY', adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),
     }), (request) => () => {
