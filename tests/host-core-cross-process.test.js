@@ -92,6 +92,7 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
         ADAPTER_TOKEN,
         SESSION_ID: SESSION,
         HOST_INSTALLATION_ID: hostIdentity.host_installation_id,
+        HOST_ACCOUNT_ID: hostIdentity.authenticated_account_id,
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
