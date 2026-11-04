@@ -29,7 +29,7 @@ const laneB = () => ({
   recipient: 'model', core_purpose: 'npc_turn_context', provider_purpose: 'npc_decision',
   snapshot: { ...scope.snapshot },
   result: {
-    status: 'ready', admitted: [{ record_ref: 'memory:1', record_version: 'v1' }],
+    status: 'ready', admitted: [{ record_ref: 'memory:1', record_version: 'v1', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
     candidates: [{
       record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
       source_kind: 'canonical_entity', source_entity_id: 'source-1',
