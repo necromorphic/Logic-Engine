@@ -51,8 +51,25 @@ const expectedRoot = path.join(worktreeParent, 'SillyTavern');
 let files = [];
 try {
   execFileSync('git', ['-C', sourceRoot, 'worktree', 'add', '--detach', expectedRoot, PINNED_HOST_COMMIT], { stdio: 'ignore' });
-  for (const patchPath of [lifecyclePatchPath, unenrolledFixPatchPath, rootMutationPatchPath]) {
-    execFileSync('git', ['-C', expectedRoot, '-c', 'core.autocrlf=false', 'apply', '--unidiff-zero', patchPath], { stdio: 'ignore' });
+  // Reproduce the exact checkout and whitespace-tolerant patch application used
+  // by host-adapter-pinned-source-audit.yml. Otherwise Windows worktree EOL or
+  // patch-context normalization can produce a false source-manifest mismatch.
+  execFileSync('git', ['-C', expectedRoot, 'config', 'core.autocrlf', 'false'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', expectedRoot, 'config', 'core.eol', 'lf'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', expectedRoot, 'checkout-index', '--force', '--all'], { stdio: 'ignore' });
+  for (const [patchPath, allowZeroContext] of [
+    [lifecyclePatchPath, true],
+    [unenrolledFixPatchPath, false],
+    [rootMutationPatchPath, true],
+  ]) {
+    const args = [
+      '-C', expectedRoot,
+      '-c', 'core.autocrlf=false',
+      'apply', '--ignore-space-change', '--ignore-whitespace',
+    ];
+    if (allowZeroContext) args.push('--unidiff-zero');
+    args.push(patchPath);
+    execFileSync('git', args, { stdio: 'ignore' });
   }
   const expectedPluginDir = path.join(expectedRoot, 'plugins/logic-engine-extension-gateway');
   const expectedClientDir = path.join(expectedRoot, 'public/scripts/extensions/third-party/logic-engine-extension-gateway');
