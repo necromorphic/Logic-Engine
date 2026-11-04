@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildProtectedMemory } from '../index.mjs';
 
+const readText = async url => (await readFile(url, 'utf8')).replace(/\r\n/g, '\n');
+
 test('Memory-enabled native Final-Send composes the embedded Gateway and one-shot NPC bridge', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
   assert.match(source, /createEmbeddedGatewayRuntime/);
   assert.match(source, /createNpcGenerationContextHostBridge/);
   assert.match(source, /npcBridge\.prepare\(request, response, signal\)/);
@@ -14,8 +16,8 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
 });
 
 test('production NPC correlation IDs are Host-generated and never read from browser JSON', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
-  const metadata = await readFile(new URL('../host-adapter/npc-generation-request-metadata.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
+  const metadata = readText(new URL('../host-adapter/npc-generation-request-metadata.mjs', import.meta.url));
   assert.match(source, /createRequestMetadata: \(\) => createNpcGenerationRequestMetadata\(\)/);
   assert.match(source, /import \{ createNpcGenerationRequestMetadata \}/);
   assert.doesNotMatch(source, /function generationBody\(request\)/);
@@ -25,8 +27,8 @@ test('production NPC correlation IDs are Host-generated and never read from brow
 });
 
 test('Lane A and Lane B remain distinct in the provider projection', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
-  const finalSend = await readFile(new URL('../host-adapter/protected-memory-final-send.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
+  const finalSend = readText(new URL('../host-adapter/protected-memory-final-send.mjs', import.meta.url));
   assert.match(source, /laneA,/);
   assert.match(source, /revalidateLaneAUnderCoordinatorLease/);
   assert.match(finalSend, /Logic Engine Core Knowledge — Lane A/);
@@ -35,7 +37,7 @@ test('Lane A and Lane B remain distinct in the provider projection', async () =>
 });
 
 test('native fallback is limited to a complete-empty two-lane context', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
   assert.match(source, /laneA\.items\.length === 0/);
   assert.match(source, /accepted\.laneB\.sources\.length === 0/);
   assert.match(source, /accepted\.laneB\.candidates\.length === 0/);
@@ -44,14 +46,14 @@ test('native fallback is limited to a complete-empty two-lane context', async ()
 });
 
 test('Final-Send keeps the authenticated Host capability alive through Gateway response release', async () => {
-  const source = await readFile(new URL('../host-adapter/sillytavern-final-send-adapter.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../host-adapter/sillytavern-final-send-adapter.mjs', import.meta.url));
   assert.match(source, /preparedContextByRequest\.set\(request, Object\.freeze\(\{ request, response,/);
   assert.match(source, /runWithAuthenticatedHostSession\(args\.request, coreConversationId, execute\)/);
   assert.match(source, /authorizeResponseWrite\(response, write, final = false\)/);
 });
 
 test('unavailable Gateway remains terminal when Memory integration is disabled', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
   const gatewayStart = source.indexOf('const unavailableGateway = Object.freeze({');
   const gatewayEnd = source.indexOf('\n});', gatewayStart);
   assert.ok(gatewayStart >= 0 && gatewayEnd > gatewayStart);
@@ -61,9 +63,9 @@ test('unavailable Gateway remains terminal when Memory integration is disabled',
 });
 
 test('Host session revocation is read by Gateway and serialized with the shared Coordinator', async () => {
-  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
-  const store = await readFile(new URL('../src/application/host-assertion-nonce-store.js', import.meta.url), 'utf8');
-  const api = await readFile(new URL('../src/api/server.js', import.meta.url), 'utf8');
+  const runtime = readText(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url));
+  const store = readText(new URL('../src/application/host-assertion-nonce-store.js', import.meta.url));
+  const api = readText(new URL('../src/api/server.js', import.meta.url));
   assert.match(runtime, /readHostEvidence: \(\{ hostContext, coordinatorLease \}\) => \{/);
   const hostReaderStart = runtime.indexOf('readHostEvidence: ({ hostContext, coordinatorLease }) => {');
   const hostReaderEnd = runtime.indexOf('\n      },\n    });', hostReaderStart);
@@ -79,8 +81,8 @@ test('Host session revocation is read by Gateway and serialized with the shared 
 
 
 test('production embedded runtime wires separate synchronous Core, Provider and Host evidence readers', async () => {
-  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
-  const provider = await readFile(new URL('../src/application/memory-npc-provider-adapter.js', import.meta.url), 'utf8');
+  const runtime = readText(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url));
+  const provider = readText(new URL('../src/application/memory-npc-provider-adapter.js', import.meta.url));
   assert.match(runtime, /new SQLiteStore\(corePath, \{ readOnly: true \}\)/);
   assert.match(runtime, /observerOnly: true/);
   assert.match(runtime, /new MemoryDispatchGateway\(/);
@@ -93,7 +95,7 @@ test('production embedded runtime wires separate synchronous Core, Provider and 
 });
 
 test('final response revalidation re-reads Host root authority before every protected write', async () => {
-  const gateway = await readFile(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url), 'utf8');
+  const gateway = readText(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url));
   const start = gateway.indexOf('  #revalidateReleaseContext(context, coordinatorLease)');
   const end = gateway.indexOf('  /** Revalidate and perform one synchronous Host write', start);
   assert.ok(start >= 0 && end > start);
@@ -106,7 +108,7 @@ test('final response revalidation re-reads Host root authority before every prot
 });
 
 test('Horde model identity is resolved from the native request body, not a nonexistent params envelope', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
   const start = source.indexOf('function resolveRequestModel(request, prepared) {');
   const end = source.indexOf('\n}\n', start);
   assert.ok(start >= 0 && end > start);
@@ -116,7 +118,7 @@ test('Horde model identity is resolved from the native request body, not a nonex
 });
 
 test('protected Memory projection reads Core context from the prepared Host envelope', async () => {
-  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const source = readText(new URL('../index.mjs', import.meta.url));
   assert.match(source, /host: Object\.freeze\(\{ context: host\.context \}\),\s*coreContext: prepared\.coreContext/);
   assert.match(source, /const preparedHostContext = prepared\?\.hostContext;[\s\S]*?preparedHostContext\?\.status !== 'READY'/);
   assert.match(source, /const hostBinding = host\.context;\s*\/\/ prepareHostContext stores coreContext beside host[\s\S]*?const coreContext = prepared\.hostContext\.coreContext;/);
@@ -297,7 +299,7 @@ test('production protected-memory projection rejects same-count Lane B candidate
 
 
 test('production Host revocation evidence requires the active shared Coordinator lease', async () => {
-  const runtime = await readFile(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url), 'utf8');
+  const runtime = readText(new URL('../host-adapter/embedded-gateway-runtime.mjs', import.meta.url));
   const start = runtime.indexOf('readHostEvidence: ({ hostContext, coordinatorLease }) => {');
   const end = runtime.indexOf('\n      },\n    });', start);
   assert.ok(start >= 0 && end > start);
@@ -311,7 +313,7 @@ test('production Host revocation evidence requires the active shared Coordinator
 
 
 test('Gateway replay digest remains stable across Host session rotation', async () => {
-  const gateway = await readFile(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url), 'utf8');
+  const gateway = readText(new URL('../src/security/memory-dispatch-gateway.js', import.meta.url));
   const start = gateway.indexOf('const requestDigest = createHash');
   const end = gateway.indexOf("), 'utf8').digest('hex');", start);
   assert.ok(start >= 0 && end > start);
