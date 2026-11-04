@@ -29,6 +29,7 @@ function createAdapter({
 test('adapter maps all pinned non-Chat-Completions route families', () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
   assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: 'OPENAI' } }), 'openai');
+  assert.equal(adapter.resolveSenderRoute({ body: { chat_completion_source: 'COMETAPI' } }), 'cometapi');
   assert.equal(adapter.resolveSenderRoute({}, 'text-completions'), 'text-completions');
   assert.equal(adapter.resolveSenderRoute({}, 'kobold'), 'kobold');
   assert.equal(adapter.resolveSenderRoute({}, 'novelai-text'), 'novelai-text');
