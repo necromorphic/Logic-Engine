@@ -39,7 +39,7 @@ test('adapter maps all pinned non-Chat-Completions route families', () => {
 test('unregistered SillyTavern sender remains native for explicitly unprotected generation', async () => {
   let transportCalls = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
-  const request = { body: { chat_completion_source: 'COMETAPI', stream: false } };
+  const request = { body: { chat_completion_source: 'UNKNOWN_SOURCE', stream: false } };
   const senderRoute = adapter.resolveSenderRoute(request);
 
   assert.equal(senderRoute, 'unregistered');
