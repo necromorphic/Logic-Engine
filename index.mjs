@@ -102,6 +102,7 @@ function buildProtectedMemory(request, prepared, npcBridge) {
 
   return Object.freeze({
     requestId: context.request_id,
+    generationId: context.generation_id,
     model: resolveRequestModel(request, prepared),
     worldId: context.world_id,
     actorId: context.actor_id,
