@@ -537,3 +537,50 @@ test('Lane A projection rejects accessors instead of invoking them', async () =>
   }), /PROTECTED_MEMORY_FINAL_SEND_LANE_A_INVALID/);
   assert.equal(calls, 0);
 });
+
+
+test('Host cancellation signal reaches the actual protected upstream fetch and is not retried', async () => {
+  const controller = new AbortController();
+  let upstreamCalls = 0;
+  let observedSignal;
+  let fetchStarted;
+  const started = new Promise(resolve => { fetchStarted = resolve; });
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: {
+      async dispatchProtectedRequest(request) {
+        try {
+          return await request.transport();
+        } catch (error) {
+          throw error;
+        }
+      },
+    },
+    resolveProtectedMemory: () => context,
+    fetchImpl: (_url, request) => {
+      upstreamCalls += 1;
+      observedSignal = request.signal;
+      fetchStarted();
+      return new Promise((_resolve, reject) => {
+        if (request.signal?.aborted) {
+          reject(Object.assign(new Error('aborted upstream fetch'), { name: 'AbortError' }));
+          return;
+        }
+        request.signal?.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted upstream fetch'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+    },
+  });
+
+  const pending = finalSend({
+    senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: { ...init(), signal: controller.signal },
+    hostRequestContext: { trusted: true },
+  });
+  await started;
+  assert.equal(observedSignal, controller.signal, 'the exact Host AbortSignal must reach provider fetch');
+  controller.abort();
+  await assert.rejects(pending, error => error?.name === 'AbortError');
+  assert.equal(upstreamCalls, 1, 'an aborted upstream handoff must never be retried');
+});
