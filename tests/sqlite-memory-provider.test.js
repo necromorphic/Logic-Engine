@@ -238,7 +238,9 @@ test('final Provider read lease excludes cross-process authorization revoke unti
       );
       writeFileSync(process.env.TEST_MARKER_PATH, 'revoked');
       provider.close();
-      process.stdout.write('REVOKED\\n');
+      // The child has a paused stdin data listener; explicitly exit after the
+      // acknowledgement is flushed so the parent can observe process completion.
+      process.stdout.write('REVOKED\\n', () => process.exit(0));
     });
   `;
   const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
