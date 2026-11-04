@@ -104,6 +104,23 @@ test('NON_READY and malformed result envelopes are rejected', () => {
   }), /NPC_CONTEXT_NON_READY/);
 });
 
+test('receiver rejects unassessed, disputed and insufficient evidence before projection', () => {
+  for (const evidence_assessment of ['unassessed', 'disputed', 'insufficient', 'unknown']) {
+    assert.throws(() => receiveNpcContext({
+      retrieval: retrieval({
+        admitted: [{
+          record_ref: 'memory:record-1',
+          record_version: 'v3',
+          epistemic_kind: 'acquired_report',
+          evidence_assessment,
+        }],
+        candidates: [candidate({ evidence_assessment })],
+      }),
+      hostContext, hostBinding, requestId, model: 'google/gemini-test',
+    }), /NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH/);
+  }
+});
+
 test('receiver rejects source-version, admission and scope mismatches', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ source_version: '' })] }),
