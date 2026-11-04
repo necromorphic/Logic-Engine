@@ -1451,6 +1451,7 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       '  readCoreEvidence: ({ worldId, actorId, sources }) => ({ head: 1, world_id: worldId, actor_id: actorId, readiness: "READY", inventory_status: "READY", policy_authority: { authority_id: "test-memory-policy", generation: 1, fingerprint: "' + 'd'.repeat(64) + '" }, sources }),',
       '  readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({ head: 1, world_id: worldId, actor_id: actorId, purpose, granted: true, readiness: "READY", sources, candidates, provider_evidence_cursor: providerEvidenceCursor }),',
       '  readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: "READY", adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),',
+      '  readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: "READY", adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),',
       '});',
       'const request = JSON.parse(requestJson);',
       'gateway.dispatchProtectedRequest({ ...request, transport: () => { appendFileSync(counterPath, "x"); process.stdout.write("HANDOFF\\n", () => process.exit(77)); return new Promise(() => {}); } });',
@@ -1544,6 +1545,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
+      readHostEvidence: () => ({}),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -1691,6 +1693,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: 1, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
+      readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: 'READY', adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),
     }), (outgoing) => () => {
       calls.push(outgoing);
       signalTransportStart();
@@ -1874,6 +1877,7 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
         sources,
         candidates,
       }),
+      readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: 'READY', adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),
     }), (request) => () => {
       calls.push(request);
       markTransportStarted();
