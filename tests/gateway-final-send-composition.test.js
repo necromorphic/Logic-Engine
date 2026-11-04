@@ -6,7 +6,7 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
   const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
   assert.match(source, /createEmbeddedGatewayRuntime/);
   assert.match(source, /createNpcGenerationContextHostBridge/);
-  assert.match(source, /npcBridge\.prepare\(request, response\)/);
+  assert.match(source, /npcBridge\.prepare\(request, response, signal\)/);
   assert.match(source, /npcBridge\.consume\(request, prepared\.response\)/);
   assert.match(source, /gateway: memoryEnabled \? registeredRuntime\.gateway : unavailableGateway/);
   assert.match(source, /runWithAuthenticatedHostSession: memoryEnabled/);
