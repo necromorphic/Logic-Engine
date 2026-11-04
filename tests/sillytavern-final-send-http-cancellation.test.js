@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -75,6 +73,8 @@ test('real HTTP disconnect during pending preparation prevents dispatch', async 
   let dispatchCalled = false;
   let hostFinishedResolve;
   const hostFinished = new Promise((resolve) => { hostFinishedResolve = resolve; });
+  let responseClosedResolve;
+  const responseClosed = new Promise((resolve) => { responseClosedResolve = resolve; });
   const adapter = makeAdapter({
     prepare: async () => {
       enteredPreparation();
@@ -87,6 +87,7 @@ test('real HTTP disconnect during pending preparation prevents dispatch', async 
   hook.registerLogicEngineFinalSendAdapter(adapter, owner);
 
   const host = http.createServer((request, response) => {
+    response.once('close', responseClosedResolve);
     void hook.runWithLogicEngineFinalSend(request, response, async () => {
       await hook.logicEngineFetch('http://127.0.0.1:1/unused', {});
     }).finally(hostFinishedResolve);
@@ -99,7 +100,7 @@ test('real HTTP disconnect during pending preparation prevents dispatch', async 
   try {
     await waitFor(preparationEntered, 'Host preparation');
     client.destroy();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitFor(responseClosed, 'Host response close');
     releasePreparation();
     await waitFor(hostFinished, 'Host request completion');
     assert.equal(dispatchCalled, false, 'dispatch must not start after cancellation during prepare');
