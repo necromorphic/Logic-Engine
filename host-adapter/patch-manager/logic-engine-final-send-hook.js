@@ -118,7 +118,7 @@ export function runWithLogicEngineFinalSend(request, response, handler) {
         try {
             if (abortController.signal.aborted) return undefined;
             try {
-                await active.adapter.prepare(request, response);
+                await active.adapter.prepare(request, response, abortController.signal);
             } catch {
                 if (abortController.signal.aborted || response.destroyed === true) return undefined;
                 if (!response.headersSent) {
