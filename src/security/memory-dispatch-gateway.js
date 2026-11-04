@@ -1085,6 +1085,7 @@ export class MemoryDispatchGateway {
             outcomeRelease();
           }
         }
+        cleanupAbortSignal();
         throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
       }
     }
@@ -1203,6 +1204,10 @@ export class MemoryDispatchGateway {
   }
 
   close() {
+    for (const context of this.pendingReleases.values()) {
+      try { context.cleanupAbortSignal?.(); } catch {}
+    }
+    this.pendingReleases.clear();
     try { this.db?.close(); } finally { this.coordinatorDb.close(); }
   }
 }
