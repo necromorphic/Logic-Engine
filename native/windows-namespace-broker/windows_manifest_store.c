@@ -453,38 +453,63 @@ static int le_win_store_read(
 }
 
 /*
- * Use the documented handle-relative rename API. RootDirectory remains the
- * retained metadata directory handle; no pathname-based fallback is allowed.
+ * Use FileRenameInformationEx with RootDirectory set to the retained metadata
+ * directory handle. No pathname-based fallback is permitted.
  */
+typedef NTSTATUS (NTAPI *le_nt_set_information_file_fn)(
+    HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, ULONG);
+
+typedef struct LE_FILE_RENAME_INFORMATION_EX {
+  ULONG Flags;
+  HANDLE RootDirectory;
+  ULONG FileNameLength;
+  WCHAR FileName[1];
+} LE_FILE_RENAME_INFORMATION_EX;
+
 static int le_win_rename_relative(
     HANDLE file, HANDLE directory, const wchar_t *target) {
-  FILE_RENAME_INFO *rename_info;
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  le_nt_set_information_file_fn set_information;
+  IO_STATUS_BLOCK io_status;
+  LE_FILE_RENAME_INFORMATION_EX *rename_info;
   size_t name_length;
   size_t buffer_length;
-  BOOL renamed;
-  if (!file || file == INVALID_HANDLE_VALUE
+  NTSTATUS status;
+  if (!ntdll || !file || file == INVALID_HANDLE_VALUE
       || !directory || directory == INVALID_HANDLE_VALUE
       || !target || !target[0]) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
   }
   name_length = wcslen(target) * sizeof(wchar_t);
-  buffer_length = sizeof(FILE_RENAME_INFO) + name_length;
+  buffer_length = sizeof(LE_FILE_RENAME_INFORMATION_EX) + name_length;
   if (name_length > 0xffffffffu || buffer_length > 0xffffffffu) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
   }
-  rename_info = (FILE_RENAME_INFO *)HeapAlloc(
+  set_information = (le_nt_set_information_file_fn)(void *)
+      GetProcAddress(ntdll, "NtSetInformationFile");
+  if (!set_information) {
+    SetLastError(ERROR_PROC_NOT_FOUND);
+    return 0;
+  }
+  rename_info = (LE_FILE_RENAME_INFORMATION_EX *)HeapAlloc(
       GetProcessHeap(), HEAP_ZERO_MEMORY, buffer_length);
   if (!rename_info) return 0;
-  rename_info->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
+  rename_info->Flags = 0x00000001u; /* FILE_RENAME_FLAG_REPLACE_IF_EXISTS */
   rename_info->RootDirectory = directory;
-  rename_info->FileNameLength = (DWORD)name_length;
+  rename_info->FileNameLength = (ULONG)name_length;
   memcpy(rename_info->FileName, target, name_length);
-  renamed = SetFileInformationByHandle(
-      file, FileRenameInfo, rename_info, (DWORD)buffer_length);
+  ZeroMemory(&io_status, sizeof(io_status));
+  /* Native FILE_INFORMATION_CLASS::FileRenameInformationEx is 65. */
+  status = set_information(file, &io_status, rename_info,
+      (ULONG)buffer_length, 65);
   HeapFree(GetProcessHeap(), 0, rename_info);
-  return renamed ? 1 : 0;
+  if (status < 0) {
+    SetLastError(logic_engine_win_status_to_error(status));
+    return 0;
+  }
+  return 1;
 }
 
 static int le_win_store_replace(
