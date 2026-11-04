@@ -126,6 +126,19 @@ test('receiver rejects unassessed, disputed and insufficient evidence before pro
   }
 });
 
+test('receiver does not project preserved but unadmitted evidence', () => {
+  const result = receiveNpcContext({
+    retrieval: retrieval({
+      admitted: [],
+      candidates: [candidate({ evidence_assessment: 'disputed' })],
+    }),
+    hostContext, hostBinding, requestId, model: 'google/gemini-test',
+  });
+  assert.deepEqual(result.sources, []);
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.contentBlocks, []);
+});
+
 test('receiver rejects source-version, admission and scope mismatches', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ source_version: '' })] }),
