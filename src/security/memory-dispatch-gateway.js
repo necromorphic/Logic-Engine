@@ -106,8 +106,8 @@ const eventTargetPrototype = typeof EventTarget === 'function' ? EventTarget.pro
 const eventTargetAddEventListener = eventTargetPrototype?.addEventListener;
 const eventTargetRemoveEventListener = eventTargetPrototype?.removeEventListener;
 
-function assertDispatchNotAborted(signal) {
-  if (signal === undefined || signal === null) return;
+function dispatchSignalIsAborted(signal) {
+  if (signal === undefined || signal === null) return false;
   if (typeof signal !== 'object' || isProxy(signal)
     || !abortSignalPrototype || typeof abortSignalAbortedGetter !== 'function') {
     throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
@@ -121,8 +121,16 @@ function assertDispatchNotAborted(signal) {
   } catch {
     throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
   }
-  if (aborted === true) throw new Error('MEMORY_DISPATCH_CANCELLED_BEFORE_START');
-  if (aborted !== false) throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  if (aborted !== true && aborted !== false) {
+    throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  }
+  return aborted;
+}
+
+function assertDispatchNotAborted(signal) {
+  if (dispatchSignalIsAborted(signal)) {
+    throw new Error('MEMORY_DISPATCH_CANCELLED_BEFORE_START');
+  }
 }
 
 function isSynchronousCallable(callback) {
@@ -926,6 +934,10 @@ export class MemoryDispatchGateway {
         throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
       }
 
+      // Evidence readers and Lane A revalidation are synchronous but may
+      // trigger caller cancellation. Recheck after all policy work and
+      // immediately before the durable dispatch boundary.
+      assertDispatchNotAborted(signal);
       this.db.exec('BEGIN IMMEDIATE');
       try {
         const duplicateRequestId = this.db.prepare(
@@ -989,7 +1001,7 @@ export class MemoryDispatchGateway {
       // It must initiate the final outbound request immediately and return the
       // response Promise; network I/O itself is awaited only after lock release.
       try {
-        if (signal?.aborted) {
+        if (dispatchSignalIsAborted(signal)) {
           this.#recordOutcome(requestId, 'UNKNOWN', null);
           cleanupAbortSignal();
           upstreamStartError = new Error('MEMORY_DISPATCH_CANCELLED_AFTER_START');
@@ -1029,7 +1041,7 @@ export class MemoryDispatchGateway {
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
-    if (signal?.aborted) {
+    if (dispatchSignalIsAborted(signal)) {
       cleanupAbortSignal();
       try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
@@ -1097,7 +1109,7 @@ export class MemoryDispatchGateway {
       port: this.authorityPort,
       token: this.readToken,
     });
-    if (context.signal?.aborted
+    if (dispatchSignalIsAborted(context.signal)
       || currentAuthority.pending.core || currentAuthority.pending.provider
       || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
       || currentAuthority.heads.core !== context.coreHead
