@@ -610,9 +610,9 @@ function assertSamePolicyAuthority(actual, expected) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state,
- * including the complete policy authority tuple. One logical chat-generation
- * route is shared by the explicit 26-family sender registry. There is no
- * fallback reader or transport.
+ * including the complete policy authority tuple. One logical protected generation
+ * route is shared by the explicit 30-identity sender registry (26 Chat Completions
+ * identities plus four additional text-generation handlers). There is no fallback reader or transport.
  */
 export class MemoryDispatchGateway {
   constructor({
