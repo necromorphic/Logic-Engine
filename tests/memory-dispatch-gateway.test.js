@@ -89,7 +89,10 @@ function installTestTransport(gateway, factory) {
   return gateway;
 }
 
-async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({
+  sendUpstream, createTransport, coreHead = 1, providerHead = 1,
+  initialProviderGrant = true, providerCandidatesOverride, onReadCoreEvidence,
+} = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -120,7 +123,9 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
     coordinatorPath,
     authorityPort: service.port,
     readToken,
-    readCoreEvidence: ({ worldId, actorId, sources }) => ({
+    readCoreEvidence: ({ worldId, actorId, sources }) => {
+      onReadCoreEvidence?.({ worldId, actorId, sources });
+      return {
       head: coreHead,
       world_id: worldId,
       actor_id: actorId,
@@ -128,7 +133,8 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       inventory_status: 'READY',
       policy_authority: policyAuthority,
       sources,
-    }),
+      };
+    },
     readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
       head: providerHead,
       world_id: worldId,
@@ -1350,6 +1356,44 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       'changing sender family must not bypass the unresolved request digest',
     );
     assert.equal(sends, 1);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('cancellation during Core evidence read is rechecked before durable start even when AbortSignal.aborted is shadowed', async () => {
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', {
+    configurable: true,
+    value: false,
+  });
+  let evidenceReads = 0;
+  const fixture = await createFixture({
+    onReadCoreEvidence: () => {
+      evidenceReads += 1;
+      if (evidenceReads === 1) controller.abort(new Error('cancelled during authorization'));
+    },
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancel-during-evidence-read', {
+        signal: controller.signal,
+      })),
+      /MEMORY_DISPATCH_CANCELLED_BEFORE_START/,
+    );
+    assert.equal(evidenceReads, 1);
+    assert.equal(fixture.calls.length, 0, 'cancellation during evidence authorization must produce zero egress');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE request_id=?')
+          .get('cancel-during-evidence-read').n,
+        0,
+        'cancelled authorization must not create DISPATCH_STARTED',
+      );
+    } finally {
+      db.close();
+    }
   } finally {
     await fixture.close();
   }
