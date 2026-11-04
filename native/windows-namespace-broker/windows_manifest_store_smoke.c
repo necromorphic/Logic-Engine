@@ -16,7 +16,7 @@ static int validate_test_json(const unsigned char *bytes, DWORD length, void *co
 }
 
 int main(void) {
-  wchar_t temp[MAX_PATH], directory[MAX_PATH];
+  wchar_t temp[MAX_PATH] = { 0 }, directory[MAX_PATH] = { 0 };
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
   DWORD manifest_length = 0, intent_length = 0;
@@ -34,13 +34,13 @@ int main(void) {
   SECURITY_ATTRIBUTES security_attributes;
   wchar_t sddl[512];
   stage = "GetTempPathW";
-  if (!GetTempPathW(LE_COUNT_OF(temp), temp)) return 2;
+  if (!GetTempPathW(LE_COUNT_OF(temp), temp)) goto done;
   stage = "construct temp directory";
   if (FAILED(StringCchPrintfW(directory, LE_COUNT_OF(directory),
       L"%sLogicEngineBrokerStore-%lu-%llu", temp,
-      GetCurrentProcessId(), GetTickCount64()))) return 3;
+      GetCurrentProcessId(), GetTickCount64()))) goto done;
   stage = "OpenProcessToken";
-  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return 4;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
   GetTokenInformation(token, TokenUser, NULL, 0, &token_bytes);
   stage = "read token user";
   if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || token_bytes == 0) goto done;
@@ -116,7 +116,7 @@ int main(void) {
   if (!le_win_namespace_delete_sidecar(store.directory, &sidecar, &sidecar_identity)) goto unlock_store;
   result = 0;
 unlock_store:
-  if (result != 0) fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\n", stage, (unsigned long)GetLastError());
+
   if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
   if (sidecar != INVALID_HANDLE_VALUE) CloseHandle(sidecar);
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
@@ -125,14 +125,19 @@ unlock_store:
 close_store:
   le_win_store_close(&store);
 done:
-  {
+  if (result != 0) {
+    fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\\n",
+        stage, (unsigned long)GetLastError());
+    fflush(stderr);
+  }
+  if (directory[0]) {
     wchar_t child[MAX_PATH];
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\manifest.json", directory))) DeleteFileW(child);
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\store.lock", directory))) DeleteFileW(child);
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\intent.json", directory))) DeleteFileW(child);
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\smoke-wal", directory))) DeleteFileW(child);
+    RemoveDirectoryW(directory);
   }
-  RemoveDirectoryW(directory);
   if (descriptor) LocalFree(descriptor);
   if (user_sid) LocalFree(user_sid);
   if (user) HeapFree(GetProcessHeap(), 0, user);
