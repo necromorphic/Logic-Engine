@@ -127,14 +127,26 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
       },
     },
   });
+  const pathByRoute = {
+    'text-completions': '/api/backends/text-completions/generate',
+    kobold: '/api/backends/kobold/generate',
+    'novelai-text': '/api/novelai/generate',
+    'horde-text': '/api/horde/generate-text',
+  };
   for (const hostRoute of routes) {
     const body = hostRoute === 'novelai-text' ? { input: 'original prompt' }
-      : hostRoute === 'horde-text' ? { params: { prompt: 'original prompt' } }
-        : { prompt: 'original prompt' };
-    const request = { body };
+      : { prompt: 'original prompt', model: 'test-model' };
+    const request = {
+      originalUrl: pathByRoute[hostRoute],
+      user: { profile: { handle: 'test-user' } },
+      session: { handle: 'test-user' },
+      body,
+    };
+    const response = {};
+    await adapter.prepare(request, response);
     const result = await adapter.dispatch({
       request,
-      response: {},
+      response,
       senderRoute: adapter.resolveSenderRoute(request, hostRoute),
       hostRoute,
       endpointUrl: 'https://provider.example/generate',
@@ -340,9 +352,11 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI' },
   };
-  await adapter.prepare(request, {});
+  const response = {};
+  await adapter.prepare(request, response);
   const result = await adapter.dispatch({
     request,
+    response,
     senderRoute: 'openai',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit,
