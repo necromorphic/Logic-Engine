@@ -176,6 +176,12 @@ export function createSillyTavernFinalSendAdapter({
 
       const prepared = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
+      if (prepared && prepared.response !== args.response) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_RESPONSE_CONTEXT_MISMATCH'));
+      }
       const execute = () => {
       let protectedMemory;
       try {
