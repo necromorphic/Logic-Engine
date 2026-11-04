@@ -306,11 +306,21 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         assert.equal(handoff.laneB.lane, 'B');
         assert.match(handoff.laneB.candidates[0].source_version, /^core-entity-v1:[1-9][0-9]*$/);
         assert.equal(handoff.revalidateLaneA().status, 'ready');
-        return { built, received, handoff };
+        const hostCoreContext = adapter.resolveAuthenticatedHostContext();
+        assert.deepEqual(hostCoreContext, {
+          adapter_id: adapterId,
+          conversation_id: conversationId,
+          world_id: worldId,
+          actor_id: actorId,
+          actor_type: 'character',
+        });
+        return { built, received, handoff, hostCoreContext };
       },
     );
     assert.equal(generation.built.context.lanes.lane_b.provider_purpose, 'npc_decision');
     assert.equal(generation.received.context, generation.built.context);
+    assert.equal(generation.hostCoreContext.actor_type, 'character');
+    assert.throws(() => adapter.resolveAuthenticatedHostContext(), /HOST_SESSION_AUTHENTICATION_REQUIRED/);
     assert.throws(() => adapter.runWithAuthenticatedHostSession(
       hostRequest, 'caller-selected-conversation', () => adapter.consumer.retrieveForNpc({
         worldId, actorEntityId: actorId, conversationId: 'caller-selected-conversation',
