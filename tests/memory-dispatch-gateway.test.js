@@ -1365,10 +1365,16 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-root-revision', {
         generationId: 'generation-ambiguous-request',
         replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
-        hostContext: Object.freeze({ ...hostContext, root_inventory_sequence: 2, root_manifest_sha256: '9'.repeat(64) }),
+        hostContext: Object.freeze({
+          ...hostContext,
+          host_session_id: '66666666-6666-4666-8666-666666666666',
+          core_conversation_id: '66666666-6666-4666-8666-666666666666:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
+          root_inventory_sequence: 2,
+          root_manifest_sha256: '9'.repeat(64),
+        }),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
-      'an unrelated Host root inventory revision must not reopen an UNKNOWN generation',
+      'Host root revision and session rotation must not reopen an UNKNOWN generation',
     );
     assert.equal(sends, 1);
   } finally {
