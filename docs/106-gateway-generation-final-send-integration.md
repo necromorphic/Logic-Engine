@@ -152,3 +152,8 @@ The current integration branch includes the fresh-account lifecycle genesis cons
 The native Final-Send Hook now treats Host preparation as a one-shot operation for the exact Express request object. The adapter reserves that request before awaiting asynchronous inventory/context preparation. A second or concurrent preparation attempt is terminal, and a failed preparation cannot be retried on the same request object to obtain a different context or response binding. The resulting preparation remains bound to the exact response object and resolved Host route; dispatch cannot switch either after preparation.
 
 Regression coverage includes duplicate preparation, concurrent preparation, failed-preparation retry, response-object substitution, and route substitution. This is a request-lifecycle integrity guard; it does not replace the Gateway's evidence lease, durable dispatch ledger, or final response revalidation.
+
+
+## 4 Nov 2026 — Native Host route propagation
+
+The pinned Final-Send hook now derives the Host generation route from the authenticated request path and passes that same route to sender resolution and Core dispatch. This prevents native text-completions, Kobold, NovelAI, and Horde generation requests from being misclassified as Chat Completions at the hook boundary. A hook-level regression test verifies the route survives through dispatch. The route remains bound to the one-shot Host preparation context; unknown routes retain the fail-closed behavior.
