@@ -1020,6 +1020,75 @@ test('all protected sender families share one real Gateway and each causes exact
   }
 });
 
+test('Gateway migrates sender constraints to the complete registry without losing dispatch history', async () => {
+  const fixture = await createFixture();
+  try {
+    const legacyRequest = validRequest('legacy-horde-before-sender-migration', {
+      senderRoute: 'horde-text',
+    });
+    await fixture.gateway.dispatchProtectedRequest(legacyRequest);
+    fixture.gateway.authorizeResponseWrite(legacyRequest.requestId, () => undefined, { final: true });
+    fixture.gateway.close();
+
+    const legacy = new DatabaseSync(fixture.ledgerPath);
+    try {
+      legacy.exec(`
+        BEGIN IMMEDIATE;
+        DROP INDEX dispatch_ledger_status_started;
+        DROP INDEX dispatch_ledger_unresolved_digest;
+        ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_before_sender_migration;
+        CREATE TABLE dispatch_ledger (
+          request_id TEXT PRIMARY KEY,
+          request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
+          route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+          sender_route TEXT NOT NULL CHECK(sender_route IN ('claude','google-ai-studio','vertex-ai','ai21','mistral','cohere','deepseek','xai','aimlapi','electronhub','chutes','minimax','azure-openai','openai','openrouter','custom','perplexity','groq','fireworks','nanogpt','pollinations','moonshot','zai','siliconflow','workers-ai','text-completions','kobold','novelai-text','horde-text')),
+          model TEXT NOT NULL,
+          stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+          world_id TEXT NOT NULL,
+          actor_id TEXT NOT NULL,
+          purpose TEXT NOT NULL,
+          sources_json TEXT NOT NULL,
+          candidates_json TEXT NOT NULL,
+          core_head INTEGER NOT NULL CHECK(core_head > 0),
+          provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+          policy_authority_id TEXT NOT NULL,
+          policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+          policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
+          status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
+          outcome_code INTEGER,
+          started_at TEXT NOT NULL,
+          finished_at TEXT
+        );
+        INSERT INTO dispatch_ledger SELECT * FROM dispatch_ledger_before_sender_migration;
+        DROP TABLE dispatch_ledger_before_sender_migration;
+        CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+        CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+          ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+        COMMIT;
+      `);
+    } finally {
+      legacy.close();
+    }
+
+    fixture.reopenGateway();
+    const history = fixture.gateway.db.prepare(
+      'SELECT sender_route,status FROM dispatch_ledger WHERE request_id=?',
+    ).get(legacyRequest.requestId);
+    assert.deepEqual(history, { sender_route: 'horde-text', status: 'COMPLETED' });
+
+    const expandedRequest = validRequest('cometapi-after-sender-migration', {
+      senderRoute: 'cometapi',
+    });
+    await fixture.gateway.dispatchProtectedRequest(expandedRequest);
+    fixture.gateway.authorizeResponseWrite(expandedRequest.requestId, () => undefined, { final: true });
+    assert.equal(fixture.gateway.db.prepare(
+      'SELECT sender_route FROM dispatch_ledger WHERE request_id=?',
+    ).get(expandedRequest.requestId).sender_route, 'cometapi');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('FINAL RESPONSE REVALIDATION blocks Host release after Provider revoke during upstream send', async () => {
   let releaseTransport;
   const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
