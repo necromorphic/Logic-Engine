@@ -214,28 +214,26 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
         }
       };
       let result;
+      // Prefer a process-shared role if the worker sees it. If this Node build
+      // has an isolate-local VFS registry, the first write fails closed and
+      // this worker must enroll its own exact path before retrying.
       try {
-        // Prefer a process-shared role if the worker sees it. If this Node build
-        // has an isolate-local VFS registry, the first write fails closed and
-        // this worker must enroll its own exact path before retrying.
+        result = openAndCreate();
+      } catch {
+        const localRegistry = new DatabaseSync(':memory:');
         try {
-          result = openAndCreate();
-        } catch {
-          const localRegistry = new DatabaseSync(':memory:');
-          try {
-            const enrollment = localRegistry.prepare(
-              'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
-            ).get(workerData.path, 'worker');
-            if (enrollment.registered !== 1) {
-              throw new Error('Worker-local VFS role enrollment was not accepted');
-            }
-            result = openAndCreate();
-          } finally {
-            localRegistry.close();
+          const enrollment = localRegistry.prepare(
+            'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
+          ).get(workerData.path, 'worker');
+          if (enrollment.registered !== 1) {
+            throw new Error('Worker-local VFS role enrollment was not accepted');
           }
+          result = openAndCreate();
+        } finally {
+          localRegistry.close();
         }
-        parentPort.postMessage(result);
       }
+      parentPort.postMessage(result);
     `, { eval: true, workerData: { extensionPath, path: workerPath } });
     worker.once('message', resolve);
     worker.once('error', reject);
