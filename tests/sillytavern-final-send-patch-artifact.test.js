@@ -73,7 +73,7 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /new AbortController\(\)/);
   assert.match(source, /request\.once\?\.\('aborted'/);
   assert.match(source, /response\.once\?\.\('close'/);
-  assert.match(source, /response\.once\?\.\('close', cleanup'\)/);
+  assert.match(source, /response\.once\?\.\('close', cleanup\)/);
   assert.match(source, /abortController\.signal\.aborted \|\| response\.destroyed === true/);
   assert.match(source, /AbortSignal\.any\(\[requestInit\.signal, active\.abortController\.signal\]\)/);
   assert.match(source, /requestInit: outboundInit/);
