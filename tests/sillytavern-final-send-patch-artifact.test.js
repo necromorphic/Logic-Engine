@@ -70,6 +70,11 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   }
   assert.match(source, /response\.write = function/);
   assert.match(source, /response\.end = function/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /request\.once\?\.\('aborted'/);
+  assert.match(source, /response\.once\?\.\('close'/);
+  assert.match(source, /AbortSignal\.any\(\[requestInit\.signal, active\.abortController\.signal\]\)/);
+  assert.match(source, /requestInit: outboundInit/);
   assert.match(source, /hostTransformsStream/);
   assert.ok(source.includes("from '../logic-engine-final-send-hook.js'"),
     'endpoint modules must resolve the Hook from src/endpoints to src/');
