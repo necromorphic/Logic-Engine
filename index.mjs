@@ -50,7 +50,7 @@ function createNpcBridge(providerAdapter) {
   });
 }
 
-function buildProtectedMemory(request, prepared, npcBridge) {
+export function buildProtectedMemory(request, prepared, npcBridge) {
   const preparedHostContext = prepared?.hostContext;
   const host = preparedHostContext?.host;
   if (preparedHostContext?.status !== 'READY' || !host || !prepared.response) return undefined;
