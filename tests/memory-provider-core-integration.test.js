@@ -855,7 +855,8 @@ test('Core Host-conversation revoke at the final authorization fence blocks resu
     actorEntityId: s.scope.subject_id,
     conversationId: HOST_CONVERSATION_ID,
   }), /HOST_SESSION_REVOKED/);
-  assert.equal(checks, 6);
+  // The live binding fence detects the revoke before invoking the authorizer again.
+  assert.equal(checks, 5);
 });
 
 test('Provider revoke during the final field-bearing Core read blocks result envelope', async (t) => {
