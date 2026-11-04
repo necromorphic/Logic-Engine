@@ -83,7 +83,7 @@ export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
   'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
   'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
   'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
-  'workers-ai', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
+  'workers-ai', 'cometapi', 'text-completions', 'kobold', 'novelai-text',
 ]);
 
 const intrinsicFunctionToString = Function.prototype.toString;
@@ -593,7 +593,7 @@ function assertSamePolicyAuthority(actual, expected) {
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state,
  * including the complete policy authority tuple. One logical chat-generation
- * route is shared by the explicit 25-family sender registry. There is no
+ * route is shared by the explicit 26-family sender registry. There is no
  * fallback reader or transport.
  */
 export class MemoryDispatchGateway {
