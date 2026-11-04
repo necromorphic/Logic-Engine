@@ -342,10 +342,20 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     if (typeof protectedMemory.then === 'function') throw new Error('MEMORY_DISPATCH_NOT_READY');
     if (protectedMemory.laneA !== undefined && protectedMemory.laneA !== null) {
       const laneA = snapshotDataRecord(protectedMemory.laneA, 'MEMORY_DISPATCH_NOT_READY');
-      const safeContext = Object.assign(Object.create(null), protectedMemory);
-      Object.defineProperty(safeContext, 'laneA', {
-        value: laneA, enumerable: true, writable: false, configurable: false,
-      });
+      const safeContext = Object.create(null);
+      const contextKeys = Reflect.ownKeys(protectedMemory);
+      for (let index = 0; index < contextKeys.length; index += 1) {
+        const key = contextKeys[index];
+        if (typeof key !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
+        const descriptor = Object.getOwnPropertyDescriptor(protectedMemory, key);
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        Object.defineProperty(safeContext, key, {
+          value: key === 'laneA' ? laneA : descriptor.value,
+          enumerable: true, writable: false, configurable: false,
+        });
+      }
       protectedMemory = Object.freeze(safeContext);
     }
 
