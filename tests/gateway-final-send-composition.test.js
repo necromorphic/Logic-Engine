@@ -103,3 +103,13 @@ test('final response revalidation re-reads Host root authority before every prot
   assert.match(release, /currentHost\.root_manifest_sha256 !== context\.hostContext\.root_manifest_sha256/);
   assert.match(gateway, /this\.#revalidateReleaseContext\(context, release\)/);
 });
+
+test('Horde model identity is resolved from the native request body, not a nonexistent params envelope', async () => {
+  const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('function resolveRequestModel(request, prepared) {');
+  const end = source.indexOf('\n}\n', start);
+  assert.ok(start >= 0 && end > start);
+  const resolver = source.slice(start, end);
+  assert.match(resolver, /const body = request\?\.body;/);
+  assert.doesNotMatch(resolver, /request\?\.body\?\.params/);
+});
