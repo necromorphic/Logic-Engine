@@ -388,7 +388,7 @@ function assertSameProviderEvidenceCursor(current, expected) {
 
 function readDispatchInput(value) {
   const required = [
-    'requestId', 'generationId', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
+    'requestId', 'generationId', 'replayIdentity', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
     'actorId', 'purpose', 'sources', 'candidates', 'providerEvidenceCursor',
     'laneA', 'hostContext', 'transport',
   ];
@@ -785,11 +785,12 @@ export class MemoryDispatchGateway {
 
   async dispatchProtectedRequest(input) {
     const {
-      requestId, generationId, route, senderRoute, model, stream, body, worldId, actorId, purpose,
+      requestId, generationId, replayIdentity, route, senderRoute, model, stream, body, worldId, actorId, purpose,
       sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
       transport, forwardResponse, hostTransformsStream = false, signal,
     } = readDispatchInput(input);
     if (!validText(requestId, 200) || !validText(generationId, 200)
+      || typeof replayIdentity !== 'string' || !/^[a-f0-9]{64}$/.test(replayIdentity)
       || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
       || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
@@ -815,12 +816,11 @@ export class MemoryDispatchGateway {
     }
     const hostContextSnapshot = normalizeHostContext(hostContext);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
-    // Replay identity is the Host-created generation ID bound to this exact
-    // authenticated conversation and Core scope. Provider, model, stream mode,
-    // serialized body and evidence projection are deliberately excluded: none
-    // of those may mint a second send after an ambiguous first handoff.
+    // Replay identity is derived from the original Host prompt before
+    // provider transforms. It is stable across provider/model/body serialization
+    // changes and is scoped to the authenticated conversation and Core actor.
     const requestDigest = createHash('sha256').update(JSON.stringify({
-      generation_id: generationId,
+      replay_identity: replayIdentity,
       world_id: worldId,
       actor_id: actorId,
       purpose,
