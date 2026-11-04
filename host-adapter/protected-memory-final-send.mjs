@@ -290,7 +290,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   }
   return serialized;
 }
-function createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute) {
+export function createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute) {
   let body = hostRequestContext?.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch {
@@ -351,6 +351,7 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
     requestInit,
     hostRequestContext,
     hostRoute,
+    replayIdentity: replayIdentityOverride,
     stream = false,
     forwardResponse,
     transport: transportImpl,
@@ -417,7 +418,10 @@ export function createProtectedMemoryFinalSend({ gateway, resolveProtectedMemory
       protectedMemory.laneA?.items ?? [], protectedMemory.contentBlocks ?? []);
     const model = protectedMemory.model;
     const controllerSignal = requestInit.signal;
-    const replayIdentity = createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute);
+    const replayIdentity = replayIdentityOverride ?? createHostReplayIdentity(hostRequestContext, hostRoute, senderRoute);
+    if (typeof replayIdentity !== 'string' || !/^[a-f0-9]{64}$/.test(replayIdentity)) {
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+    }
     const transport = () => {
       // Calling fetchImpl is the actual transport handoff. This function is
       // deliberately non-async so the handoff happens synchronously under the
