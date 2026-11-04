@@ -21,7 +21,7 @@ test('server plugin refuses legacy parallel-manager state before touching the sh
 
 test('server plugin composes authenticated Host, embedded Gateway and one-shot NPC handoff', () => {
   assert.match(source, /createSillyTavernHostAdapter/);
-  assert.match(source, /prepareGenerationContext\(request, hostRoute\)/);
+  assert.match(source, /hostAdapter\.prepareGenerationContext\(request, hostRoute, signal\)/);
   assert.match(source, /createEmbeddedGatewayRuntime/);
   assert.match(source, /createNpcGenerationContextHostBridge/);
   assert.match(source, /npcBridge\.prepare\(request, response\)/);
