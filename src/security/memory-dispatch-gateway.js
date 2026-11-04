@@ -819,7 +819,9 @@ export class MemoryDispatchGateway {
     // The signed envelope and ledger still bind the exact sender route.
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
-      model,
+      // Model and sender identity are mutable routing choices, not replay
+      // identity. An UNKNOWN request must not be resent merely by selecting a
+      // different model or provider for the same serialized generation body.
       stream,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
       world_id: worldId,
