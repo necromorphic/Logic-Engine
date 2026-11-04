@@ -1350,6 +1350,7 @@ test('serialized Gateway endpoint rejects dispatch because it cannot carry an in
       world_id: request.worldId,
       actor_id: request.actorId,
       purpose: request.purpose,
+      host_context: request.hostContext,
       sources: request.sources,
       candidates: request.candidates,
       signature: createDispatchRequestSignature(signingKey, request),
