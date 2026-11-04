@@ -10,6 +10,7 @@ The Core Memory NPC adapter exposes `npcGenerationContext` only when the deploym
 
 - Lane A: complete Core knowledge-acquisition read, independently filtered by per-acquisition visibility authorization.
 - Lane B: MemoryNpcConsumer result, retaining Core purpose `npc_turn_context`, Provider purpose `npc_decision`, admission, grants and canonical source-version lineage. It also retains the Provider's complete-result cursor (`data_version` + `candidate_digest`) through immutable context, revalidation and `HostBridge.consume()` as `laneB.provider_evidence_cursor`.
+- Lane B admission is supported-only: only candidates marked `evidence_assessment=supported` may appear in the immutable context or Gateway projection. Unsupported assessments are excluded by the admission oracle and independently rejected by the Context Builder.
 - The Builder freezes copied data and keeps both lanes separate. Memory evidence is not promoted to canonical truth.
 
 ## Handoff
