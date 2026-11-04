@@ -2192,7 +2192,7 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
         return SQLITE_IOERR_DELETE;
       probe_counter_increment(&g_race_injection_count);
     }
-    if (kind > 0 && sidecar_info.st_nlink > 1) {
+    if (kind > 0) {
       struct stat retained_info;
       retained_sidecar_fd = openat(role->trusted_parent_fd, relative_name,
           O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
@@ -2218,7 +2218,11 @@ static int probe_xDelete(sqlite3_vfs *vfs, const char *name, int sync_dir) {
         if (entry->role_index == role_index && entry->kind == kind
             && entry->device == sidecar_info.st_dev
             && entry->inode == sidecar_info.st_ino) {
-          if (sidecar_info.st_nlink > 1) {
+          struct stat retained_after_delete;
+          int has_external_link = retained_sidecar_fd >= 0
+            && fstat(retained_sidecar_fd, &retained_after_delete) == 0
+            && retained_after_delete.st_nlink > 0;
+          if (has_external_link) {
             entry->retired = 1;
             entry->retained_fd = retained_sidecar_fd;
             retained_sidecar_fd = -1;
