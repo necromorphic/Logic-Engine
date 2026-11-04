@@ -135,7 +135,7 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
       });
       let payload;
       try { payload = await upstream.json(); } catch {
@@ -326,7 +326,10 @@ export function createHostRootInventoryPersistence({
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
-  return async function persistHostRootInventory({ userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity }) {
+  return async function persistHostRootInventory({ userHandle, rootPath, entries, snapshotAlignment, snapshotSha256, sourceIdentity, signal }) {
+    const cancelled = () => signal?.aborted === true;
+    if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
+    const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     const target = configuredTarget(env);
     if (!target) return { status: 'NON_READY', reason: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' };
     if (!validId(userHandle) || typeof rootPath !== 'string' || !pathModule.isAbsolute(rootPath)
@@ -341,8 +344,10 @@ export function createHostRootInventoryPersistence({
     let identity;
     try {
       await identityStore.assertOutsideRoot(dataRoot);
+      if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
       identity = await identityStore.resolveAuthenticatedAccount(userHandle);
-    } catch { return { status: 'NON_READY', reason: 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
+      if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
+    } catch { return { status: 'NON_READY', reason: cancelled() ? 'HOST_GENERATION_CANCELLED' : 'HOST_ROOT_IDENTITY_UNAVAILABLE' }; }
     if (!identity || typeof identity.host_installation_id !== 'string'
       || !HOST_SESSION_UUID.test(identity.host_installation_id)
       || typeof identity.authenticated_account_id !== 'string'
@@ -417,6 +422,7 @@ export function createHostRootInventoryPersistence({
       }
       const attestationUrl = new URL(target.url);
       attestationUrl.pathname = '/v1/host-root-inventory/attest';
+      if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
       const attestationResponse = await fetchImpl(attestationUrl, {
         method: 'POST',
         headers: {
@@ -433,6 +439,7 @@ export function createHostRootInventoryPersistence({
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
+      if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
       let attestationPayload;
       try { attestationPayload = await attestationResponse.json(); }
       catch { return { status: 'NON_READY', reason: 'LOGIC_ENGINE_INVALID_ATTESTATION_RESPONSE' }; }
@@ -447,7 +454,7 @@ export function createHostRootInventoryPersistence({
       }
       return normalizeRootInventoryResponse({ status: attestationResponse.status, payload: attestationPayload });
     } catch {
-      return { status: 'NON_READY', reason: 'LOGIC_ENGINE_UNREACHABLE' };
+      return { status: 'NON_READY', reason: cancelled() ? 'HOST_GENERATION_CANCELLED' : 'LOGIC_ENGINE_UNREACHABLE' };
     }
   };
 }
