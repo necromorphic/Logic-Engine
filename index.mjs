@@ -63,10 +63,16 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   const laneA = context.lanes?.lane_a;
   const laneBContext = context.lanes?.lane_b;
   if (!laneA || !Array.isArray(laneA.items) || !laneBContext
-    || laneBContext.status !== 'ready' || !Array.isArray(laneBContext.candidates)) {
+    || laneBContext.status !== 'ready' || !Array.isArray(laneBContext.candidates)
+    || !Array.isArray(accepted.laneB.sources) || !Array.isArray(accepted.laneB.candidates)
+    || accepted.laneB.candidates.length !== laneBContext.candidates.length) {
     return undefined;
   }
 
+  // The content projected into the outbound prompt must be one-for-one with
+  // the candidate identities independently admitted by Core/Provider evidence.
+  // A mismatch is terminal; never send prompt content that has no matching
+  // dispatch candidate in the Gateway authorization set.
   // Lane A and Lane B remain distinct in the provider request. Final-Send
   // serializes each lane under its own label and preserves Lane A provenance.
 
