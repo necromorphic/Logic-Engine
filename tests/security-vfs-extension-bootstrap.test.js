@@ -200,11 +200,31 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       } finally {
         bootstrap.close();
       }
-      const db = new DatabaseSync(workerData.path);
+      const diagnosticsDb = new DatabaseSync(':memory:');
+      let diagnostics;
+      try {
+        diagnostics = diagnosticsDb.prepare(`
+          SELECT
+            logic_engine_vfs_probe_open_count() AS openCount,
+            logic_engine_vfs_probe_native_open_count() AS nativeOpenCount,
+            logic_engine_vfs_probe_identity_reject_count() AS identityRejects,
+            logic_engine_vfs_probe_has_syscall('open') AS openHook
+        `).get();
+      } finally {
+        diagnosticsDb.close();
+      }
+      let db;
+      try {
+        db = new DatabaseSync(workerData.path);
+      } catch (error) {
+        parentPort.postMessage({ openError: error.message, diagnostics });
+        return;
+      }
       let result;
       try {
         db.exec('CREATE TABLE worker_probe(value TEXT);');
         result = {
+          ...diagnostics,
           openCount: db.prepare('SELECT logic_engine_vfs_probe_open_count() AS count').get().count,
           sqliteVersion: db.prepare('SELECT sqlite_version() AS version').get().version
         };
@@ -219,6 +239,8 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       if (code !== 0) reject(new Error(`VFS worker exited with code ${code}`));
     });
   });
+  assert.equal(workerResult.openError, undefined,
+    'worker file-backed open failed: ' + JSON.stringify(workerResult));
   assert.ok(workerResult.openCount > 0,
     'a worker thread must route its file-backed DatabaseSync through the registered VFS');
   assert.equal(workerResult.sqliteVersion, '3.47.2');
