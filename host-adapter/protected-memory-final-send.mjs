@@ -228,6 +228,7 @@ function renderNpcContext(laneAItems, contentBlocks) {
       const content = Object.getOwnPropertyDescriptor(block, 'content');
       if (!epistemic || !Object.hasOwn(epistemic, 'value')
         || !assessment || !Object.hasOwn(assessment, 'value')
+        || assessment.value !== 'supported'
         || !content || !Object.hasOwn(content, 'value')) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
       }
