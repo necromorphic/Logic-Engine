@@ -60,6 +60,7 @@ test('Host inventory route persists digest-only root baselines and deltas throug
   const coordinatorPath = join(coreDirectory, 'coordinator.sqlite');
   await Promise.all([
     mkdir(join(root, 'chats'), { recursive: true }),
+    mkdir(join(root, 'extensions'), { recursive: true }),
     mkdir(identityDirectory, { recursive: true }),
     mkdir(coreDirectory, { recursive: true }),
   ]);
@@ -165,7 +166,7 @@ test('Host inventory route persists digest-only root baselines and deltas throug
     persistRootInventory,
   });
   const request = {
-    user: { profile: { handle: 'Harness User' }, directories: { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'group chats') } },
+    user: { profile: { handle: 'Harness User' }, directories: { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'group chats'), extensions: join(root, 'extensions') } },
     session: { handle: 'Harness User', logicEngineSessionId: SESSION_ID, logicEngineSessionHandle: 'Harness User' },
     query: { conversation_uuid: CONVERSATION_UUID },
   };
