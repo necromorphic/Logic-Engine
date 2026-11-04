@@ -98,11 +98,36 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,199 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
 +const generationContext = new AsyncLocalStorage();
++function composeAbortSignals(signals, registerCleanup) {
++    const controller = new AbortController();
++    const subscriptions = [];
++    const cleanup = () => {
++        for (const [signal, listener] of subscriptions.splice(0)) {
++            signal.removeEventListener('abort', listener);
++        }
++    };
++    for (const signal of signals) {
++        if (!signal) continue;
++        if (signal.aborted) {
++            controller.abort(signal.reason);
++            cleanup();
++            break;
++        }
++        const listener = () => {
++            if (!controller.signal.aborted) controller.abort(signal.reason);
++            cleanup();
++        };
++        signal.addEventListener('abort', listener, { once: true });
++        subscriptions.push([signal, listener]);
++    }
++    registerCleanup(cleanup);
++    return controller.signal;
++}
 +let adapter = null;
 +let adapterOwner = null;
 +
@@ -151,6 +176,29 @@
 +    // process-wide registration while Node still has queued response/socket
 +    // callbacks; those callbacks must retain the original final-send authority.
 +    const responseAdapter = adapter;
++    const abortController = new AbortController();
++    const abortGeneration = () => {
++        if (!response.writableEnded && !abortController.signal.aborted) {
++            abortController.abort(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
++        }
++    };
++    const cleanupCallbacks = [];
++    const cleanup = () => {
++        request.off?.('aborted', abortGeneration);
++        request.off?.('aborted', cleanup);
++        response.off?.('close', abortGeneration);
++        response.off?.('close', cleanup);
++        response.off?.('finish', cleanup);
++        for (const callback of cleanupCallbacks.splice(0)) {
++            try { callback(); } catch {}
++        }
++    };
++    request.once?.('aborted', abortGeneration);
++    request.once?.('aborted', cleanup);
++    response.once?.('close', abortGeneration);
++    response.once?.('close', cleanup);
++    response.once?.('finish', cleanup);
++    if (request.aborted === true || (response.destroyed === true && response.writableEnded !== true)) abortGeneration();
 +    if (typeof responseAdapter.authorizeResponseWrite === 'function') {
 +        const nativeWrite = response.write.bind(response);
 +        const nativeEnd = response.end.bind(response);
@@ -161,12 +209,19 @@
 +            return responseAdapter.authorizeResponseWrite(response, () => nativeEnd(...args), true);
 +        };
 +    }
-+    return generationContext.run({ request, response, adapter, route, protectedForward: null, prepared: false }, async () => {
++    const activeContext = {
++        request, response, adapter: responseAdapter, route,
++        protectedForward: null, prepared: false, abortController, cleanupCallbacks,
++    };
++    return generationContext.run(activeContext, async () => {
 +        try {
-+            await adapter.prepare(request, response);
++            if (abortController.signal.aborted) return;
++            await responseAdapter.prepare(request, response);
++            if (abortController.signal.aborted) return;
 +            const active = generationContext.getStore();
 +            if (active) active.prepared = true;
 +        } catch {
++            if (abortController.signal.aborted || response.destroyed === true) return;
 +            if (!response.headersSent) {
 +                response.set('cache-control', 'no-store');
 +                response.status(503).send({ error: { code: 'LOGIC_ENGINE_HOST_PREPARATION_FAILED' } });
@@ -178,6 +233,7 @@
 +        try {
 +            return await handler();
 +        } catch (error) {
++            if (abortController.signal.aborted || response.destroyed === true) return;
 +            if (error?.logicEngineFinalSendTerminal === true) {
 +                if (typeof response.destroy === 'function' && !response.destroyed) response.destroy();
 +                return;
@@ -202,7 +258,13 @@
 +        ? Boolean(body.streaming)
 +        : active.route === 'horde-text' ? false : Boolean(body.stream);
 +    const hostTransformsStream = active.route === 'text-completions' && body.api_type === 'ollama' && stream;
-+    const transport = () => nativeFetch(endpointUrl, requestInit);
++    // Propagate a disconnected Host client to the real provider request.
++    const signal = requestInit?.signal
++        ? composeAbortSignals([requestInit.signal, active.abortController.signal],
++            (cleanup) => active.cleanupCallbacks.push(cleanup))
++        : active.abortController.signal;
++    const outboundInit = { ...requestInit, signal };
++    const transport = () => nativeFetch(endpointUrl, outboundInit);
 +    const forwardResponse = stream ? (upstream) => {
 +        if (active.protectedForward) return active.protectedForward;
 +        const pending = active.adapter.forwardResponse(upstream, active.response);
@@ -215,7 +277,7 @@
 +        senderRoute,
 +        hostRoute: active.route,
 +        endpointUrl,
-+        requestInit,
++        requestInit: outboundInit,
 +        stream,
 +        transport,
 +        forwardResponse,
