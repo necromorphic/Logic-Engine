@@ -18,6 +18,10 @@ const hostBinding = Object.freeze({
   root_id: 'a'.repeat(64),
   root_inventory_sequence: 1,
   root_manifest_sha256: 'b'.repeat(64),
+  adapter_id: 'st-gateway',
+  world_id: 'world-main',
+  actor_id: 'actor-npc',
+  actor_type: 'npc',
 });
 const requestId = '44444444-4444-4444-8444-444444444444';
 const candidate = (overrides = {}) => ({
@@ -42,6 +46,7 @@ const retrieval = (overrides = {}) => ({
   candidates: [candidate()],
   reason: null,
   snapshot: { world_revision: 12, commit_sequence: 19 },
+  provider_evidence_cursor: { data_version: 23, candidate_digest: 'c'.repeat(64) },
   ...overrides,
 });
 
