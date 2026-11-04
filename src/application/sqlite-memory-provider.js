@@ -1553,10 +1553,17 @@ export class SQLiteMemoryProvider {
       SELECT index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code
       FROM memory_index_state WHERE world_id=?
     `).get(worldId);
+    // Snapshot columns are persisted as TEXT to avoid SQLite integer coercion.
+    // Convert their canonical decimal representation back to safe integers
+    // before validating or hashing the same snapshot returned by retrieval.
+    const snapshotRevision = Number(indexState?.snapshot_revision);
+    const snapshotSequence = Number(indexState?.snapshot_sequence);
     if (!indexState || indexState.index_health !== 'ready'
       || indexState.source_reconciliation !== 'current'
-      || !Number.isSafeInteger(indexState.snapshot_revision)
-      || !Number.isSafeInteger(indexState.snapshot_sequence)
+      || !/^(0|[1-9][0-9]*)$/.test(String(indexState.snapshot_revision))
+      || !/^(0|[1-9][0-9]*)$/.test(String(indexState.snapshot_sequence))
+      || !Number.isSafeInteger(snapshotRevision)
+      || !Number.isSafeInteger(snapshotSequence)
       || indexState.failure_code !== null) {
       throw new Error('PROVIDER_DISPATCH_INDEX_NOT_READY');
     }
