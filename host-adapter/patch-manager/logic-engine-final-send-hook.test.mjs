@@ -86,6 +86,7 @@ test('Host disconnect during preparation prevents provider dispatch', async () =
     const pending = runWithLogicEngineFinalSend(request, response, () => {
       throw new Error('native sender must not run after disconnect');
     });
+    await new Promise((resolve) => setImmediate(resolve));
     response.emit('close');
     finishPreparation();
     assert.equal(await pending, undefined);
