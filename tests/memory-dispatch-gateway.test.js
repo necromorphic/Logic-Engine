@@ -193,6 +193,7 @@ async function dispatchAndRelease(gateway, request) {
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
+  generationId: 'generation-' + requestId,
   route: 'host-selected-chat-generation',
   senderRoute: 'google-ai-studio',
   model: 'selected-model',
