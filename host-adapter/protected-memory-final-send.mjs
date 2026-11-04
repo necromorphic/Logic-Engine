@@ -184,7 +184,7 @@ function projectLaneAItems(items) {
       fact_id: values.fact_id,
       subject_ref: values.subject_ref,
       predicate: values.predicate,
-      value: values.value,
+      value: snapshotFinalSendJsonValue(values.value),
       acquisition_kind: values.acquisition_kind,
       provenance_ref: values.provenance_ref,
       provenance_digest: values.provenance_digest,
@@ -201,7 +201,7 @@ function projectLaneAItems(items) {
 
 const LANE_B_EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
 
-function snapshotLaneBContent(value, depth = 0, state = { nodes: 0, ancestors: [] }) {
+function snapshotFinalSendJsonValue(value, depth = 0, state = { nodes: 0, ancestors: [] }) {
   state.nodes += 1;
   if (state.nodes > 10_000 || depth > 32) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
@@ -218,7 +218,7 @@ function snapshotLaneBContent(value, depth = 0, state = { nodes: 0, ancestors: [
       for (let index = 0; index < value.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
-        result[index] = snapshotLaneBContent(descriptor.value, depth + 1, state);
+        result[index] = snapshotFinalSendJsonValue(descriptor.value, depth + 1, state);
       }
       return result;
     }
@@ -232,7 +232,7 @@ function snapshotLaneBContent(value, depth = 0, state = { nodes: 0, ancestors: [
       if (typeof key !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
-      Object.defineProperty(result, key, { value: snapshotLaneBContent(descriptor.value, depth + 1, state), enumerable: true, writable: false, configurable: false });
+      Object.defineProperty(result, key, { value: snapshotFinalSendJsonValue(descriptor.value, depth + 1, state), enumerable: true, writable: false, configurable: false });
     }
     return result;
   } finally { state.ancestors.length -= 1; }
@@ -277,7 +277,7 @@ function renderNpcContext(laneAItems, contentBlocks) {
       bounded[bounded.length] = {
         epistemic_kind: epistemic.value,
         evidence_assessment: assessment.value,
-        content: snapshotLaneBContent(content.value),
+        content: snapshotFinalSendJsonValue(content.value),
       };
     }
     sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\n'
