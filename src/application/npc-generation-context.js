@@ -236,10 +236,13 @@ export function createNpcGenerationContextBuilder({
     if (typeof dependencies[name] !== 'function') throw new TypeError(name + ' must be a trusted Core callback');
   }
 
-  async function build(request) {
+  async function build(request, { signal } = {}) {
+    const cancelled = () => signal?.aborted === true;
+    if (cancelled()) return nonReady('generation_cancelled');
     if (!validateRequest(request)) return nonReady('invalid_generation_request');
     let scope;
-    try { scope = await resolveScope(Object.freeze({ ...request })); } catch { return nonReady('trusted_scope_unavailable'); }
+    try { scope = await resolveScope(Object.freeze({ ...request })); } catch { return nonReady(cancelled() ? 'generation_cancelled' : 'trusted_scope_unavailable'); }
+    if (cancelled()) return nonReady('generation_cancelled');
     if (!validateScope(scope)) return nonReady('trusted_scope_unavailable');
 
     let laneA;
@@ -251,10 +254,12 @@ export function createNpcGenerationContextBuilder({
         expected_revision: scope.snapshot.world_revision,
         expected_commit_sequence: scope.snapshot.commit_sequence, limit: 200,
       }));
-    } catch { return nonReady('lane_a_evidence_unavailable'); }
+    } catch { return nonReady(cancelled() ? 'generation_cancelled' : 'lane_a_evidence_unavailable'); }
+    if (cancelled()) return nonReady('generation_cancelled');
     try {
       laneB = await readLaneB(Object.freeze({ conversation_id: scope.conversation_id }));
-    } catch { return nonReady('lane_b_evidence_unavailable'); }
+    } catch { return nonReady(cancelled() ? 'generation_cancelled' : 'lane_b_evidence_unavailable'); }
+    if (cancelled()) return nonReady('generation_cancelled');
 
     if (!validateLaneA(laneA, scope)) return nonReady('lane_a_evidence_not_current_or_authorized');
     const laneBFailure = validateLaneB(laneB, scope);
@@ -262,11 +267,13 @@ export function createNpcGenerationContextBuilder({
 
     let evidenceCurrent;
     try { evidenceCurrent = await revalidateEvidence(scope, Object.freeze({ laneA, laneB })); }
-    catch { return nonReady('generation_evidence_changed'); }
+    catch { return nonReady(cancelled() ? 'generation_cancelled' : 'generation_evidence_changed'); }
+    if (cancelled()) return nonReady('generation_cancelled');
     if (evidenceCurrent !== true) return nonReady('generation_evidence_changed');
 
     let current;
-    try { current = await revalidateScope(scope); } catch { return nonReady('generation_scope_changed'); }
+    try { current = await revalidateScope(scope); } catch { return nonReady(cancelled() ? 'generation_cancelled' : 'generation_scope_changed'); }
+    if (cancelled()) return nonReady('generation_cancelled');
     if (!validateScope(current) || current.world_id !== scope.world_id || current.actor_id !== scope.actor_id
       || current.conversation_id !== scope.conversation_id || current.adapter_id !== scope.adapter_id
       || !sameSnapshot(current.snapshot, scope.snapshot)) return nonReady('generation_scope_changed');
@@ -342,7 +349,9 @@ function createNpcGenerationContextReceiver({
   }
   // The Builder owns this one-shot registry, shared by every Receiver it
   // creates. Consume synchronously before any await to block concurrent reuse.
-  async function receive(context, request) {
+  async function receive(context, request, { signal } = {}) {
+    const cancelled = () => signal?.aborted === true;
+    if (cancelled()) return nonReady('generation_cancelled');
     const issued = context && typeof context === 'object' ? issuedContexts.get(context) : null;
     if (!issued || !validateRequest(request)
       || issued.request_id !== request.request_id || issued.generation_id !== request.generation_id
@@ -355,9 +364,12 @@ function createNpcGenerationContextReceiver({
     let current;
     try {
       scope = await resolveScope(Object.freeze({ ...request }));
+      if (cancelled()) return nonReady('generation_cancelled');
       evidenceCurrent = await revalidateEvidence(context);
+      if (cancelled()) return nonReady('generation_cancelled');
       current = await revalidateScope(scope);
-    } catch { return nonReady('context_scope_unavailable'); }
+      if (cancelled()) return nonReady('generation_cancelled');
+    } catch { return nonReady(cancelled() ? 'generation_cancelled' : 'context_scope_unavailable'); }
     if (evidenceCurrent !== true) return nonReady('context_evidence_changed');
     if (!validateScope(scope) || !validateScope(current)
       || scope.world_id !== issued.world_id || scope.actor_id !== issued.actor_id
