@@ -186,6 +186,20 @@ export function createSillyTavernFinalSendAdapter({
 
       const prepared = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
+      const requestHostRoute = resolveHostRoute(args.request);
+      if (requestHostRoute && !prepared) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_REQUIRED'));
+      }
+      const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
+      if (prepared?.hostRoute && prepared.hostRoute !== dispatchHostRoute) {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(new Error('LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH'));
+      }
       if (prepared && prepared.response !== args.response) {
         if (args.response && typeof args.response === 'object') {
           requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
@@ -246,7 +260,7 @@ export function createSillyTavernFinalSendAdapter({
         protectedDispatchByResponse.add(args.response);
       }
 
-      const hostRoute = args.hostRoute ?? 'chat-completions';
+      const hostRoute = dispatchHostRoute;
       const expectedRoute = hostRoute === 'chat-completions'
         ? sourceMap.get(args.request?.body?.chat_completion_source)
         : ROUTE_BY_HOST_ROUTE[hostRoute];
