@@ -843,9 +843,9 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
 
   const rootReset = await post('/api/users-private/reset-step2', { code: 'unused' });
   assert.equal(rootReset.status, 503);
-  assert.equal(rootReset.result.error.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
+  assert.equal(rootReset.result.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
 
   const accountDelete = await post('/api/users-admin/delete', { handle: 'other-account', purge: true });
   assert.equal(accountDelete.status, 503);
-  assert.equal(accountDelete.result.error.code, 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED');
+  assert.equal(accountDelete.result.code, 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED');
 });
