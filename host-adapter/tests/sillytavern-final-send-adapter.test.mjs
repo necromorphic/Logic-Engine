@@ -391,3 +391,24 @@ test('concurrent Host preparation calls cannot race the one-shot reservation', a
   await first;
   assert.equal(preparations, 1);
 });
+
+
+test('failed Host preparation remains terminal and cannot be retried on the same request', async () => {
+  let preparations = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => null,
+    prepareHostContext: async () => {
+      preparations += 1;
+      throw new Error('inventory unavailable');
+    },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+  await assert.rejects(adapter.prepare(request, {}), /inventory unavailable/);
+  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  assert.equal(preparations, 1);
+});
