@@ -100,7 +100,11 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
       || candidate.epistemic_kind !== admitted.epistemic_kind
       || candidate.evidence_assessment !== 'supported') return undefined;
     contentByIdentity.delete(identity);
-    admittedContent.push(candidate);
+    admittedContent.push({
+      epistemic_kind: candidate.epistemic_kind,
+      evidence_assessment: candidate.evidence_assessment,
+      content: candidate.content,
+    });
     expectedSources.add(JSON.stringify([admitted.source_entity_id, admitted.source_version]));
   }
   // Unadmitted supported content is also a mismatch. Unsupported evidence may
