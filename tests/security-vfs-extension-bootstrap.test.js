@@ -39,8 +39,9 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
   ).get(rolePath, roleName);
 
-  // Node worker threads must see the same process-default VFS and auto-extension
-  // registration, or file-backed opens in a worker could bypass the identity gate.
+  // Node worker threads must also route file-backed opens through the secure
+  // VFS. If a Node build isolates SQLite role registries per worker, the worker
+  // must enroll its own path before it can create or mutate the database.
   const workerPath = join(directory, 'worker.sqlite');
   const corePath = join(directory, 'core.sqlite');
   registerRole(workerPath, 'worker');
