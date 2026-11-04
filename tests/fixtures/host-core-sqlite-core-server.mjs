@@ -17,12 +17,11 @@ const {
   ADAPTER_TOKEN,
   SESSION_ID,
   HOST_INSTALLATION_ID,
-  HOST_ACCOUNT_ID,
 } = process.env;
 
 for (const [name, value] of Object.entries({
   CORE_DB_PATH, PROVIDER_DB_PATH, COORDINATOR_DB_PATH, NONCE_DB_PATH,
-  API_TOKEN, ADAPTER_ID, ADAPTER_TOKEN, SESSION_ID, HOST_INSTALLATION_ID, HOST_ACCOUNT_ID,
+  API_TOKEN, ADAPTER_ID, ADAPTER_TOKEN, SESSION_ID, HOST_INSTALLATION_ID,
 })) {
   if (typeof value !== 'string' || !value) throw new Error('Missing required child-server setting: ' + name);
 }
@@ -34,7 +33,7 @@ const worldId = 'cross-process-world';
 const actorId = 'cross-process-npc';
 const sourceId = 'cross-process-source';
 const conversationUuid = '44444444-4444-4444-8444-444444444444';
-const conversationId = HOST_INSTALLATION_ID + ':' + HOST_ACCOUNT_ID + ':' + conversationUuid;
+const conversationId = SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + conversationUuid;
 
 let providerAdapter;
 let nonceStore;
