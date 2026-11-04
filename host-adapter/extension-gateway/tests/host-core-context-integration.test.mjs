@@ -533,15 +533,19 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       logic_engine_generation_type: 'normal',
     },
   };
+  const coreCallsBeforeGeneration = coreCalls.length;
+  const resolvedContextsBeforeGeneration = resolvedCoreContexts.length;
   const preparedGeneration = await adapter.prepareGenerationContext(nativeGenerationRequest, 'chat-completions');
   assert.equal(preparedGeneration.status, 'READY');
   assert.equal(preparedGeneration.context.conversation_uuid, UUID);
   assert.equal(preparedGeneration.context.root_inventory_sequence, 1);
-  assert.equal(preparedGeneration.coreContext.world_id, 'host-e2e-world');
-  assert.equal(preparedGeneration.coreContext.actor_id, 'host-e2e-actor');
-  assert.equal(preparedGeneration.retrieval.status, 'ready');
   assert.equal(preparedGeneration.requestId, '88888888-8888-4888-8888-888888888888');
-  assert.equal(resolvedCoreContexts[5].context.conversation_id, stableConversationId);
+  // Generation preparation authenticates Host locally only. Core World/Actor
+  // and NPC evidence are resolved later through the embedded in-process bridge.
+  assert.equal(Object.hasOwn(preparedGeneration, 'coreContext'), false);
+  assert.equal(Object.hasOwn(preparedGeneration, 'retrieval'), false);
+  assert.equal(coreCalls.length, coreCallsBeforeGeneration);
+  assert.equal(resolvedCoreContexts.length, resolvedContextsBeforeGeneration);
 
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
