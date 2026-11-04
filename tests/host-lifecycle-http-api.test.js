@@ -163,7 +163,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
     ...authority,
-  }).status, 'NON_READY');
+  }).authority_status, 'REVIEW_ONLY');
 
   const completenessProof = {
     protocol_version: 1,
@@ -247,7 +247,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
     ...authority,
-  }).status, 'NON_READY');
+  }).authority_status, 'REVIEW_ONLY');
 
   const refreshedProof = {
     ...completenessProof,
@@ -373,7 +373,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
     ...authority,
-  }).status, 'NON_READY');
+  }).authority_status, 'REVIEW_ONLY');
 
   journal.close();
   journal = new HostLifecycleJournal({
@@ -397,5 +397,5 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
     ...authority,
-  }).status, 'NON_READY');
+  }).authority_status, 'REVIEW_ONLY');
 });
