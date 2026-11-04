@@ -203,6 +203,32 @@ test('prepare rejects browser-supplied protected Memory markers', async () => {
   await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER/);
 });
 
+test('dispatch rejects a response object different from the one bound during Host preparation', async () => {
+  let resolverCalls = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI' },
+  };
+  const preparedResponse = {};
+  await adapter.prepare(request, preparedResponse);
+
+  assert.throws(() => adapter.dispatch({
+    request,
+    response: {},
+    senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit,
+    stream: false,
+    transport: async () => ({ status: 200 }),
+  }), /LOGIC_ENGINE_FINAL_SEND_RESPONSE_CONTEXT_MISMATCH/);
+  assert.equal(resolverCalls, 0);
+});
+
 test('trusted asynchronous Host preparation is passed to the synchronous Memory resolver', async () => {
   const trustedHostContext = Object.freeze({
     installationId: 'installation-1',
