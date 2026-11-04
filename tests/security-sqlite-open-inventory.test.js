@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const expectedProductionSQLiteModules = new Set([
+  'src/application/host-assertion-nonce-store.js',
+  'src/application/host-lifecycle-journal.js',
   'src/application/host-version-digest-ledger.js',
   'src/application/sqlite-memory-provider.js',
   'src/security/accepted-head-authority.js',
