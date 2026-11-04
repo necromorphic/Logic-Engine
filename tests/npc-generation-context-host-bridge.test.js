@@ -205,3 +205,54 @@ test('Host bridge mints fresh request metadata and ignores browser-supplied corr
   assert.notEqual(seen[0].request_id, seen[1].request_id);
   assert.notEqual(seen[0].generation_id, seen[1].generation_id);
 });
+
+test('Host bridge rejects cancellation before invoking Core preparation', async () => {
+  let prepareCalls = 0;
+  const bridge = createNpcGenerationContextHostBridge({
+    runtime: {
+      async prepareForDispatch() { prepareCalls += 1; return { status: 'ready', handoff: {} }; },
+      consumeDispatchHandoff() { return { status: 'non_ready' }; },
+      getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
+    },
+    createRequestMetadata: () => requestMetadata,
+  });
+  const controller = new AbortController();
+  controller.abort(new Error('client disconnected'));
+  const result = await bridge.prepare({}, {}, controller.signal);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'generation_cancelled');
+  assert.equal(prepareCalls, 0);
+});
+
+test('Host bridge discards a Core handoff if the Host disconnects during preparation', async () => {
+  let resolvePreparation;
+  let receivedSignal;
+  const handoff = Object.freeze({});
+  const bridge = createNpcGenerationContextHostBridge({
+    runtime: {
+      prepareForDispatch(_metadata, options) {
+        receivedSignal = options.signal;
+        return new Promise(resolve => { resolvePreparation = resolve; });
+      },
+      consumeDispatchHandoff() { return { status: 'non_ready' }; },
+      getLaneBDispatchEvidence() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
+    },
+    createRequestMetadata: () => requestMetadata,
+  });
+  const controller = new AbortController();
+  const hostRequest = {};
+  const hostResponse = {};
+  const pending = bridge.prepare(hostRequest, hostResponse, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort(new Error('client disconnected'));
+  resolvePreparation({ status: 'ready', handoff });
+  const result = await pending;
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'generation_cancelled');
+  assert.equal(bridge.consume(hostRequest, hostResponse).status, 'non_ready');
+});
