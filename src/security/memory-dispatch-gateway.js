@@ -388,7 +388,7 @@ function assertSameProviderEvidenceCursor(current, expected) {
 
 function readDispatchInput(value) {
   const required = [
-    'requestId', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
+    'requestId', 'generationId', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
     'actorId', 'purpose', 'sources', 'candidates', 'providerEvidenceCursor',
     'laneA', 'hostContext', 'transport',
   ];
@@ -785,11 +785,12 @@ export class MemoryDispatchGateway {
 
   async dispatchProtectedRequest(input) {
     const {
-      requestId, route, senderRoute, model, stream, body, worldId, actorId, purpose,
+      requestId, generationId, route, senderRoute, model, stream, body, worldId, actorId, purpose,
       sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
       transport, forwardResponse, hostTransformsStream = false, signal,
     } = readDispatchInput(input);
-    if (!validText(requestId, 200) || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
+    if (!validText(requestId, 200) || !validText(generationId, 200)
+      || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
       || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, senderRoute)
       || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
       || typeof stream !== 'boolean'
@@ -814,23 +815,15 @@ export class MemoryDispatchGateway {
     }
     const hostContextSnapshot = normalizeHostContext(hostContext);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
-    // Sender family is intentionally excluded from the replay digest:
-    // changing providers must not turn an ambiguous request into a new attempt.
-    // The signed envelope and ledger still bind the exact sender route.
+    // Replay identity is the Host-created generation ID bound to this exact
+    // authenticated conversation and Core scope. Provider, model, stream mode,
+    // serialized body and evidence projection are deliberately excluded: none
+    // of those may mint a second send after an ambiguous first handoff.
     const requestDigest = createHash('sha256').update(JSON.stringify({
-      route,
-      // Model and sender identity are mutable routing choices, not replay
-      // identity. An UNKNOWN request must not be resent merely by selecting a
-      // different model or provider for the same serialized generation body.
-      stream,
-      body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
+      generation_id: generationId,
       world_id: worldId,
       actor_id: actorId,
       purpose,
-      sources: sourceSet,
-      candidates: candidateSet,
-      provider_evidence_cursor: providerCursorSnapshot,
-      lane_a: laneASnapshot,
       host_context: hostContextSnapshot,
     }), 'utf8').digest('hex');
     let coreHead;
