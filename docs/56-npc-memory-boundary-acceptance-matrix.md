@@ -640,3 +640,11 @@ Three additional reducer scenarios:
 - Replaying an invalidated evidence identity is idempotent and does not reactivate it; attempting to reuse the same identity/version with a different source version is rejected as an identity conflict.
 
 These tests prove NPC-local reducer behavior only. They do not establish production Host delivery, authenticated Core acquisition, final model-context serialization, or sole-egress dispatch. Those remain P0.4 external integration gates.
+
+## 16. Supported-evidence admission hardening — 3 Nov 2026
+
+The later admission change in `src/npc/memory-candidate-eligibility.js` supersedes the earlier §14 statement that all recognized evidence assessments may be admitted as attributed evidence. The current admission boundary requires `evidence_assessment=supported` before a Memory candidate can enter NPC context. `unassessed`, `disputed`, `insufficient`, missing, and unknown assessments are excluded without exposing candidate identity, content, per-item reasons, or rejection counts.
+
+The Core Context Builder independently enforces the same rule in `validateLaneB()`. This is defense in depth: a malformed or substituted Consumer result cannot bypass the admission oracle by supplying a non-supported candidate. The Builder does not promote evidence or resolve conflicts; excluded evidence remains stored in Provider but is not projected to the model through this path.
+
+Focused regressions cover the positive supported case and negative unassessed/disputed/insufficient/unknown cases, including non-disclosure equivalence with an authorized empty result. This hardening does not establish production Host delivery, model dispatch, or Memory→NPC enablement. Exact-head CI and the remaining Gateway/Host acceptance gates are still required.
