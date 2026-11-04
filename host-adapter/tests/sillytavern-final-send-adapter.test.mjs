@@ -203,6 +203,30 @@ test('prepare rejects browser-supplied protected Memory markers', async () => {
   await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER/);
 });
 
+test('pinned generation route cannot dispatch before Host preparation', () => {
+  let resolverCalls = 0;
+  let transportCalls = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+
+  assert.throws(() => adapter.dispatch({
+    request,
+    response: {},
+    senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit,
+    stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  }), /LOGIC_ENGINE_HOST_PREPARATION_REQUIRED/);
+  assert.equal(resolverCalls, 0);
+  assert.equal(transportCalls, 0);
+});
+
 test('dispatch rejects a response object different from the one bound during Host preparation', async () => {
   let resolverCalls = 0;
   const adapter = createAdapter({
