@@ -291,7 +291,12 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   return serialized;
 }
 function createHostReplayIdentity(hostRequestContext, senderRoute) {
-  const body = hostRequestContext?.body;
+  let body = hostRequestContext?.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch {
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
+    }
+  }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE');
   }
