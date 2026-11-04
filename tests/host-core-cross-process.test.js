@@ -68,6 +68,7 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
     chats: join(userRoot, 'chats'),
     groups: join(userRoot, 'groups'),
     groupChats: join(userRoot, 'groupChats'),
+    extensions: join(userRoot, 'extensions'),
   };
   for (const path of [dataRoot, identityDirectory, ...Object.values(directories)]) {
     mkdirSync(path, { recursive: true });
@@ -109,6 +110,7 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
       filesystem: {
         status: 'complete', entries: [], snapshot_id: 'cross-process-vss-snapshot',
       },
+      mutation_coverage: { status: 'VERIFIED', source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127', coverage_manifest_sha256: 'c'.repeat(64), route_count: 1, source_files_sha256: 'd'.repeat(64) },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
         status: 'DOUBLE_SCAN_CANDIDATE',
