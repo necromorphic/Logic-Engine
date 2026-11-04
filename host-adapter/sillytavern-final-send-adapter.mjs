@@ -160,6 +160,9 @@ export function createSillyTavernFinalSendAdapter({
       if (preparedRequests.has(request)) {
         throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE'));
       }
+      // Reserve before awaiting Host work so concurrent prepare calls cannot
+      // race past the one-shot check. A failed preparation remains terminal.
+      preparedRequests.add(request);
       const hostRoute = prepareHostContext ? resolveHostRoute(request) : null;
       const hostContext = prepareHostContext
         ? await prepareHostContext(request, response, hostRoute) : null;
@@ -167,7 +170,6 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
       }
       preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute }));
-      preparedRequests.add(request);
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
