@@ -93,9 +93,11 @@ function assertSourceMap(sources) {
   const map = new Map();
   for (const [key, senderRoute] of Object.entries(ROUTE_BY_SOURCE_KEY)) {
     const sourceValue = sources[key];
-    if (typeof sourceValue !== 'string' || !sourceValue.trim()
-      || !PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)) {
-      throw new Error('SILLYTAVERN_SOURCE_REGISTRY_MISMATCH: ' + key);
+    if (typeof sourceValue !== 'string' || !sourceValue.trim()) {
+      throw new Error('SILLYTAVERN_SOURCE_REGISTRY_SOURCE_KEY_MISSING: ' + key);
+    }
+    if (!PROTECTED_MEMORY_SENDER_ROUTES.includes(senderRoute)) {
+      throw new Error('SILLYTAVERN_SOURCE_REGISTRY_ROUTE_UNSUPPORTED: ' + key + ':' + senderRoute);
     }
     if (map.has(sourceValue)) throw new Error('SILLYTAVERN_SOURCE_REGISTRY_DUPLICATE: ' + key);
     map.set(sourceValue, senderRoute);
