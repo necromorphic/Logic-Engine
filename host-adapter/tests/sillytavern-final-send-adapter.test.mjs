@@ -227,6 +227,35 @@ test('pinned generation route cannot dispatch before Host preparation', () => {
   assert.equal(transportCalls, 0);
 });
 
+test('dispatch rejects a Host route changed after preparation', async () => {
+  let resolverCalls = 0;
+  let transportCalls = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    user: { profile: { handle: 'test-user' } },
+    session: { handle: 'test-user' },
+    body: { chat_completion_source: 'OPENAI', stream: false },
+  };
+  const response = {};
+  await adapter.prepare(request, response);
+
+  assert.throws(() => adapter.dispatch({
+    request,
+    response,
+    senderRoute: 'text-completions',
+    hostRoute: 'text-completions',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit,
+    stream: false,
+    transport: async () => { transportCalls += 1; return { status: 200 }; },
+  }), /LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH/);
+  assert.equal(resolverCalls, 0);
+  assert.equal(transportCalls, 0);
+});
+
 test('dispatch rejects a response object different from the one bound during Host preparation', async () => {
   let resolverCalls = 0;
   const adapter = createAdapter({
