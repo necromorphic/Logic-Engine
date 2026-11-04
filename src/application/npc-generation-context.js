@@ -3,6 +3,7 @@ import { types as utilTypes } from 'node:util';
 const ID_MAX = 200;
 const PURPOSE = 'npc_turn_context';
 const RECIPIENT = 'model';
+const KNOWN_EVIDENCE_ASSESSMENTS = new Set(['unassessed', 'supported', 'disputed', 'insufficient']);
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && value.length > 0
@@ -162,15 +163,24 @@ function validateLaneB(envelope, scope) {
     || !exactRecord(result.snapshot, ['world_revision', 'commit_sequence'])
     || !sameSnapshot(result.snapshot, scope.snapshot)
     || !validProviderEvidenceCursor(result.provider_evidence_cursor)
-    || result.admitted.length !== result.candidates.length) return 'lane_b_result_invalid';
+    || result.admitted.length > result.candidates.length) return 'lane_b_result_invalid';
   try {
+    const admittedByIdentity = new Map();
+    for (const admitted of result.admitted) {
+      if (!plainDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
+        || !validId(admitted.record_ref) || !validId(admitted.record_version)
+        || !validId(admitted.epistemic_kind) || admitted.evidence_assessment !== 'supported') {
+        return 'lane_b_candidate_invalid';
+      }
+      const identity = JSON.stringify([admitted.record_ref, admitted.record_version]);
+      if (admittedByIdentity.has(identity)) return 'lane_b_candidate_identity_duplicated';
+      admittedByIdentity.set(identity, admitted);
+    }
     const identities = new Set();
     for (let i = 0; i < result.candidates.length; i += 1) {
       const candidate = result.candidates[i];
-      const admitted = result.admitted[i];
       if (!exactRecord(candidate, ['record_ref', 'record_version', 'authorization_generation',
         'source_kind', 'source_entity_id', 'source_version', 'epistemic_kind', 'evidence_assessment', 'content'])
-        || !plainDataRecord(admitted, ['record_ref', 'record_version'], ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
         || !validId(candidate.record_ref) || !validId(candidate.record_version)
         || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
         || candidate.source_kind !== 'canonical_entity'
@@ -178,18 +188,24 @@ function validateLaneB(envelope, scope) {
         || typeof candidate.source_version !== 'string'
         || !/^core-entity-v1:[1-9][0-9]*$/.test(candidate.source_version)
         || !validId(candidate.epistemic_kind)
-        || candidate.evidence_assessment !== 'supported'
-        || admitted.record_ref !== candidate.record_ref || admitted.record_version !== candidate.record_version
-        || (Object.hasOwn(admitted, 'epistemic_kind')
-          && admitted.epistemic_kind !== candidate.epistemic_kind)
-        || (Object.hasOwn(admitted, 'evidence_assessment')
-          && admitted.evidence_assessment !== candidate.evidence_assessment)) return 'lane_b_candidate_invalid';
+        || !KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.evidence_assessment)) return 'lane_b_candidate_invalid';
       const identity = JSON.stringify([candidate.record_ref, candidate.record_version]);
       if (identities.has(identity)) return 'lane_b_candidate_identity_duplicated';
       identities.add(identity);
+      const admitted = admittedByIdentity.get(identity);
+      if (admitted) {
+        if (candidate.evidence_assessment !== 'supported'
+          || admitted.epistemic_kind !== candidate.epistemic_kind
+          || admitted.evidence_assessment !== candidate.evidence_assessment) {
+          return 'lane_b_candidate_invalid';
+        }
+        admittedByIdentity.delete(identity);
+      } else if (candidate.evidence_assessment === 'supported') {
+        return 'lane_b_candidate_invalid';
+      }
       immutableCopy(candidate.content);
     }
-    return null;
+    return admittedByIdentity.size === 0 ? null : 'lane_b_candidate_invalid';
   } catch { return 'lane_b_candidate_content_invalid'; }
 }
 
