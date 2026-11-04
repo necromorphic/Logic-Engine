@@ -103,7 +103,21 @@ try {
     const actualBytes = await readFile(actualPath);
     const expectedBytes = await readFile(expectedPath);
     if (sha256(actualBytes) !== sha256(expectedBytes)) {
-      throw new Error('HOST_INSTALLED_SOURCE_DIFFERS_FROM_PATCHED_PINNED_TREE: ' + relativePath);
+      let firstDifference = 0;
+      const limit = Math.min(actualBytes.length, expectedBytes.length);
+      while (firstDifference < limit && actualBytes[firstDifference] === expectedBytes[firstDifference]) firstDifference += 1;
+      const contextStart = Math.max(0, firstDifference - 12);
+      const contextEnd = Math.min(Math.max(actualBytes.length, expectedBytes.length), firstDifference + 20);
+      throw new Error([
+        'HOST_INSTALLED_SOURCE_DIFFERS_FROM_PATCHED_PINNED_TREE: ' + relativePath,
+        'actual_sha256=' + sha256(actualBytes),
+        'expected_sha256=' + sha256(expectedBytes),
+        'actual_length=' + actualBytes.length,
+        'expected_length=' + expectedBytes.length,
+        'first_difference=' + firstDifference,
+        'actual_hex=' + actualBytes.subarray(contextStart, Math.min(contextEnd, actualBytes.length)).toString('hex'),
+        'expected_hex=' + expectedBytes.subarray(contextStart, Math.min(contextEnd, expectedBytes.length)).toString('hex'),
+      ].join('\\n'));
     }
     files.push({ path: relativePath, sha256: sha256(actualBytes) });
   }
