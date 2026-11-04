@@ -137,6 +137,26 @@ function isSynchronousCallable(callback) {
   }
 }
 
+const intrinsicGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const isNativeError = utilTypes.isNativeError;
+
+function isDispatchContractError(error) {
+  if (!isNativeError(error)) return false;
+  let descriptor;
+  try {
+    descriptor = intrinsicReflectApply(intrinsicGetOwnPropertyDescriptor, Object, [error, 'message']);
+  } catch {
+    return false;
+  }
+  if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') return false;
+  const message = descriptor.value;
+  return message === 'MEMORY_DISPATCH_DUPLICATE_ID'
+    || message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
+    || message === 'MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED'
+    || message === 'MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED'
+    || message === 'MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID';
+}
+
 function arrayContains(values, expected) {
   for (let index = 0; index < values.length; index += 1) {
     if (values[index] === expected) return true;
@@ -932,8 +952,11 @@ export class MemoryDispatchGateway {
         upstreamStartError = error;
       }
     } catch (error) {
-      if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
+      // Preserve only known fail-closed contract decisions. Do not trust an
+      // arbitrary thrown message merely because it uses the MEMORY_DISPATCH_
+      // prefix: that could leak caller-controlled diagnostics across the Host
+      // boundary. Unknown failures remain the generic NOT_READY result.
+      if (isDispatchContractError(error)) throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY', { cause: error });
     } finally {
       try { release?.(); } catch {}
