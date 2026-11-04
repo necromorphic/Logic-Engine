@@ -23,7 +23,7 @@ const memoryResult = () => ({
   candidates: [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
     source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
-    evidence_assessment: 'disputed', content: { note: 'report' },
+    evidence_assessment: 'supported', content: { note: 'report' },
   }],
   reason: null, snapshot: { ...scope.snapshot },
   provider_evidence_cursor: { data_version: 12, candidate_digest: 'b'.repeat(64) },
@@ -121,7 +121,7 @@ test('composes the live Core acquisition visibility fence and Memory consumer in
   assert.equal(built.status, 'ready', built.reason);
   assert.equal(built.context.lanes.lane_a.items.length, 1);
   assert.equal(built.context.lanes.lane_a.items[0].visibility_authorization_ref, 'visibility-1');
-  assert.equal(built.context.lanes.lane_b.candidates[0].evidence_assessment, 'disputed');
+  assert.equal(built.context.lanes.lane_b.candidates[0].evidence_assessment, 'supported');
   assert.equal(built.context.lanes.lane_b.candidates[0].source_kind, 'canonical_entity');
   assert.equal(built.context.lanes.lane_b.candidates[0].source_version, 'core-entity-v1:1');
   assert.equal(built.context.lanes.lane_b.provider_purpose, 'npc_decision');
