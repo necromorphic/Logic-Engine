@@ -106,8 +106,9 @@ function assertSourceMap(sources) {
   // lockstep. A newly protected chat sender must not silently fall through to
   // the unregistered/native path merely because this adapter was not updated.
   const hostRoutes = new Set(Object.values(ROUTE_BY_HOST_ROUTE));
+  const mappedRoutes = new Set(map.values());
   for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
-    if (!hostRoutes.has(senderRoute) && !Array.from(map.values()).includes(senderRoute)) {
+    if (!hostRoutes.has(senderRoute) && !mappedRoutes.has(senderRoute)) {
       throw new Error('SILLYTAVERN_SOURCE_REGISTRY_ROUTE_MISSING: ' + senderRoute);
     }
   }
