@@ -4,7 +4,7 @@ import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-f
 
 const sources = {
   CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertexai',
-  MISTRALAI: 'mistralai', COHERE: 'cohere', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
+  MISTRALAI: 'mistralai', COHERE: 'cohere', COMETAPI: 'cometapi', DEEPSEEK: 'deepseek', AIMLAPI: 'aimlapi',
   XAI: 'xai', CHUTES: 'chutes', MINIMAX: 'minimax', ELECTRONHUB: 'electronhub',
   AZURE_OPENAI: 'azure_openai', OPENAI: 'openai', OPENROUTER: 'openrouter', CUSTOM: 'custom',
   PERPLEXITY: 'perplexity', GROQ: 'groq', FIREWORKS: 'fireworks', NANOGPT: 'nanogpt',
@@ -36,7 +36,7 @@ test('adapter maps every pinned Chat Completions sender key and leaves unknown s
     assert.notEqual(adapter.resolveSenderRoute({ body: { chat_completion_source: source } }), 'unregistered', key);
   }
   assert.equal(adapter.resolveSenderRoute({
-    body: { chat_completion_source: 'cometapi' },
+    body: { chat_completion_source: 'not-registered' },
   }), 'unregistered');
 });
 
