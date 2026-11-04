@@ -1230,3 +1230,40 @@ test('unsupported mutation guard leaves ordinary SillyTavern requests unchanged 
     if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
   }
 });
+
+test('Host authentication discards an inventory result when generation is cancelled mid-resolution', async () => {
+  let finishResolution;
+  let receivedSignal;
+  const gate = createHostRequestAuthenticationGate({
+    resolveConversationId: (_request, _conversationUuid, signal) => {
+      receivedSignal = signal;
+      return new Promise(resolve => { finishResolution = resolve; });
+    },
+  });
+  const request = {
+    user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories },
+    session: {
+      handle: 'default-user',
+      logicEngineSessionId: defaultUserSessionId,
+      logicEngineSessionHandle: 'default-user',
+    },
+  };
+  const controller = new AbortController();
+  const pending = gate.authenticate(request, defaultUserConversationUuid, controller.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort(new Error('client disconnected'));
+  finishResolution({
+    host_installation_id: defaultUserInstallationId,
+    authenticated_account_id: defaultUserAccountId,
+    host_session_id: defaultUserSessionId,
+    conversation_id: [defaultUserInstallationId, defaultUserAccountId, defaultUserConversationUuid].join(':'),
+    root_id: 'a'.repeat(64),
+    root_inventory_sequence: 1,
+    root_manifest_sha256: 'b'.repeat(64),
+  });
+  const result = await pending;
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.code, 'HOST_GENERATION_CANCELLED');
+  assert.equal(gate.isAuthenticatedHostRequest(request), false);
+});
