@@ -192,3 +192,39 @@ test('managed Host response writes and final end pass through Gateway authorizat
     unregisterLogicEngineFinalSendAdapter(adapter, owner);
   }
 });
+
+test('terminal Gateway denial destroys the Host response instead of reaching fallback middleware', async () => {
+  let nativeWrites = 0;
+  let destroyed = false;
+  const response = {
+    writableEnded: false,
+    destroyed: false,
+    write() { nativeWrites += 1; },
+    end() { nativeWrites += 1; },
+    destroy() { destroyed = true; this.destroyed = true; },
+  };
+  const adapter = {
+    async prepare() {},
+    resolveSenderRoute: () => 'chat-completions',
+    dispatch() {},
+    forwardResponse() {},
+    authorizeResponseWrite() {
+      const error = new Error('revoked');
+      error.logicEngineFinalSendTerminal = true;
+      throw error;
+    },
+  };
+  const owner = 'logic-engine-extension:test-terminal-denial';
+  registerLogicEngineFinalSendAdapter(adapter, owner);
+  try {
+    const result = await runWithLogicEngineFinalSend({
+      originalUrl: '/api/backends/chat-completions/generate',
+      body: { stream: false },
+    }, response, async () => response.write('must not escape'));
+    assert.equal(result, undefined);
+    assert.equal(nativeWrites, 0);
+    assert.equal(destroyed, true);
+  } finally {
+    unregisterLogicEngineFinalSendAdapter(adapter, owner);
+  }
+});
