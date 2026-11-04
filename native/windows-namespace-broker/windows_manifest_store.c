@@ -232,11 +232,16 @@ static int le_store_open_parent_chain(const wchar_t *path,
       FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-  if (current == INVALID_HANDLE_VALUE
-      || !GetFileInformationByHandleEx(current, FileAttributeTagInfo, &tag, sizeof(tag))
+  if (current == INVALID_HANDLE_VALUE) goto fail;
+  if (!GetFileInformationByHandleEx(current, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-      || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
-      || !le_store_parent_acl_safe(current)) goto fail;
+      || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) goto fail;
+  if (!le_store_parent_acl_safe(current)) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "parent ACL rejected: %ls (error=%lu)\\n", root, (unsigned long)GetLastError());
+#endif
+    goto fail;
+  }
   cursor = copy + 3;
   while (*cursor) {
     wchar_t *end;
@@ -260,9 +265,15 @@ static int le_store_open_parent_chain(const wchar_t *path,
     if (next == INVALID_HANDLE_VALUE
         || !GetFileInformationByHandleEx(next, FileAttributeTagInfo, &tag, sizeof(tag))
         || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-        || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
-        || !le_store_parent_acl_safe(next)) {
+        || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
       if (next != INVALID_HANDLE_VALUE) CloseHandle(next);
+      goto fail;
+    }
+    if (!le_store_parent_acl_safe(next)) {
+#ifdef LE_STORE_DIAGNOSTICS
+      fprintf(stderr, "parent ACL rejected: %ls (error=%lu)\\n", cursor, (unsigned long)GetLastError());
+#endif
+      CloseHandle(next);
       goto fail;
     }
     CloseHandle(current);
@@ -299,7 +310,12 @@ int le_win_store_open(
   ZeroMemory(store, sizeof(*store));
   store->directory = INVALID_HANDLE_VALUE;
   store->lock = INVALID_HANDLE_VALUE;
-  if (!le_store_open_parent_chain(configured_directory, &parent, &basename)) return 0;
+  if (!le_store_open_parent_chain(configured_directory, &parent, &basename)) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata parent chain rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
+    return 0;
+  }
   directory = logic_engine_win_open_relative(parent, basename,
       FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD |
       FILE_READ_ATTRIBUTES | READ_CONTROL | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE,
@@ -307,15 +323,41 @@ int le_win_store_open(
       FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
   CloseHandle(parent);
   HeapFree(GetProcessHeap(), 0, basename);
-  if (directory == INVALID_HANDLE_VALUE) return 0;
+  if (directory == INVALID_HANDLE_VALUE) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata directory open rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
+    return 0;
+  }
   if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
-      || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-      || !logic_engine_win_identity(directory, &store->directory_identity, NULL)
-      || !le_store_is_ntfs(directory)
-      || !le_store_acl_is_private(directory)) {
+      || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata directory type rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
     CloseHandle(directory);
     SetLastError(ERROR_ACCESS_DENIED);
+    return 0;
+  }
+  if (!logic_engine_win_identity(directory, &store->directory_identity, NULL)) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata directory identity rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
+    CloseHandle(directory);
+    return 0;
+  }
+  if (!le_store_is_ntfs(directory)) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata directory filesystem rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
+    CloseHandle(directory);
+    return 0;
+  }
+  if (!le_store_acl_is_private(directory)) {
+#ifdef LE_STORE_DIAGNOSTICS
+    fprintf(stderr, "metadata directory ACL rejected (error=%lu)\\n", (unsigned long)GetLastError());
+#endif
+    CloseHandle(directory);
     return 0;
   }
   store->directory = directory;
