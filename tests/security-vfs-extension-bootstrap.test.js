@@ -655,7 +655,19 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     const retiredOwner = new DatabaseSync(retiredOwnerPath);
     const retiredVictim = new DatabaseSync(retiredVictimPath);
     try {
-      retiredOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
+      try {
+        retiredOwner.exec("PRAGMA journal_mode=DELETE; CREATE TABLE probe(value TEXT); BEGIN IMMEDIATE; INSERT INTO probe VALUES('owner');");
+      } catch (error) {
+        const diagnostics = roleRegistrar.prepare(`
+          SELECT
+            logic_engine_vfs_probe_parent_xopen_diagnostics() AS parentXOpen,
+            logic_engine_vfs_probe_failure_diagnostics() AS brokerFailure,
+            logic_engine_vfs_probe_open_count() AS mainOpens,
+            logic_engine_vfs_probe_journal_open_count() AS journalOpens,
+            logic_engine_vfs_probe_native_open_count() AS nativeOpens
+        `).get();
+        throw new Error(`rollback journal diagnostic: ${JSON.stringify(diagnostics)}; ${error.message}`);
+      }
       assert.equal(existsSync(`${retiredOwnerPath}-journal`), true,
         'the owner journal must exist before its identity is retained by a hardlink');
       linkSync(`${retiredOwnerPath}-journal`, retainedAliasPath);
