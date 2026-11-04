@@ -1584,6 +1584,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined);
     rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined);
     rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined);
+    rememberEnv('LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN', undefined);
 
     service = await startAuthorityProcess(authorityPath);
     const coreEnrollment = enrollAcceptedHeadSync({
@@ -1716,7 +1717,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
 
     // The real Provider revoke writer wins before dispatch-start; Gateway must see the committed denial.
     provider.revokeRecord(scope, record.record_ref, record.record_version);
-    await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    await assert.rejects(() => gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(calls.length, 0, 'revocation before dispatch-start must cause zero upstream calls');
     const ledger = new DatabaseSync(ledgerPath);
     try {
@@ -1731,7 +1732,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     provider.grantRecord(scope, record.record_ref, record.record_version, true);
     provider.grantQuery(scope, false);
     await assert.rejects(
-      gateway.dispatchProtectedRequest(validRequest('provider-query-revoked-before-start')),
+      () => gateway.dispatchProtectedRequest(validRequest('provider-query-revoked-before-start')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(calls.length, 0, 'query revocation before dispatch-start must cause zero upstream calls');
@@ -1748,7 +1749,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     snapshotUnavailable = true;
     assert.equal((await provider.reconcile(scope.world_id)).status, 'unavailable');
     await assert.rejects(
-      gateway.dispatchProtectedRequest(validRequest('provider-readiness-lost-before-start')),
+      () => gateway.dispatchProtectedRequest(validRequest('provider-readiness-lost-before-start')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(calls.length, 0, 'Provider readiness loss before dispatch-start must cause zero upstream calls');
@@ -1805,6 +1806,13 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
   const calls = [];
   const fixture = await createFixture();
   const previousCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  const acceptedHeadEnv = Object.fromEntries([
+    'LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED',
+    'LOGIC_ENGINE_ACCEPTED_HEAD_PORT',
+    'LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN',
+    'LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN',
+  ].map((name) => [name, process.env[name]]));
+  for (const name of Object.keys(acceptedHeadEnv)) delete process.env[name];
   const corePath = join(fixture.directory, 'core.sqlite');
   let coreStore;
   let coreReader;
@@ -1948,6 +1956,10 @@ test('real Core source mutation and Gateway dispatch-start share one cross-proce
     try { coreStore?.close(); } catch {}
     if (previousCoordinatorPath === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinatorPath;
+    for (const [name, value] of Object.entries(acceptedHeadEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     await fixture.close();
   }
 });
