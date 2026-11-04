@@ -33,11 +33,15 @@ int main(void) {
   PSECURITY_DESCRIPTOR descriptor = NULL;
   SECURITY_ATTRIBUTES security_attributes;
   wchar_t sddl[512];
-  stage = "GetTempPathW";
-  if (!GetTempPathW(LE_COUNT_OF(temp), temp)) goto done;
-  stage = "construct temp directory";
+  /* The VFS deliberately rejects shared/user-writable ancestors such as
+   * %TEMP%. Keep the smoke store beneath the per-user LocalAppData directory,
+   * whose parent chain is not writable by unrelated principals. */
+  stage = "read LOCALAPPDATA";
+  if (GetEnvironmentVariableW(L"LOCALAPPDATA", temp, (DWORD)LE_COUNT_OF(temp)) == 0
+      || wcslen(temp) + 1 >= LE_COUNT_OF(temp)) goto done;
+  stage = "construct private test directory";
   if (FAILED(StringCchPrintfW(directory, LE_COUNT_OF(directory),
-      L"%sLogicEngineBrokerStore-%lu-%llu", temp,
+      L"%s\\LogicEngineBrokerStore-%lu-%llu", temp,
       GetCurrentProcessId(), GetTickCount64()))) goto done;
   stage = "OpenProcessToken";
   if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) goto done;
