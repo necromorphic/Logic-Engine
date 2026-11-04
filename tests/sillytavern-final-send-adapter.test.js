@@ -321,7 +321,7 @@ test('one protected Host response cannot dispatch the model twice after a comple
 });
 
 
-test('authenticated Host session remains active through async provider handoff and protected response release', async () => {
+test('authenticated Host session remains active across async provider handoff and response release', async () => {
   const { AsyncLocalStorage } = await import('node:async_hooks');
   const session = new AsyncLocalStorage();
   const response = {};
