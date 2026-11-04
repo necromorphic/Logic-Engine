@@ -38,6 +38,7 @@ test('ST-VectorService secure entrypoint is syntactically valid and imports boot
     'database-path-contract.mjs',
     'logic-engine-vfs-bootstrap.mjs',
     'secure-entrypoint.mjs',
+    '../../tests/fixtures/secure-vfs-worker.cjs',
   ]) {
     const fullPath = path.join(integrationRoot, filename);
     const checked = spawnSync(process.execPath, ['--check', fullPath], { encoding: 'utf8' });
