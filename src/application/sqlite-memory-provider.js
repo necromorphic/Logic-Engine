@@ -1534,7 +1534,7 @@ export class SQLiteMemoryProvider {
       throw new Error('PROVIDER_COORDINATOR_LEASE_REQUIRED');
     }
     if (!this.#observerOnly) throw new Error('PROVIDER_DISPATCH_READER_REQUIRES_OBSERVER_MODE');
-    if (!validId(worldId) || !validId(actorId) || !validPurpose(purpose)
+    if (!validId(worldId) || !validId(actorId) || !validId(purpose)
       || !Array.isArray(sources) || !Array.isArray(candidates)
       || !providerEvidenceCursor || typeof providerEvidenceCursor !== 'object'
       || !Number.isSafeInteger(providerEvidenceCursor.data_version)
