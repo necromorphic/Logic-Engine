@@ -94,7 +94,9 @@ export function createSillyTavernHostAdapter({
     lifecycleStatus = lifecycle.status;
 
     authentication = createHostRequestAuthenticationGate({
-      resolveConversationId: async (request, requestedConversationUuid) => {
+      resolveConversationId: async (request, requestedConversationUuid, signal) => {
+        const cancelled = () => signal?.aborted === true;
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         const userHandle = request?.user?.profile?.handle;
         const sessionId = request?.session?.logicEngineSessionId;
         const conversationUuid = requestedConversationUuid;
@@ -113,11 +115,15 @@ export function createSillyTavernHostAdapter({
         let hostInventory;
         try {
           await identityStore.assertOutsideRoot(dataRoot);
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
           identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
           hostInventory = await enumerate({
             directories,
             hostCommit: PINNED_SILLYTAVERN_COMMIT,
+            signal,
           });
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         } catch {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
@@ -139,8 +145,9 @@ export function createSillyTavernHostAdapter({
         // request can acquire a Host context. A local scan or baseline alone
         // is not proof of completeness and must remain NON_READY.
         let sourceIdentity;
-        try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions }); }
+        try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions, signal }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         let rootProof;
         try {
           if (typeof persistRootInventory !== 'function') {
@@ -153,7 +160,9 @@ export function createSillyTavernHostAdapter({
             snapshotAlignment: hostInventory.snapshot_alignment,
             snapshotSha256: hostInventory.filesystem.snapshot_sha256,
             sourceIdentity,
+            signal,
           });
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
         } catch {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
@@ -240,7 +249,8 @@ export function createSillyTavernHostAdapter({
         authenticated_account_id: context.authenticated_account_id,
       });
     },
-    async prepareGenerationContext(request, hostRoute) {
+    async prepareGenerationContext(request, hostRoute, signal) {
+      if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (!['chat-completions', 'text-completions', 'kobold', 'novelai-text', 'horde-text'].includes(hostRoute)) {
         return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_ROUTE_UNREGISTERED' });
       }
@@ -261,7 +271,8 @@ export function createSillyTavernHostAdapter({
       // This is the Host half of preparation only. World/Actor binding and both
       // NPC evidence lanes are resolved by the embedded Core runtime in-process;
       // generation must never fall back to the legacy HTTP resolve/retrieve proxy.
-      const result = await authentication.authenticate(request, conversationUuid);
+      const result = await authentication.authenticate(request, conversationUuid, signal);
+      if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (result.status !== 'READY') return result;
       return Object.freeze({
         status: 'READY',
