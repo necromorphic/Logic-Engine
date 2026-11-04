@@ -1687,7 +1687,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
         policy_authority: { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) },
         sources,
       }),
-      readProviderEvidence: ({ worldId, actorId, purpose }) => {
+      readProviderEvidence: ({ worldId, actorId, purpose, providerEvidenceCursor }) => {
         const head = providerReader.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get();
         const queryGrant = providerReader.prepare('SELECT allowed FROM memory_query_grants WHERE world_id=? AND subject_id=? AND purpose=?').get(worldId, actorId, purpose);
         const recordGrant = providerReader.prepare('SELECT allowed,authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?').get(worldId, actorId, purpose, record.record_ref, record.record_version);
@@ -1700,6 +1700,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           readiness: index?.index_health === 'ready' && index?.source_reconciliation === 'current' ? 'READY' : 'NOT_READY',
           sources: stored ? [{ source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
           candidates: stored && recordGrant ? [{ record_ref: stored.record_ref, record_version: stored.record_version, authorization_generation: recordGrant.authorization_generation, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
+          provider_evidence_cursor: providerEvidenceCursor,
         };
       },
       readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({ status: 'READY', adapter_id: binding.adapter_id, core_conversation_id: binding.core_conversation_id, world_id: worldId, actor_id: actorId, root_id: binding.root_id, root_inventory_sequence: binding.root_inventory_sequence, root_manifest_sha256: binding.root_manifest_sha256 }),
