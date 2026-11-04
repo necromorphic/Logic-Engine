@@ -62,7 +62,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch does not apply cleanly' }
           git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero $rootMutationPatch
           if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch application failed' }
-          git -C Sillytavern diff --check
+          git -C Sillytavern -c core.whitespace=cr-at-eol diff --check
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
           $expected = @(
             'public/script.js',
