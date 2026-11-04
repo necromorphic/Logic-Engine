@@ -30,7 +30,7 @@ The managed patch wraps these five native ST handlers:
 
 | Native route | Sender identities |
 |---|---|
-| POST /api/backends/chat-completions/generate | 26: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
+| POST /api/backends/chat-completions/generate | 26: Claude, Google AI Studio, Vertex AI, AI21, Mistral, Cohere, CometAPI, DeepSeek, xAI, AIMLAPI, ElectronHub, Chutes, MiniMax, Azure OpenAI, OpenAI, OpenRouter, Custom, Perplexity, Groq, Fireworks, NanoGPT, Pollinations, Moonshot, Z.AI, SiliconFlow, Cloudflare Workers AI |
 | POST /api/backends/text-completions/generate | text-completions |
 | POST /api/backends/kobold/generate | kobold |
 | POST /api/novelai/generate | novelai-text |
