@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -21,6 +21,10 @@ const hookSource = patch.slice(hunkStart, hookEnd).split('\n')
 
 const hookDirectory = await mkdtemp(join(process.cwd(), '.final-send-http-test-'));
 const hookFile = join(hookDirectory, 'logic-engine-final-send-hook.js');
+const nodeFetchDirectory = join(hookDirectory, 'node_modules', 'node-fetch');
+await mkdir(nodeFetchDirectory, { recursive: true });
+await writeFile(join(nodeFetchDirectory, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js' }));
+await writeFile(join(nodeFetchDirectory, 'index.js'), 'export default (...args) => globalThis.fetch(...args);');
 await writeFile(hookFile, hookSource);
 const hook = await import(pathToFileURL(hookFile).href);
 const owner = 'logic-engine-extension:http-cancellation-test';
