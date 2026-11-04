@@ -234,6 +234,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       revokeLease();
       revokeCoordinator.close();
     }
+    dispatchObserver.close();
+    dispatchObserver = null;
     const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
