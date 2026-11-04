@@ -91,7 +91,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     });
     new ActorBindingService(engine).bind(worldId, ADAPTER_ID, actorId);
     new HostConversationWorldBindingService(engine).bind({
-      adapterId: ADAPTER_ID, conversationId, worldId,
+      adapterId: ADAPTER_ID, conversationId: hostConversationKey, worldId,
     });
 
     providerAdapter = createMemoryNpcProviderAdapter({
