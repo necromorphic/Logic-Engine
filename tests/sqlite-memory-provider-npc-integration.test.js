@@ -256,7 +256,7 @@ test('real Provider revalidates candidate A after candidate B authorization awai
 
   const result = await pending;
   assert.equal(result.status, 'non_ready', JSON.stringify(result));
-  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.equal(result.reason, 'memory_record_access_revoked');
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('authorized source A'), false);
   assert.equal(JSON.stringify(result).includes('authorized source B'), false);
