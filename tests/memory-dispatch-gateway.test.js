@@ -990,8 +990,7 @@ test('all protected sender families share one real Gateway and each causes exact
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] }),
           },
-          hostRequestContext: { body: { messages: [{ role: 'user', content: 'original host prompt' }] } },
-          hostRequestContext: { ...prepared, requestId },
+          hostRequestContext: { ...prepared, requestId, body: { messages: [{ role: 'user', content: 'original host prompt' }] } },
         });
       } catch (error) {
         throw new Error('Protected sender route failed (' + senderRoute + '): '
@@ -1456,7 +1455,7 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancelled-dispatch-new-id', { replayIdentity: validRequest('cancelled-dispatch').replayIdentity })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(sends, 1, 'same-ID and new-ID retries must both remain blocked');
@@ -1608,7 +1607,7 @@ test('real process crash after transport handoff recovers UNKNOWN on fresh Gatew
       ledger.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('process-crash-replay-new-id', { replayIdentity: validRequest('process-crash-after-handoff').replayIdentity })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
   } finally {
@@ -1636,7 +1635,7 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
       verify.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id')),
+      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id', { replayIdentity: request.replayIdentity })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(fixture.calls.length, 1);
