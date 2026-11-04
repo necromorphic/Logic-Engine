@@ -2204,3 +2204,78 @@ test('streaming stops the next chunk after Host inventory authority changes', as
     await fixture.close();
   }
 });
+
+
+test('client cancellation after upstream completion blocks the first response release', async () => {
+  const controller = new AbortController();
+  const fixture = await createFixture({
+    createTransport: () => () => new Promise((resolve) => {
+      setImmediate(() => {
+        resolve({ status: 200, body: 'accepted' });
+        controller.abort(new Error('client disconnected before release'));
+      });
+    }),
+  });
+  try {
+    const request = validRequest('cancel-after-upstream-before-release', {
+      signal: controller.signal,
+    });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    );
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get(request.requestId).status,
+        'UNKNOWN',
+      );
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('client cancellation between streamed chunks blocks the next protected write', async () => {
+  const controller = new AbortController();
+  const fixture = await createFixture({
+    createTransport: () => () => Promise.resolve({ status: 200, body: 'stream' }),
+  });
+  const chunks = [];
+  const requestId = 'cancel-between-protected-stream-chunks';
+  try {
+    const request = validRequest(requestId, {
+      stream: true,
+      signal: controller.signal,
+      forwardResponse: async () => {
+        fixture.gateway.authorizeResponseWrite(requestId, () => {
+          chunks.push('first');
+        }, { final: false });
+        controller.abort(new Error('client disconnected between chunks'));
+        fixture.gateway.authorizeResponseWrite(requestId, () => {
+          chunks.push('second');
+        }, { final: false });
+      },
+    });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    assert.deepEqual(chunks, ['first']);
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get(requestId).status,
+        'UNKNOWN',
+      );
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
