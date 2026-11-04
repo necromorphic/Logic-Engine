@@ -273,7 +273,7 @@ test('Horde text generation uses the protected Gateway and performs exactly one 
     senderRoute: 'horde-text',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(JSON.stringify({ prompt: 'hello' })),
-    hostRequestContext,
+    hostRequestContext: { body: { prompt: 'original Horde prompt' } },
   });
   assert.equal(result.status, 200);
   assert.equal(dispatched.senderRoute, 'horde-text');
