@@ -180,3 +180,12 @@ test('Windows startup recovers create-sidecar intents in both crash windows', ()
   assert.match(smoke, /verify uncommitted sidecar was removed/);
   assert.match(smoke, /verify committed sidecar remains openable/);
 });
+
+
+test('Windows create recovery requires an explicit absent precondition', () => {
+  assert.match(validator, /precondition/);
+  assert.match(validator, /"absent"/);
+  assert.match(validator, /"identity-match"/);
+  assert.match(smoke, /missing_precondition_intent/);
+  assert.match(smoke, /reject create intents without absence precondition/);
+});
