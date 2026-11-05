@@ -145,7 +145,7 @@ OPEN_MAIN, sidecar lifecycle IPC or client HANDLE transfer.
 
 ## Create-sidecar startup recovery
 
-le_win_recover_create_intent is called by the SCM startup coordinator while
+le_win_recover_lifecycle_intent is called by the SCM startup coordinator while
 the metadata-store exclusive lock is held. It accepts only a strictly
 validated create-sidecar intent whose role and basename match the registered
 database role and expected -wal, -shm or -journal suffix. The intent must carry
