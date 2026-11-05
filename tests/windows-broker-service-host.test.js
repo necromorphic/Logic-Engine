@@ -171,13 +171,13 @@ test('Windows SCM readiness is gated by validated manifest and physical namespac
 
 
 test('Windows startup recovers create-sidecar intents in both crash windows', () => {
-  assert.match(validatorHeader, /le_win_recover_create_intent/);
-  assert.match(validator, /le_win_recover_create_intent/);
+  assert.match(validatorHeader, /le_win_recover_lifecycle_intent/);
+  assert.match(validator, /le_win_recover_lifecycle_intent/);
   assert.match(validator, /jmanifest_add_active_sidecar/);
   assert.match(validator, /generation==target/);
   assert.match(validator, /generation==base/);
   assert.match(validator, /jopen_role_parent/);
-  assert.match(source, /le_win_recover_create_intent/);
+  assert.match(source, /le_win_recover_lifecycle_intent/);
   assert.match(smoke, /recover uncommitted create-sidecar intent/);
   assert.match(smoke, /reconcile committed create-sidecar intent/);
   assert.match(smoke, /recover create intent when CREATE_NEW never produced a file/);
