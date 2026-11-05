@@ -318,7 +318,8 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
      component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
   if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
   next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
-  if(owns)CloseHandle(current);\n  current=next;owns=1;
+  if(owns)CloseHandle(current);
+  current=next;owns=1;
  }
  if(!owns){
   if(!DuplicateHandle(GetCurrentProcess(),root,GetCurrentProcess(),&current,
@@ -327,7 +328,8 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
  }
  *out=current;return 1;
 fail:
- if(owns)CloseHandle(current);\n return 0;
+ if(owns)CloseHandle(current);
+ return 0;
 }
 static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
  HANDLE file;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
