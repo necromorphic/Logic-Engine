@@ -1,5 +1,6 @@
 name: Memory Provider blocker 3
 # Push and PR path filters share the integration acceptance contract; keep exact-head runs observable.
+# Touch this workflow to fan out the PR's required exact-head acceptance matrix.
 on:
   push:
     branches: [integration/host-core-v1]
