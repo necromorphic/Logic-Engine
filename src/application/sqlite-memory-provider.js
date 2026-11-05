@@ -1603,8 +1603,13 @@ export class SQLiteMemoryProvider {
       data_version: this.#dataVersion(),
       candidate_digest: hashRequest({ scope, snapshot, candidates: rawCandidates }),
     };
+    // SQLite PRAGMA data_version is relative to a connection: two connections
+    // can report different counters for the same unchanged database. Retrieval
+    // and Final-Send intentionally use separate Provider connections, so compare
+    // the canonical scoped evidence digest instead. The Coordinator lease makes
+    // this read atomic against mutations; the digest detects changes since the
+    // retrieval snapshot, including candidate/grant/index projection changes.
     if (currentCursor.data_version !== dataVersionBefore
-      || currentCursor.data_version !== providerEvidenceCursor.data_version
       || currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
       throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
     }
