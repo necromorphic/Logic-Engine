@@ -2684,9 +2684,9 @@ export class SQLiteStore {
           if (event.caused_by.some((value) => invalid.has(value))
             || event.depends_on.some((value) => invalid.has(value) || projectionChanged(value, event))
             || event.read_set.some((value) => projectionChanged(value, event))
-            // A later writer is causally dependent on the projection it overwrites:
-            // if rollback changes that projection at the writer's commit cursor,
-            // invalidate the writer as well instead of preserving a stale overwrite.
+            // A writer is affected only if the projection after applying it
+            // changes under rollback. This preserves independent full restatements
+            // while invalidating partial writes that depended on removed state.
             || refs(event.effects).some((value) => projectionChanged(value, event, true))
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
