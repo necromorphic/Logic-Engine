@@ -166,8 +166,7 @@ close_store:
   le_win_store_close(&store);
 done:
   if (result != 0) {
-    fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\
-",
+    fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\n",
         stage, (unsigned long)GetLastError());
     fflush(stderr);
   }
