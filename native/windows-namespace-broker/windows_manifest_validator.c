@@ -665,7 +665,8 @@ int le_win_create_role_sidecar(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespa
     ||!le_win_namespace_flush(file)||!le_win_namespace_flush_parent(parent))goto done;
  if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,role,target,kind,
       &created_identity,&updated,&updated_length)
-    ||!le_win_store_write_manifest(store,updated,updated_length))goto done;
+    ||!le_win_store_write_manifest(store,updated,updated_length)
+    ||!le_win_reconcile_manifest_namespace(updated,updated_length,namespace_root))goto done;
  if(!le_win_store_remove_intent(store))goto done;
  intent_written=0;
  *identity=created_identity;*opened=file;file=INVALID_HANDLE_VALUE;ok=1;
