@@ -1337,6 +1337,10 @@ export class HostLifecycleJournal {
           source_manifest_sha256: attestation.source_manifest_sha256,
         };
       }
+      const nonceUsed = this.db.prepare(
+        'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
+      ).get(attestation.nonce);
+      if (nonceUsed) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED');
       if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
         throw new Error('HOST_ROOT_INVENTORY_PENDING_MUTATION');
       }
@@ -1361,10 +1365,6 @@ export class HostLifecycleJournal {
       if (Math.abs(nowSeconds - attestation.issued_at) > 30) {
         throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_EXPIRED');
       }
-      const nonceUsed = this.db.prepare(
-        'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
-      ).get(attestation.nonce);
-      if (nonceUsed) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED');
       let verified = false;
       try {
         verified = this.verifyRootInventoryAttestation({
