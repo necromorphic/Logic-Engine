@@ -328,6 +328,10 @@ int main(void) {
       || reopened==INVALID_HANDLE_VALUE) goto unlock_store;
   if (!CloseHandle(reopened) || !CloseHandle(broker_opened)) goto unlock_store;
   reopened=INVALID_HANDLE_VALUE;broker_opened=INVALID_HANDLE_VALUE;
+  stage = "remove runtime-created SHM through identity-bound adapter for fixture cleanup";
+  if (!le_win_namespace_open_sidecar(namespace_handle,L"memory.sqlite-shm",
+      &sidecar_identity,&reopened,&reopened_identity)
+      || !le_win_namespace_delete_sidecar(namespace_handle,&reopened,&sidecar_identity)) goto unlock_store;
   stage = "runtime create-sidecar transaction retires its intent";
   if (le_win_store_read_intent(&store,&recovery_intent,&recovery_intent_length)
       || GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
