@@ -187,5 +187,5 @@ test('Windows create recovery requires an explicit absent precondition', () => {
   assert.match(validator, /"absent"/);
   assert.match(validator, /"identity-match"/);
   assert.match(smoke, /missing_precondition_intent/);
-  assert.match(smoke, /reject create intents without absence precondition/);
+  assert.match(smoke, /le_win_validate_intent\(missing_precondition_intent/);
 });
