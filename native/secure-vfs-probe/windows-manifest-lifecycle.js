@@ -83,6 +83,7 @@ function intentFor(manifest, operation, role, kind, expectedIdentity = null) {
     schemaVersion: 1,
     operationId: cryptoRandomId(),
     operation,
+    precondition: operation === 'create-sidecar' ? 'absent' : 'identity-match',
     role,
     kind,
     basename: roleFor(manifest, role).databaseBasename + SIDECAR_SUFFIX[kind],
@@ -120,9 +121,10 @@ function assertIntent(intent) {
     throw new TypeError('Malformed Windows manifest lifecycle intent');
   }
   if (intent.operation === 'delete-sidecar') {
+    if (intent.precondition !== 'identity-match') throw new TypeError('Delete intent requires identity-match precondition');
     assertIdentity(intent.expectedIdentity, 'delete intent');
-  } else if (intent.expectedIdentity !== null) {
-    throw new TypeError('Create intent must not contain a pre-existing identity');
+  } else if (intent.precondition !== 'absent' || intent.expectedIdentity !== null) {
+    throw new TypeError('Create intent requires absent precondition and no pre-existing identity');
   }
   return intent;
 }
