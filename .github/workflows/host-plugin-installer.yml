@@ -55,7 +55,11 @@ jobs:
       - name: Verify installer refuses an existing plugin directory
         shell: pwsh
         run: |
-          ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
-          if ($LASTEXITCODE -eq 0) { throw 'INSTALLER_OVERWROTE_EXISTING_PLUGIN' }
+          try {
+            ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
+            throw 'INSTALLER_OVERWROTE_EXISTING_PLUGIN'
+          } catch {
+            if ($_.Exception.Message -notlike '*PLUGIN_PATH_ALREADY_EXISTS*') { throw }
+          }
           node (Join-Path $env:ST_ROOT 'plugins/logic-engine/scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root (Join-Path $env:ST_ROOT 'plugins/logic-engine')
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED_AFTER_REFUSAL' }
