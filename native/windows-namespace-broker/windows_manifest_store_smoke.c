@@ -34,7 +34,10 @@ int main(void) {
   wchar_t temp[MAX_PATH] = { 0 }, directory[MAX_PATH] = { 0 };
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
-  DWORD manifest_length = 0, intent_length = 0;\n  unsigned char *recovery_intent = NULL;\n  DWORD recovery_intent_length = 0;\n  int reject_recovery = 1;
+  DWORD manifest_length = 0, intent_length = 0;
+  unsigned char *recovery_intent = NULL;
+  DWORD recovery_intent_length = 0;
+  int reject_recovery = 1;
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
@@ -156,13 +159,15 @@ unlock_store:
   if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
   if (sidecar != INVALID_HANDLE_VALUE) CloseHandle(sidecar);
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
-  if (intent) HeapFree(GetProcessHeap(), 0, intent);\n  if (recovery_intent) HeapFree(GetProcessHeap(), 0, recovery_intent);
+  if (intent) HeapFree(GetProcessHeap(), 0, intent);
+  if (recovery_intent) HeapFree(GetProcessHeap(), 0, recovery_intent);
   le_win_store_unlock(&store);
 close_store:
   le_win_store_close(&store);
 done:
   if (result != 0) {
-    fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\\n",
+    fprintf(stderr, "Windows smoke failed at %s (GetLastError=%lu)\
+",
         stage, (unsigned long)GetLastError());
     fflush(stderr);
   }
