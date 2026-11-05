@@ -223,7 +223,8 @@ static HANDLE jopen_verified(HANDLE parent,const wchar_t*name,
  if(!GetFileInformationByHandleEx(opened,FileAttributeTagInfo,&tag,sizeof(tag))
     ||(tag.FileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)!=0
     ||(((tag.FileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=0)!=(directory!=0))
-    ||!logic_engine_win_identity_equal(expected,&observed)){
+    ||!logic_engine_win_identity_equal(expected,&observed)
+    ||(directory&&!le_win_store_validate_private_directory(opened))){
   CloseHandle(opened);SetLastError(ERROR_ACCESS_DENIED);return INVALID_HANDLE_VALUE;
  }
  return opened;
