@@ -74,6 +74,7 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /GetFinalPathNameByHandleW/);
   assert.match(store, /GetVolumeInformationW/);
   assert.match(store, /le_win_store_open_namespace_root/);
+  assert.match(store, /le_win_store_validate_private_directory/);
   assert.match(store, /wcscmp\(filesystem, L"NTFS"\)/);
 });
 
@@ -163,6 +164,7 @@ test('Windows SCM readiness is gated by validated manifest and physical namespac
   assert.match(validator, /jreconcile_role/);
   assert.match(validator, /jopen_verified/);
   assert.match(validator, /le_win_store_open_namespace_root/);
+  assert.match(validator, /le_win_store_validate_private_directory/);
   assert.match(validator, /wcscmp\(filesystem,L"NTFS"\)/);
   assert.match(validator, /metadataRootIdentity/);
 });
