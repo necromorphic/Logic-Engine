@@ -72,7 +72,7 @@ jobs:
       - name: Install better-sqlite3 build dependencies
         run: |
           cd "$RUNNER_TEMP/better-sqlite3/package"
-          npm install --no-audit --no-fund
+          npm install --omit=dev --no-audit --no-fund
       - name: Verify exact Linux SQLite version, source ID and compile options
         run: |
           node -e 'const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR); const fs = require("node:fs"); const os = require("node:os"); const path = require("node:path"); const dir = fs.mkdtempSync(path.join(os.tmpdir(), "st-vectorservice-sqlite-")); const db = new Database(path.join(dir, "vectors.sqlite")); try { const row = db.prepare("SELECT sqlite_version() AS version, sqlite_source_id() AS source_id").get(); const compileOptions = db.pragma("compile_options").map(x => x.compile_options); db.pragma("journal_mode = WAL"); const journalMode = db.pragma("journal_mode", { simple: true }); db.pragma("temp_store = MEMORY"); const tempStore = db.pragma("temp_store", { simple: true }); console.log("better-sqlite3 Linux runtime", JSON.stringify({ ...row, journalMode, tempStore, compileOptions }, null, 2)); if (row.version !== "3.53.4") throw new Error("Unexpected SQLite version"); if (row.source_id !== "2026-07-24 19:02:57 bf7c7f30031888f4e796e429ab3978879485813aaca6f641c7b33e4e09459bcc") throw new Error("Unexpected SQLite source ID"); if (journalMode !== "wal" || tempStore !== 2) throw new Error("Unexpected ST-VectorService SQLite PRAGMA behavior"); } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }); }'
@@ -144,7 +144,7 @@ jobs:
         shell: pwsh
         run: |
           Set-Location "$env:RUNNER_TEMP\better-sqlite3\package"
-          npm install --no-audit --no-fund
+          npm install --omit=dev --no-audit --no-fund
       - name: Verify Node-API 10 and archived Windows prebuild identity
         shell: pwsh
         run: |
