@@ -209,13 +209,23 @@ int main(void) {
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (namespace_handle == INVALID_HANDLE_VALUE) goto unlock_store;
+  store.validate_manifest = le_win_validate_manifest;
+  stage = "recover create intent when CREATE_NEW never produced a file";
+  {
+    static const unsigned char missing_create_intent[] =
+      "{\"schemaVersion\":1,\"operationId\":\"1123456789abcdef0123456789abcdef\","
+      "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"shm\","
+      "\"basename\":\"memory.sqlite-shm\",\"baseGeneration\":1,"
+      "\"targetGeneration\":2,\"expectedIdentity\":null}";
+    if (!le_win_recover_create_intent(&store,namespace_manifest,namespace_manifest_length,
+        missing_create_intent,(DWORD)(sizeof(missing_create_intent)-1),namespace_directory)) goto unlock_store;
+  }
   stage = "create sidecar for interrupted CREATE_NEW";
   if (!le_win_namespace_create_sidecar(namespace_handle, L"memory.sqlite-wal",
       &sidecar, &sidecar_identity)) goto unlock_store;
   if (!le_win_namespace_flush(sidecar) || !CloseHandle(sidecar)) goto unlock_store;
   sidecar = INVALID_HANDLE_VALUE;
   stage = "recover uncommitted create-sidecar intent and enroll identity";
-  store.validate_manifest = le_win_validate_manifest;
   {
     static const unsigned char create_intent[] =
       "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
