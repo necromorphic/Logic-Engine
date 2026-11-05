@@ -31,9 +31,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
-          cache: npm
-      - name: Install Logic-Engine dependencies
-        run: npm ci
       - name: Checkout pinned SillyTavern source
         shell: pwsh
         run: |
