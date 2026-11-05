@@ -92,3 +92,19 @@ The callback is deliberately not implemented by the SCM host yet. Production
 use still requires a native strict-schema validator and an identity-bound
 reconciliation callback that checks every registered DB and sidecar against
 the manifest before the service can report ready.
+
+
+## Native strict manifest and intent validator
+
+`windows_manifest_validator.c` is a bounded native validator for the Windows
+manifest and lifecycle-intent formats. It rejects invalid UTF-8, BOMs,
+duplicate object keys, escaped string representations, excessive input/depth/
+token counts, unknown or missing fields, non-Windows identities, malformed
+file identities, invalid role/component names, invalid sidecar states and
+non-consecutive intent generations. The native smoke test includes valid
+manifest/intent fixtures and negative duplicate-key and generation fixtures.
+
+The validator is now compiled by the Windows CI gate. It is not yet wired into
+the SCM service's metadata-store open or startup path. Physical identity
+reconciliation and service readiness remain disabled; this increment does not
+authorize any filesystem IPC operation.
