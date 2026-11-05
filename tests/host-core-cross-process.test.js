@@ -184,7 +184,7 @@ test('Host adapter retrieves SQLite Memory from an independently running Core pr
     const response = responseRecorder();
     await hostAdapter.dispatch(request, response);
 
-    assert.equal(response.statusCode, 200);
+    assert.equal(response.statusCode, 200, 'Host/Core cross-process response: ' + JSON.stringify(response.payload));
     assert.equal(response.payload.retrieval.status, 'ready');
     assert.equal(response.payload.retrieval.candidates.length, 1);
     assert.equal(
