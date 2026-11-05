@@ -336,18 +336,17 @@ static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
  file=logic_engine_win_open_relative(parent,basename,DELETE|FILE_READ_ATTRIBUTES,
    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
    FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
- if(file==INVALID_HANDLE_VALUE){if(GetLastError()==ERROR_FILE_NOT_FOUND)return 1;SetLastError(ERROR_INVALID_ACCESS);return 0;}
+ if(file==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
  if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
     ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0){
-  CloseHandle(file);SetLastError(ERROR_INVALID_DATA);return 0;
+  CloseHandle(file);SetLastError(ERROR_ACCESS_DENIED);return 0;
  }
  disposition.DeleteFile=TRUE;
  if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition))){
-  CloseHandle(file);SetLastError(ERROR_DELETE_PENDING);return 0;
+  CloseHandle(file);return 0;
  }
- if(!CloseHandle(file)){SetLastError(ERROR_INVALID_HANDLE);return 0;}
- if(!FlushFileBuffers(parent)){SetLastError(ERROR_WRITE_FAULT);return 0;}
- return 1;
+ if(!CloseHandle(file))return 0;
+ return FlushFileBuffers(parent)!=0;
 }
 int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
@@ -387,7 +386,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  anchor_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
  root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1,1);
- if(root_handle==INVALID_HANDLE_VALUE){SetLastError(ERROR_BAD_PATHNAME);goto done;}
+ if(root_handle==INVALID_HANDLE_VALUE)goto done;
  if(!jntfs_handle(root_handle))goto done;
  if(generation==target){
   int committed=0;
@@ -404,7 +403,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
    if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
       &&jeq(&p,jget(&p,side,"state"),"active"))active=1;
   if(active)goto done;
-  if(!jopen_role_parent(&p,match,root_handle,&parent)){SetLastError(ERROR_INVALID_OWNER);goto done;}
+  if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
   owns_parent=1;
   if(!jremove_uncommitted_sidecar(parent,actual_basename))goto done;
   ok=1;
