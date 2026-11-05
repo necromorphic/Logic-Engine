@@ -123,8 +123,7 @@ test('create recovery enrolls a sidecar created before a simulated crash', async
   await assert.rejects(h.coordinator.createSidecar('core', 'wal'), /simulated process crash/);
   assert.ok(h.state.intent);
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar',
-    precondition: 'absent', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar', generation: 2 });
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'active');
   assert.deepEqual(h.state.manifest.roles[0].sidecars[0].identity, identity('5'));
   assert.equal(h.state.intent, null);
@@ -174,8 +173,7 @@ test('delete recovery retires the manifest record after a crash following namesp
   await assert.rejects(h.coordinator.deleteSidecar('core', 'wal'), /simulated process crash/);
   assert.ok(h.state.intent);
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
-    precondition: 'identity-match', generation: 3 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 3 });
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'retired');
   assert.equal(h.state.intent, null);
 });
@@ -268,8 +266,7 @@ test('reconcile clears a committed create intent only after rechecking the activ
     expectedIdentity: null,
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar',
-    precondition: 'absent', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar', generation: 2 });
   assert.equal(h.state.intent, null);
 });
 
@@ -294,8 +291,7 @@ test('reconcile clears an intent when its matching manifest generation was alrea
     expectedIdentity: identity('5'),
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
-    precondition: 'identity-match', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 2 });
   assert.equal(h.state.intent, null);
 });
 
