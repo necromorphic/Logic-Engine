@@ -401,7 +401,7 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
  const wchar_t*suffix;const char*kind_text;int is_create,is_delete;
  HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
- LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
+ LogicEngineWinFileIdentity expected,observed,root_identity;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
  unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,sidecar_match=0;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
  ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));
@@ -442,8 +442,8 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  root_handle=le_win_store_open_namespace_root(namespace_root);
  if(root_handle==INVALID_HANDLE_VALUE
     ||!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&observed)
-    ||!logic_engine_win_identity(root_handle,&expected,NULL)
-    ||!logic_engine_win_identity_equal(&observed,&expected))goto done;
+    ||!logic_engine_win_identity(root_handle,&root_identity,NULL)
+    ||!logic_engine_win_identity_equal(&observed,&root_identity))goto done;
  sides=jget(&p,match,"sidecars");
  if(generation==target){
   for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
