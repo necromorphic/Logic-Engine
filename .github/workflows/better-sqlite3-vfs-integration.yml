@@ -16,6 +16,9 @@ on:
       - 'tests/st-vectorservice-vfs-database-path.test.js'
       - 'integrations/st-vectorservice/**'
       - 'native/posix-namespace-broker/**'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
+      - '.github/workflows/windows-namespace-broker.yml'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
   pull_request:
     paths:
@@ -31,6 +34,9 @@ on:
       - 'integrations/st-vectorservice/**'
       - 'tests/run_better_sqlite3_cross_uid.py'
       - 'native/posix-namespace-broker/**'
+      - 'native/windows-namespace-broker/**'
+      - 'tests/windows-broker-service-host.test.js'
+      - '.github/workflows/windows-namespace-broker.yml'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
 
 permissions:
@@ -50,6 +56,30 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.14.0'
+      - name: Compile Windows namespace broker and metadata store
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $exe = "$env:RUNNER_TEMP\logic-engine-sqlite-broker.exe"
+          $command = '"' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\windows-namespace-broker\windows_broker_service.c native\windows-namespace-broker\windows_manifest_store.c native\windows-namespace-broker\windows_namespace_adapter.c /link advapi32.lib bcrypt.lib /OUT:"' + $exe + '"'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Windows namespace broker compilation failed' }
+      - name: Run Windows manifest-store and namespace native smoke test
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -property installationPath
+          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
+          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
+          $exe = "$env:RUNNER_TEMP\windows-broker-smoke.exe"
+          $command = '"' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\windows-namespace-broker\windows_manifest_store_smoke.c /link advapi32.lib bcrypt.lib /OUT:"' + $exe + '" && "' + $exe + '"'
+          cmd /c $command
+          if ($LASTEXITCODE -ne 0) { throw 'Windows broker native smoke test failed' }
+      - name: Run Windows broker source contract tests
+        run: node --test tests/windows-broker-service-host.test.js
       - name: Download exact better-sqlite3 release
         run: |
           mkdir -p "$RUNNER_TEMP/better-sqlite3"
