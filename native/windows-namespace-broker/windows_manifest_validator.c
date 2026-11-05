@@ -147,7 +147,7 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
   role_names[dbcount]=roleid;dbcount++;
   for(pc=p->v[components].first,pi=p->v[parents].first;pc!=0xffffffffu;pc=p->v[pc].next,pi=p->v[pi].next)if(!jcomponent(p,pc)||!jclaim_identity(p,pi,physical_ids,&physical_count,8192))return 0;
   dbid=jget(p,role,"databaseIdentity");if(!jclaim_identity(p,dbid,physical_ids,&physical_count,8192))return 0;
-  for(i=0;i<p->v[sides].count;i++){side=(i==0?p->v[sides].first:p->v[side].next);if(!jkeys(p,side,sidekeys,4))return 0;
+  for(side=p->v[sides].first;side!=0xffffffffu;side=p->v[side].next){if(!jkeys(p,side,sidekeys,4))return 0;
    kind=jeq(p,jget(p,side,"kind"),"wal")?"wal":jeq(p,jget(p,side,"kind"),"shm")?"shm":jeq(p,jget(p,side,"kind"),"journal")?"journal":NULL;
    if(!kind||!jclaim_identity(p,jget(p,side,"identity"),physical_ids,&physical_count,8192)||!jnum(p,jget(p,side,"generation"),1,gen,&sg))return 0;
    {
