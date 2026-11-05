@@ -12,7 +12,7 @@
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
   static const unsigned char expected[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   (void)context;
-  return length == sizeof(expected) - 1 && memcmp(bytes, expected, sizeof(expected) - 1) == 0;
+  return length == sizeof(expected) && memcmp(bytes, expected, sizeof(expected)) == 0;
 }
 
 static int recover_test(
@@ -90,16 +90,16 @@ int main(void) {
   stage = "probe directory FlushFileBuffers";
   if (!FlushFileBuffers(store.directory)) goto unlock_store;
   stage = "write manifest";
-  if (!le_win_store_write_manifest(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
+  if (!le_win_store_write_manifest(&store, document, (DWORD)(sizeof(document)))) goto unlock_store;
   stage = "reject invalid manifest";
   if (le_win_store_write_manifest(&store, invalid_document, (DWORD)(sizeof(invalid_document) - 1))) goto unlock_store;
   stage = "write intent";
-  if (!le_win_store_write_intent(&store, document, (DWORD)(sizeof(document) - 1))) goto unlock_store;
+  if (!le_win_store_write_intent(&store, document, (DWORD)(sizeof(document)))) goto unlock_store;
   stage = "read manifest";
   if (!le_win_store_read_manifest(&store, &manifest, &manifest_length)) goto unlock_store;
   stage = "read intent";
   if (!le_win_store_read_intent(&store, &intent, &intent_length)) goto unlock_store;
-  if (manifest_length != sizeof(document) - 1 || intent_length != sizeof(document) - 1
+  if (manifest_length != sizeof(document) || intent_length != sizeof(document)
       || memcmp(manifest, document, manifest_length) != 0
       || memcmp(intent, document, intent_length) != 0) goto unlock_store;
   stage = "release store lock before startup recovery";
@@ -109,7 +109,7 @@ int main(void) {
   stage = "verify rejected recovery retained intent";
   if (!le_win_store_lock(&store)
       || !le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
-      || recovery_intent_length != sizeof(document) - 1
+      || recovery_intent_length != sizeof(document)
       || memcmp(recovery_intent, document, recovery_intent_length) != 0) goto unlock_store;
   HeapFree(GetProcessHeap(), 0, recovery_intent);
   recovery_intent = NULL;
