@@ -121,13 +121,15 @@ opens. Retired sidecars must be absent unless a newer active generation of
 the same kind occupies that basename.
 
 A pending create-sidecar intent is recovered in two supported crash
-windows. If the manifest is still at baseGeneration, the role and sidecar
-basename are derived from the validated manifest and intent, the parent chain
-is reopened by recorded directory identities, and any orphan regular file is
-deleted by its opened handle before the parent is flushed. If the manifest is
-already at targetGeneration, recovery requires the corresponding sidecar
-kind to be active at that exact generation and then verifies its physical
-identity against the manifest. Other generations, mismatched names, active
+windows. If the manifest is still at baseGeneration, the role and sidecar basename
+are derived from the validated manifest and intent, the parent chain is reopened
+by recorded directory identities, and the sidecar is opened without following
+reparse points. If the file exists, its identity is captured, the file and
+parent are flushed, and a new manifest generation enrolling that exact identity
+is durably committed. If CREATE_NEW never produced a file, recovery clears the
+intent without advancing the manifest. If the manifest is already at
+targetGeneration, recovery requires the corresponding sidecar kind to be active
+at that exact generation and verifies its physical identity against the manifest. Other generations, mismatched names, active
 conflicts, reparse points and ambiguous filesystem errors fail closed.
 
 Delete-sidecar intents remain unsupported and fail closed. They require a
@@ -152,8 +154,8 @@ the same exclusive metadata lock and namespace mutation boundary. Delete
 intents use the distinct identity-match precondition and remain unsupported.
 
 The native smoke test exercises both durable-ordering boundaries:
-- crash after CREATE_NEW but before manifest commit: remove the uncommitted
-  orphan through a no-follow, handle-relative open and flush the parent;
+- crash after CREATE_NEW but before manifest commit: enroll the opened file's
+  identity in the next manifest generation after flushing file and parent;
 - crash after manifest commit but before intent retirement: require the active
   sidecar at targetGeneration and reconcile its recorded physical identity.
 
