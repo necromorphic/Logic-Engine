@@ -331,31 +331,54 @@ fail:
  if(owns)CloseHandle(current);
  return 0;
 }
-static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
- HANDLE file;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
- file=logic_engine_win_open_relative(parent,basename,DELETE|FILE_READ_ATTRIBUTES,
-   FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
-   FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
- if(file==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
- if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
-    ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0){
-  CloseHandle(file);SetLastError(ERROR_ACCESS_DENIED);return 0;
- }
- disposition.DeleteFile=TRUE;
- if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition))){
-  CloseHandle(file);return 0;
- }
- if(!CloseHandle(file))return 0;
- return FlushFileBuffers(parent)!=0;
+static int jformat_identity(const LogicEngineWinFileIdentity*identity,char*volume,size_t volume_capacity,char*file_id,size_t file_id_capacity){
+ unsigned i;
+ if(!identity||file_id_capacity<33)return 0;
+ if(FAILED(StringCchPrintfA(volume,volume_capacity,"%016llx",(unsigned long long)identity->volume_serial)))return 0;
+ for(i=0;i<16;i++)if(FAILED(StringCchPrintfA(file_id+i*2,3,"%02x",identity->file_id.Identifier[i])))return 0;
+ return 1;
 }
-int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_length,
+static int jmanifest_add_active_sidecar(const unsigned char*manifest,DWORD manifest_length,
+ JPARSER*p,DWORD root,DWORD role,DWORD target,const char*kind,
+ const LogicEngineWinFileIdentity*identity,unsigned char**updated,DWORD*updated_length){
+ DWORD generation_node=jget(p,root,"generation"),sides=jget(p,role,"sidecars");
+ DWORD insert_at,old_generation_length,new_generation_length,record_length,new_length,cursor=0;
+ char generation_text[32],volume[17],file_id[33],record[512];int written;
+ unsigned char*out;
+ if(!jformat_identity(identity,volume,sizeof(volume),file_id,sizeof(file_id))
+    ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%lu",(unsigned long)target))
+    ||FAILED(StringCchPrintfA(record,sizeof(record),
+      "{\"kind\":\"%s\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"generation\":%lu}",
+      kind,volume,file_id,(unsigned long)target)))return 0;
+ insert_at=p->v[sides].end-1;
+ old_generation_length=p->v[generation_node].end-p->v[generation_node].start;
+ new_generation_length=(DWORD)strlen(generation_text);
+ record_length=(DWORD)strlen(record)+(p->v[sides].count?1u:0u);
+ if(insert_at<p->v[generation_node].end||insert_at>manifest_length)return 0;
+ new_length=manifest_length-old_generation_length+new_generation_length+record_length;
+ if(new_length>LE_JSON_MAX_BYTES)return 0;
+ out=HeapAlloc(GetProcessHeap(),0,new_length);
+ if(!out)return 0;
+ memcpy(out+cursor,manifest,p->v[generation_node].start);cursor+=p->v[generation_node].start;
+ memcpy(out+cursor,generation_text,new_generation_length);cursor+=new_generation_length;
+ memcpy(out+cursor,manifest+p->v[generation_node].end,insert_at-p->v[generation_node].end);
+ cursor+=insert_at-p->v[generation_node].end;
+ if(p->v[sides].count)out[cursor++]=',';
+ memcpy(out+cursor,record,strlen(record));cursor+=(DWORD)strlen(record);
+ memcpy(out+cursor,manifest+insert_at,manifest_length-insert_at);cursor+=manifest_length-insert_at;
+ if(cursor!=new_length||!le_win_validate_manifest(out,new_length,NULL)){
+  HeapFree(GetProcessHeap(),0,out);SetLastError(ERROR_INVALID_DATA);return 0;
+ }
+ *updated=out;*updated_length=new_length;return 1;
+}
+int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
- JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name;
- uint64_t generation,base,target;
- wchar_t database[512],expected_basename[768],actual_basename[768];
- const wchar_t*suffix;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE;
- LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int owns_parent=0,ok=0;
- if(!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
+ JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides;
+ uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
+ const wchar_t*suffix;const char*kind_text;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
+ LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
+ unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,has_file=0;
+ if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
  ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));ZeroMemory(&anchor,sizeof(anchor));
  p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
  p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
@@ -364,10 +387,13 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
  if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
  jws(&q);if(!jvalue(&q,0,&ir))goto done;jws(&q);
- if(q.pos!=q.n||q.v[ir].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
- op=jget(&q,ir,"operation");if(!jeq(&q,op,"create-sidecar")||!jeq(&q,jget(&q,ir,"precondition"),"absent"))goto done;
+ if(q.pos!=q.n||p.v[root].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
+ op=jget(&q,ir,"operation");
+ if(!jeq(&q,op,"create-sidecar")||!jeq(&q,jget(&q,ir,"precondition"),"absent"))goto done;
  kind=jget(&q,ir,"kind");
- suffix=jeq(&q,kind,"wal")?L"-wal":jeq(&q,kind,"shm")?L"-shm":L"-journal";
+ if(jeq(&q,kind,"wal")){suffix=L"-wal";kind_text="wal";}
+ else if(jeq(&q,kind,"shm")){suffix=L"-shm";kind_text="shm";}
+ else {suffix=L"-journal";kind_text="journal";}
  if(!jnum(&p,jget(&p,root,"generation"),1,9007199254740991ULL,&generation)
     ||!jnum(&q,jget(&q,ir,"baseGeneration"),1,9007199254740990ULL,&base)
     ||!jnum(&q,jget(&q,ir,"targetGeneration"),2,9007199254740991ULL,&target))goto done;
@@ -386,39 +412,51 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  anchor_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
  root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1,1);
- if(root_handle==INVALID_HANDLE_VALUE)goto done;
- if(!jntfs_handle(root_handle))goto done;
+ if(root_handle==INVALID_HANDLE_VALUE||!jntfs_handle(root_handle))goto done;
+ sides=jget(&p,match,"sidecars");
  if(generation==target){
   int committed=0;
-  for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next){
-   if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
-      &&jeq(&p,jget(&p,side,"state"),"active")
+  for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
+   if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active")
       &&jnum(&p,jget(&p,side,"generation"),target,target,NULL))committed=1;
   }
   if(!committed)goto done;
-  ok=1;
+  ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
  }else if(generation==base){
-  int active=0;
-  for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next)
-   if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
-      &&jeq(&p,jget(&p,side,"state"),"active"))active=1;
-  if(active)goto done;
+  for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next)
+   if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active"))goto done;
   if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
   owns_parent=1;
-  if(!jremove_uncommitted_sidecar(parent,actual_basename))goto done;
-  ok=1;
+  file=logic_engine_win_open_relative(parent,actual_basename,GENERIC_READ|GENERIC_WRITE|FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+    FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+  if(file==INVALID_HANDLE_VALUE){
+   if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
+   ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
+  }else{
+   if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
+      ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0
+      ||!logic_engine_win_identity(file,&observed,NULL)
+      ||!FlushFileBuffers(file)||!FlushFileBuffers(parent))goto done;
+   if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,match,(DWORD)target,
+        kind_text,&observed,&updated,&updated_length))goto done;
+   if(!le_win_store_write_manifest(store,updated,updated_length))goto done;
+   ok=le_win_reconcile_manifest_namespace(updated,updated_length,namespace_root);
+  }
  }else goto done;
- if(ok)ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
 done:
+ if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
  if(owns_parent&&parent!=INVALID_HANDLE_VALUE)CloseHandle(parent);
  if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
  if(anchor_parent!=INVALID_HANDLE_VALUE)CloseHandle(anchor_parent);
  if(anchor.basename)HeapFree(GetProcessHeap(),0,anchor.basename);
+ if(updated)HeapFree(GetProcessHeap(),0,updated);
  if(p.v)HeapFree(GetProcessHeap(),0,p.v);
  if(q.v)HeapFree(GetProcessHeap(),0,q.v);
  if(!ok&&GetLastError()==ERROR_SUCCESS)SetLastError(ERROR_RECOVERY_FAILURE);
  return ok;
 }
+
 
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
