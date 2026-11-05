@@ -199,7 +199,7 @@ static int jwide(JPARSER*p,DWORD id,wchar_t*out,DWORD capacity){
  needed=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,NULL,0);
  if(!needed||needed>=capacity)return 0;
  if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,out,(int)capacity))return 0;
- out[needed]=L'\0';return 1;
+ out[needed]=0;return 1;
 }
 static int jnative_identity(JPARSER*p,DWORD id,LogicEngineWinFileIdentity*out){
  DWORD vs=jget(p,id,"volumeSerial"),fid=jget(p,id,"fileId"),i;
@@ -275,7 +275,7 @@ fail:
  return 0;
 }
 int le_win_reconcile_manifest_namespace(const unsigned char*bytes,DWORD length,const wchar_t*namespace_root){
- JPARSER p;DWORD root,roles,role,rootid;HANDLE root_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE;
+ JPARSER p;DWORD root,roles,role;HANDLE root_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE;
  LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int ok=0;
  if(!bytes||!namespace_root||!length||length>LE_JSON_MAX_BYTES)return 0;
  if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)bytes,(int)length,NULL,0))return 0;
