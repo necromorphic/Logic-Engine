@@ -287,7 +287,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     try {
       recoveryDb.prepare(
         'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
-      ).run(4, pendingRecovery.operation_id, recoveryDigest);
+      ).run(pendingRecovery.head, pendingRecovery.operation_id, recoveryDigest);
     } finally {
       recoveryDb.close();
     }
