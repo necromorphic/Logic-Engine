@@ -27,7 +27,8 @@ static int recover_test(
       || memcmp(manifest, expected, sizeof(expected)) != 0
       || !intent || intent_length != sizeof(expected)
       || memcmp(intent, expected, sizeof(expected)) != 0) return 0;
-  return context != NULL && *(const int *)context == 0;
+  if (context == NULL || *(const int *)context != 0) return 0;
+  return le_win_store_write_manifest(store, manifest, manifest_length);
 }
 
 int main(void) {
