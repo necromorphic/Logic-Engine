@@ -15,6 +15,12 @@ import {
   PINNED_ST_MUTATION_ROUTE_COUNT,
 } from '../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 import {
+  PINNED_PATCH_BUNDLE_SHA256,
+  PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  createSignedRootInventoryAttestation,
+  verifySignedRootInventoryAttestation,
+} from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
+import {
   parseHostRootIdentityRegistry,
   resolveAdapterHostRootIdentity,
   resolveAdapterHostLifecycleIdentity,
@@ -86,8 +92,9 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     resolveIdentity: resolveJournalIdentity,
     resolveRootIdentity: input => resolveRegisteredHostRootIdentity(registry, input),
     verifyMutationReceipt: ({ event, identity }) => event.receipt_signature === receiptSignature(event, identity),
-    verifyCompletenessProof: ({ proof, proof_signature }) => proof_signature === createHmac('sha256', ADAPTER_TOKEN)
-      .update(canonical(proof), 'utf8').digest('hex'),
+    verifyRootInventoryAttestation: ({ attestation, identity }) => verifySignedRootInventoryAttestation({
+      attestation, identity, adapterToken: ADAPTER_TOKEN,
+    }),
   });
   journal.setAuthorityGeneration(AUTHORITY_ID, AUTHORITY_GENERATION);
   const server = createApiServer({
@@ -165,49 +172,46 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     ...authority,
   }).authority_status, 'REVIEW_ONLY');
 
-  const completenessProof = {
-    protocol_version: 1,
-    adapter_id: ADAPTER_ID,
+  const rootReconciliation = journal.verifyRootInventory({
     host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
-    event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    root_inventory_sequence: 1,
-    manifest_sha256: baselinePayload.reconciliation.manifest_sha256,
-    source_commit: PINNED_ST_COMMIT,
-    coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-    snapshot_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
-    filesystem_scope: 'single-root-regular-files-only',
-    filesystem_status: 'complete',
-    scan_passes: 2,
-    reparse_points: 'ALL_FILE_ATTRIBUTE_REPARSE_POINT_ENTRIES_REJECTED',
-    file_count: 1,
-    total_bytes: 64,
-    source_status: 'DOUBLE_SCAN_CANDIDATE',
-    logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
-    legacy_group_metadata_count: 0,
-    route_coverage_status: 'VERIFIED',
-    route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
-    source_files_sha256: DIGEST('verified-pinned-source-files'),
-    source_manifest_sha256: DIGEST('test-source-manifest'),
-    occurred_at: '2026-11-02T00:00:00.000Z',
-  };
-  const proofSignature = createHmac('sha256', ADAPTER_TOKEN)
-    .update(canonical(completenessProof), 'utf8').digest('hex');
+  });
+  const completenessAttestation = createSignedRootInventoryAttestation({
+    adapterId: ADAPTER_ID,
+    adapterToken: ADAPTER_TOKEN,
+    identity: {
+      adapter_id: ADAPTER_ID,
+      host_installation_id: INSTALLATION,
+      authenticated_account_id: ACCOUNT,
+      root_id: ROOT_ID,
+    },
+    reconciliation: rootReconciliation,
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: DIGEST('test-vss-snapshot'),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: DIGEST('test-source-manifest'),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    },
+  });
   const completenessBody = {
     host_installation_id: INSTALLATION,
     authenticated_account_id: ACCOUNT,
     root_id: ROOT_ID,
-    proof: completenessProof,
-    proof_signature: proofSignature,
+    attestation: completenessAttestation,
+  };
+  const invalidAttestation = {
+    ...completenessAttestation,
+    signature: DIGEST('invalid-proof-signature'),
   };
   const invalidProof = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
-    proof_signature: DIGEST('invalid-proof-signature'),
+    attestation: invalidAttestation,
   });
   assert.equal(invalidProof.status, 409);
-  assert.equal((await invalidProof.json()).error.code, 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID');
+  assert.equal((await invalidProof.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID');
 
   const completed = await post('/v1/host-root-inventory/attest', completenessBody);
   assert.equal(completed.status, 200);
