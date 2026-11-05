@@ -52,7 +52,7 @@ export function createSillyTavernHostAdapter({
   fetchImpl = globalThis.fetch,
   persistRootInventory: injectedPersistRootInventory = null,
   verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
-  verifyMutationCoverage: injectedVerifyMutationCoverage ?? verifyPinnedSillyTavernMutationCoverage,
+  verifyMutationCoverage: injectedVerifyMutationCoverage = null,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
@@ -82,7 +82,7 @@ export function createSillyTavernHostAdapter({
     pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
     hostBuildClaim: env.LOGIC_ENGINE_HOST_BUILD_SHA || '',
     verifySourceIdentity: injectedVerifySourceIdentity,
-    verifyMutationCoverage: injectedVerifyMutationCoverage,
+    verifyMutationCoverage: injectedVerifyMutationCoverage ?? verifyPinnedSillyTavernMutationCoverage,
     persistRootInventory,
   });
 
