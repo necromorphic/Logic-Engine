@@ -5,6 +5,8 @@ import { performance } from 'node:perf_hooks';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
+const trace = (...values) => { if (process.env.BENCH_TRACE === '1') process.stderr.write('[replay-benchmark] ' + values.join(' ') + '\\n'); };
+
 const sizes = (process.env.BENCH_SIZES || '1000,5000,10000')
   .split(',')
   .map((value) => Number(value.trim()))
@@ -146,6 +148,7 @@ function runScenario(eventCount, operation, collectSqlMetrics) {
   const dbPath = join(directory, 'benchmark.sqlite');
   let store;
   try {
+    trace('scenario-start', eventCount, operation, 'instrumented=' + collectSqlMetrics);
     store = new SQLiteStore(dbPath);
     const engine = new LogicEngine(store);
     engine.createWorld({
@@ -154,12 +157,16 @@ function runScenario(eventCount, operation, collectSqlMetrics) {
       world_pack_version: '1.0.0',
       game_time: '2005-12-29T10:00:00.000Z',
     });
+    trace('world-created', eventCount, operation);
     seed(store, eventCount, operation);
+    trace('seed-complete', eventCount, operation);
     const databaseSizeBeforeBytes = statSync(dbPath).size;
     const counts = collectSqlMetrics ? instrument(store) : null;
     const before = counts ? { ...counts } : null;
     const started = performance.now();
+    trace('operation-start', eventCount, operation);
     performOperation(store, engine, eventCount, operation);
+    trace('operation-complete', eventCount, operation);
     const durationMs = Number((performance.now() - started).toFixed(3));
     const databaseSizeAfterBytes = statSync(dbPath).size;
     const operationCounts = counts ? {
@@ -177,6 +184,7 @@ function runScenario(eventCount, operation, collectSqlMetrics) {
       projectionsAfter,
     };
   } finally {
+    trace('scenario-cleanup', eventCount, operation);
     store?.close();
     rmSync(directory, { recursive: true, force: true });
   }
@@ -189,6 +197,7 @@ function median(values) {
 }
 
 function measureOperation(eventCount, operation) {
+  trace('measure-start', eventCount, operation);
   // Keep SQL instrumentation out of wall-time samples. Query and replay counts
   // are collected from an equivalent fixture to avoid proxy cost.
   const timingSamples = [];
@@ -199,6 +208,7 @@ function measureOperation(eventCount, operation) {
     if (referenceTiming === null) referenceTiming = timing;
   }
   const metrics = runScenario(eventCount, operation, true);
+  trace('measure-complete', eventCount, operation);
   return {
     event_count_before: eventCount,
     operation,
