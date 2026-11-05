@@ -24,9 +24,9 @@ delete write a validated lifecycle intent before changing the namespace, flush
 the file and parent, commit the next manifest generation, reconcile the result,
 and only then retire the intent. DELETE_SIDECAR calls the delete transaction over
 IPC. The open and create primitives are smoke-tested but are not yet exposed over
-IPC. The Windows VFS now routes manifest-bound sidecar deletion through the
-service; main/sidecar byte opens still use the existing process-side path and
-must not be treated as production-ready.
+IPC. The Windows VFS routes manifest-bound EXISTS probes and sidecar xDelete
+through the service; main/sidecar byte opens still use the existing
+process-side path and must not be treated as production-ready.
 
 Build from a Visual Studio Developer Command Prompt:
 cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c windows_manifest_validator.c /link advapi32.lib bcrypt.lib
@@ -60,7 +60,7 @@ The SCM host opens this store with the native strict validators and invokes lock
 - file flush and parent-directory flush primitives;
 - deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
 
-The low-level adapter is not directly connected to the SQLite VFS. The VFS delegates manifest-bound sidecar deletion to DELETE_SIDECAR over the named pipe. ACCESS_ROLE_FILE is also available; main/sidecar open and sidecar-create IPC remain UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
+The low-level adapter is not directly connected to the SQLite VFS. The VFS delegates manifest-bound EXISTS probes and sidecar deletion to ACCESS_ROLE_FILE and DELETE_SIDECAR over the named pipe. Main/sidecar open and sidecar-create IPC remain UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
 
 ## Strict Windows manifest byte validation
 
