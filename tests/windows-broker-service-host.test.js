@@ -177,6 +177,7 @@ test('Windows startup recovers create-sidecar intents in both crash windows', ()
   assert.match(source, /le_win_recover_create_intent/);
   assert.match(smoke, /recover uncommitted create-sidecar intent/);
   assert.match(smoke, /reconcile committed create-sidecar intent/);
+  assert.match(smoke, /recover create intent when CREATE_NEW never produced a file/);
   assert.match(smoke, /recover uncommitted create-sidecar intent and enroll identity/);
   assert.match(smoke, /verify recovered sidecar remains openable/);
 });
