@@ -211,11 +211,11 @@ static int jnative_identity(JPARSER*p,DWORD id,LogicEngineWinFileIdentity*out){
  return 1;
 }
 static HANDLE jopen_verified(HANDLE parent,const wchar_t*name,
-    const LogicEngineWinFileIdentity*expected,int directory){
+    const LogicEngineWinFileIdentity*expected,int directory,int mutation){
  LogicEngineWinFileIdentity observed;FILE_ATTRIBUTE_TAG_INFO tag;HANDLE opened;
  ACCESS_MASK access=FILE_READ_ATTRIBUTES;
  ULONG options=directory?FILE_DIRECTORY_FILE:FILE_NON_DIRECTORY_FILE;
- if(directory)access|=FILE_LIST_DIRECTORY|FILE_TRAVERSE|READ_CONTROL;
+ if(directory){access|=FILE_LIST_DIRECTORY|FILE_TRAVERSE|READ_CONTROL;if(mutation)access|=GENERIC_WRITE;}
  opened=logic_engine_win_open_relative(parent,name,access,
    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,options,
    directory?FILE_ATTRIBUTE_DIRECTORY:FILE_ATTRIBUTE_NORMAL,NULL,&observed);
@@ -246,12 +246,12 @@ static int jreconcile_role(JPARSER*p,DWORD role,HANDLE root){
  for(component=p->v[components].first,parent_id=p->v[parents].first;
      component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
   if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
-  next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
+  next=jopen_verified(current,name,&expected,1,0);if(next==INVALID_HANDLE_VALUE)goto fail;
   if(owns_current)CloseHandle(current);
   current=next;owns_current=1;
  }
  if(!jnative_identity(p,dbid,&expected))goto fail;
- file=jopen_verified(current,database,&expected,0);if(file==INVALID_HANDLE_VALUE)goto fail;
+ file=jopen_verified(current,database,&expected,0,0);if(file==INVALID_HANDLE_VALUE)goto fail;
  CloseHandle(file);
  for(side=p->v[sides].first;side!=0xffffffffu;side=p->v[side].next){
   DWORD kind=jget(p,side,"kind"),state=jget(p,side,"state"),identity=jget(p,side,"identity");
@@ -261,7 +261,7 @@ static int jreconcile_role(JPARSER*p,DWORD role,HANDLE root){
       ||FAILED(StringCchCatW(sidecar_name,LE_COUNT_OF(sidecar_name),suffix)))goto fail;
   if(jeq(p,state,"active")){
    if(!jnative_identity(p,identity,&expected))goto fail;
-   file=jopen_verified(current,sidecar_name,&expected,0);if(file==INVALID_HANDLE_VALUE)goto fail;
+   file=jopen_verified(current,sidecar_name,&expected,0,0);if(file==INVALID_HANDLE_VALUE)goto fail;
    CloseHandle(file);
   }else{
    for(other=p->v[sides].first;other!=0xffffffffu;other=p->v[other].next){
@@ -296,7 +296,7 @@ int le_win_reconcile_manifest_namespace(const unsigned char*bytes,DWORD length,c
  if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
  root_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
- root_handle=jopen_verified(root_parent,anchor.basename,&expected,1);
+ root_handle=jopen_verified(root_parent,anchor.basename,&expected,1,0);
  if(root_handle==INVALID_HANDLE_VALUE)goto done;
  roles=jget(&p,root,"roles");
  for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next)
@@ -317,7 +317,7 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
  for(component=p->v[components].first,parent_id=p->v[parents].first;
      component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
   if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
-  next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
+  next=jopen_verified(current,name,&expected,1,1);if(next==INVALID_HANDLE_VALUE)goto fail;
   if(owns)CloseHandle(current);
   current=next;owns=1;
  }
@@ -385,7 +385,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
  anchor_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
- root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1);
+ root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1,1);
  if(root_handle==INVALID_HANDLE_VALUE||!jntfs_handle(root_handle))goto done;
  if(generation==target){
   int committed=0;
