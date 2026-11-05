@@ -1666,21 +1666,23 @@ export class SQLiteStore {
     }]));
   }
 
-  entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
-    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+  entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set(), includeEventIds = new Set()) {
+    const rows = this.db.prepare("SELECT event_id,effects_json,validity FROM world_events WHERE world_id=? AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
     const entities = new Map();
     for (const row of rows) {
-      if (invalidEventIds.has(row.event_id)) continue;
+      if (invalidEventIds.has(row.event_id)
+        || (row.validity !== 'valid' && !includeEventIds.has(row.event_id))) continue;
       applyEntityEffects(entities, dec(row.effects_json));
     }
     return entities;
   }
 
-  factProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
-    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+  factProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set(), includeEventIds = new Set()) {
+    const rows = this.db.prepare("SELECT event_id,effects_json,validity FROM world_events WHERE world_id=? AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
     const claims = new Map();
     for (const row of rows) {
-      if (invalidEventIds.has(row.event_id)) continue;
+      if (invalidEventIds.has(row.event_id)
+        || (row.validity !== 'valid' && !includeEventIds.has(row.event_id))) continue;
       applyFactEffects(claims, dec(row.effects_json));
     }
     return factProjection(claims);
@@ -2650,20 +2652,20 @@ export class SQLiteStore {
         if (!affectedAt.has(ref) || affectedAt.get(ref) >= event.commit_sequence) return false;
         if (ref.startsWith('entity:')) {
           const entityId = ref.slice('entity:'.length);
-          const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
+          const before = this.entityProjectionAtCursor(id, event.commit_sequence, new Set(), invalid).get(entityId);
           const after = this.entityProjectionAtCursor(id, event.commit_sequence, invalid).get(entityId);
           return !isDeepStrictEqual(before, after);
         }
         if (ref.startsWith('fact:')) {
           const factId = ref.slice('fact:'.length);
-          const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
+          const before = this.factProjectionAtCursor(id, event.commit_sequence, new Set(), invalid).get(factId);
           const after = this.factProjectionAtCursor(id, event.commit_sequence, invalid).get(factId);
           return !sameFactProjection(before, after);
         }
         if (ref.startsWith('relationship:')) {
           const pair = parseRelationshipRef(ref);
           if (!pair) return false;
-          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence);
+          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, new Set(), invalid);
           const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, invalid);
           if (pair.dimension === null) return !isDeepStrictEqual(before, after);
           return !isDeepStrictEqual(before[pair.dimension], after[pair.dimension]);
@@ -2805,12 +2807,13 @@ export class SQLiteStore {
   }
 
 
-  relationshipProjectionAtCursor(worldId, subjectId, targetId, cursor, excluded = new Set()) {
+  relationshipProjectionAtCursor(worldId, subjectId, targetId, cursor, excluded = new Set(), includeEventIds = new Set()) {
     const values = new Map();
-    const rows = this.db.prepare("SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence")
+    const rows = this.db.prepare("SELECT event_id,commit_sequence,effects_json,validity FROM world_events WHERE world_id=? AND commit_sequence<? ORDER BY commit_sequence")
       .all(worldId, cursor);
     for (const row of rows) {
-      if (excluded.has(row.event_id)) continue;
+      if (excluded.has(row.event_id)
+        || (row.validity !== 'valid' && !includeEventIds.has(row.event_id))) continue;
       for (const effect of dec(row.effects_json)) {
         if (effect.kind !== 'relationship.transition' || effect.subject_id !== subjectId || effect.target_id !== targetId) continue;
         for (const [dimension, value] of Object.entries(effect.patch)) {
