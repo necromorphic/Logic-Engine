@@ -199,7 +199,7 @@ static int jwide(JPARSER*p,DWORD id,wchar_t*out,DWORD capacity){
  needed=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,NULL,0);
  if(!needed||needed>=capacity)return 0;
  if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,out,(int)capacity))return 0;
- out[needed]=L'\\0';return 1;
+ out[needed]=L'\0';return 1;
 }
 static int jnative_identity(JPARSER*p,DWORD id,LogicEngineWinFileIdentity*out){
  DWORD vs=jget(p,id,"volumeSerial"),fid=jget(p,id,"fileId"),i;
