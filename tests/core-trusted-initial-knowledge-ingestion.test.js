@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import './trusted-import-file-io-cases.js';
 
 const sourceBytes = (assignments = [{ subject_id: 'npc-a', fact_id: 'fact-a' }]) => JSON.stringify({
   schema_version: 1,

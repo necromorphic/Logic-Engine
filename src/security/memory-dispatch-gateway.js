@@ -573,6 +573,50 @@ function assertSourcesMatchCandidates(sources, candidates) {
   }
 }
 
+/**
+ * Derive signed dispatch metadata from the immutable Lane-B result issued by
+ * NPC Generation Context. Pass context.lanes.lane_b, not caller-built lists.
+ * Candidate content and epistemic annotations are intentionally excluded.
+ */
+export function deriveDispatchEvidenceFromAdmission(result) {
+  try {
+    const lane = readStrictRecord(result, ['lane','core_purpose','provider_purpose','status','admitted','candidates','reason','snapshot','provider_evidence_cursor']);
+    if (lane.lane !== 'B' || lane.core_purpose !== 'npc_decision'
+      || lane.provider_purpose !== 'npc_decision' || lane.status !== 'ready' || lane.reason !== null) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const snapshot = readStrictRecord(lane.snapshot, ['world_revision','commit_sequence']);
+    if (!Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
+      || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const providerEvidenceCursor = normalizeProviderEvidenceCursor(lane.provider_evidence_cursor);
+    const admitted = readStrictArray(lane.admitted, 50);
+    const rawCandidates = readStrictArray(lane.candidates, 50);
+    if (rawCandidates.length === 0 || admitted.length !== rawCandidates.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const admittedIdentities = [];
+    for (const item of admitted) {
+      const row = readStrictRecord(item, ['record_ref','record_version','authorization_generation']);
+      if (!validText(row.record_ref,200) || !validText(row.record_version,200)
+        || !Number.isSafeInteger(row.authorization_generation) || row.authorization_generation < 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      admittedIdentities.push(JSON.stringify([row.record_ref,row.record_version,row.authorization_generation]));
+    }
+    insertionSort(admittedIdentities,(a,b)=>a<b?-1:a>b?1:0);
+    const candidates = normalizeCandidates(rawCandidates.map(item => {
+      const row = readStrictRecord(item,['record_ref','record_version','authorization_generation','source_kind','source_entity_id','source_version','epistemic_kind','evidence_assessment','content']);
+      return {record_ref:row.record_ref,record_version:row.record_version,authorization_generation:row.authorization_generation,
+        source_kind:row.source_kind,source_entity_id:row.source_entity_id,source_version:row.source_version};
+    }));
+    const candidateIdentities = candidates.map(item=>JSON.stringify([item.record_ref,item.record_version,item.authorization_generation]));
+    insertionSort(candidateIdentities,(a,b)=>a<b?-1:a>b?1:0);
+    if (JSON.stringify(admittedIdentities)!==JSON.stringify(candidateIdentities)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const uniqueSources=new Map();
+    for(const candidate of candidates){const key=JSON.stringify([candidate.source_entity_id,candidate.source_version]);
+      if(!uniqueSources.has(key))uniqueSources.set(key,{source_kind:candidate.source_kind,source_entity_id:candidate.source_entity_id,source_version:candidate.source_version});}
+    const sources=normalizeSources([...uniqueSources.values()]);
+    assertSourcesMatchCandidates(sources,candidates);
+    return Object.freeze({sources,candidates,snapshot:Object.freeze({world_revision:snapshot.world_revision,commit_sequence:snapshot.commit_sequence}),providerEvidenceCursor});
+  } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+}
+
 function assertSameSources(actual, expected) {
   let normalized;
   try { normalized = normalizeSources(actual); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
