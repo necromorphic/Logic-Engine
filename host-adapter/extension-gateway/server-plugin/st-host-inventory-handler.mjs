@@ -646,7 +646,7 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
       if (binding === null || binding === undefined || binding?.status === 'NON_READY') {
         return Object.freeze({
           status: 'NON_READY',
-          code: binding?.code === 'HOST_INVENTORY_NOT_AUTHORITATIVE'
+          code: typeof binding?.code === 'string' && /^[A-Z][A-Z0-9_]{2,95}$/.test(binding.code)
             ? binding.code : 'HOST_CONTEXT_UNAVAILABLE',
         });
       }
