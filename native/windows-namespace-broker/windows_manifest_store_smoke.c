@@ -102,6 +102,8 @@ int main(void) {
   HANDLE namespace_handle = INVALID_HANDLE_VALUE, database_handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity namespace_identity, database_identity;
   char namespace_volume[17], namespace_file_id[33], database_volume[17], database_file_id[33];
+  char sidecar_volume[17], sidecar_file_id[33], delete_intent[1024];
+  DWORD delete_intent_length = 0;
   char wrong_database_file_id[33];
   unsigned char namespace_manifest[4096];
   DWORD namespace_manifest_length = 0;
@@ -259,9 +261,32 @@ int main(void) {
   if (!le_win_namespace_open_sidecar(namespace_handle,L"memory.sqlite-wal",
       &sidecar_identity,&reopened,&reopened_identity)) goto unlock_store;
   if (!logic_engine_win_identity_equal(&sidecar_identity,&reopened_identity)) goto unlock_store;
-  stage = "delete verified recovered sidecar";
-  if (!le_win_namespace_delete_sidecar(namespace_handle,&reopened,&sidecar_identity)) goto unlock_store;
-  reopened = INVALID_HANDLE_VALUE;
+  CloseHandle(reopened);reopened=INVALID_HANDLE_VALUE;
+  stage = "serialize identity-bound delete intent";
+  if (!format_identity(&sidecar_identity,sidecar_volume,sizeof(sidecar_volume),
+      sidecar_file_id,sizeof(sidecar_file_id))
+      || FAILED(StringCchPrintfA(delete_intent,LE_COUNT_OF(delete_intent),
+      "{\"schemaVersion\":1,\"operationId\":\"4123456789abcdef0123456789abcdef\","
+      "\"precondition\":\"identity-match\",\"operation\":\"delete-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
+      "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":2,\"targetGeneration\":3,"
+      "\"expectedIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"}}",
+      sidecar_volume,sidecar_file_id))) goto unlock_store;
+  delete_intent_length=(DWORD)strlen(delete_intent);
+  stage = "recover identity-bound delete before manifest commit";
+  if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
+      (const unsigned char *)delete_intent,delete_intent_length,namespace_directory)) goto unlock_store;
+  HeapFree(GetProcessHeap(),0,manifest);manifest=NULL;manifest_length=0;
+  stage = "read durable retired-sidecar manifest";
+  if (!le_win_store_read_manifest(&store,&manifest,&manifest_length)
+      || !le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_directory)) goto unlock_store;
+  stage = "reconcile committed delete intent after manifest commit";
+  if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
+      (const unsigned char *)delete_intent,delete_intent_length,namespace_directory)) goto unlock_store;
+  stage = "verify retired sidecar path remains absent";
+  reopened = logic_engine_win_open_relative(namespace_handle,L"memory.sqlite-wal",
+      FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+      FILE_OPEN,FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+  if (reopened!=INVALID_HANDLE_VALUE||GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
   HeapFree(GetProcessHeap(),0,manifest);manifest=NULL;manifest_length=0;
   store.validate_manifest = validate_test_json;
   CloseHandle(namespace_handle);namespace_handle=INVALID_HANDLE_VALUE;
