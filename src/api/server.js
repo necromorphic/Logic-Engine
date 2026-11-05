@@ -580,8 +580,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         };
         const acceptedObservation = [
           'AUTHORITATIVE_COMPLETE', 'BASELINED_REVIEW_ONLY',
-          'UNCHANGED_REVIEW_ONLY', 'NON_READY', 'duplicate',
-        ].includes(result.status);
+          'UNCHANGED_REVIEW_ONLY', 'duplicate',
+        ].includes(result.status) || result.accepted === true;
         // NON_READY is a successful observation outcome: the changed manifest
         // was durably recorded, but authority is revoked until a fresh signed
         // completeness attestation is accepted. Integrity failure was handled
