@@ -48,7 +48,21 @@ static BOOL pipe_sa(SECURITY_ATTRIBUTES *sa,PSECURITY_DESCRIPTOR *sd) {
  if(!ConvertStringSecurityDescriptorToSecurityDescriptorW(text,SDDL_REVISION_1,sd,NULL))return FALSE;
  sa->nLength=sizeof(*sa);sa->lpSecurityDescriptor=*sd;sa->bInheritHandle=FALSE;return TRUE;
 }
-static BOOL readn(HANDLE h,void *p,DWORD n){BYTE *b=p;DWORD d=0;while(d<n){DWORD k=0;if(!ReadFile(h,b+d,n-d,&k,NULL)||!k)return FALSE;d+=k;}return TRUE;}
+static BOOL readn_timeout(HANDLE h,void *p,DWORD n,DWORD timeout_ms){
+ BYTE *b=(BYTE*)p;DWORD done=0;ULONGLONG started=GetTickCount64();
+ while(done<n){
+  DWORD available=0,chunk=0,read=0,remaining=n-done;
+  if(!PeekNamedPipe(h,NULL,0,NULL,&available,NULL))return FALSE;
+  if(!available){
+   if(GetTickCount64()-started>=timeout_ms){SetLastError(ERROR_TIMEOUT);return FALSE;}
+   Sleep(5);continue;
+  }
+  chunk=available<remaining?available:remaining;
+  if(!ReadFile(h,b+done,chunk,&read,NULL)||!read)return FALSE;
+  done+=read;
+ }
+ return TRUE;
+}
 static BOOL writen(HANDLE h,const void *p,DWORD n){const BYTE *b=p;DWORD d=0;while(d<n){DWORD k=0;if(!WriteFile(h,b+d,n-d,&k,NULL)||!k)return FALSE;d+=k;}return TRUE;}
 static BOOL auth(HANDLE pipe) {
  HANDLE token=NULL;TOKEN_USER *u=NULL;DWORD n=0;BOOL ok=FALSE;
@@ -106,11 +120,11 @@ static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
  DWORD response_status=LEB_STATUS_BAD_REQUEST;BOOL exists=FALSE;
  char role[129],kind[16];
- if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn(pipe,&q,sizeof(q)))goto done;
+ if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn_timeout(pipe,&q,sizeof(q),5000))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))goto done;
- if(q.payload_length&&!readn(pipe,payload,q.payload_length))goto done;
+ if(q.payload_length&&!readn_timeout(pipe,payload,q.payload_length,5000))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
  if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
  else if(q.operation==4){
