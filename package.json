@@ -13,6 +13,7 @@
     "test": "node --import ./tests/configure-test-env.js --test",
     "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs",
     "install:extension": "node scripts/install-logic-engine-extension.mjs",
+    "host:install:st": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-sillytavern-host-plugin.ps1",
     "host:patch:preflight": "node scripts/sillytavern-patch-manager.mjs preflight",
     "host:patch:install": "node scripts/sillytavern-patch-manager.mjs install",
     "host:patch:verify": "node scripts/sillytavern-patch-manager.mjs verify",
