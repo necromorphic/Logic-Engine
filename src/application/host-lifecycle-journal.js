@@ -1433,6 +1433,7 @@ export class HostLifecycleJournal {
       return {
         ...result,
         manifest_sha256: result.latest_manifest_sha256,
+        delta_sha256: rows.at(-1)?.delta_sha256 ?? null,
         journal_head_sha256: result.head_sha256,
         status: 'INTEGRITY_OK',
         authority_status: authority?.authority_status ?? 'REVIEW_ONLY',
