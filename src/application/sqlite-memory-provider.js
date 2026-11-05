@@ -1629,8 +1629,8 @@ export class SQLiteMemoryProvider {
       }
     }
     const localHead = this.#db.prepare(
-      'SELECT head FROM accepted_head_state WHERE domain=?',
-    ).get('provider');
+      'SELECT head FROM accepted_head_state WHERE singleton=1',
+    ).get();
     if (!localHead || !Number.isSafeInteger(localHead.head)) {
       throw new Error('PROVIDER_DISPATCH_ACCEPTED_HEAD_UNAVAILABLE');
     }
