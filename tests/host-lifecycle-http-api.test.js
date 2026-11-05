@@ -202,20 +202,20 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     proof: completenessProof,
     proof_signature: proofSignature,
   };
-  const invalidProof = await post('/v1/host-root-inventory/complete', {
+  const invalidProof = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
     proof_signature: DIGEST('invalid-proof-signature'),
   });
   assert.equal(invalidProof.status, 409);
   assert.equal((await invalidProof.json()).error.code, 'HOST_ROOT_INVENTORY_COMPLETENESS_PROOF_INVALID');
 
-  const completed = await post('/v1/host-root-inventory/complete', completenessBody);
+  const completed = await post('/v1/host-root-inventory/attest', completenessBody);
   assert.equal(completed.status, 200);
   const completedPayload = await completed.json();
   assert.equal(completedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(completedPayload.reconciliation.integrity_status, 'INTEGRITY_OK');
   assert.equal(completedPayload.reconciliation.manifest_sha256, baselinePayload.reconciliation.manifest_sha256);
-  const repeatedCompletion = await post('/v1/host-root-inventory/complete', completenessBody);
+  const repeatedCompletion = await post('/v1/host-root-inventory/attest', completenessBody);
   assert.equal(repeatedCompletion.status, 200);
   assert.equal((await repeatedCompletion.json()).reconciliation.duplicate, true);
   assert.equal(journal.getAuthoritySnapshot({
@@ -257,7 +257,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
   };
   const refreshedSignature = createHmac('sha256', ADAPTER_TOKEN)
     .update(canonical(refreshedProof), 'utf8').digest('hex');
-  const refreshed = await post('/v1/host-root-inventory/complete', {
+  const refreshed = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
     proof: refreshedProof,
     proof_signature: refreshedSignature,
@@ -282,7 +282,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
   };
   const changedSourceSignature = createHmac('sha256', ADAPTER_TOKEN)
     .update(canonical(changedSourceProof), 'utf8').digest('hex');
-  const sourceDrift = await post('/v1/host-root-inventory/complete', {
+  const sourceDrift = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
     proof: changedSourceProof,
     proof_signature: changedSourceSignature,
