@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "windows_manifest_validator.h"
 
 #define LE_JSON_MAX_NODES 65536u
