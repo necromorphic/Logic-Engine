@@ -17,6 +17,10 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
   assert.match(source, /OpenThreadToken/);
   assert.match(source, /EqualSid\(u->User\.Sid,allowed_sid\)/);
   assert.match(source, /PIPE_REJECT_REMOTE_CLIENTS/);
+  assert.match(source, /readn_timeout\(pipe,&q,sizeof\(q\),5000\)/);
+  assert.match(source, /readn_timeout\(pipe,payload,q\.payload_length,5000\)/);
+  assert.match(source, /PeekNamedPipe\(h,NULL,0,NULL,&available,NULL\)/);
+  assert.match(source, /ERROR_TIMEOUT/);
   assert.match(source, /OpenProcessToken/);
   assert.match(source, /PROCESS_DUP_HANDLE/);
 });
