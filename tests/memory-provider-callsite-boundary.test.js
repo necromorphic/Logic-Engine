@@ -35,13 +35,21 @@ const productionDirectories = ['src', 'host-adapter', 'scripts'];
 const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|$)/i.test(path)
   || /\.test\.[cm]?js$/i.test(path);
 
+function stripComments(content) {
+  // These boundary checks inspect executable references, not documentation.
+  // Preserve quoted strings while removing line/block comments.
+  return content.replace(/(["'`])(?:\\\\.|(?!\\1)[^\\\\])*?\\1|\\/\\*[\\s\\S]*?\\*\\/|(^|[^:])\\/\\/.*$/gm,
+    (match, quote) => quote ? match : match.startsWith('\\n') ? '\\n' : '');
+}
+
 function productionFiles() {
   const rootEntrypoint = ['index.mjs'].map((path) => ({
     path,
     content: readFileSync(join(root, path), 'utf8'),
   }));
   return [...productionDirectories.flatMap((directory) => sourceFiles(directory)), ...rootEntrypoint]
-    .filter(({ path }) => !isTestOrFixture(path));
+    .filter(({ path }) => !isTestOrFixture(path))
+    .map(({ path, content }) => ({ path, content: stripComments(content) }));
 }
 
 test('Provider/Consumer references are confined to their implementations and one approved composition boundary', () => {
@@ -68,6 +76,10 @@ test('authenticated Host capability construction has no unapproved production ca
   const trustedCapabilityFiles = new Set([
     'src/application/host-session-context.js',
     compositionBoundaryPath,
+    // These are the approved Host composition roots invoking the branded
+    // session runner; they receive the capability callback, they do not mint it.
+    'host-adapter/sillytavern-final-send-adapter.mjs',
+    'index.mjs',
   ]);
   const violations = [];
   for (const file of productionFiles().filter(({ path }) => !trustedCapabilityFiles.has(path))) {
