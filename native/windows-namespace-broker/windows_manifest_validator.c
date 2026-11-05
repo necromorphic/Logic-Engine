@@ -390,7 +390,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
   for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next){
    if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
       &&jeq(&p,jget(&p,side,"state"),"active")
-      &&jnum(&p,jget(&p,side,"generation"),1,generation,NULL))committed=1;
+      &&jnum(&p,jget(&p,side,"generation"),target,target,NULL))committed=1;
   }
   if(!committed)goto done;
   ok=1;
