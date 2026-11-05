@@ -26,7 +26,7 @@ The installer:
 3. runs Patch Manager preflight, install and verify against the selected ST root;
 4. leaves the server stopped.
 
-The junction keeps the installed plugin pointed at this checkout. Do not move or delete the Logic-Engine checkout while the plugin is installed.
+The installed plugin is a managed copy, not a junction. Re-run installation only after preserving/removing the existing plugin copy and reviewing its state. The source checkout remains the development workspace.
 
 ## Enable the server-plugin loader
 
