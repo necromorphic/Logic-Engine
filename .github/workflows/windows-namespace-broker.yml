@@ -28,17 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Initialize MSVC x64 toolchain
-        shell: pwsh
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-          $vs = & $vswhere -latest -products '*' -property installationPath
-          if (-not $vs) { throw 'Visual Studio Build Tools not found' }
-          $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
-          cmd /c "`"$vcvars`" && set" | ForEach-Object {
-            if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "Env:$($matches[1])" -Value $matches[2] }
-          }
-
       - name: Compile SCM broker with manifest store and namespace adapter
         shell: cmd
         run: |
