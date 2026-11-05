@@ -361,6 +361,40 @@ static int jmanifest_add_active_sidecar(const unsigned char*manifest,DWORD manif
  }
  *updated=out;*updated_length=new_length;return 1;
 }
+static int jidentity_nodes_equal(JPARSER*a,DWORD aid,JPARSER*b,DWORD bid){
+ DWORD av=jget(a,aid,"volumeSerial"),af=jget(a,aid,"fileId");
+ DWORD bv=jget(b,bid,"volumeSerial"),bf=jget(b,bid,"fileId");
+ return jeq(a,jget(a,aid,"kind"),"windows")&&jeq(b,jget(b,bid,"kind"),"windows")
+   &&a->v[av].end-a->v[av].start==b->v[bv].end-b->v[bv].start
+   &&!memcmp(a->s+a->v[av].start,b->s+b->v[bv].start,a->v[av].end-a->v[av].start)
+   &&a->v[af].end-a->v[af].start==b->v[bf].end-b->v[bf].start
+   &&!memcmp(a->s+a->v[af].start,b->s+b->v[bf].start,a->v[af].end-a->v[af].start);
+}
+static int jmanifest_retire_sidecar(const unsigned char*manifest,DWORD manifest_length,
+ JPARSER*p,DWORD root,DWORD state_node,uint64_t target,
+ unsigned char**updated,DWORD*updated_length){
+ DWORD generation_node=jget(p,root,"generation");
+ DWORD gen_start=p->v[generation_node].start,gen_end=p->v[generation_node].end;
+ DWORD state_start=p->v[state_node].start,state_end=p->v[state_node].end;
+ char generation_text[32];DWORD new_generation_length,new_length,cursor=0;
+ unsigned char*out;
+ if(state_end-state_start!=6||memcmp(manifest+state_start,"active",6)!=0
+    ||state_start<gen_end
+    ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%llu",(unsigned long long)target)))return 0;
+ new_generation_length=(DWORD)strlen(generation_text);
+ new_length=manifest_length-(gen_end-gen_start)-6u+new_generation_length+7u;
+ if(new_length>LE_JSON_MAX_BYTES)return 0;
+ out=HeapAlloc(GetProcessHeap(),0,new_length);if(!out)return 0;
+ memcpy(out+cursor,manifest,gen_start);cursor+=gen_start;
+ memcpy(out+cursor,generation_text,new_generation_length);cursor+=new_generation_length;
+ memcpy(out+cursor,manifest+gen_end,state_start-gen_end);cursor+=state_start-gen_end;
+ memcpy(out+cursor,"retired",7);cursor+=7;
+ memcpy(out+cursor,manifest+state_end,manifest_length-state_end);cursor+=manifest_length-state_end;
+ if(cursor!=new_length||!le_win_validate_manifest(out,new_length,NULL)){
+  HeapFree(GetProcessHeap(),0,out);SetLastError(ERROR_INVALID_DATA);return 0;
+ }
+ *updated=out;*updated_length=new_length;return 1;
+}
 int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
  JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides;
