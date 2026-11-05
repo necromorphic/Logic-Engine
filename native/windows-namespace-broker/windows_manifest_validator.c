@@ -321,10 +321,8 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
   if(owns)CloseHandle(current);current=next;owns=1;
  }
  if(!owns){
-  current=CreateFileW(L".",FILE_LIST_DIRECTORY|FILE_TRAVERSE|FILE_READ_ATTRIBUTES,
-    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,
-    FILE_FLAG_BACKUP_SEMANTICS,NULL);
-  if(current==INVALID_HANDLE_VALUE)return 0;
+  if(!DuplicateHandle(GetCurrentProcess(),root,GetCurrentProcess(),&current,
+      0,FALSE,DUPLICATE_SAME_ACCESS))return 0;
   owns=1;
  }
  *out=current;return 1;
