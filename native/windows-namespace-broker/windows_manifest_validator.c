@@ -578,6 +578,79 @@ done:
  return ok;
 }
 
+
+int le_win_open_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
+    const char*role_name,const char*kind_name,HANDLE*opened){
+ unsigned char*manifest=NULL;DWORD manifest_length=0,root,roles,role,side,identity_node;
+ JPARSER p;HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity root_expected,root_observed,expected,actual;
+ wchar_t basename[768];const wchar_t*suffix=NULL;int ok=0;DWORD saved_error=ERROR_SUCCESS;
+ if(!opened){SetLastError(ERROR_INVALID_PARAMETER);return 0;}
+ *opened=INVALID_HANDLE_VALUE;
+ if(!store||!store->locked||!namespace_root||!jascii_role_argument(role_name)
+    ||!kind_name||!(strcmp(kind_name,"main")==0||strcmp(kind_name,"wal")==0
+      ||strcmp(kind_name,"shm")==0||strcmp(kind_name,"journal")==0)){
+  SetLastError(ERROR_INVALID_PARAMETER);return 0;
+ }
+ ZeroMemory(&p,sizeof(p));
+ if(!le_win_store_read_manifest(store,&manifest,&manifest_length))return 0;
+ p.s=manifest;p.n=manifest_length;
+ p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
+ if(!p.v)goto done;
+ jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
+ if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
+ if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&root_expected))goto done;
+ root_handle=le_win_store_open_namespace_root(namespace_root);
+ if(root_handle==INVALID_HANDLE_VALUE
+    ||!logic_engine_win_identity(root_handle,&root_observed,NULL)
+    ||!logic_engine_win_identity_equal(&root_expected,&root_observed))goto done;
+ roles=jget(&p,root,"roles");
+ for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next){
+  DWORD role_node=jget(&p,role,"role");
+  if(p.v[role_node].end-p.v[role_node].start==strlen(role_name)
+     &&memcmp(p.s+p.v[role_node].start,role_name,strlen(role_name))==0)break;
+ }
+ if(role==0xffffffffu){SetLastError(ERROR_FILE_NOT_FOUND);goto done;}
+ if(strcmp(kind_name,"main")==0){
+  if(!jwide(&p,jget(&p,role,"databaseBasename"),basename,(DWORD)LE_COUNT_OF(basename)))goto done;
+  identity_node=jget(&p,role,"databaseIdentity");
+ }else{
+  DWORD sides=jget(&p,role,"sidecars");int found=0;
+  suffix=strcmp(kind_name,"wal")==0?L"-wal":strcmp(kind_name,"shm")==0?L"-shm":L"-journal";
+  if(!jwide(&p,jget(&p,role,"databaseBasename"),basename,(DWORD)LE_COUNT_OF(basename))
+     ||FAILED(StringCchCatW(basename,LE_COUNT_OF(basename),suffix)))goto done;
+  for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
+   if(jeq(&p,jget(&p,side,"kind"),kind_name)&&jeq(&p,jget(&p,side,"state"),"active")){
+    identity_node=jget(&p,side,"identity");found=1;break;
+   }
+  }
+  if(!found){SetLastError(ERROR_FILE_NOT_FOUND);goto done;}
+ }
+ if(!jnative_identity(&p,identity_node,&expected)
+    ||!jopen_role_parent(&p,role,root_handle,&parent))goto done;
+ file=logic_engine_win_open_relative(parent,basename,
+   GENERIC_READ|GENERIC_WRITE|FILE_READ_ATTRIBUTES,
+   FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+   FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,&expected,&actual);
+ if(file==INVALID_HANDLE_VALUE)goto done;
+ {
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
+     ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0){
+   SetLastError(ERROR_ACCESS_DENIED);goto done;
+  }
+ }
+ *opened=file;file=INVALID_HANDLE_VALUE;ok=1;
+done:
+ if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
+ if(parent!=INVALID_HANDLE_VALUE)CloseHandle(parent);
+ if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
+ if(p.v)HeapFree(GetProcessHeap(),0,p.v);
+ if(manifest)HeapFree(GetProcessHeap(),0,manifest);
+ if(!ok){saved_error=GetLastError();if(saved_error==ERROR_SUCCESS)saved_error=ERROR_INVALID_DATA;SetLastError(saved_error);}
+ return ok;
+}
+
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
 #endif
