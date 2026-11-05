@@ -1,4 +1,5 @@
 name: better-sqlite3 default VFS integration
+# Install only runtime deps from the unpacked release; its dev deps include sqlite3 and require an unconfigured MSVC toolchain.
 
 on:
   push:
