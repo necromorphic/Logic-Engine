@@ -8,6 +8,7 @@
 #define LE_STORE_DIAGNOSTICS 1
 #include "windows_manifest_store.c"
 #include "windows_namespace_adapter.c"
+#include "windows_manifest_validator.c"
 
 static int validate_test_json(const unsigned char *bytes, DWORD length, void *context) {
   static const unsigned char expected[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
@@ -29,6 +30,31 @@ static int recover_test(
       || memcmp(intent, expected, sizeof(expected)) != 0)) return 0;
   if (context == NULL || *(const int *)context != 0) return 0;
   return le_win_store_write_manifest(store, manifest, manifest_length);
+}
+
+static int test_native_schema_validator(void) {
+  static const unsigned char valid_manifest[] =
+    "{\"schemaVersion\":1,\"generation\":1,\"platform\":\"windows\","
+    "\"metadataRootIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"0000000000000001\",\"fileId\":\"00000000000000000000000000000001\"},"
+    "\"filesystemPolicy\":{\"filesystem\":\"NTFS\",\"identitySource\":\"opened-handle\",\"directoryMutationBoundary\":\"dedicated-service-identity\"},"
+    "\"roles\":[{\"role\":\"main\",\"parentComponents\":[],\"parentIdentities\":[],\"databaseBasename\":\"memory.sqlite\","
+    "\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"0000000000000001\",\"fileId\":\"00000000000000000000000000000002\"},"
+    "\"state\":\"active\",\"sidecars\":[]}]}";
+  static const unsigned char duplicate_key[] =
+    "{\"schemaVersion\":1,\"schemaVersion\":1}";
+  static const unsigned char valid_intent[] =
+    "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
+    "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"baseGeneration\":1,\"targetGeneration\":2,\"expectedIdentity\":null}";
+  static const unsigned char bad_intent[] =
+    "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
+    "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"baseGeneration\":1,\"targetGeneration\":3,\"expectedIdentity\":null}";
+  if (!le_win_validate_manifest(valid_manifest, (DWORD)(sizeof(valid_manifest)-1), NULL)) return 0;
+  if (le_win_validate_manifest(duplicate_key, (DWORD)(sizeof(duplicate_key)-1), NULL)) return 0;
+  if (!le_win_validate_intent(valid_intent, (DWORD)(sizeof(valid_intent)-1), NULL)) return 0;
+  if (le_win_validate_intent(bad_intent, (DWORD)(sizeof(bad_intent)-1), NULL)) return 0;
+  return 1;
 }
 
 int main(void) {
@@ -55,6 +81,8 @@ int main(void) {
   /* The VFS deliberately rejects shared/user-writable ancestors such as
    * %TEMP%. Keep the smoke store beneath the per-user LocalAppData directory,
    * whose parent chain is not writable by unrelated principals. */
+  stage = "native strict manifest and intent schema validator";
+  if (!test_native_schema_validator()) goto done;
   stage = "read LOCALAPPDATA";
   if (GetEnvironmentVariableW(L"LOCALAPPDATA", temp, (DWORD)LE_COUNT_OF(temp)) == 0
       || wcslen(temp) + 1 >= LE_COUNT_OF(temp)) goto done;
