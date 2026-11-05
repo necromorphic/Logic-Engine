@@ -128,7 +128,7 @@ jobs:
           if (-not $vs) { throw 'Visual Studio Build Tools not found' }
           $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
           $exe = "$env:RUNNER_TEMP\windows-broker-smoke.exe"
-          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\windows-namespace-broker\windows_manifest_store_smoke.c native\windows-namespace-broker\windows_manifest_validator.c /link advapi32.lib bcrypt.lib /OUT:"' + $exe + '" && "' + $exe + '"'
+          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\windows-namespace-broker\windows_manifest_store_smoke.c /link advapi32.lib bcrypt.lib /OUT:"' + $exe + '" && "' + $exe + '"'
           cmd /c $command
           if ($LASTEXITCODE -ne 0) { throw 'Windows broker native smoke test failed' }
       - name: Run Windows broker source contract tests
