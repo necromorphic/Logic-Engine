@@ -257,6 +257,9 @@ test('Windows manifest-bound VFS sidecar deletes use authenticated broker transa
   assert.match(vfsSource, /PROBE_WIN_BROKER_PIPE/);
   assert.match(vfsSource, /probe_win_broker_role_request/);
   assert.match(vfsSource, /PROBE_WIN_BROKER_OP_DELETE_SIDECAR 4u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE 8u/);
+  assert.match(vfsSource, /role->manifest_bound && flags == SQLITE_ACCESS_EXISTS/);
+  assert.match(vfsSource, /probe_win_broker_role_request\(role->role,PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE/);
   assert.match(vfsSource, /probe_win_broker_role_request\(role->role/);
   assert.match(vfsSource, /probe_win_sidecar_identity_retire\(role_index,suffix,&expected_sidecar,1\)/);
   const manifestDelete = vfsSource.slice(vfsSource.indexOf('if (role->manifest_bound) {'),
