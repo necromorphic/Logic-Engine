@@ -9,11 +9,10 @@ clients are rejected. Frames are bounded and contain logical operation data,
 never filesystem paths.
 
 Only PING is implemented. OPEN_MAIN, OPEN_SIDECAR, DELETE_SIDECAR,
-CREATE_SIDECAR, OPEN_OR_CREATE_SIDECAR and ACCESS_ROLE_FILE return UNSUPPORTED.
-This is fail-closed until the durable manifest store, NTFS handle-relative
-namespace adapter, recovery coordinator integration, and safe handle transfer
-are implemented. Do not connect the SQLite VFS or install this host for
-production use yet.
+CREATE_SIDECAR, OPEN_OR_CREATE_SIDECAR and ACCESS_ROLE_FILE still return
+UNSUPPORTED. The SCM startup path now validates and reconciles the durable
+manifest and can recover the two create-sidecar crash windows described below.
+Do not connect the SQLite VFS or install this host for production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
 cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c windows_manifest_validator.c /link advapi32.lib bcrypt.lib
@@ -104,10 +103,10 @@ file identities, invalid role/component names, invalid sidecar states and
 non-consecutive intent generations. The native smoke test includes valid
 manifest/intent fixtures and negative duplicate-key and generation fixtures.
 
-The validator is now compiled by the Windows CI gate. It is not yet wired into
-the SCM service's metadata-store open or startup path. Physical identity
-reconciliation and service readiness remain disabled; this increment does not
-authorize any filesystem IPC operation.
+The validator is compiled by the Windows CI gate and is wired into the SCM
+metadata-store open and startup path. The startup callback reconciles physical
+file identities before SCM readiness. This does not authorize filesystem IPC
+operations.
 
 
 ## SCM startup trust gate
@@ -121,15 +120,38 @@ parent-directory, database and active-sidecar identity using handle-relative
 opens. Retired sidecars must be absent unless a newer active generation of
 the same kind occupies that basename.
 
-A pending lifecycle intent currently makes startup fail closed. The service
-does not yet infer whether an interrupted create/delete can be safely
-completed. This is deliberate: a create intent has no expected file identity,
-so deleting or adopting an unmanifested file by basename would be unsafe.
-The next increment must implement operation-specific, identity-bound intent
-recovery and durable manifest transition before pending-intent startup can be
-accepted.
+A pending create-sidecar intent is recovered in two supported crash
+windows. If the manifest is still at baseGeneration, the role and sidecar
+basename are derived from the validated manifest and intent, the parent chain
+is reopened by recorded directory identities, and any orphan regular file is
+deleted by its opened handle before the parent is flushed. If the manifest is
+already at targetGeneration, recovery requires the corresponding sidecar
+kind to be active at that exact generation and then verifies its physical
+identity against the manifest. Other generations, mismatched names, active
+conflicts, reparse points and ambiguous filesystem errors fail closed.
 
-All filesystem IPC operations remain UNSUPPORTED. This startup gate proves
-that the configured namespace matches the trusted manifest before PING becomes
-available; it does not yet implement OPEN_MAIN, sidecar lifecycle IPC or
-client HANDLE transfer.
+Delete-sidecar intents remain unsupported and fail closed. They require a
+separate manifest-retirement transition with crash-safe handling of the
+identity-bound delete operation; the broker does not guess or retire a sidecar
+entry automatically.
+
+All filesystem IPC operations remain UNSUPPORTED. The startup gate proves
+that the configured namespace matches the trusted manifest and recovers only
+create-sidecar intents before PING becomes available. It does not yet implement
+OPEN_MAIN, sidecar lifecycle IPC or client HANDLE transfer.
+
+## Create-sidecar startup recovery
+
+le_win_recover_create_intent is called by the SCM startup coordinator while
+the metadata-store exclusive lock is held. It accepts only a strictly
+validated create-sidecar intent whose role and basename match the registered
+database role and expected -wal, -shm or -journal suffix.
+
+The native smoke test exercises both durable-ordering boundaries:
+- crash after CREATE_NEW but before manifest commit: remove the uncommitted
+  orphan through a no-follow, handle-relative open and flush the parent;
+- crash after manifest commit but before intent retirement: require the active
+  sidecar at targetGeneration and reconcile its recorded physical identity.
+
+The implementation intentionally does not support delete-sidecar recovery
+yet. No filesystem IPC operation is enabled by this increment.
