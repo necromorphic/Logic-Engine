@@ -2688,6 +2688,15 @@ export class SQLiteStore {
             // changes under rollback. This preserves independent full restatements
             // while invalidating partial writes that depended on removed state.
             || refs(event.effects).some((value) => projectionChanged(value, event, true))
+            // A typed relationship transition is validated against the prior
+            // directed-pair state. If an earlier transition on that pair is
+            // retracted, a later transition cannot be replayed as independent
+            merely because its final value would overwrite the same dimension.
+            || event.effects.some((effect) => effect.kind === 'relationship.transition'
+              && Object.keys(effect.patch || {}).some((dimension) => {
+                const ref = relationshipRef(effect.subject_id, effect.target_id, dimension);
+                return affectedAt.has(ref) && affectedAt.get(ref) < event.commit_sequence;
+              }))
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') {
@@ -2728,7 +2737,8 @@ export class SQLiteStore {
               : ['entity_exists', 'entity_absent', 'entity_attribute'].includes(link.predicate?.kind)
                 ? 'entity:' + link.predicate.entity_id
                 : null;
-            if (!targetRef || !projectionChanged(targetRef, event)) return [];
+            if (!targetRef || !affectedAt.has(targetRef)
+              || affectedAt.get(targetRef) >= event.commit_sequence) return [];
             return [{
               event_id: event.event_id,
               reason_code: 'historical_predicate_unknown',
