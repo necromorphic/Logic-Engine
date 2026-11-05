@@ -528,6 +528,58 @@ done:
  return ok;
 }
 
+
+static int jascii_role_argument(const char *value){
+ size_t i,n;if(!value)return 0;n=strlen(value);if(!n||n>128)return 0;
+ for(i=0;i<n;i++){unsigned char c=(unsigned char)value[i];
+  if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')
+     ||(i==0&&!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9'))))return 0;
+ }
+ return 1;
+}
+int le_win_access_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
+    const char*role_name,const char*kind_name,BOOL*exists){
+ unsigned char *manifest=NULL;DWORD manifest_length=0,root,roles,role,side;
+ JPARSER p;int ok=0,found_role=0,found_file=0;DWORD saved_error=ERROR_SUCCESS;
+ if(!store||!store->locked||!namespace_root||!exists||!jascii_role_argument(role_name)
+    ||!kind_name||!(strcmp(kind_name,"main")==0||strcmp(kind_name,"wal")==0
+      ||strcmp(kind_name,"shm")==0||strcmp(kind_name,"journal")==0)){
+  SetLastError(ERROR_INVALID_PARAMETER);return 0;
+ }
+ *exists=FALSE;ZeroMemory(&p,sizeof(p));
+ if(!le_win_store_read_manifest(store,&manifest,&manifest_length))return 0;
+ if(!le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root))goto done;
+ p.s=manifest;p.n=manifest_length;
+ p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
+ if(!p.v)goto done;
+ jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
+ if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
+ roles=jget(&p,root,"roles");
+ for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next){
+  DWORD role_node=jget(&p,role,"role");
+  if(p.v[role_node].end-p.v[role_node].start==strlen(role_name)
+     &&memcmp(p.s+p.v[role_node].start,role_name,strlen(role_name))==0){
+   found_role=1;
+   if(strcmp(kind_name,"main")==0)found_file=1;
+   else{
+    DWORD sides=jget(&p,role,"sidecars");
+    for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
+     if(jeq(&p,jget(&p,side,"kind"),kind_name)
+        &&jeq(&p,jget(&p,side,"state"),"active")){found_file=1;break;}
+    }
+   }
+   break;
+  }
+ }
+ if(!found_role){SetLastError(ERROR_FILE_NOT_FOUND);goto done;}
+ *exists=found_file?TRUE:FALSE;ok=1;
+done:
+ if(p.v)HeapFree(GetProcessHeap(),0,p.v);
+ if(manifest)HeapFree(GetProcessHeap(),0,manifest);
+ if(!ok){saved_error=GetLastError();if(saved_error==ERROR_SUCCESS)saved_error=ERROR_INVALID_DATA;SetLastError(saved_error);}
+ return ok;
+}
+
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
 #endif
