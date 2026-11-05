@@ -578,7 +578,15 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             ...(counts ? { counts } : {}),
           },
         };
-        return send(res, complete || reviewOnly ? 200 : 409, response);
+        const acceptedObservation = [
+          'AUTHORITATIVE_COMPLETE', 'BASELINED_REVIEW_ONLY',
+          'UNCHANGED_REVIEW_ONLY', 'NON_READY', 'duplicate',
+        ].includes(result.status);
+        // NON_READY is a successful observation outcome: the changed manifest
+        // was durably recorded, but authority is revoked until a fresh signed
+        // completeness attestation is accepted. Integrity failure was handled
+        // above and remains HTTP 409.
+        return send(res, acceptedObservation ? 200 : 409, response);
       }
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
