@@ -102,7 +102,7 @@ function assertIntent(intent) {
   const keys = Object.keys(intent).sort();
   const expected = [
     'baseGeneration', 'basename', 'expectedIdentity', 'kind', 'operation',
-    'operationId', 'role', 'schemaVersion', 'targetGeneration',
+    'operationId', 'precondition', 'role', 'schemaVersion', 'targetGeneration',
   ].sort();
   if (keys.length !== expected.length
       || keys.some((key, index) => key !== expected[index])) {
