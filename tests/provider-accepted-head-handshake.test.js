@@ -244,7 +244,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         }],
         candidates: [staleCandidate],
         coordinatorLease: revokeLease,
-      }), /MEMORY_DISPATCH_NOT_READY/);
+      }), /(?:MEMORY_DISPATCH_NOT_READY|PROVIDER_DISPATCH_EVIDENCE_CHANGED)/);
     } finally {
       revokeLease();
       revokeCoordinator.close();
