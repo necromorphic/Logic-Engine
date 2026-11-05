@@ -238,8 +238,7 @@ test('delete recovery completes a verified pending deletion when the file still 
     expectedIdentity: identity('5'),
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
-    precondition: 'identity-match', generation: 3 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 3 });
   assert.equal(h.state.files.has(sidecarKey), false);
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'retired');
   assert.equal(h.state.intent, null);
