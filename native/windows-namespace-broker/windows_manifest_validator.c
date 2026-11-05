@@ -310,6 +310,115 @@ done:
  return ok;
 }
 
+
+static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
+ DWORD components=jget(p,role,"parentComponents"),parents=jget(p,role,"parentIdentities");
+ DWORD component,parent_id;HANDLE current=root,next;int owns=0;wchar_t name[512];LogicEngineWinFileIdentity expected;
+ for(component=p->v[components].first,parent_id=p->v[parents].first;
+     component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
+  if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
+  next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
+  if(owns)CloseHandle(current);current=next;owns=1;
+ }
+ if(!owns){
+  current=CreateFileW(L".",FILE_LIST_DIRECTORY|FILE_TRAVERSE|FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS,NULL);
+  if(current==INVALID_HANDLE_VALUE)return 0;
+  owns=1;
+ }
+ *out=current;return 1;
+fail:
+ if(owns)CloseHandle(current);return 0;
+}
+static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
+ HANDLE file;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
+ file=logic_engine_win_open_relative(parent,basename,DELETE|FILE_READ_ATTRIBUTES,
+   FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+   FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+ if(file==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
+ if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
+    ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0){
+  CloseHandle(file);SetLastError(ERROR_ACCESS_DENIED);return 0;
+ }
+ disposition.DeleteFile=TRUE;
+ if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition))){
+  CloseHandle(file);return 0;
+ }
+ if(!CloseHandle(file))return 0;
+ return FlushFileBuffers(parent)!=0;
+}
+int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_length,
+ const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
+ JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name;
+ DWORD dbname,baseid,targetid;uint64_t generation,base,target;
+ wchar_t database[512],expected_basename[768],actual_basename[768];
+ const wchar_t*suffix;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE;
+ LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int owns_parent=0,ok=0;
+ if(!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
+ ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));ZeroMemory(&anchor,sizeof(anchor));
+ p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
+ p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
+ q.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
+ if(!p.v||!q.v)goto done;
+ jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
+ if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
+ jws(&q);if(!jvalue(&q,0,&ir))goto done;jws(&q);
+ if(q.pos!=q.n||q.v[ir].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
+ op=jget(&q,ir,"operation");if(!jeq(&q,op,"create-sidecar"))goto done;
+ kind=jget(&q,ir,"kind");
+ suffix=jeq(&q,kind,"wal")?L"-wal":jeq(&q,kind,"shm")?L"-shm":L"-journal";
+ if(!jnum(&p,jget(&p,root,"generation"),1,9007199254740991ULL,&generation)
+    ||!jnum(&q,jget(&q,ir,"baseGeneration"),1,9007199254740990ULL,&base)
+    ||!jnum(&q,jget(&q,ir,"targetGeneration"),2,9007199254740991ULL,&target))goto done;
+ roles=jget(&p,root,"roles");role_name=jget(&q,ir,"role");
+ for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next){
+  DWORD current_role=jget(&p,role,"role");
+  if(p.v[current_role].end-p.v[current_role].start==q.v[role_name].end-q.v[role_name].start
+    &&!memcmp(p.s+p.v[current_role].start,q.s+q.v[role_name].start,p.v[current_role].end-p.v[current_role].start)){match=role;break;}
+ }
+ if(match==0xffffffffu||!jwide(&p,jget(&p,match,"databaseBasename"),database,(DWORD)LE_COUNT_OF(database))
+   ||FAILED(StringCchCopyW(expected_basename,LE_COUNT_OF(expected_basename),database))
+   ||FAILED(StringCchCatW(expected_basename,LE_COUNT_OF(expected_basename),suffix))
+   ||!jwide(&q,jget(&q,ir,"basename"),actual_basename,(DWORD)LE_COUNT_OF(actual_basename))
+   ||_wcsicmp(expected_basename,actual_basename)!=0)goto done;
+ if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
+ anchor_parent=anchor.parent;
+ if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
+ root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1);
+ if(root_handle==INVALID_HANDLE_VALUE||!jntfs_handle(root_handle))goto done;
+ if(generation==target){
+  int committed=0;
+  for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next){
+   if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
+      &&jeq(&p,jget(&p,side,"state"),"active")
+      &&jnum(&p,jget(&p,side,"generation"),1,generation,NULL))committed=1;
+  }
+  if(!committed)goto done;
+  ok=1;
+ }else if(generation==base){
+  int active=0;
+  for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next)
+   if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
+      &&jeq(&p,jget(&p,side,"state"),"active"))active=1;
+  if(active)goto done;
+  if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
+  owns_parent=1;
+  if(!jremove_uncommitted_sidecar(parent,actual_basename))goto done;
+  ok=1;
+ }else goto done;
+ if(ok)ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
+done:
+ if(owns_parent&&parent!=INVALID_HANDLE_VALUE)CloseHandle(parent);
+ if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
+ if(anchor_parent!=INVALID_HANDLE_VALUE)CloseHandle(anchor_parent);
+ if(anchor.basename)HeapFree(GetProcessHeap(),0,anchor.basename);
+ if(p.v)HeapFree(GetProcessHeap(),0,p.v);
+ if(q.v)HeapFree(GetProcessHeap(),0,q.v);
+ if(!ok&&GetLastError()==ERROR_SUCCESS)SetLastError(ERROR_RECOVERY_FAILURE);
+ return ok;
+}
+
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
 #endif
