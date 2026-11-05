@@ -267,14 +267,16 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     assert.equal(secondOperation.head, firstOperation.head + 1);
     assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 3 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), {
+      core: 1, provider: secondOperation.head,
+    });
 
     const recoveryDigest = 'e'.repeat(64);
     const pendingRecovery = advanceAcceptedHeadSync({
       domain: 'provider',
       operationId: 'provider-recovery-committed-operation',
       operationDigest: recoveryDigest,
-      expectedHead: 3,
+      expectedHead: secondOperation.head,
       token: providerToken,
       port,
     });
@@ -292,7 +294,9 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     providerDb?.close();
     providerDb = new DatabaseSync(providerPath);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 4 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), {
+      core: 1, provider: secondOperation.head + 1,
+    });
 
     // Verify the accepted-head wrapper covers each currently usable Provider
     // mutation family, not only query grants. Each visible state transition must
