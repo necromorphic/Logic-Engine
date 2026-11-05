@@ -103,7 +103,7 @@ static int startup_recover(
     void *context) {
  (void)store;
  if(intent||intent_length)
-  return le_win_recover_create_intent(manifest,manifest_length,intent,intent_length,(const wchar_t*)context);
+  return le_win_recover_create_intent(store,manifest,manifest_length,intent,intent_length,(const wchar_t*)context);
  return le_win_reconcile_manifest_namespace(manifest,manifest_length,(const wchar_t*)context);
 }
 static void run(void) {
