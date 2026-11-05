@@ -275,13 +275,12 @@ function validateEffectJson(value, label) {
 export function validateEffects(effects, options = {}) {
   assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
   assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
-  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAcquisition', 'allowNpcBeliefTransition', 'allowKnowledgeAssignment'].includes(key))) {
+  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAcquisition', 'allowNpcBeliefTransition'].includes(key))) {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
   }
   if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowRelationshipTransition must be boolean.');
   }
-  if (options.allowKnowledgeAssignment !== undefined && typeof options.allowKnowledgeAssignment !== 'boolean') throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowKnowledgeAssignment must be boolean.');
   if (options.allowKnowledgeAcquisition !== undefined && typeof options.allowKnowledgeAcquisition !== 'boolean') {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowKnowledgeAcquisition must be boolean.');
   }
@@ -306,7 +305,6 @@ export function validateEffects(effects, options = {}) {
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
       'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
-      'knowledge.assignment': ['kind','assignment_id','subject_id','item_id','source_kind','source_ref','source_version','authorization_ref'],
       'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
@@ -379,10 +377,6 @@ export function validateEffects(effects, options = {}) {
           || effect.subject_ref !== effect.subject_ref.trim())) {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
       }
-    } else if (effect.kind === 'knowledge.assignment') {
-      for (const key of ['assignment_id','subject_id','item_id','source_kind','source_ref','source_version','authorization_ref']) if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT', key + ' must be a non-empty string of at most 200 characters.', 400);
-      if (!['author_initial','imported'].includes(effect.source_kind)) throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT','source_kind must be author_initial or imported.',400);
-      if (options.allowKnowledgeAssignment !== true) throw new EngineError('KNOWLEDGE_ASSIGNMENT_TRUSTED_PATH_REQUIRED','Knowledge assignment requires trusted Core path.',403);
     } else if (effect.kind === 'knowledge.acquire') {
       for (const key of ['acquisition_id', 'subject_id', 'fact_id', 'provenance_ref', 'authorization_ref']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) {
