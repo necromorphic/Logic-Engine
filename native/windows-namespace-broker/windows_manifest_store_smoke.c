@@ -57,8 +57,24 @@ static int test_native_schema_validator(void) {
   return 1;
 }
 
+static int format_identity(
+    const LogicEngineWinFileIdentity *identity,
+    char *volume, size_t volume_capacity,
+    char *file_id, size_t file_id_capacity) {
+  unsigned index;
+  if (FAILED(StringCchPrintfA(volume, volume_capacity, "%016llx",
+      (unsigned long long)identity->volume_serial))) return 0;
+  if (file_id_capacity < 33) return 0;
+  for (index = 0; index < 16; ++index) {
+    if (FAILED(StringCchPrintfA(file_id + index * 2, 3, "%02x",
+        identity->file_id.Identifier[index]))) return 0;
+  }
+  return 1;
+}
+
 int main(void) {
   wchar_t temp[MAX_PATH] = { 0 }, directory[MAX_PATH] = { 0 };
+  wchar_t namespace_directory[MAX_PATH] = { 0 }, database_path[MAX_PATH] = { 0 };
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
   DWORD manifest_length = 0, intent_length = 0;
@@ -66,6 +82,12 @@ int main(void) {
   DWORD recovery_intent_length = 0;
   int reject_recovery = 1;
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
+  HANDLE namespace_handle = INVALID_HANDLE_VALUE, database_handle = INVALID_HANDLE_VALUE;
+  LogicEngineWinFileIdentity namespace_identity, database_identity;
+  char namespace_volume[17], namespace_file_id[33], database_volume[17], database_file_id[33];
+  char wrong_database_file_id[33];
+  unsigned char namespace_manifest[4096];
+  DWORD namespace_manifest_length = 0;
   LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   static const unsigned char invalid_document[] = { 0x7b, 0x7d };
@@ -116,6 +138,55 @@ int main(void) {
   if (!le_win_store_open(&store, directory, validate_test_json, validate_test_json, NULL)) goto done;
   stage = "lock metadata store";
   if (!le_win_store_lock(&store)) goto close_store;
+  stage = "create identity-pinned namespace root";
+  if (FAILED(StringCchPrintfW(namespace_directory, LE_COUNT_OF(namespace_directory),
+      L"%s\\namespace", directory)) || !CreateDirectoryW(namespace_directory, &security_attributes)) goto unlock_store;
+  stage = "open namespace root identity";
+  namespace_handle = CreateFileW(namespace_directory,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (namespace_handle == INVALID_HANDLE_VALUE
+      || !logic_engine_win_identity(namespace_handle, &namespace_identity, NULL)) goto unlock_store;
+  CloseHandle(namespace_handle); namespace_handle = INVALID_HANDLE_VALUE;
+  stage = "create namespace database file";
+  if (FAILED(StringCchPrintfW(database_path, LE_COUNT_OF(database_path),
+      L"%s\\memory.sqlite", namespace_directory))) goto unlock_store;
+  database_handle = CreateFileW(database_path, GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (database_handle == INVALID_HANDLE_VALUE
+      || !logic_engine_win_identity(database_handle, &database_identity, NULL)) goto unlock_store;
+  CloseHandle(database_handle); database_handle = INVALID_HANDLE_VALUE;
+  stage = "serialize namespace identities";
+  if (!format_identity(&namespace_identity, namespace_volume, sizeof(namespace_volume),
+          namespace_file_id, sizeof(namespace_file_id))
+      || !format_identity(&database_identity, database_volume, sizeof(database_volume),
+          database_file_id, sizeof(database_file_id))) goto unlock_store;
+  stage = "reconcile valid manifest against physical namespace";
+  if (FAILED(StringCchPrintfA((char *)namespace_manifest, LE_COUNT_OF(namespace_manifest),
+      "{\"schemaVersion\":1,\"generation\":1,\"platform\":\"windows\","
+      "\"metadataRootIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"filesystemPolicy\":{\"filesystem\":\"NTFS\",\"identitySource\":\"opened-handle\",\"directoryMutationBoundary\":\"dedicated-service-identity\"},"
+      "\"roles\":[{\"role\":\"main\",\"parentComponents\":[],\"parentIdentities\":[],\"databaseBasename\":\"memory.sqlite\","
+      "\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"sidecars\":[]}]}",
+      namespace_volume, namespace_file_id, database_volume, database_file_id))) goto unlock_store;
+  namespace_manifest_length = (DWORD)strlen((const char *)namespace_manifest);
+  if (!le_win_reconcile_manifest_namespace(namespace_manifest, namespace_manifest_length,
+      namespace_directory)) goto unlock_store;
+  stage = "reject replaced database identity during reconciliation";
+  memcpy(wrong_database_file_id, database_file_id, sizeof(wrong_database_file_id));
+  wrong_database_file_id[31] = wrong_database_file_id[31] == '0' ? '1' : '0';
+  if (FAILED(StringCchPrintfA((char *)namespace_manifest, LE_COUNT_OF(namespace_manifest),
+      "{\"schemaVersion\":1,\"generation\":1,\"platform\":\"windows\","
+      "\"metadataRootIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"filesystemPolicy\":{\"filesystem\":\"NTFS\",\"identitySource\":\"opened-handle\",\"directoryMutationBoundary\":\"dedicated-service-identity\"},"
+      "\"roles\":[{\"role\":\"main\",\"parentComponents\":[],\"parentIdentities\":[],\"databaseBasename\":\"memory.sqlite\","
+      "\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"sidecars\":[]}]}",
+      namespace_volume, namespace_file_id, database_volume, wrong_database_file_id))) goto unlock_store;
+  namespace_manifest_length = (DWORD)strlen((const char *)namespace_manifest);
+  if (le_win_reconcile_manifest_namespace(namespace_manifest, namespace_manifest_length,
+      namespace_directory)) goto unlock_store;
   stage = "probe directory FlushFileBuffers";
   if (!FlushFileBuffers(store.directory)) goto unlock_store;
   stage = "write manifest";
@@ -173,6 +244,8 @@ int main(void) {
   stage = "reject wrong identity";
   if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) {
     if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
+  if (namespace_handle != INVALID_HANDLE_VALUE) CloseHandle(namespace_handle);
+  if (database_handle != INVALID_HANDLE_VALUE) CloseHandle(database_handle);
     reopened = INVALID_HANDLE_VALUE;
     goto unlock_store;
   }
