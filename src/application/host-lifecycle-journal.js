@@ -1268,16 +1268,21 @@ export class HostLifecycleJournal {
       if (changed > MAX_ROOT_DELTA_FILES) {
         const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_LIMIT_EXCEEDED',
           entries, manifest_sha256: manifestSha256, delta: null, delta_sha256: deltaSha256 });
-        return { ...recorded, reason: restoringBaseline
-          ? 'previously observed root inventory delta remains unresolved; HOST_ROOT_INVENTORY_DELTA_LIMIT'
-          : 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
-        changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
+        return { ...recorded,
+          accepted: currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE',
+          reason: restoringBaseline
+            ? 'previously observed root inventory delta remains unresolved; HOST_ROOT_INVENTORY_DELTA_LIMIT'
+            : 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
+          changed_files: changed, maximum_changed_files: MAX_ROOT_DELTA_FILES };
       }
       const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_OBSERVED',
         entries, manifest_sha256: manifestSha256, delta, delta_sha256: deltaSha256 });
-      return { ...recorded, delta, ...(restoringBaseline ? {
-        reason: 'previously observed root inventory delta remains unresolved',
-      } : {}) };
+      return {
+        ...recorded,
+        accepted: currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE',
+        delta,
+        ...(restoringBaseline ? { reason: 'previously observed root inventory delta remains unresolved' } : {}),
+      };
     });
   }
 
