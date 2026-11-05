@@ -150,6 +150,8 @@ test('native Windows validator enforces strict manifest and intent envelopes', (
 test('Windows SCM readiness is gated by validated manifest and physical namespace reconciliation', () => {
   assert.match(source, /--metadata-dir/);
   assert.match(source, /--namespace-root/);
+  assert.match(source, /int wmain\(int argc,wchar_t \*\*argv\)/);
+  assert.match(source, /static VOID WINAPI service_main\(DWORD argc,LPWSTR \*argv\)/);
   assert.match(source, /le_win_store_open_validated/);
   assert.match(source, /le_win_store_startup_recover/);
   assert.match(source, /le_win_reconcile_manifest_namespace/);
