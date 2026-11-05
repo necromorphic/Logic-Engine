@@ -183,9 +183,10 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         granted: true,
         readiness: 'READY',
         head: providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head,
+        provider_evidence_cursor: providerRetrieval.provider_evidence_cursor,
         sources: [{
           source_kind: 'canonical_entity',
-          source_entity_id: dispatchRecord.source_entity_id,
+          entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
         }],
         candidates: [{
