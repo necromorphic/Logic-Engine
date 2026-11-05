@@ -123,7 +123,8 @@ test('create recovery enrolls a sidecar created before a simulated crash', async
   await assert.rejects(h.coordinator.createSidecar('core', 'wal'), /simulated process crash/);
   assert.ok(h.state.intent);
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar',
+    precondition: 'absent', generation: 2 });
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'active');
   assert.deepEqual(h.state.manifest.roles[0].sidecars[0].identity, identity('5'));
   assert.equal(h.state.intent, null);
@@ -173,7 +174,8 @@ test('delete recovery retires the manifest record after a crash following namesp
   await assert.rejects(h.coordinator.deleteSidecar('core', 'wal'), /simulated process crash/);
   assert.ok(h.state.intent);
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 3 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
+    precondition: 'identity-match', generation: 3 });
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'retired');
   assert.equal(h.state.intent, null);
 });
@@ -204,6 +206,7 @@ test('recovery refuses a replacement that appears after a durable delete intent'
     schemaVersion: 1,
     operationId: 'd'.repeat(32),
     operation: 'delete-sidecar',
+    precondition: 'identity-match',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
@@ -228,6 +231,7 @@ test('delete recovery completes a verified pending deletion when the file still 
     schemaVersion: 1,
     operationId: 'e'.repeat(32),
     operation: 'delete-sidecar',
+    precondition: 'identity-match',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
@@ -236,7 +240,8 @@ test('delete recovery completes a verified pending deletion when the file still 
     expectedIdentity: identity('5'),
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 3 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
+    precondition: 'identity-match', generation: 3 });
   assert.equal(h.state.files.has(sidecarKey), false);
   assert.equal(h.state.manifest.roles[0].sidecars[0].state, 'retired');
   assert.equal(h.state.intent, null);
@@ -254,6 +259,7 @@ test('reconcile clears a committed create intent only after rechecking the activ
     schemaVersion: 1,
     operationId: 'f'.repeat(32),
     operation: 'create-sidecar',
+    precondition: 'absent',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
@@ -262,7 +268,8 @@ test('reconcile clears a committed create intent only after rechecking the activ
     expectedIdentity: null,
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'create-sidecar',
+    precondition: 'absent', generation: 2 });
   assert.equal(h.state.intent, null);
 });
 
@@ -278,6 +285,7 @@ test('reconcile clears an intent when its matching manifest generation was alrea
     schemaVersion: 1,
     operationId: 'a'.repeat(32),
     operation: 'delete-sidecar',
+    precondition: 'identity-match',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
@@ -286,7 +294,8 @@ test('reconcile clears an intent when its matching manifest generation was alrea
     expectedIdentity: identity('5'),
   };
   const result = await h.coordinator.reconcile();
-  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar', generation: 2 });
+  assert.deepEqual(result, { recovered: true, operation: 'delete-sidecar',
+    precondition: 'identity-match', generation: 2 });
   assert.equal(h.state.intent, null);
 });
 
@@ -302,6 +311,7 @@ test('reconcile refuses a retired sidecar name that reappears before intent clea
     schemaVersion: 1,
     operationId: 'c'.repeat(32),
     operation: 'delete-sidecar',
+    precondition: 'identity-match',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
@@ -329,6 +339,7 @@ test('reconcile fails closed on generation gaps and malformed intents', async ()
     schemaVersion: 1,
     operationId: 'b'.repeat(32),
     operation: 'delete-sidecar',
+    precondition: 'identity-match',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
