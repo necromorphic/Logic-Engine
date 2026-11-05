@@ -25,6 +25,7 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include "windows_manifest_store.h"
+#include "windows_manifest_validator.h"
 #include "../secure-vfs-probe/windows_relative_open.h"
 
 #define LE_STORE_MANIFEST L"manifest.json"
@@ -687,6 +688,13 @@ done:
   le_win_store_unlock(store);
   if (!recovered) SetLastError(failure_error);
   return recovered;
+}
+
+int le_win_store_open_validated(
+    LE_WIN_MANIFEST_STORE *store,
+    const wchar_t *configured_directory) {
+  return le_win_store_open(store, configured_directory,
+      le_win_validate_manifest, le_win_validate_intent, NULL);
 }
 
 void le_win_store_close(LE_WIN_MANIFEST_STORE *store) {
