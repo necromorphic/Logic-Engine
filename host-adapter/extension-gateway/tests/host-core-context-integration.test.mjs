@@ -300,6 +300,13 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     enumerate: authoritativeFixture,
     // This negative case deliberately supplies an unverified installed manifest.
     verifySourceIdentity: async () => ({ status: 'SOURCE_IDENTITY_UNVERIFIED' }),
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: PINNED_HOST_COMMIT,
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+      route_count: 92,
+      source_files_sha256: 'b'.repeat(64),
+    }),
     fetchImpl: async (url, options) => {
       const response = await fetch(url, options);
       productionCoreCalls.push(new URL(url).pathname);
