@@ -11,6 +11,7 @@ const namespaceHeader = await readFile(new URL('../native/windows-namespace-brok
 const smoke = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store_smoke.c', import.meta.url), 'utf8');
 const validator = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_validator.c', import.meta.url), 'utf8');
 const validatorHeader = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_validator.h', import.meta.url), 'utf8');
+const vfsSource = await readFile(new URL('../native/secure-vfs-probe/secure_vfs_probe.c', import.meta.url), 'utf8');
 
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
@@ -247,4 +248,19 @@ test('Windows broker dispatches manifest-backed access and sidecar deletion requ
   assert.match(smoke, /manifest-backed access reports absent SHM sidecar/);
   assert.match(smoke, /manifest-backed access reports retired WAL sidecar absent/);
   assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+});
+
+
+test('Windows manifest-bound VFS sidecar deletes use authenticated broker transactions', () => {
+  assert.match(vfsSource, /PROBE_WIN_BROKER_PIPE/);
+  assert.match(vfsSource, /probe_win_broker_role_request/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_DELETE_SIDECAR 4u/);
+  assert.match(vfsSource, /probe_win_broker_role_request\(role->role/);
+  assert.match(vfsSource, /probe_win_sidecar_identity_retire\(role_index,suffix,&expected_sidecar,1\)/);
+  const manifestDelete = vfsSource.slice(vfsSource.indexOf('if (role->manifest_bound) {'),
+    vfsSource.indexOf('  if (!is_main) {', vfsSource.indexOf('if (role->manifest_bound) {')));
+  assert.match(manifestDelete, /if \(is_main/);
+  assert.match(manifestDelete, /PROBE_WIN_BROKER_STATUS_OK/);
+  assert.match(manifestDelete, /PROBE_WIN_BROKER_STATUS_NOT_FOUND/);
+  assert.doesNotMatch(manifestDelete, /SetFileInformationByHandle/);
 });
