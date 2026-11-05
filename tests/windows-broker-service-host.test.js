@@ -26,6 +26,8 @@ test('Windows broker keeps unimplemented file operations disabled without backen
   assert.match(source, /q\.operation==8/);
   assert.match(source, /q\.operation==4/);
   assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
+  assert.match(source, /q\.operation==4/);
+  assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
   assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
   assert.match(docs, /PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented/);
   assert.match(docs, /Do not connect the SQLite VFS/);
@@ -204,7 +206,7 @@ test('Windows create recovery requires an explicit absent precondition', () => {
 });
 
 
-test('Windows broker dispatches read-only manifest-backed ACCESS_ROLE_FILE requests', () => {
+test('Windows broker dispatches manifest-backed access and sidecar deletion requests', () => {
   assert.match(source, /LEB_STATUS_NOT_FOUND 5u/);
   assert.match(source, /parse_access_payload/);
   assert.match(source, /q\.operation==8/);
