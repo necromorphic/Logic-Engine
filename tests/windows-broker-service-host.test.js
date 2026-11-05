@@ -23,7 +23,7 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
 
 test('Windows broker keeps filesystem operations disabled without backend', () => {
   assert.match(source, /q\.operation>=2&&q\.operation<=8\)r\.flags=3/);
-  assert.match(docs, /Only PING is implemented/);
+  assert.match(docs, /PING and read-only ACCESS_ROLE_FILE are implemented/);
   assert.match(docs, /Do not connect the SQLite VFS/);
 });
 
