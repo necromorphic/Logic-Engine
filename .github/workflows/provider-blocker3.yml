@@ -1,4 +1,5 @@
 name: Memory Provider blocker 3
+# Push and PR path filters share the integration acceptance contract; keep exact-head runs observable.
 on:
   push:
     branches: [integration/host-core-v1]
