@@ -2,6 +2,7 @@ name: Memory Provider blocker 3
 # Push and PR path filters share the integration acceptance contract; keep exact-head runs observable.
 # Touch this workflow to fan out the PR's required exact-head acceptance matrix.
 # Runtime/Provider must be paired after any test-contract or workflow-trigger correction.
+# Pair the final diagnostic benchmark contract with Provider acceptance on the same integration head.
 # Final fan-out includes the VFS probe when its installer contract changes.
 on:
   push:

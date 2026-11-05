@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
-const trace = (...values) => { if (process.env.BENCH_TRACE === '1') process.stderr.write('[replay-benchmark] ' + values.join(' ') + '\\n'); };
+const trace = (...values) => { if (process.env.BENCH_TRACE === '1') process.stderr.write('[replay-benchmark] ' + values.join(' ') + '\n'); };
 
 const sizes = (process.env.BENCH_SIZES || '1000,5000,10000')
   .split(',')
