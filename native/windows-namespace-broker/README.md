@@ -147,22 +147,27 @@ that the configured namespace matches the trusted manifest and recovers validate
 create- and delete-sidecar intents before PING becomes available. It does not yet implement
 OPEN_MAIN, sidecar lifecycle IPC or client HANDLE transfer.
 
-## Create-sidecar startup recovery
+## Sidecar lifecycle startup recovery
 
 le_win_recover_lifecycle_intent is called by the SCM startup coordinator while
-the metadata-store exclusive lock is held. It accepts only a strictly
-validated create-sidecar intent whose role and basename match the registered
-database role and expected -wal, -shm or -journal suffix. The intent must carry
+the metadata-store exclusive lock is held. It accepts only strictly validated
+create-sidecar and delete-sidecar intents whose role and basename match the
+registered database role and expected -wal, -shm or -journal suffix. The intent must carry
 the operation-specific precondition absent, which the lifecycle writer may
 record only after it has verified the target basename is absent while holding
 the same exclusive metadata lock and namespace mutation boundary. Delete
 intents use the distinct identity-match precondition and remain unsupported.
 
-The native smoke test exercises both durable-ordering boundaries:
+The native smoke test exercises the create and delete durable-ordering
+boundaries:
 - crash after CREATE_NEW but before manifest commit: enroll the opened file's
   identity in the next manifest generation after flushing file and parent;
 - crash after manifest commit but before intent retirement: require the active
-  sidecar at targetGeneration and reconcile its recorded physical identity.
+  sidecar at targetGeneration and reconcile its recorded physical identity;
+- crash after delete intent: delete only the opened handle matching the expected
+  identity, flush the parent, and commit the sidecar record as retired;
+- crash after delete manifest commit: require the matching retired record and
+  an absent pathname before retiring the intent.
 
 The implementation intentionally does not support delete-sidecar recovery
 yet. No filesystem IPC operation is enabled by this increment.
