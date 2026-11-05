@@ -78,7 +78,8 @@ static int le_store_acl_is_private(HANDLE directory) {
       OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
       &owner, NULL, &dacl, NULL, &descriptor) != ERROR_SUCCESS) goto done;
   if (!GetSecurityDescriptorControl(descriptor, &control, &revision)
-      || (control & SE_DACL_PROTECTED) == 0 || !dacl || dacl->AceCount != 3) goto done;
+      || (control & SE_DACL_PROTECTED) == 0 || !dacl
+      || dacl->AclRevision != ACL_REVISION || dacl->AceCount != 3) goto done;
   if (!ConvertStringSidToSidW(L"S-1-5-18", &system_sid)
       || !ConvertStringSidToSidW(L"S-1-5-32-544", &admins_sid)) goto done;
   trusted[0] = user->User.Sid;
@@ -93,9 +94,9 @@ static int le_store_acl_is_private(HANDLE directory) {
     DWORD slot;
     if (!GetAce(dacl, index, (LPVOID *)&header)
         || header->AceType != ACCESS_ALLOWED_ACE_TYPE
-        || (header->AceFlags & INHERITED_ACE) != 0) goto done;
+        || header->AceFlags != (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) goto done;
     ace = (ACCESS_ALLOWED_ACE *)header;
-    if ((ace->Mask & FILE_ALL_ACCESS) != FILE_ALL_ACCESS) goto done;
+    if (ace->Mask != FILE_ALL_ACCESS) goto done;
     sid = (PSID)&ace->SidStart;
     for (slot = 0; slot < 3; ++slot) {
       if (EqualSid(sid, trusted[slot])) break;
