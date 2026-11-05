@@ -63,7 +63,7 @@ This parser is covered by the VFS CI manifest-schema job. It is not yet wired in
 
 ## Native Windows CI gate
 
-The `.github/workflows/windows-namespace-broker.yml` workflow now compiles the
+The `.github/workflows/better-sqlite3-vfs-integration.yml` workflow now compiles the
 SCM host together with the manifest-store and namespace-adapter translation
 units using MSVC `/W4 /WX`, then compiles and runs the native metadata/sidecar
 smoke test. It also runs the source-contract and Windows handle-relative VFS
