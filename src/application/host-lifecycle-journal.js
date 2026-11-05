@@ -1337,13 +1337,6 @@ export class HostLifecycleJournal {
           source_manifest_sha256: attestation.source_manifest_sha256,
         };
       }
-      const nonceUsed = this.db.prepare(
-        'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
-      ).get(attestation.nonce);
-      if (nonceUsed) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED');
-      if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
-        throw new Error('HOST_ROOT_INVENTORY_PENDING_MUTATION');
-      }
       const lifecycleHead = this.#getLifecycleHead(input.host_installation_id, input.authenticated_account_id);
       const expected = {
         adapter_id: trustedIdentity.adapter_id,
@@ -1360,6 +1353,13 @@ export class HostLifecycleJournal {
       };
       if (!validRootInventoryAttestation(attestation, expected)) {
         throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
+      }
+      const nonceUsed = this.db.prepare(
+        'SELECT 1 AS used FROM host_root_inventory_attestations WHERE nonce=?'
+      ).get(attestation.nonce);
+      if (nonceUsed) throw new Error('HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED');
+      if (this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id)) {
+        throw new Error('HOST_ROOT_INVENTORY_PENDING_MUTATION');
       }
       const nowSeconds = Math.floor(Date.now() / 1000);
       if (Math.abs(nowSeconds - attestation.issued_at) > 30) {
