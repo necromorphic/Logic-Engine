@@ -2,9 +2,10 @@
 #define LOGIC_ENGINE_WINDOWS_MANIFEST_VALIDATOR_H
 #ifdef _WIN32
 #include <windows.h>
+#include "windows_manifest_store.h"
 int le_win_validate_manifest(const unsigned char *bytes,DWORD length,void *context);
 int le_win_validate_intent(const unsigned char *bytes,DWORD length,void *context);
 int le_win_reconcile_manifest_namespace(const unsigned char *bytes,DWORD length,const wchar_t *namespace_root);
-int le_win_recover_create_intent(const unsigned char *manifest,DWORD manifest_length,const unsigned char *intent,DWORD intent_length,const wchar_t *namespace_root);
+int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE *store,const unsigned char *manifest,DWORD manifest_length,const unsigned char *intent,DWORD intent_length,const wchar_t *namespace_root);
 #endif
 #endif
