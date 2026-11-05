@@ -542,7 +542,7 @@ static int jascii_role_argument(const char *value){
 int le_win_access_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
     const char*role_name,const char*kind_name,BOOL*exists){
  unsigned char *manifest=NULL;DWORD manifest_length=0,root,roles,role,side;
- JPARSER p;int ok=0,found_file=0;DWORD saved_error=ERROR_SUCCESS;
+ JPARSER p;int ok=0,found_role=0,found_file=0;DWORD saved_error=ERROR_SUCCESS;
  if(!store||!store->locked||!namespace_root||!exists||!jascii_role_argument(role_name)
     ||!kind_name||!(strcmp(kind_name,"main")==0||strcmp(kind_name,"wal")==0
       ||strcmp(kind_name,"shm")==0||strcmp(kind_name,"journal")==0)){
@@ -561,6 +561,7 @@ int le_win_access_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_
   DWORD role_node=jget(&p,role,"role");
   if(p.v[role_node].end-p.v[role_node].start==strlen(role_name)
      &&memcmp(p.s+p.v[role_node].start,role_name,strlen(role_name))==0){
+   found_role=1;
    if(strcmp(kind_name,"main")==0)found_file=1;
    else{
     DWORD sides=jget(&p,role,"sidecars");
@@ -572,6 +573,7 @@ int le_win_access_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_
    break;
   }
  }
+ if(!found_role){SetLastError(ERROR_INVALID_NAME);goto done;}
  *exists=found_file?TRUE:FALSE;ok=1;
 done:
  if(p.v)HeapFree(GetProcessHeap(),0,p.v);
