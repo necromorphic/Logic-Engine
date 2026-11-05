@@ -7,7 +7,7 @@ This installs the current checkout as a **server plugin** in the selected SillyT
 - Windows PowerShell.
 - SillyTavern 1.19.0 source checkout matching the pinned build accepted by Patch Manager.
 - Node.js >=22.13.0 and Git available.
-- Logic-Engine checkout has its dependencies installed (npm ci).
+- Logic-Engine checkout has its dependencies installed with `npm install` (the repository does not provide a package lock for `npm ci`).
 - Use a disposable ST profile/copy for first acceptance. Back up that copy before installing.
 - Keep LOGIC_ENGINE_MEMORY_NPC_ENABLED unset or false.
 
