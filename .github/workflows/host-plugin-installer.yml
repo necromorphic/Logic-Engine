@@ -52,3 +52,10 @@ jobs:
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
+      - name: Verify installer refuses an existing plugin directory
+        shell: pwsh
+        run: |
+          ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
+          if ($LASTEXITCODE -eq 0) { throw 'INSTALLER_OVERWROTE_EXISTING_PLUGIN' }
+          node (Join-Path $env:ST_ROOT 'plugins/logic-engine/scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root (Join-Path $env:ST_ROOT 'plugins/logic-engine')
+          if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED_AFTER_REFUSAL' }
