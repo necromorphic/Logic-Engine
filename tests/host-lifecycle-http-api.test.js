@@ -188,6 +188,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     },
     reconciliation: {
       ...rootReconciliation,
+      integrity_status: rootReconciliation.integrity_status ?? rootReconciliation.status,
       journal_head_sha256: rootReconciliation.journal_head_sha256 ?? rootReconciliation.head_sha256,
       lifecycle_sequence: rootReconciliation.lifecycle_sequence ?? 0,
       lifecycle_head_sha256: rootReconciliation.lifecycle_head_sha256 ?? '0'.repeat(64),
