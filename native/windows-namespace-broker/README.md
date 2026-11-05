@@ -15,6 +15,9 @@ OK or NOT_FOUND without exposing a path or handle. OPEN_MAIN, OPEN_SIDECAR,
 DELETE_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR still return
 UNSUPPORTED. The SCM startup path validates and reconciles the durable
 manifest and can recover create- and delete-sidecar crash windows described below.
+The native metadata layer also exposes a locked `le_win_open_role_file` helper
+that opens a registered main database or active sidecar by its manifest File ID;
+it is smoke-tested but is not yet wired to IPC or the SQLite VFS.
 Do not connect the SQLite VFS or install this host for production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
