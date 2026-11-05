@@ -89,3 +89,23 @@ test('Windows SQLite sidecar adapter is handle-relative and identity-bound', () 
   assert.match(namespaceHeader, /le_win_namespace_delete_sidecar/);
   assert.match(namespaceHeader, /le_win_namespace_flush_parent/);
 });
+
+
+test('Windows startup recovery holds the manifest lock and preserves intent on ambiguity', () => {
+  assert.match(storeHeader, /LE_STORE_RECOVER/);
+  assert.match(storeHeader, /le_win_store_startup_recover/);
+  const recovery = store.slice(
+    store.indexOf('int le_win_store_startup_recover'),
+    store.indexOf('void le_win_store_close'),
+  );
+  assert.match(recovery, /le_win_store_lock\(store\)/);
+  assert.match(recovery, /le_win_store_read_manifest\(store/);
+  assert.match(recovery, /le_win_store_read_intent\(store/);
+  assert.match(recovery, /if \(!recover\(store/);
+  assert.match(recovery, /if \(has_intent && !le_win_store_remove_intent\(store\)\)/);
+  assert.ok(
+    recovery.indexOf('if (!recover(store') < recovery.indexOf('le_win_store_remove_intent(store)'),
+    'the pending intent must remain until reconciliation succeeds',
+  );
+  assert.match(recovery, /le_win_store_unlock\(store\)/);
+});
