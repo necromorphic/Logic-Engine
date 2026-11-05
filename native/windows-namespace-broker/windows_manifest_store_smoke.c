@@ -218,8 +218,8 @@ int main(void) {
   if (!le_win_namespace_create_sidecar(namespace_handle, L"memory.sqlite-wal",
       &sidecar, &sidecar_identity)) goto unlock_store;
   if (!le_win_namespace_flush(sidecar) || !logic_engine_win_identity(sidecar,&sidecar_identity,NULL)
-      || !format_identity(&sidecar_identity,namespace_volume,namespace_file_id,
-          sizeof(namespace_file_id))) goto unlock_store;
+      || !format_identity(&sidecar_identity,sidecar_volume,sidecar_file_id,
+          sizeof(sidecar_file_id))) goto unlock_store;
   stage = "recover create intent after manifest commit";
   if (FAILED(StringCchPrintfA((char *)namespace_manifest,LE_COUNT_OF(namespace_manifest),
       "{\"schemaVersion\":1,\"generation\":2,\"platform\":\"windows\","
@@ -230,7 +230,7 @@ int main(void) {
       "\"state\":\"active\",\"sidecars\":[{\"kind\":\"wal\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
       "\"state\":\"active\",\"generation\":2}]}]}",
       namespace_volume,namespace_file_id,database_volume,database_file_id,
-      namespace_volume,namespace_file_id))) goto unlock_store;
+      sidecar_volume,sidecar_file_id))) goto unlock_store;
   namespace_manifest_length=(DWORD)strlen((const char *)namespace_manifest);
   {
     static const unsigned char committed_intent[] =
@@ -345,6 +345,8 @@ done:
         stage, (unsigned long)GetLastError());
     fflush(stderr);
   }
+  if (database_path[0]) DeleteFileW(database_path);
+  if (namespace_directory[0]) RemoveDirectoryW(namespace_directory);
   if (directory[0]) {
     wchar_t child[MAX_PATH];
     if (SUCCEEDED(StringCchPrintfW(child, LE_COUNT_OF(child), L"%s\\manifest.json", directory))) DeleteFileW(child);
