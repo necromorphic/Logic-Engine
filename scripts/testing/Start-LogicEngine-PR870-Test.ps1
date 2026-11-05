@@ -107,18 +107,18 @@ $env:LOGIC_ENGINE_HOST_IDENTITY_DIR = Join-Path $TempRoot 'host-identity'
 $env:LOGIC_ENGINE_HOST_BUILD_SHA = $Commit
 $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = $TestSt
 
-$testInfo = @"
-TEMPORARY TEST READY
-Candidate commit: $actual
-Test SillyTavern: $TestSt
-Original SillyTavern: $SourceSt
-Temporary port: $port
-ST-VectorService: NOT MODIFIED; existing endpoint/settings copied as-is.
-Vectorization patch: NOT ENABLED OR MODIFIED.
-Memory -> NPC: DISABLED.
-"@
+$testInfoLines = @(
+    'TEMPORARY TEST READY'
+    "Candidate commit: $actual"
+    "Test SillyTavern: $TestSt"
+    "Original SillyTavern: $SourceSt"
+    "Temporary port: $port"
+    'ST-VectorService: NOT MODIFIED; existing endpoint/settings copied as-is.'
+    'Vectorization patch: NOT ENABLED OR MODIFIED.'
+    'Memory -> NPC: DISABLED.'
+)
 $testInfoPath = Join-Path $TempRoot 'TEST-INFO.txt'
-$testInfo | Set-Content -Path $testInfoPath -Encoding UTF8
+Set-Content -LiteralPath $testInfoPath -Value $testInfoLines -Encoding UTF8
 
 Write-Host ''
 Write-Host "Setup complete. Starting the TEMPORARY SillyTavern on port $port." -ForegroundColor Green
@@ -126,7 +126,7 @@ Write-Host 'The original SillyTavern process and ST-VectorService are not stoppe
 Write-Host 'Use the browser URL printed by SillyTavern. Test in a NEW chat only.'
 Push-Location $TestSt
 try {
-    node 'server.js' --port $port
+    & node (Join-Path $TestSt 'server.js') --port $port
 } finally { Pop-Location }
 
 Write-Host "To remove the test copy after stopping it, delete only: $TempRoot"
