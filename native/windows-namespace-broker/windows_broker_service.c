@@ -25,7 +25,7 @@ typedef struct { uint32_t magic; uint16_t version, operation; uint32_t flags; ui
 #pragma pack(pop)
 static SERVICE_STATUS_HANDLE sh; static SERVICE_STATUS ss; static HANDLE stop_event;
 static PSID allowed_sid; static wchar_t sid_text[184]; static volatile LONG stopping;
-static wchar_t metadata_directory[32768], namespace_root[32768];
+static wchar_t metadata_directory[32768], namespace_root[32768], configured_client_sid[184];
 static LE_WIN_MANIFEST_STORE metadata_store;
 static void status(DWORD state, DWORD error) {
  ss.dwServiceType=SERVICE_WIN32_OWN_PROCESS; ss.dwCurrentState=state; ss.dwWin32ExitCode=error;
@@ -117,21 +117,9 @@ static void run(void) {
  LocalFree(sd);status(SERVICE_STOPPED,0);
 }
 static VOID WINAPI service_main(DWORD argc,LPWSTR *argv) {
- DWORD i;const wchar_t *sid=NULL;BOOL have_metadata=FALSE,have_namespace=FALSE;
+ (void)argc;(void)argv;
  sh=RegisterServiceCtrlHandlerExW(L"LogicEngineSqliteBroker",control,NULL);if(!sh)return;status(SERVICE_START_PENDING,0);
- ZeroMemory(metadata_directory,sizeof(metadata_directory));ZeroMemory(namespace_root,sizeof(namespace_root));
- for(i=1;i<argc;i++){
-  if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc)sid=argv[++i];
-  else if(!wcscmp(argv[i],L"--metadata-dir")&&i+1<argc){
-   if(FAILED(StringCchCopyW(metadata_directory,_countof(metadata_directory),argv[++i]))){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
-   have_metadata=TRUE;
-  }else if(!wcscmp(argv[i],L"--namespace-root")&&i+1<argc){
-   if(FAILED(StringCchCopyW(namespace_root,_countof(namespace_root),argv[++i]))){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
-   have_namespace=TRUE;
-  }else{status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
- }
- if(!have_metadata||!have_namespace){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
- if(!init_sid(sid)){status(SERVICE_STOPPED,ERROR_INVALID_SID);return;}
+ if(!metadata_directory[0]||!namespace_root[0]||!allowed_sid){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
  stop_event=CreateEventW(NULL,TRUE,FALSE,NULL);if(!stop_event){LocalFree(allowed_sid);allowed_sid=NULL;status(SERVICE_STOPPED,GetLastError());return;}
  if(!le_win_store_open_validated(&metadata_store,metadata_directory)
      ||!le_win_store_startup_recover(&metadata_store,startup_recover,namespace_root)){
@@ -141,4 +129,27 @@ static VOID WINAPI service_main(DWORD argc,LPWSTR *argv) {
  }
  run();le_win_store_close(&metadata_store);CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
 }
-int wmain(void){SERVICE_TABLE_ENTRYW t[]={{L"LogicEngineSqliteBroker",service_main},{NULL,NULL}};if(!StartServiceCtrlDispatcherW(t)){fwprintf(stderr,L"SCM dispatcher failed: %lu\n",GetLastError());return 1;}return 0;}
+int wmain(int argc,wchar_t **argv){
+ SERVICE_TABLE_ENTRYW t[]={{L"LogicEngineSqliteBroker",service_main},{NULL,NULL}};
+ int i;BOOL have_sid=FALSE,have_metadata=FALSE,have_namespace=FALSE;
+ for(i=1;i<argc;i++){
+  if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc){
+   if(FAILED(StringCchCopyW(configured_client_sid,_countof(configured_client_sid),argv[++i])))return 2;
+   have_sid=TRUE;
+  }else if(!wcscmp(argv[i],L"--metadata-dir")&&i+1<argc){
+   if(FAILED(StringCchCopyW(metadata_directory,_countof(metadata_directory),argv[++i])))return 2;
+   have_metadata=TRUE;
+  }else if(!wcscmp(argv[i],L"--namespace-root")&&i+1<argc){
+   if(FAILED(StringCchCopyW(namespace_root,_countof(namespace_root),argv[++i])))return 2;
+   have_namespace=TRUE;
+  }else return 2;
+ }
+ if(!have_sid||!have_metadata||!have_namespace||!init_sid(configured_client_sid)){
+  fwprintf(stderr,L"Invalid broker service configuration.\n");return 2;
+ }
+ if(!StartServiceCtrlDispatcherW(t)){
+  DWORD error=GetLastError();if(allowed_sid){LocalFree(allowed_sid);allowed_sid=NULL;}
+  fwprintf(stderr,L"SCM dispatcher failed: %lu\n",error);return 1;
+ }
+ return 0;
+}
