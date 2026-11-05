@@ -228,6 +228,15 @@ static HANDLE jopen_verified(HANDLE parent,const wchar_t*name,
  }
  return opened;
 }
+static int jntfs_handle(HANDLE directory){
+ wchar_t final_path[32768],volume_root[MAX_PATH],filesystem[MAX_PATH];DWORD n;
+ n=GetFinalPathNameByHandleW(directory,final_path,(DWORD)LE_COUNT_OF(final_path),FILE_NAME_NORMALIZED|VOLUME_NAME_GUID);
+ if(!n||n>=LE_COUNT_OF(final_path)
+    ||!GetVolumePathNameW(final_path,volume_root,(DWORD)LE_COUNT_OF(volume_root))
+    ||!GetVolumeInformationW(volume_root,NULL,0,NULL,NULL,NULL,filesystem,(DWORD)LE_COUNT_OF(filesystem))
+    ||wcscmp(filesystem,L"NTFS")!=0){SetLastError(ERROR_NOT_SUPPORTED);return 0;}
+ return 1;
+}
 static int jreconcile_role(JPARSER*p,DWORD role,HANDLE root){
  DWORD components=jget(p,role,"parentComponents"),parents=jget(p,role,"parentIdentities");
  DWORD component,parent_id,side,sides=jget(p,role,"sidecars"),dbid=jget(p,role,"databaseIdentity");
