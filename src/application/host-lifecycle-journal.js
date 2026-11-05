@@ -1185,6 +1185,8 @@ export class HostLifecycleJournal {
       if (!integrity.valid) throw new Error(integrity.reason);
       const currentAuthority = this.#rootInventoryAuthoritySnapshot(input);
       const mayAcceptDelta = currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE'
+        && (input.source_manifest_sha256 === undefined
+          || input.source_manifest_sha256 === currentAuthority.source_manifest_sha256)
         && !this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id);
       const reusedEventId = rows.find((row) => row.event_id === input.event_id);
       if (reusedEventId) {
