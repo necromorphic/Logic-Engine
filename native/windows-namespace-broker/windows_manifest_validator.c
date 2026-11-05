@@ -173,7 +173,7 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
 static int jvalidate_intent(JPARSER*p,DWORD root){
  static const char*keys[]={"baseGeneration","basename","expectedIdentity","kind","operation","operationId","precondition","role","schemaVersion","targetGeneration"};
  DWORD op=jget(p,root,"operation"),expected=jget(p,root,"expectedIdentity");uint64_t base,target;
- if(!jkeys(p,root,keys,10)||!jeq(p,jget(p,root,"precondition"),"absent")||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jhex(p,jget(p,root,"operationId"),32,1)||!jrole_name(p,jget(p,root,"role"))||!jcomponent(p,jget(p,root,"basename"))||!jnum(p,jget(p,root,"baseGeneration"),1,9007199254740990ULL,&base)||!jnum(p,jget(p,root,"targetGeneration"),2,9007199254740991ULL,&target)||target!=base+1)return 0;
+ if(!jkeys(p,root,keys,10)||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jhex(p,jget(p,root,"operationId"),32,1)||!jrole_name(p,jget(p,root,"role"))||!jcomponent(p,jget(p,root,"basename"))||!jnum(p,jget(p,root,"baseGeneration"),1,9007199254740990ULL,&base)||!jnum(p,jget(p,root,"targetGeneration"),2,9007199254740991ULL,&target)||target!=base+1)return 0;
  if(!(jeq(p,jget(p,root,"kind"),"wal")||jeq(p,jget(p,root,"kind"),"shm")||jeq(p,jget(p,root,"kind"),"journal")))return 0;
  if(jeq(p,op,"delete-sidecar"))return jidentity(p,expected);
  return jeq(p,op,"create-sidecar")&&p->v[expected].type==J_NULL;
