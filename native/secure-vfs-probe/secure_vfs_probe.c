@@ -1904,6 +1904,93 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
   return SQLITE_OK;
 }
 
+
+#define PROBE_WIN_BROKER_PIPE L"\\\\.\\pipe\\LogicEngine.SqliteBroker.v1"
+#define PROBE_WIN_BROKER_MAGIC 0x4c454256u
+#define PROBE_WIN_BROKER_VERSION 2u
+#define PROBE_WIN_BROKER_OP_DELETE_SIDECAR 4u
+#define PROBE_WIN_BROKER_STATUS_OK 0u
+#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
+#pragma pack(push, 1)
+typedef struct ProbeWinBrokerHeader {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t operation;
+  uint32_t flags;
+  uint64_t request_id;
+  uint32_t payload_length;
+} ProbeWinBrokerHeader;
+#pragma pack(pop)
+static volatile LONG64 g_probe_win_broker_request_id = 0;
+static uint16_t probe_win_net16(uint16_t v) { return (uint16_t)((v << 8) | (v >> 8)); }
+static uint32_t probe_win_net32(uint32_t v) {
+  return ((v & 0x000000ffu) << 24) | ((v & 0x0000ff00u) << 8)
+    | ((v & 0x00ff0000u) >> 8) | ((v & 0xff000000u) >> 24);
+}
+static uint64_t probe_win_net64(uint64_t v) {
+  return ((uint64_t)probe_win_net32((uint32_t)v) << 32)
+    | probe_win_net32((uint32_t)(v >> 32));
+}
+static int probe_win_pipe_write_all(HANDLE pipe, const void *data, DWORD length) {
+  const BYTE *bytes = (const BYTE *)data;DWORD done = 0;
+  while (done < length) {
+    DWORD written = 0;
+    if (!WriteFile(pipe, bytes + done, length - done, &written, NULL) || !written) return 0;
+    done += written;
+  }
+  return 1;
+}
+static int probe_win_pipe_read_all(HANDLE pipe, void *data, DWORD length) {
+  BYTE *bytes = (BYTE *)data;DWORD done = 0;
+  while (done < length) {
+    DWORD read = 0;
+    if (!ReadFile(pipe, bytes + done, length - done, &read, NULL) || !read) return 0;
+    done += read;
+  }
+  return 1;
+}
+static int probe_win_broker_role_request(const char *role, uint16_t operation,
+    const char *kind, uint32_t *status) {
+  ProbeWinBrokerHeader request,response;
+  char payload[146];size_t role_length,kind_length;DWORD available=0;
+  uint64_t request_id;HANDLE pipe=INVALID_HANDLE_VALUE;int ok=0;
+  if (!role || !kind || !status) return 0;
+  role_length=strlen(role);kind_length=strlen(kind);
+  if (!role_length || role_length>128 || !kind_length || kind_length>8
+      || role_length+1+kind_length>sizeof(payload)) return 0;
+  memcpy(payload,role,role_length);payload[role_length]=0;
+  memcpy(payload+role_length+1,kind,kind_length);
+  request_id=(uint64_t)InterlockedIncrement64(&g_probe_win_broker_request_id);
+  if (!WaitNamedPipeW(PROBE_WIN_BROKER_PIPE,3000)) return 0;
+  pipe=CreateFileW(PROBE_WIN_BROKER_PIPE,GENERIC_READ|GENERIC_WRITE,0,NULL,
+      OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+  if (pipe==INVALID_HANDLE_VALUE) return 0;
+  ZeroMemory(&request,sizeof(request));
+  request.magic=probe_win_net32(PROBE_WIN_BROKER_MAGIC);
+  request.version=probe_win_net16(PROBE_WIN_BROKER_VERSION);
+  request.operation=probe_win_net16(operation);
+  request.request_id=probe_win_net64(request_id);
+  request.payload_length=probe_win_net32((uint32_t)(role_length+1+kind_length));
+  if (!probe_win_pipe_write_all(pipe,&request,sizeof(request))
+      ||!probe_win_pipe_write_all(pipe,payload,(DWORD)(role_length+1+kind_length))
+      ||!probe_win_pipe_read_all(pipe,&response,sizeof(response))) goto done;
+  response.magic=probe_win_net32(response.magic);
+  response.version=probe_win_net16(response.version);
+  response.operation=probe_win_net16(response.operation);
+  response.flags=probe_win_net32(response.flags);
+  response.request_id=probe_win_net64(response.request_id);
+  response.payload_length=probe_win_net32(response.payload_length);
+  if (response.magic!=PROBE_WIN_BROKER_MAGIC
+      ||response.version!=PROBE_WIN_BROKER_VERSION
+      ||response.operation!=operation||response.request_id!=request_id
+      ||response.payload_length!=0
+      ||!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available!=0) goto done;
+  *status=response.flags;ok=1;
+done:
+  CloseHandle(pipe);
+  return ok;
+}
+
 static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
                                 int is_main) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
@@ -1914,19 +2001,28 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   FILE_DISPOSITION_INFO disposition;
   FILE_STANDARD_INFO standard_info;
   DWORD error;
-  /*
-   * The Windows manifest adapter is currently read-only: it can validate
-   * durable main/sidecar identities, but it has no service-owned transition
-   * that atomically records a sidecar as deleting/retired and recovers that
-   * transition after a crash. Deleting only the opened sidecar handle would
-   * leave an active persistent identity pointing at an absent pathname; a
-   * later process could neither safely recreate it nor distinguish a crash
-   * from substitution. Therefore every manifest-bound namespace delete,
-   * including WAL/SHM/journal, fails closed until the durable Windows
-   * lifecycle coordinator is implemented. Non-manifest probe roles remain
-   * available only for the explicitly scoped handle-relative tests.
-   */
-  if (role->manifest_bound) return SQLITE_IOERR_DELETE;
+  if (role->manifest_bound) {
+    const char *kind;
+    uint32_t broker_status = PROBE_WIN_BROKER_STATUS_NOT_FOUND;
+    if (is_main || !suffix || !probe_win_sidecar_kind(suffix)
+        || !probe_win_manifest_role_ready(role_index)) return SQLITE_IOERR_DELETE;
+    kind = wcscmp(suffix,L"-wal")==0 ? "wal"
+      : wcscmp(suffix,L"-shm")==0 ? "shm" : "journal";
+    if (!probe_win_broker_role_request(role->role,
+          PROBE_WIN_BROKER_OP_DELETE_SIDECAR,kind,&broker_status))
+      return SQLITE_IOERR_DELETE;
+    if (broker_status==PROBE_WIN_BROKER_STATUS_NOT_FOUND) {
+      if (probe_win_sidecar_identity_lookup(role_index,suffix,&expected_sidecar))
+        (void)probe_win_sidecar_identity_retire(role_index,suffix,&expected_sidecar,1);
+      return SQLITE_OK;
+    }
+    if (broker_status!=PROBE_WIN_BROKER_STATUS_OK
+        || !probe_win_sidecar_identity_lookup(role_index,suffix,&expected_sidecar))
+      return SQLITE_IOERR_DELETE;
+    if (!probe_win_sidecar_identity_retire(role_index,suffix,&expected_sidecar,1))
+      return SQLITE_IOERR_DELETE;
+    return SQLITE_OK;
+  }
   if (!is_main) {
     if (!suffix || !probe_win_sidecar_kind(suffix)) return SQLITE_IOERR_DELETE;
     if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
