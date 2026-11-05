@@ -1574,8 +1574,8 @@ export class SQLiteMemoryProvider {
     if (!queryGrant || queryGrant.allowed !== 1) throw new Error('PROVIDER_DISPATCH_QUERY_GRANT_DENIED');
 
     const snapshot = Object.freeze({
-      world_revision: indexState.snapshot_revision,
-      commit_sequence: indexState.snapshot_sequence,
+      world_revision: snapshotRevision,
+      commit_sequence: snapshotSequence,
     });
     const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
       JOIN memory_index_entries i USING(world_id,record_ref,record_version)
