@@ -15,11 +15,26 @@ static int validate_test_json(const unsigned char *bytes, DWORD length, void *co
   return length == sizeof(expected) - 1 && memcmp(bytes, expected, sizeof(expected) - 1) == 0;
 }
 
+static int recover_test(
+    LE_WIN_MANIFEST_STORE *store,
+    const unsigned char *manifest, DWORD manifest_length,
+    const unsigned char *intent, DWORD intent_length,
+    void *context) {
+  static const unsigned char expected[] =
+      { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
+  (void)store;
+  if (!manifest || manifest_length != sizeof(expected)
+      || memcmp(manifest, expected, sizeof(expected)) != 0
+      || !intent || intent_length != sizeof(expected)
+      || memcmp(intent, expected, sizeof(expected)) != 0) return 0;
+  return context != NULL && *(const int *)context == 0;
+}
+
 int main(void) {
   wchar_t temp[MAX_PATH] = { 0 }, directory[MAX_PATH] = { 0 };
   LE_WIN_MANIFEST_STORE store;
   unsigned char *manifest = NULL, *intent = NULL;
-  DWORD manifest_length = 0, intent_length = 0;
+  DWORD manifest_length = 0, intent_length = 0;\n  unsigned char *recovery_intent = NULL;\n  DWORD recovery_intent_length = 0;\n  int reject_recovery = 1;
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
@@ -84,8 +99,25 @@ int main(void) {
   if (manifest_length != sizeof(document) - 1 || intent_length != sizeof(document) - 1
       || memcmp(manifest, document, manifest_length) != 0
       || memcmp(intent, document, intent_length) != 0) goto unlock_store;
-  stage = "remove intent";
-  if (!le_win_store_remove_intent(&store)) goto unlock_store;
+  stage = "release store lock before startup recovery";
+  le_win_store_unlock(&store);
+  stage = "retain intent when recovery callback rejects";
+  if (le_win_store_startup_recover(&store, recover_test, &reject_recovery)) goto close_store;
+  stage = "verify rejected recovery retained intent";
+  if (!le_win_store_lock(&store)
+      || !le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
+      || recovery_intent_length != sizeof(document) - 1
+      || memcmp(recovery_intent, document, recovery_intent_length) != 0) goto unlock_store;
+  HeapFree(GetProcessHeap(), 0, recovery_intent);
+  recovery_intent = NULL;
+  le_win_store_unlock(&store);
+  reject_recovery = 0;
+  stage = "complete startup recovery and retire intent";
+  if (!le_win_store_startup_recover(&store, recover_test, &reject_recovery)) goto close_store;
+  stage = "verify successful recovery removed intent";
+  if (!le_win_store_lock(&store)) goto close_store;
+  if (le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
+      || GetLastError() != ERROR_FILE_NOT_FOUND) goto unlock_store;
   stage = "create sidecar";
   if (!le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &sidecar, &sidecar_identity)) goto unlock_store;
   stage = "reject duplicate sidecar";
@@ -124,7 +156,7 @@ unlock_store:
   if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
   if (sidecar != INVALID_HANDLE_VALUE) CloseHandle(sidecar);
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
-  if (intent) HeapFree(GetProcessHeap(), 0, intent);
+  if (intent) HeapFree(GetProcessHeap(), 0, intent);\n  if (recovery_intent) HeapFree(GetProcessHeap(), 0, recovery_intent);
   le_win_store_unlock(&store);
 close_store:
   le_win_store_close(&store);
