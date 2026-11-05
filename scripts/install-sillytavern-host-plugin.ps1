@@ -57,13 +57,13 @@ if (Test-Path -LiteralPath $pluginPath) {
 
 Push-Location $repoRoot
 try {
-    & node 'scripts/sillytavern-patch-manager.mjs' preflight
+    & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $repoRoot
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_PREFLIGHT_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' install
+    & node 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $repoRoot
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_INSTALL_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' verify
+    & node 'scripts/sillytavern-patch-manager.mjs' verify --st-root $stRoot --extension-root $repoRoot
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_VERIFY_FAILED' }
 } finally {
     Pop-Location
