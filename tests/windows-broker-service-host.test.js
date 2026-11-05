@@ -159,5 +159,7 @@ test('Windows SCM readiness is gated by validated manifest and physical namespac
     'SCM must not enter RUNNING before startup reconciliation');
   assert.match(validator, /jreconcile_role/);
   assert.match(validator, /jopen_verified/);
+  assert.match(validator, /jntfs_handle/);
+  assert.match(validator, /wcscmp\(filesystem, L\"NTFS\"\)/);
   assert.match(validator, /metadataRootIdentity/);
 });
