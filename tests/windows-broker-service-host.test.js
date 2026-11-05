@@ -9,6 +9,8 @@ const storeHeader = await readFile(new URL('../native/windows-namespace-broker/w
 const namespace = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.c', import.meta.url), 'utf8');
 const namespaceHeader = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.h', import.meta.url), 'utf8');
 const smoke = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store_smoke.c', import.meta.url), 'utf8');
+const validator = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_validator.c', import.meta.url), 'utf8');
+const validatorHeader = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_validator.h', import.meta.url), 'utf8');
 
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
@@ -121,4 +123,21 @@ test('Windows native recovery smoke covers pending, clean and missing-manifest s
   assert.match(smoke, /recover clean startup with no pending intent/);
   assert.match(smoke, /reject startup without a manifest/);
   assert.match(smoke, /ERROR_FILE_NOT_FOUND\) goto unlock_store/);
+});
+
+
+test('native Windows validator enforces strict manifest and intent envelopes', () => {
+  assert.match(validator, /LE_JSON_MAX_BYTES/);
+  assert.match(validator, /LE_JSON_MAX_DEPTH/);
+  assert.match(validator, /duplicate|scan/i);
+  assert.match(validator, /jvalidate_manifest/);
+  assert.match(validator, /jvalidate_intent/);
+  assert.match(validator, /target!=base\+1/);
+  assert.match(validator, /directoryMutationBoundary/);
+  assert.match(validatorHeader, /le_win_validate_manifest/);
+  assert.match(validatorHeader, /le_win_validate_intent/);
+  assert.match(smoke, /test_native_schema_validator/);
+  assert.match(smoke, /valid_manifest/);
+  assert.match(smoke, /duplicate_key/);
+  assert.match(smoke, /bad_intent/);
 });
