@@ -697,8 +697,7 @@ export class HostLifecycleJournal {
             reason: 'HOST_LIFECYCLE_EVENT_JSON_INVALID' };
         }
         if (event.authority_id !== authority.authority_id
-          || event.generation !== authority.generation
-          || event.snapshot_fingerprint !== authority.snapshot_fingerprint) {
+          || event.generation !== authority.generation) {
           return { status: 'NON_READY', identity, authority,
             journal: { integrity: 'VALID', ...integrity }, pending: null,
             reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
@@ -739,6 +738,11 @@ export class HostLifecycleJournal {
           reason: 'HOST_LIFECYCLE_MULTIPLE_PENDING_MUTATIONS' };
       }
       const unresolved = pending.values().next().value ?? null;
+      if (unresolved && unresolved.snapshot_fingerprint !== authority.snapshot_fingerprint) {
+        return { status: 'NON_READY', identity, authority,
+          journal: { integrity: 'VALID', ...integrity }, pending: unresolved,
+          reason: 'HOST_LIFECYCLE_AUTHORITY_STALE' };
+      }
       return {
         status: unresolved ? 'PENDING_MUTATION' : 'NO_PENDING_MUTATION',
         identity,
