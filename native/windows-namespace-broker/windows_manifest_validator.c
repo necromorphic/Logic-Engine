@@ -377,7 +377,7 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
  const wchar_t*suffix;const char*kind_text;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
  LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
- unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,has_file=0;
+ unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
  ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));ZeroMemory(&anchor,sizeof(anchor));
  p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
