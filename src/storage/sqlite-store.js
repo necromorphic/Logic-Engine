@@ -2687,7 +2687,8 @@ export class SQLiteStore {
             // A writer is affected only if the projection after applying it
             // changes under rollback. This preserves independent full restatements
             // while invalidating partial writes that depended on removed state.
-            || refs(event.effects).some((value) => projectionChanged(value, event, true))
+            || refs(event.effects.filter((effect) => effect.kind !== 'fact.set'))
+              .some((value) => projectionChanged(value, event, true))
             // A typed relationship transition is validated against the prior
             // directed-pair state. If an earlier transition on that pair is
             // retracted, a later transition cannot be replayed as independent
