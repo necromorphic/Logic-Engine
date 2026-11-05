@@ -198,3 +198,20 @@ test('Windows create recovery requires an explicit absent precondition', () => {
   assert.match(smoke, /missing_precondition_intent/);
   assert.match(smoke, /le_win_validate_intent\(missing_precondition_intent/);
 });
+
+
+test('Windows broker dispatches read-only manifest-backed ACCESS_ROLE_FILE requests', () => {
+  assert.match(source, /LEB_STATUS_NOT_FOUND 5u/);
+  assert.match(source, /parse_access_payload/);
+  assert.match(source, /q\.operation==8/);
+  assert.match(source, /le_win_store_lock\(&metadata_store\)/);
+  assert.match(source, /le_win_access_role_file\(&metadata_store,namespace_root,role,kind,&exists\)/);
+  assert.match(source, /exists\?LEB_STATUS_OK:LEB_STATUS_NOT_FOUND/);
+  assert.match(validatorHeader, /le_win_access_role_file/);
+  assert.match(validator, /int le_win_access_role_file/);
+  assert.match(smoke, /manifest-backed access recognizes registered main file/);
+  assert.match(smoke, /manifest-backed access recognizes active WAL sidecar/);
+  assert.match(smoke, /manifest-backed access reports absent SHM sidecar/);
+  assert.match(smoke, /manifest-backed access reports retired WAL sidecar absent/);
+  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+});
