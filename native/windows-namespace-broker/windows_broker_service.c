@@ -102,7 +102,8 @@ static int startup_recover(
     const unsigned char *intent, DWORD intent_length,
     void *context) {
  (void)store;
- if(intent||intent_length){SetLastError(ERROR_RECOVERY_FAILURE);return 0;}
+ if(intent||intent_length)
+  return le_win_recover_create_intent(manifest,manifest_length,intent,intent_length,(const wchar_t*)context);
  return le_win_reconcile_manifest_namespace(manifest,manifest_length,(const wchar_t*)context);
 }
 static void run(void) {
