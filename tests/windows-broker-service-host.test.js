@@ -27,7 +27,7 @@ test('Windows broker keeps unimplemented file operations disabled without backen
   assert.match(source, /q\.operation==4/);
   assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
   assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
-  assert.match(docs, /PING and read-only ACCESS_ROLE_FILE are implemented/);
+  assert.match(docs, /PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented/);
   assert.match(docs, /Do not connect the SQLite VFS/);
 });
 
