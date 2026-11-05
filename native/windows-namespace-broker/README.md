@@ -16,7 +16,7 @@ are implemented. Do not connect the SQLite VFS or install this host for
 production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
-cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c /link advapi32.lib bcrypt.lib
+cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c windows_manifest_validator.c /link advapi32.lib bcrypt.lib
 
 The eventual broker must run under a dedicated service identity, distinct from
 the application service identity. The --client-sid argument must be the exact
@@ -113,7 +113,7 @@ authorize any filesystem IPC operation.
 ## SCM startup trust gate
 
 The SCM host now requires `--client-sid`, `--metadata-dir` and
-`--namespace-root`. Before it reports SERVICE_RUNNING or creates the named
+`--namespace-root` in its service-start arguments. Before it reports SERVICE_RUNNING or creates the named
 pipe, it opens the broker metadata store with the native strict validators and
 runs the locked startup coordinator. With no pending intent, the validator
 opens the configured namespace root and checks the manifest's root, every
