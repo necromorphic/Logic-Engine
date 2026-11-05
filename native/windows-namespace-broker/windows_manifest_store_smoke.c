@@ -98,6 +98,7 @@ int main(void) {
   unsigned char *recovery_intent = NULL;
   DWORD recovery_intent_length = 0;
   int reject_recovery = 1;
+  BOOL access_exists = FALSE;
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
   HANDLE namespace_handle = INVALID_HANDLE_VALUE, database_handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity namespace_identity, database_identity;
@@ -253,6 +254,18 @@ int main(void) {
     stage = "read recovered durable manifest";
     if (!le_win_store_read_manifest(&store,&manifest,&manifest_length)
         || !le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_directory)) goto unlock_store;
+    stage = "manifest-backed access recognizes registered main file";
+    if (!le_win_access_role_file(&store,namespace_directory,"main","main",&access_exists)
+        || !access_exists) goto unlock_store;
+    stage = "manifest-backed access recognizes active WAL sidecar";
+    if (!le_win_access_role_file(&store,namespace_directory,"main","wal",&access_exists)
+        || !access_exists) goto unlock_store;
+    stage = "manifest-backed access reports absent SHM sidecar";
+    if (!le_win_access_role_file(&store,namespace_directory,"main","shm",&access_exists)
+        || access_exists) goto unlock_store;
+    stage = "manifest-backed access reports unknown role absent";
+    if (!le_win_access_role_file(&store,namespace_directory,"missing-role","main",&access_exists)
+        || access_exists) goto unlock_store;
     stage = "reconcile committed create-sidecar intent";
     if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
         create_intent,(DWORD)(sizeof(create_intent)-1),namespace_directory)) goto unlock_store;
@@ -279,6 +292,9 @@ int main(void) {
   stage = "read durable retired-sidecar manifest";
   if (!le_win_store_read_manifest(&store,&manifest,&manifest_length)
       || !le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_directory)) goto unlock_store;
+  stage = "manifest-backed access reports retired WAL sidecar absent";
+  if (!le_win_access_role_file(&store,namespace_directory,"main","wal",&access_exists)
+      || access_exists) goto unlock_store;
   stage = "reconcile committed delete intent after manifest commit";
   if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
       (const unsigned char *)delete_intent,delete_intent_length,namespace_directory)) goto unlock_store;
