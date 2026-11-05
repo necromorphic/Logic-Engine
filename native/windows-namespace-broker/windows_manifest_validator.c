@@ -284,28 +284,26 @@ fail:
  return 0;
 }
 int le_win_reconcile_manifest_namespace(const unsigned char*bytes,DWORD length,const wchar_t*namespace_root){
- JPARSER p;DWORD root,roles,role;HANDLE root_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE;
- LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int ok=0;
+ JPARSER p;DWORD root,roles,role;HANDLE root_handle=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity expected,observed;int ok=0;
  if(!bytes||!namespace_root||!length||length>LE_JSON_MAX_BYTES)return 0;
  if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)bytes,(int)length,NULL,0))return 0;
- ZeroMemory(&p,sizeof(p));ZeroMemory(&anchor,sizeof(anchor));p.s=bytes;p.n=length;
+ ZeroMemory(&p,sizeof(p));p.s=bytes;p.n=length;
  p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);if(!p.v)return 0;
  jws(&p);
  if(!jvalue(&p,0,&root))goto done;
  jws(&p);if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
- if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
- root_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
- root_handle=jopen_verified(root_parent,anchor.basename,&expected,1,0);
- if(root_handle==INVALID_HANDLE_VALUE)goto done;
+ root_handle=le_win_store_open_namespace_root(namespace_root);
+ if(root_handle==INVALID_HANDLE_VALUE
+    ||!logic_engine_win_identity(root_handle,&observed,NULL)
+    ||!logic_engine_win_identity_equal(&expected,&observed))goto done;
  roles=jget(&p,root,"roles");
  for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next)
   if(!jreconcile_role(&p,role,root_handle))goto done;
  ok=1;
 done:
  if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
- if(root_parent!=INVALID_HANDLE_VALUE)CloseHandle(root_parent);
- if(anchor.basename)HeapFree(GetProcessHeap(),0,anchor.basename);
  HeapFree(GetProcessHeap(),0,p.v);
  return ok;
 }
@@ -376,10 +374,10 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides;
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
  const wchar_t*suffix;const char*kind_text;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
- LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
+ LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
  unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
- ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));ZeroMemory(&anchor,sizeof(anchor));
+ ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));
  p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
  p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
  q.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
@@ -408,11 +406,11 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
    ||FAILED(StringCchCatW(expected_basename,LE_COUNT_OF(expected_basename),suffix))
    ||!jwide(&q,jget(&q,ir,"basename"),actual_basename,(DWORD)LE_COUNT_OF(actual_basename))
    ||_wcsicmp(expected_basename,actual_basename)!=0)goto done;
- if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
- anchor_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
- root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1,1);
- if(root_handle==INVALID_HANDLE_VALUE||!jntfs_handle(root_handle))goto done;
+ root_handle=le_win_store_open_namespace_root(namespace_root);
+ if(root_handle==INVALID_HANDLE_VALUE
+    ||!logic_engine_win_identity(root_handle,&observed,NULL)
+    ||!logic_engine_win_identity_equal(&expected,&observed))goto done;
  sides=jget(&p,match,"sidecars");
  if(generation==target){
   int committed=0;
@@ -448,8 +446,6 @@ done:
  if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
  if(owns_parent&&parent!=INVALID_HANDLE_VALUE)CloseHandle(parent);
  if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
- if(anchor_parent!=INVALID_HANDLE_VALUE)CloseHandle(anchor_parent);
- if(anchor.basename)HeapFree(GetProcessHeap(),0,anchor.basename);
  if(updated)HeapFree(GetProcessHeap(),0,updated);
  if(p.v)HeapFree(GetProcessHeap(),0,p.v);
  if(q.v)HeapFree(GetProcessHeap(),0,q.v);
