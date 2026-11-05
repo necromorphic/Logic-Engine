@@ -343,7 +343,7 @@ static int jmanifest_add_active_sidecar(const unsigned char*manifest,DWORD manif
  const LogicEngineWinFileIdentity*identity,unsigned char**updated,DWORD*updated_length){
  DWORD generation_node=jget(p,root,"generation"),sides=jget(p,role,"sidecars");
  DWORD insert_at,old_generation_length,new_generation_length,record_length,new_length,cursor=0;
- char generation_text[32],volume[17],file_id[33],record[512];int written;
+ char generation_text[32],volume[17],file_id[33],record[512];
  unsigned char*out;
  if(!jformat_identity(identity,volume,sizeof(volume),file_id,sizeof(file_id))
     ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%llu",(unsigned long long)target))
