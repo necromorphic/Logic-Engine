@@ -1,6 +1,26 @@
 name: SillyTavern Final-Send Patch Manager
 
 on:
+  push:
+    branches: [integration/host-core-v1]
+    paths:
+      - "index.mjs"
+      - "host-adapter/patches/**"
+      - "host-adapter/patch-manager/**"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/sillytavern-generation-bridge.mjs"
+      - "tests/sillytavern-final-send-adapter.test.js"
+      - "tests/protected-memory-final-send.test.js"
+      - "tests/sillytavern-server-plugin-bootstrap.test.js"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "manifest.json"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
+      - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"
+      - ".github/workflows/final-send-patch-manager.yml"
+      - ".github/workflows/provider-blocker3.yml"
   pull_request:
     paths:
       - "index.mjs"

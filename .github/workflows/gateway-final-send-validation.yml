@@ -43,6 +43,7 @@ on:
       - 'tests/gateway-final-send-composition.test.js'
       - 'host-adapter/tests/npc-generation-request-metadata.test.mjs'
       - '.github/workflows/gateway-final-send-validation.yml'
+      - '.github/workflows/provider-blocker3.yml'
   workflow_dispatch:
 
 permissions:
