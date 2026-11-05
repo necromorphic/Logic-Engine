@@ -107,7 +107,7 @@ $env:LOGIC_ENGINE_HOST_IDENTITY_DIR = Join-Path $TempRoot 'host-identity'
 $env:LOGIC_ENGINE_HOST_BUILD_SHA = $Commit
 $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = $TestSt
 
-@"
+$testInfo = @"
 TEMPORARY TEST READY
 Candidate commit: $actual
 Test SillyTavern: $TestSt
@@ -116,7 +116,9 @@ Temporary port: $port
 ST-VectorService: NOT MODIFIED; existing endpoint/settings copied as-is.
 Vectorization patch: NOT ENABLED OR MODIFIED.
 Memory -> NPC: DISABLED.
-"@ | Tee-Object -FilePath (Join-Path $TempRoot 'TEST-INFO.txt')
+"@
+$testInfoPath = Join-Path $TempRoot 'TEST-INFO.txt'
+$testInfo | Set-Content -Path $testInfoPath -Encoding UTF8
 
 Write-Host ''
 Write-Host "Setup complete. Starting the TEMPORARY SillyTavern on port $port." -ForegroundColor Green
