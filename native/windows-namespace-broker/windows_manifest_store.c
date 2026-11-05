@@ -299,6 +299,22 @@ fail:
   return 0;
 }
 
+int le_win_store_validate_private_directory(HANDLE directory) {
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  LogicEngineWinFileIdentity identity;
+  if (!directory || directory == INVALID_HANDLE_VALUE
+      || !GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
+      || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+      || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+      || !le_store_acl_is_private(directory)
+      || !le_store_is_ntfs(directory)
+      || !logic_engine_win_identity(directory, &identity, NULL)) {
+    if (GetLastError() == ERROR_SUCCESS) SetLastError(ERROR_ACCESS_DENIED);
+    return 0;
+  }
+  return 1;
+}
+
 HANDLE le_win_store_open_namespace_root(const wchar_t *configured_directory) {
   HANDLE parent = INVALID_HANDLE_VALUE;
   HANDLE directory = INVALID_HANDLE_VALUE;
@@ -317,8 +333,7 @@ HANDLE le_win_store_open_namespace_root(const wchar_t *configured_directory) {
   if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
       || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
       || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
-      || !le_store_acl_is_private(directory)
-      || !le_store_is_ntfs(directory)
+      || !le_win_store_validate_private_directory(directory)
       || !logic_engine_win_identity(directory, &identity, NULL)) {
     CloseHandle(directory);
     SetLastError(ERROR_ACCESS_DENIED);
