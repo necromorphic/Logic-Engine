@@ -156,7 +156,7 @@ registered database role and expected -wal, -shm or -journal suffix. The intent 
 the operation-specific precondition absent, which the lifecycle writer may
 record only after it has verified the target basename is absent while holding
 the same exclusive metadata lock and namespace mutation boundary. Delete
-intents use the distinct identity-match precondition and remain unsupported.
+intents use the distinct identity-match precondition.
 
 The native smoke test exercises the create and delete durable-ordering
 boundaries:
@@ -169,5 +169,5 @@ boundaries:
 - crash after delete manifest commit: require the matching retired record and
   an absent pathname before retiring the intent.
 
-The implementation intentionally does not support delete-sidecar recovery
-yet. No filesystem IPC operation is enabled by this increment.
+The native implementation now covers create and delete recovery, but no
+filesystem IPC operation is enabled by this increment.
