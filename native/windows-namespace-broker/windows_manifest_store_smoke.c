@@ -223,7 +223,7 @@ int main(void) {
   if (!le_win_namespace_create_sidecar(namespace_handle, L"memory.sqlite-wal",
       &sidecar, &sidecar_identity)) goto unlock_store;
   if (!le_win_namespace_flush(sidecar) || !logic_engine_win_identity(sidecar,&sidecar_identity,NULL)
-      || !format_identity(&sidecar_identity,sidecar_volume,sidecar_file_id,
+      || !format_identity(&sidecar_identity,sidecar_volume,sizeof(sidecar_volume),\n          sidecar_file_id,
           sizeof(sidecar_file_id))) goto unlock_store;
   stage = "recover create intent after manifest commit";
   if (FAILED(StringCchPrintfA((char *)namespace_manifest,LE_COUNT_OF(namespace_manifest),
