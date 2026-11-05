@@ -45,8 +45,8 @@ on:
       - 'tests/sqlite-role-manifest-schema.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
-permissions:
       - '.github/workflows/provider-blocker3.yml'
+permissions:
   contents: read
 
 # Keep active exact-head VFS bootstrap probes running across newer integration commits.

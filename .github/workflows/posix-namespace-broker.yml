@@ -13,8 +13,8 @@ on:
       - "native/posix-namespace-broker/**"
       - ".github/workflows/posix-namespace-broker.yml"
 
-permissions:
       - ".github/workflows/provider-blocker3.yml"
+permissions:
   contents: read
 
 jobs:

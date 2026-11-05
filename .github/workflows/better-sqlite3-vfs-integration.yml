@@ -39,8 +39,8 @@ on:
       - '.github/workflows/windows-namespace-broker.yml'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
 
-permissions:
       - '.github/workflows/provider-blocker3.yml'
+permissions:
   contents: read
 # Keep active exact-head VFS validation running across newer integration commits.
 concurrency:
