@@ -228,15 +228,6 @@ static HANDLE jopen_verified(HANDLE parent,const wchar_t*name,
  }
  return opened;
 }
-static int jntfs_handle(HANDLE directory){
- wchar_t final_path[32768],volume_root[MAX_PATH],filesystem[MAX_PATH];DWORD n;
- n=GetFinalPathNameByHandleW(directory,final_path,(DWORD)LE_COUNT_OF(final_path),FILE_NAME_NORMALIZED|VOLUME_NAME_GUID);
- if(!n||n>=LE_COUNT_OF(final_path)
-    ||!GetVolumePathNameW(final_path,volume_root,(DWORD)LE_COUNT_OF(volume_root))
-    ||!GetVolumeInformationW(volume_root,NULL,0,NULL,NULL,NULL,filesystem,(DWORD)LE_COUNT_OF(filesystem))
-    ||wcscmp(filesystem,L"NTFS")!=0){SetLastError(ERROR_NOT_SUPPORTED);return 0;}
- return 1;
-}
 static int jreconcile_role(JPARSER*p,DWORD role,HANDLE root){
  DWORD components=jget(p,role,"parentComponents"),parents=jget(p,role,"parentIdentities");
  DWORD component,parent_id,side,sides=jget(p,role,"sidecars"),dbid=jget(p,role,"databaseIdentity");
@@ -373,7 +364,7 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
  JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides;
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
- const wchar_t*suffix;const char*kind_text;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
+ const wchar_t*suffix;const char*kind_text;HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
  LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
  unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
