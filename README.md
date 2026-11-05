@@ -101,5 +101,6 @@ npm test
 - [Запуск и ограничения runtime](docs/20-minimal-runtime.md)
 - [Универсальная модель Deployment/Security](docs/95-universal-deployment-security-architecture.md)
 - [Deployment contracts v1 и текущая реализация](docs/96-deployment-contracts-v1.md)
+- [Установка интеграционного кандидата в существующую SillyTavern 1.19.0](docs/109-install-existing-sillytavern-candidate.md)
 
 Подробные аудиты, планы интеграции и тестовые доказательства находятся в `docs/` и GitHub Issues. README — обзорная страница; нормативные контракты и release gates определяются профильной документацией и принятыми решениями.
