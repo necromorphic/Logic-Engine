@@ -267,24 +267,43 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     ...authority,
   }).authority_status, 'REVIEW_ONLY');
 
-  const refreshedProof = {
-    ...completenessProof,
-    event_id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-    root_inventory_sequence: 2,
-    manifest_sha256: changedObservationPayload.reconciliation.manifest_sha256,
-  };
-  const refreshedSignature = createHmac('sha256', ADAPTER_TOKEN)
-    .update(canonical(refreshedProof), 'utf8').digest('hex');
+  const refreshedReconciliation = journal.verifyRootInventory({
+    host_installation_id: INSTALLATION,
+    authenticated_account_id: ACCOUNT,
+    root_id: ROOT_ID,
+  });
+  const refreshedAttestation = createSignedRootInventoryAttestation({
+    adapterId: ADAPTER_ID,
+    adapterToken: ADAPTER_TOKEN,
+    identity: {
+      adapter_id: ADAPTER_ID,
+      host_installation_id: INSTALLATION,
+      authenticated_account_id: ACCOUNT,
+      root_id: ROOT_ID,
+    },
+    reconciliation: {
+      ...refreshedReconciliation,
+      integrity_status: 'INTEGRITY_OK',
+      lifecycle_sequence: refreshedReconciliation.lifecycle_sequence ?? 0,
+      lifecycle_head_sha256: refreshedReconciliation.lifecycle_head_sha256 ?? '0'.repeat(64),
+    },
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: DIGEST('test-vss-snapshot-after-save'),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: DIGEST('test-source-manifest'),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    },
+  });
   const refreshed = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
-    proof: refreshedProof,
-    proof_signature: refreshedSignature,
+    attestation: refreshedAttestation,
   });
   assert.equal(refreshed.status, 200);
   const refreshedPayload = await refreshed.json();
   assert.equal(refreshedPayload.inventory_status, 'AUTHORITATIVE_COMPLETE');
   assert.equal(refreshedPayload.reconciliation.sequence, 2);
-  assert.equal(refreshedPayload.reconciliation.completeness_sequence, 2);
   assert.equal(journal.getAuthoritySnapshot({
     adapter_id: ADAPTER_ID,
     host_installation_id: INSTALLATION,
@@ -293,20 +312,36 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     ...authority,
   }).status, 'INTEGRITY_OK');
 
-  const changedSourceProof = {
-    ...refreshedProof,
-    event_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-    source_files_sha256: DIGEST('changed-pinned-source'),
-  };
-  const changedSourceSignature = createHmac('sha256', ADAPTER_TOKEN)
-    .update(canonical(changedSourceProof), 'utf8').digest('hex');
+  const changedSourceAttestation = createSignedRootInventoryAttestation({
+    adapterId: ADAPTER_ID,
+    adapterToken: ADAPTER_TOKEN,
+    identity: {
+      adapter_id: ADAPTER_ID,
+      host_installation_id: INSTALLATION,
+      authenticated_account_id: ACCOUNT,
+      root_id: ROOT_ID,
+    },
+    reconciliation: {
+      ...refreshedReconciliation,
+      integrity_status: 'INTEGRITY_OK',
+      lifecycle_sequence: refreshedReconciliation.lifecycle_sequence ?? 0,
+      lifecycle_head_sha256: refreshedReconciliation.lifecycle_head_sha256 ?? '0'.repeat(64),
+    },
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: DIGEST('test-vss-snapshot-after-save'),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: DIGEST('changed-pinned-source'),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    },
+  });
   const sourceDrift = await post('/v1/host-root-inventory/attest', {
     ...completenessBody,
-    proof: changedSourceProof,
-    proof_signature: changedSourceSignature,
+    attestation: changedSourceAttestation,
   });
   assert.equal(sourceDrift.status, 409);
-  assert.equal((await sourceDrift.json()).error.code, 'HOST_ROOT_INVENTORY_COMPLETENESS_SOURCE_CHANGED');
+  assert.equal((await sourceDrift.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
 
   const prepared = {
     host_installation_id: INSTALLATION,
