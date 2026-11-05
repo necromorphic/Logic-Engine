@@ -41,6 +41,7 @@ function intent() {
     schemaVersion: 1,
     operationId: '0123456789abcdef0123456789abcdef',
     operation: 'create-sidecar',
+    precondition: 'absent',
     role: 'core',
     kind: 'wal',
     basename: 'core.sqlite-wal',
