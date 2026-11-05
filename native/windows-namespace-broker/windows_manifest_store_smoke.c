@@ -24,9 +24,9 @@ static int recover_test(
       { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
   (void)store;
   if (!manifest || manifest_length != sizeof(expected)
-      || memcmp(manifest, expected, sizeof(expected)) != 0
-      || !intent || intent_length != sizeof(expected)
-      || memcmp(intent, expected, sizeof(expected)) != 0) return 0;
+      || memcmp(manifest, expected, sizeof(expected)) != 0) return 0;
+  if (intent && (intent_length != sizeof(expected)
+      || memcmp(intent, expected, sizeof(expected)) != 0)) return 0;
   if (context == NULL || *(const int *)context != 0) return 0;
   return le_win_store_write_manifest(store, manifest, manifest_length);
 }
@@ -123,6 +123,8 @@ int main(void) {
   if (!le_win_store_lock(&store)) goto close_store;
   if (le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
       || GetLastError() != ERROR_FILE_NOT_FOUND) goto unlock_store;
+  stage = "recover clean startup with no pending intent";
+  if (!le_win_store_startup_recover(&store, recover_test, &reject_recovery)) goto close_store;
   stage = "create sidecar";
   if (!le_win_namespace_create_sidecar(store.directory, L"smoke-wal", &sidecar, &sidecar_identity)) goto unlock_store;
   stage = "reject duplicate sidecar";
