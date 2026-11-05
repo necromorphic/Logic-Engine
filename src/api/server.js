@@ -915,10 +915,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               return retrieval;
             },
           );
-          if (!validMemoryNpcResult(retrieval)) {
+          // Provider evidence cursors are internal dispatch evidence, not part
+          // of the public memory-npc-result/v1 disclosure envelope.
+          const publicRetrieval = { ...retrieval };
+          delete publicRetrieval.provider_evidence_cursor;
+          if (!validMemoryNpcResult(publicRetrieval)) {
             return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory returned an invalid result envelope.' } });
           }
-          return send(res, 200, { retrieval });
+          return send(res, 200, { retrieval: publicRetrieval });
         } catch (error) {
           // The signed assertion has already been verified before the callback
           // runs. Never misreport a Consumer/runtime exception as an auth error.
