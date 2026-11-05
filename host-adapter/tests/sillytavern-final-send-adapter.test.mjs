@@ -341,7 +341,8 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
       assert.equal(request.user.profile.handle, 'test-user');
       return trustedHostContext;
     },
-    resolveProtectedMemory: preparedContext => {
+    resolveProtectedMemory: (receivedRequest, preparedContext) => {
+      assert.equal(receivedRequest, request);
       resolvedContext = preparedContext;
       return null;
     },
