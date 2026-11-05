@@ -343,10 +343,11 @@ static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
  }
  disposition.DeleteFile=TRUE;
  if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition))){
-  CloseHandle(file);return 0;
+  CloseHandle(file);SetLastError(ERROR_DELETE_PENDING);return 0;
  }
- if(!CloseHandle(file))return 0;
- return FlushFileBuffers(parent)!=0;
+ if(!CloseHandle(file)){SetLastError(ERROR_INVALID_HANDLE);return 0;}
+ if(!FlushFileBuffers(parent)){SetLastError(ERROR_WRITE_FAULT);return 0;}
+ return 1;
 }
 int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
@@ -386,7 +387,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  anchor_parent=anchor.parent;
  if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
  root_handle=jopen_verified(anchor_parent,anchor.basename,&expected,1,1);
- if(root_handle==INVALID_HANDLE_VALUE||!jntfs_handle(root_handle))goto done;
+ if(root_handle==INVALID_HANDLE_VALUE){SetLastError(ERROR_BAD_PATHNAME);goto done;}\n if(!jntfs_handle(root_handle))goto done;
  if(generation==target){
   int committed=0;
   for(side=p.v[jget(&p,match,"sidecars")].first;side!=0xffffffffu;side=p.v[side].next){
