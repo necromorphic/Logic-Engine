@@ -54,11 +54,21 @@ static int test_native_schema_validator(void) {
     "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
     "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
     "\"baseGeneration\":1,\"targetGeneration\":2,\"expectedIdentity\":null}";
+  static const unsigned char valid_delete_intent[] =
+    "{\"schemaVersion\":1,\"operationId\":\"2123456789abcdef0123456789abcdef\","
+    "\"precondition\":\"identity-match\",\"operation\":\"delete-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"baseGeneration\":1,\"targetGeneration\":2,"
+    "\"expectedIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"0000000000000001\",\"fileId\":\"00000000000000000000000000000003\"}}";
+  static const unsigned char bad_delete_precondition[] =
+    "{\"schemaVersion\":1,\"operationId\":\"3123456789abcdef0123456789abcdef\","
+    "\"precondition\":\"absent\",\"operation\":\"delete-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"baseGeneration\":1,\"targetGeneration\":2,"
+    "\"expectedIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"0000000000000001\",\"fileId\":\"00000000000000000000000000000003\"}}";
   if (!le_win_validate_manifest(valid_manifest, (DWORD)(sizeof(valid_manifest)-1), NULL)) return 0;
   if (le_win_validate_manifest(duplicate_key, (DWORD)(sizeof(duplicate_key)-1), NULL)) return 0;
   if (!le_win_validate_intent(valid_intent, (DWORD)(sizeof(valid_intent)-1), NULL)) return 0;
   if (le_win_validate_intent(bad_intent, (DWORD)(sizeof(bad_intent)-1), NULL)) return 0;
-  if (le_win_validate_intent(missing_precondition_intent, (DWORD)(sizeof(missing_precondition_intent)-1), NULL)) return 0;
+  if (le_win_validate_intent(missing_precondition_intent, (DWORD)(sizeof(missing_precondition_intent)-1), NULL)) return 0;\n  if (!le_win_validate_intent(valid_delete_intent, (DWORD)(sizeof(valid_delete_intent)-1), NULL)) return 0;\n  if (le_win_validate_intent(bad_delete_precondition, (DWORD)(sizeof(bad_delete_precondition)-1), NULL)) return 0;
   return 1;
 }
 
