@@ -232,7 +232,7 @@ test('Windows broker dispatches manifest-backed access and sidecar deletion requ
   assert.match(validator, /le_win_store_remove_intent/);
   assert.match(smoke, /runtime create-sidecar transaction writes intent and commits manifest/);
   assert.match(smoke, /runtime-created SHM is active in manifest-backed access/);
-  assert.match(smoke, /runtime create-sidecar transaction retires its intent/);
+  assert.match(smoke, /runtime sidecar transactions retire their intents/);
   assert.match(validator, /jopen_role_parent\(&p,role,root_handle,&parent\)/);
   assert.match(validator, /FILE_SHARE_READ\|FILE_SHARE_WRITE\|FILE_SHARE_DELETE,FILE_OPEN/);
   assert.match(smoke, /open registered main database by manifest identity/);
