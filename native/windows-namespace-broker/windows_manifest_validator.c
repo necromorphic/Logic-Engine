@@ -116,17 +116,17 @@ static int jcomponent(JPARSER*p,DWORD id){
  for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(c<0x20||c=='\\'||c=='/'||c==':'||c=='*'||c=='?'||c=='"'||c=='<'||c=='>'||c=='|' )return 0;}
  return p->s[p->v[id].end-1]!='.'&&p->s[p->v[id].end-1]!=' ';
 }
-static int jclaim_identity(JPARSER*p,DWORD id,DWORD*ids,DWORD*count,DWORD capacity){
- DWORD i;if(!jidentity(p,id)||*count>=capacity)return 0;
- for(i=0;i<*count;i++)if(jidentity_equal(p,id,ids[i]))return 0;
- ids[(*count)++]=id;return 1;
-}
 static int jidentity_equal(JPARSER*p,DWORD a,DWORD b){
  DWORD av=jget(p,a,"volumeSerial"),af=jget(p,a,"fileId"),bv=jget(p,b,"volumeSerial"),bf=jget(p,b,"fileId");
  return p->v[av].end-p->v[av].start==p->v[bv].end-p->v[bv].start
  &&p->v[af].end-p->v[af].start==p->v[bf].end-p->v[bf].start
  &&_strnicmp((const char*)p->s+p->v[av].start,(const char*)p->s+p->v[bv].start,p->v[av].end-p->v[av].start)==0
  &&_strnicmp((const char*)p->s+p->v[af].start,(const char*)p->s+p->v[bf].start,p->v[af].end-p->v[af].start)==0;
+}
+static int jclaim_identity(JPARSER*p,DWORD id,DWORD*ids,DWORD*count,DWORD capacity){
+ DWORD i;if(!jidentity(p,id)||*count>=capacity)return 0;
+ for(i=0;i<*count;i++)if(jidentity_equal(p,id,ids[i]))return 0;
+ ids[(*count)++]=id;return 1;
 }
 static int jvalidate_manifest(JPARSER*p,DWORD root){
  static const char*top[]={"schemaVersion","generation","platform","metadataRootIdentity","filesystemPolicy","roles"};
