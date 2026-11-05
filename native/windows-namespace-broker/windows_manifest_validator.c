@@ -581,7 +581,7 @@ done:
 
 int le_win_open_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
     const char*role_name,const char*kind_name,HANDLE*opened){
- unsigned char*manifest=NULL;DWORD manifest_length=0,root,roles,role,side,identity_node;
+ unsigned char*manifest=NULL;DWORD manifest_length=0,root,roles,role,side,identity_node=0xffffffffu;
  JPARSER p;HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
  LogicEngineWinFileIdentity root_expected,root_observed,expected,actual;
  wchar_t basename[768];const wchar_t*suffix=NULL;int ok=0;DWORD saved_error=ERROR_SUCCESS;
