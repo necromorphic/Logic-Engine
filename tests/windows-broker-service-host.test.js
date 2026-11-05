@@ -24,6 +24,9 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
 test('Windows broker keeps unimplemented file operations disabled without backend', () => {
   assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
   assert.match(source, /q\.operation==8/);
+  assert.match(source, /q\.operation==4/);
+  assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
+  assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
   assert.match(docs, /PING and read-only ACCESS_ROLE_FILE are implemented/);
   assert.match(docs, /Do not connect the SQLite VFS/);
 });
