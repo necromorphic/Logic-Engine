@@ -348,7 +348,7 @@ static int jmanifest_add_active_sidecar(const unsigned char*manifest,DWORD manif
  if(!jformat_identity(identity,volume,sizeof(volume),file_id,sizeof(file_id))
     ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%llu",(unsigned long long)target))
     ||FAILED(StringCchPrintfA(record,sizeof(record),
-      "{\"kind\":\"%s\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"generation\":%lu}",
+      "{\"kind\":\"%s\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"generation\":%llu}",
       kind,volume,file_id,(unsigned long long)target)))return 0;
  insert_at=p->v[sides].end-1;
  old_generation_length=p->v[generation_node].end-p->v[generation_node].start;
