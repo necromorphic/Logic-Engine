@@ -641,9 +641,10 @@ int le_win_store_startup_recover(
   BOOL has_intent = FALSE;
   int recovered = 0;
   DWORD read_error = ERROR_SUCCESS;
+  DWORD failure_error = ERROR_SUCCESS;
 
-  if (!store || !recover || store->directory == INVALID_HANDLE_VALUE
-      || store->locked) {
+  if (!store || !recover || !store->directory
+      || store->directory == INVALID_HANDLE_VALUE || store->locked) {
     SetLastError(ERROR_INVALID_PARAMETER);
     return 0;
   }
@@ -676,12 +677,14 @@ int le_win_store_startup_recover(
   recovered = 1;
 
 done:
+  if (!recovered) {
+    failure_error = GetLastError();
+    if (failure_error == ERROR_SUCCESS) failure_error = ERROR_RECOVERY_FAILURE;
+  }
   if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
   if (intent) HeapFree(GetProcessHeap(), 0, intent);
   le_win_store_unlock(store);
-  if (!recovered && GetLastError() == ERROR_SUCCESS) {
-    SetLastError(ERROR_RECOVERY_FAILURE);
-  }
+  if (!recovered) SetLastError(failure_error);
   return recovered;
 }
 
