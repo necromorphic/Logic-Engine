@@ -203,7 +203,7 @@ int main(void) {
   {
     static const unsigned char create_intent[] =
       "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
-      "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
+      "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
       "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":1,"
       "\"targetGeneration\":2,\"expectedIdentity\":null}";
     if (!le_win_recover_create_intent(namespace_manifest, namespace_manifest_length,
