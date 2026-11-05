@@ -114,7 +114,7 @@ jobs:
           $vs = & $vswhere -latest -products '*' -property installationPath
           if (-not $vs) { throw 'Visual Studio Build Tools not found' }
           $vcvars = Join-Path $vs 'VC/Auxiliary/Build/vcvars64.bat'
-          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\\windows-namespace-broker\\windows_broker_service.c /link advapi32.lib /OUT:native\\windows-namespace-broker\\windows_broker_service.exe'
+          $command = 'call "' + $vcvars + '" && cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE native\\windows-namespace-broker\\windows_broker_service.c native\\windows-namespace-broker\\windows_manifest_store.c native\\windows-namespace-broker\\windows_namespace_adapter.c native\\windows-namespace-broker\\windows_manifest_validator.c /link advapi32.lib bcrypt.lib /OUT:native\\windows-namespace-broker\\windows_broker_service.exe'
           cmd /c $command
           if ($LASTEXITCODE -ne 0) { throw 'Windows broker service host compilation failed' }
       - name: Parse and test Windows service installer path guards
