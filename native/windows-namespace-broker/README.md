@@ -16,7 +16,7 @@ are implemented. Do not connect the SQLite VFS or install this host for
 production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
-cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c /link advapi32.lib
+cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c /link advapi32.lib bcrypt.lib
 
 The eventual broker must run under a dedicated service identity, distinct from
 the application service identity. The --client-sid argument must be the exact
@@ -59,3 +59,17 @@ The adapter is not yet connected to the named-pipe protocol or SQLite VFS. The s
 - bounded encoders validate before serialization.
 
 This parser is covered by the VFS CI manifest-schema job. It is not yet wired into the native SCM broker's validation callbacks; the broker continues to reject every state-changing request until that bridge and startup recovery are implemented.
+
+
+## Native Windows CI gate
+
+The `.github/workflows/windows-namespace-broker.yml` workflow now compiles the
+SCM host together with the manifest-store and namespace-adapter translation
+units using MSVC `/W4 /WX`, then compiles and runs the native metadata/sidecar
+smoke test. It also runs the source-contract and Windows handle-relative VFS
+tests. This catches C compiler/linker regressions in the broker components;
+it does **not** make the SCM host operational or authorize SQLite operations.
+The service continues to return UNSUPPORTED for all filesystem operations
+until trusted native manifest/intent validation, startup recovery, namespace
+lifecycle coordination and safe client-handle transfer are implemented and
+tested end-to-end.
