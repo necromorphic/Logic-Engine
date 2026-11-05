@@ -328,6 +328,9 @@ int main(void) {
       || reopened==INVALID_HANDLE_VALUE) goto unlock_store;
   if (!CloseHandle(reopened) || !CloseHandle(broker_opened)) goto unlock_store;
   reopened=INVALID_HANDLE_VALUE;broker_opened=INVALID_HANDLE_VALUE;
+  stage = "runtime delete rejects unknown role instead of treating it as absent sidecar";
+  if (le_win_delete_role_sidecar(&store,namespace_directory,"missing-role","shm")
+      || GetLastError()!=ERROR_INVALID_NAME) goto unlock_store;
   stage = "runtime delete-sidecar transaction writes intent and retires manifest entry";
   if (!le_win_delete_role_sidecar(&store,namespace_directory,"main","shm")) goto unlock_store;
   stage = "runtime-deleted SHM is absent from manifest-backed access";
