@@ -4,14 +4,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $stRoot = (Resolve-Path $SillyTavernRoot).Path
 $pluginRoot = Join-Path $stRoot 'plugins'
 $pluginPath = Join-Path $pluginRoot 'logic-engine'
 
-function Stop-WithCode([string]$Code) {
-    throw $Code
+function Stop-WithCode([string]$Code) { throw $Code }
+
+function Copy-FilteredTree([string]$Source, [string]$Destination) {
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($entry in Get-ChildItem -LiteralPath $Source -Force) {
+        if ($entry.PSIsContainer) {
+            if ($entry.Name -in @('.git', 'node_modules', 'tests', 'coverage', 'data')
+                -or $entry.Name -like 'worktree-backup-*') { continue }
+            Copy-FilteredTree $entry.FullName (Join-Path $Destination $entry.Name)
+            continue
+        }
+        if ($entry.Name -eq '.env' -or $entry.Name -like '.env.*') { continue }
+        Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $Destination $entry.Name)
+    }
 }
 
 $nodeVersionText = (& node --version).Trim()
@@ -29,41 +40,31 @@ $stPackage = Get-Content -LiteralPath $stPackagePath -Raw | ConvertFrom-Json
 if ($stPackage.version -ne '1.19.0') {
     Stop-WithCode "SILLYTAVERN_VERSION_UNSUPPORTED: $($stPackage.version)"
 }
-
-$pluginLoader = Join-Path $stRoot 'src/plugin-loader.js'
-if (-not (Test-Path -LiteralPath $pluginLoader -PathType Leaf)) {
+if (-not (Test-Path -LiteralPath (Join-Path $stRoot 'src/plugin-loader.js') -PathType Leaf)) {
     Stop-WithCode 'SILLYTAVERN_PLUGIN_LOADER_NOT_FOUND'
 }
 if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
     New-Item -ItemType Directory -Path $pluginRoot | Out-Null
 }
-
 if (Test-Path -LiteralPath $pluginPath) {
-    $item = Get-Item -LiteralPath $pluginPath -Force
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        $target = (Get-Item -LiteralPath $pluginPath).Target
-        if ($target -and ((Resolve-Path $target).Path -eq $repoRoot)) {
-            Write-Host 'Logic-Engine plugin junction already points to this checkout.'
-        } else {
-            Stop-WithCode 'PLUGIN_PATH_EXISTS_WITH_DIFFERENT_TARGET'
-        }
-    } else {
-        Stop-WithCode 'PLUGIN_PATH_EXISTS_AS_DIRECTORY; move it aside before installing'
-    }
-} else {
-    New-Item -ItemType Junction -Path $pluginPath -Target $repoRoot | Out-Null
-    Write-Host "Created plugin junction: $pluginPath -> $repoRoot"
+    Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS; preserve it and inspect before replacing'
 }
 
-Push-Location $repoRoot
+Copy-FilteredTree $repoRoot $pluginPath
+Write-Host "Copied Logic-Engine plugin to: $pluginPath"
+
+Push-Location $pluginPath
 try {
-    & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $repoRoot
+    & npm ci --omit=dev
+    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
+
+    & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $pluginPath
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_PREFLIGHT_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $repoRoot
+    & node 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $pluginPath
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_INSTALL_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' verify --st-root $stRoot --extension-root $repoRoot
+    & node 'scripts/sillytavern-patch-manager.mjs' verify --st-root $stRoot --extension-root $pluginPath
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_VERIFY_FAILED' }
 } finally {
     Pop-Location
