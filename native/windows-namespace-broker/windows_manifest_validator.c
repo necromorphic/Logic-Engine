@@ -318,7 +318,7 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
      component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
   if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
   next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
-  if(owns)CloseHandle(current);current=next;owns=1;
+  if(owns)CloseHandle(current);\n  current=next;owns=1;
  }
  if(!owns){
   if(!DuplicateHandle(GetCurrentProcess(),root,GetCurrentProcess(),&current,
@@ -327,7 +327,7 @@ static int jopen_role_parent(JPARSER*p,DWORD role,HANDLE root,HANDLE*out){
  }
  *out=current;return 1;
 fail:
- if(owns)CloseHandle(current);return 0;
+ if(owns)CloseHandle(current);\n return 0;
 }
 static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
  HANDLE file;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
@@ -349,7 +349,7 @@ static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
 int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
  JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name;
- DWORD dbname,baseid,targetid;uint64_t generation,base,target;
+ uint64_t generation,base,target;
  wchar_t database[512],expected_basename[768],actual_basename[768];
  const wchar_t*suffix;HANDLE anchor_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE;
  LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int owns_parent=0,ok=0;
