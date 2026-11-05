@@ -402,7 +402,7 @@ int le_win_recover_lifecycle_intent(LE_WIN_MANIFEST_STORE*store,const unsigned c
  const wchar_t*suffix;const char*kind_text;int is_create,is_delete;
  HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
  LogicEngineWinFileIdentity expected,observed,root_identity;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
- unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,sidecar_match=0;
+ unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,sidecar_match=0;DWORD matched_sidecar=0xffffffffu;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
  ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));
  p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
@@ -490,11 +490,11 @@ int le_win_recover_lifecycle_intent(LE_WIN_MANIFEST_STORE*store,const unsigned c
    for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
     if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active")
        &&jidentity_nodes_equal(&p,jget(&p,side,"identity"),&q,expected_identity)){
-     sidecar_match=side+1;break;
+     matched_sidecar=side;break;
     }
    }
-   if(!sidecar_match)goto done;
-   side=sidecar_match-1;
+   if(matched_sidecar==0xffffffffu)goto done;
+   side=matched_sidecar;
    file=logic_engine_win_open_relative(parent,actual_basename,DELETE|FILE_READ_ATTRIBUTES,
      FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
      FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
