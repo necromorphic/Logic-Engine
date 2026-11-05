@@ -1879,6 +1879,7 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
     uint32_t broker_status = PROBE_WIN_BROKER_STATUS_NOT_FOUND;
     if (!probe_win_manifest_role_ready(role_index)) return SQLITE_IOERR_ACCESS;
     if (is_main) kind = "main";
+    else if (!suffix) return SQLITE_IOERR_ACCESS;
     else if (wcscmp(suffix,L"-wal")==0) kind = "wal";
     else if (wcscmp(suffix,L"-shm")==0) kind = "shm";
     else if (wcscmp(suffix,L"-journal")==0) kind = "journal";
