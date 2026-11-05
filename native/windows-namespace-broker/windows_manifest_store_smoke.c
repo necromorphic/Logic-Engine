@@ -265,9 +265,9 @@ int main(void) {
     stage = "manifest-backed access reports absent SHM sidecar";
     if (!le_win_access_role_file(&store,namespace_directory,"main","shm",&access_exists)
         || access_exists) goto unlock_store;
-    stage = "manifest-backed access reports unknown role absent";
-    if (!le_win_access_role_file(&store,namespace_directory,"missing-role","main",&access_exists)
-        || access_exists) goto unlock_store;
+    stage = "manifest-backed access rejects unknown role";
+    if (le_win_access_role_file(&store,namespace_directory,"missing-role","main",&access_exists)
+        || GetLastError()!=ERROR_INVALID_NAME) goto unlock_store;
     stage = "open registered main database by manifest identity";
     if (!le_win_open_role_file(&store,namespace_directory,"main","main",&broker_opened)
         || broker_opened==INVALID_HANDLE_VALUE) goto unlock_store;
