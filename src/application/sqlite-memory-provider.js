@@ -1609,8 +1609,7 @@ export class SQLiteMemoryProvider {
     // the canonical scoped evidence digest instead. The Coordinator lease makes
     // this read atomic against mutations; the digest detects changes since the
     // retrieval snapshot, including candidate/grant/index projection changes.
-    if (currentCursor.data_version !== dataVersionBefore
-      || currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
+    if (currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
       throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
     }
 
