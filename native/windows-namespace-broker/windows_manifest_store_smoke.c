@@ -158,7 +158,10 @@ int main(void) {
   if (!le_win_store_lock(&store)) goto close_store;
   stage = "create identity-pinned namespace root";
   if (FAILED(StringCchPrintfW(namespace_directory, LE_COUNT_OF(namespace_directory),
-      L"%s\\namespace", directory)) || !CreateDirectoryW(namespace_directory, NULL)) goto unlock_store;
+      L"%s\\namespace", directory)) || !ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &descriptor, NULL)) goto unlock_store;
+  security_attributes.lpSecurityDescriptor = descriptor;
+  if (!CreateDirectoryW(namespace_directory, &security_attributes)) goto unlock_store;
+  LocalFree(descriptor); descriptor = NULL;
   stage = "open namespace root identity";
   namespace_handle = CreateFileW(namespace_directory,
       FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
@@ -217,7 +220,7 @@ int main(void) {
   namespace_manifest_length=(DWORD)strlen((const char *)namespace_manifest);
   stage = "open namespace root for create-intent recovery";
   namespace_handle = CreateFileW(namespace_directory,
-      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_ADD_FILE | FILE_DELETE_CHILD | FILE_READ_ATTRIBUTES,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_ADD_FILE | FILE_DELETE_CHILD | FILE_READ_ATTRIBUTES | GENERIC_WRITE,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (namespace_handle == INVALID_HANDLE_VALUE) goto unlock_store;
