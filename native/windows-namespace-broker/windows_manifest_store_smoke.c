@@ -193,6 +193,16 @@ int main(void) {
   namespace_manifest_length = (DWORD)strlen((const char *)namespace_manifest);
   if (le_win_reconcile_manifest_namespace(namespace_manifest, namespace_manifest_length,
       namespace_directory)) goto unlock_store;
+  stage = "restore trusted manifest after negative identity fixture";
+  if (FAILED(StringCchPrintfA((char *)namespace_manifest,LE_COUNT_OF(namespace_manifest),
+      "{\"schemaVersion\":1,\"generation\":1,\"platform\":\"windows\","
+      "\"metadataRootIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"filesystemPolicy\":{\"filesystem\":\"NTFS\",\"identitySource\":\"opened-handle\",\"directoryMutationBoundary\":\"dedicated-service-identity\"},"
+      "\"roles\":[{\"role\":\"main\",\"parentComponents\":[],\"parentIdentities\":[],\"databaseBasename\":\"memory.sqlite\","
+      "\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"state\":\"active\",\"sidecars\":[]}]}",
+      namespace_volume,namespace_file_id,database_volume,database_file_id))) goto unlock_store;
+  namespace_manifest_length=(DWORD)strlen((const char *)namespace_manifest);
   stage = "open namespace root for create-intent recovery";
   namespace_handle = CreateFileW(namespace_directory,
       FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_ADD_FILE | FILE_DELETE_CHILD | FILE_READ_ATTRIBUTES,
