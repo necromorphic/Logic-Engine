@@ -1859,6 +1859,12 @@ static const wchar_t *probe_win_sidecar_suffix(const ProbeDatabaseRole *role,
   return relative_name + base_length;
 }
 
+#define PROBE_WIN_BROKER_STATUS_OK 0u
+#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
+#define PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE 8u
+static int probe_win_broker_role_request(const char *role,uint16_t operation,
+    const char *kind,uint32_t *status);
+
 static int probe_win_access_role(int role_index, const wchar_t *relative_name,
                                  int is_main, int flags, int *result) {
   ProbeDatabaseRole *role = &g_database_roles[role_index];
@@ -1868,6 +1874,21 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
   LogicEngineWinFileIdentity actual;
   DWORD error;
   const wchar_t *suffix = probe_win_sidecar_suffix(role, relative_name);
+  if (role->manifest_bound && flags == SQLITE_ACCESS_EXISTS) {
+    const char *kind;
+    uint32_t broker_status = PROBE_WIN_BROKER_STATUS_NOT_FOUND;
+    if (!probe_win_manifest_role_ready(role_index)) return SQLITE_IOERR_ACCESS;
+    if (is_main) kind = "main";
+    else if (wcscmp(suffix,L"-wal")==0) kind = "wal";
+    else if (wcscmp(suffix,L"-shm")==0) kind = "shm";
+    else if (wcscmp(suffix,L"-journal")==0) kind = "journal";
+    else return SQLITE_IOERR_ACCESS;
+    if (!probe_win_broker_role_request(role->role,PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE,
+        kind,&broker_status)) return SQLITE_IOERR_ACCESS;
+    if (broker_status==PROBE_WIN_BROKER_STATUS_OK) {*result=1;return SQLITE_OK;}
+    if (broker_status==PROBE_WIN_BROKER_STATUS_NOT_FOUND) {*result=0;return SQLITE_OK;}
+    return SQLITE_IOERR_ACCESS;
+  }
   if (flags == SQLITE_ACCESS_READWRITE) desired = GENERIC_READ | GENERIC_WRITE;
   else if (flags == SQLITE_ACCESS_READ) desired = GENERIC_READ;
   else if (flags != SQLITE_ACCESS_EXISTS) return SQLITE_IOERR_ACCESS;
@@ -1909,8 +1930,6 @@ static int probe_win_access_role(int role_index, const wchar_t *relative_name,
 #define PROBE_WIN_BROKER_MAGIC 0x4c454256u
 #define PROBE_WIN_BROKER_VERSION 2u
 #define PROBE_WIN_BROKER_OP_DELETE_SIDECAR 4u
-#define PROBE_WIN_BROKER_STATUS_OK 0u
-#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
 #pragma pack(push, 1)
 typedef struct ProbeWinBrokerHeader {
   uint32_t magic;
