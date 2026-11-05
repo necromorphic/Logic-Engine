@@ -2691,7 +2691,7 @@ export class SQLiteStore {
             // A typed relationship transition is validated against the prior
             // directed-pair state. If an earlier transition on that pair is
             // retracted, a later transition cannot be replayed as independent
-            merely because its final value would overwrite the same dimension.
+            // merely because its final value would overwrite the same dimension.
             || event.effects.some((effect) => effect.kind === 'relationship.transition'
               && Object.keys(effect.patch || {}).some((dimension) => {
                 const ref = relationshipRef(effect.subject_id, effect.target_id, dimension);
