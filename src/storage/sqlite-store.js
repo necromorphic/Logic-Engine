@@ -2708,6 +2708,13 @@ export class SQLiteStore {
                 return projectionChanged('fact:' + link.target_id, event);
               }
               if (link.relation === 'REQUIRES') {
+                const beforeEntities = this.entityProjectionAtCursor(id, event.commit_sequence);
+                const beforeFacts = this.factProjectionAtCursor(id, event.commit_sequence);
+                // A legacy REQUIRES reader whose historical predicate is already
+                // unknown cannot be safely invalidated as though it were false.
+                // Preserve it for the review gate below, which compares the
+                // original unknown projection with the rollback projection.
+                if (predicateResult(beforeEntities, link.predicate, beforeFacts) === 'unknown') return false;
                 const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
                 const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
                 return predicateResult(entities, link.predicate, facts) === 'false';
