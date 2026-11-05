@@ -4,6 +4,7 @@ name: Memory Provider blocker 3
 # Runtime/Provider must be paired after any test-contract or workflow-trigger correction.
 # Pair the final diagnostic benchmark contract with Provider acceptance on the same integration head.
 # The VFS workflow also keys off this marker so its platform checks share the accepted revision.
+# Gateway, NPC-context, and Final-Send patch acceptance fan out from this exact-head marker.
 # Final fan-out includes the VFS probe when its installer contract changes.
 on:
   push:
