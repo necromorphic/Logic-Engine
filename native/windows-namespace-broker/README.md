@@ -34,7 +34,7 @@ exclusively writable by the broker identity.
 - writes a unique temporary file, flushes it, atomically renames it relative to the directory handle, then requires a directory flush;
 - removes the pending intent through the opened file handle and requires a directory flush.
 
-This is not yet a complete durable store integration. The caller must provision and verify the directory's dedicated-service ACL and all ancestors, supply strict duplicate-key/schema/generation validators, invoke startup recovery under the exclusive lock, and prove crash semantics on supported Windows/NTFS versions. The service host still answers PING only; no SQLite operation is enabled. The Windows CI job compiles the store with MSVC and runs a filesystem smoke test for lock, atomic writes, reads and intent removal. This is not a crash-injection or ACL-isolation test.
+The SCM host opens this store with the native strict validators and invokes locked startup recovery before reporting ready. Deployment must still provision the dedicated broker service identity, exact protected ACLs and trusted namespace root. The Windows CI job compiles the store with MSVC and runs native recovery/namespace smoke tests; it is not a full crash-injection matrix or cross-identity ACL-isolation test.
 
 ## NTFS sidecar adapter increment
 
@@ -57,7 +57,7 @@ The adapter is not yet connected to the named-pipe protocol or SQLite VFS. The s
 - parsed manifests and intents are passed through the exact-key and generation/state validators already used by the lifecycle coordinator;
 - bounded encoders validate before serialization.
 
-This parser is covered by the VFS CI manifest-schema job. It is not yet wired into the native SCM broker's validation callbacks; the broker continues to reject every state-changing request until that bridge and startup recovery are implemented.
+This parser is covered by the VFS CI manifest-schema job and remains the Node-side validator used by the lifecycle coordinator. The native SCM broker independently enforces the same intent envelope with windows_manifest_validator.c before metadata is accepted.
 
 
 ## Native Windows CI gate
@@ -66,12 +66,12 @@ The `.github/workflows/better-sqlite3-vfs-integration.yml` workflow now compiles
 SCM host together with the manifest-store and namespace-adapter translation
 units using MSVC `/W4 /WX`, then compiles and runs the native metadata/sidecar
 smoke test. It also runs the source-contract and Windows handle-relative VFS
-tests. This catches C compiler/linker regressions in the broker components;
-it does **not** make the SCM host operational or authorize SQLite operations.
-The service continues to return UNSUPPORTED for all filesystem operations
-until trusted native manifest/intent validation, startup recovery, namespace
-lifecycle coordination and safe client-handle transfer are implemented and
-tested end-to-end.
+tests. This catches C compiler/linker regressions and exercises the implemented
+startup trust gate and create-sidecar recovery. It does **not** make the SCM host
+operational or authorize SQLite operations. All filesystem IPC operations
+remain UNSUPPORTED until operation dispatch, identity-bound delete recovery,
+VFS integration and safe client-handle transfer are implemented and tested
+end-to-end.
 
 
 ## Locked startup-recovery primitive
@@ -85,12 +85,12 @@ only after the callback reports durable reconciliation; callback failure,
 invalid metadata, or ambiguous reads leave the intent in place and return
 failure. A missing manifest is always fatal.
 
-The native smoke test verifies both branches: a rejected callback leaves the
-intent readable, while a successful callback causes the intent to be retired.
-The callback is deliberately not implemented by the SCM host yet. Production
-use still requires a native strict-schema validator and an identity-bound
-reconciliation callback that checks every registered DB and sidecar against
-the manifest before the service can report ready.
+The native smoke test verifies that a rejected callback leaves the intent
+readable, while a successful callback causes the intent to be retired. The SCM
+host now supplies the callback: clean startup reconciles every registered DB
+and sidecar, and create-sidecar recovery either rolls back an absent file or
+commits its captured identity into the next manifest generation. Delete-sidecar
+recovery remains fail-closed.
 
 
 ## Native strict manifest and intent validator
