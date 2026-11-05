@@ -200,6 +200,20 @@ test('persisted ST inventory is cross-checked against stable conversation identi
   assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
   assert.equal(publishedSnapshots.at(-1).complete, false);
 
+  inventory = {
+    ...inventory,
+    host_source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+    host_source_manifest_sha256: 'b'.repeat(64),
+    root_inventory_reconciliation: {
+      status: 'AUTHORITATIVE_COMPLETE',
+      integrity_status: 'INTEGRITY_OK',
+      source_manifest_sha256: 'b'.repeat(64),
+      sequence: 1,
+      manifest_sha256: 'c'.repeat(64),
+    },
+    filesystem_inventory: { snapshot_alignment: 'SHARED_VSS_SNAPSHOT' },
+    blockers: [],
+  };
   const mismatched = structuredClone(inventory);
   mismatched.files[0].logical_identity.messages[0].versions[0].content_sha256 = '0'.repeat(64);
   inventory = mismatched;
