@@ -336,10 +336,10 @@ static int jremove_uncommitted_sidecar(HANDLE parent,const wchar_t*basename){
  file=logic_engine_win_open_relative(parent,basename,DELETE|FILE_READ_ATTRIBUTES,
    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
    FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
- if(file==INVALID_HANDLE_VALUE)return GetLastError()==ERROR_FILE_NOT_FOUND;
+ if(file==INVALID_HANDLE_VALUE){if(GetLastError()==ERROR_FILE_NOT_FOUND)return 1;SetLastError(ERROR_INVALID_ACCESS);return 0;}
  if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
     ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0){
-  CloseHandle(file);SetLastError(ERROR_ACCESS_DENIED);return 0;
+  CloseHandle(file);SetLastError(ERROR_INVALID_DATA);return 0;
  }
  disposition.DeleteFile=TRUE;
  if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition))){
@@ -402,7 +402,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
    if(jeq(&p,jget(&p,side,"kind"),jeq(&q,kind,"wal")?"wal":jeq(&q,kind,"shm")?"shm":"journal")
       &&jeq(&p,jget(&p,side,"state"),"active"))active=1;
   if(active)goto done;
-  if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
+  if(!jopen_role_parent(&p,match,root_handle,&parent)){SetLastError(ERROR_INVALID_OWNER);goto done;}
   owns_parent=1;
   if(!jremove_uncommitted_sidecar(parent,actual_basename))goto done;
   ok=1;
