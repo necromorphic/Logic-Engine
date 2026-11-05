@@ -1545,10 +1545,10 @@ export class SQLiteMemoryProvider {
 
     this.#assertAcceptedHeadCurrent();
     const scope = this.#scope({ world_id: worldId, subject_id: actorId, purpose });
+    // Capture this observer connection's own counter only to detect writes
+    // during the synchronous evidence read. It cannot be compared with the
+    // retrieval connection's PRAGMA data_version value.
     const dataVersionBefore = this.#dataVersion();
-    if (dataVersionBefore !== providerEvidenceCursor.data_version) {
-      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
-    }
     const indexState = this.#db.prepare(`
       SELECT index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code
       FROM memory_index_state WHERE world_id=?
