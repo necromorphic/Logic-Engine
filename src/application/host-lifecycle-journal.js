@@ -1427,6 +1427,7 @@ export class HostLifecycleJournal {
       const authority = this.#rootInventoryAuthoritySnapshot({ host_installation_id, authenticated_account_id, root_id });
       return {
         ...result,
+        manifest_sha256: result.latest_manifest_sha256,
         journal_head_sha256: result.head_sha256,
         status: 'INTEGRITY_OK',
         authority_status: authority?.authority_status ?? 'REVIEW_ONLY',
