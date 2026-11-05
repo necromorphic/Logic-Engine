@@ -273,7 +273,7 @@ export function createSignedRootInventoryAttestation({
     || !Number.isSafeInteger(reconciliation.lifecycle_sequence) || reconciliation.lifecycle_sequence < 0
     || !/^[a-f0-9]{64}$/.test(reconciliation.lifecycle_head_sha256 ?? '')
     || (reconciliation.lifecycle_sequence === 0 && reconciliation.lifecycle_head_sha256 !== '0'.repeat(64))
-    || (reconciliation.delta_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(reconciliation.delta_sha256))
+    || (reconciliation.delta_sha256 != null && !/^[a-f0-9]{64}$/.test(reconciliation.delta_sha256))
     || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
     || !/^[a-f0-9]{64}$/.test(snapshotSha256 ?? '')
     || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
