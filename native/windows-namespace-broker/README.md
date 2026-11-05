@@ -145,7 +145,11 @@ OPEN_MAIN, sidecar lifecycle IPC or client HANDLE transfer.
 le_win_recover_create_intent is called by the SCM startup coordinator while
 the metadata-store exclusive lock is held. It accepts only a strictly
 validated create-sidecar intent whose role and basename match the registered
-database role and expected -wal, -shm or -journal suffix.
+database role and expected -wal, -shm or -journal suffix. The intent must carry
+the operation-specific precondition absent, which the lifecycle writer may
+record only after it has verified the target basename is absent while holding
+the same exclusive metadata lock and namespace mutation boundary. Delete
+intents use the distinct identity-match precondition and remain unsupported.
 
 The native smoke test exercises both durable-ordering boundaries:
 - crash after CREATE_NEW but before manifest commit: remove the uncommitted
