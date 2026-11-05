@@ -1,5 +1,6 @@
-/* Windows SQLite broker SCM host. State-changing operations remain disabled
- * until the durable manifest and NTFS handle-relative backend are linked. */
+/* Windows SQLite broker SCM host. Only manifest-backed ACCESS and
+ * identity-bound sidecar deletion are enabled; file opens/creates still require
+ * the client HANDLE-transfer protocol and SQLite VFS integration. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <sddl.h>
