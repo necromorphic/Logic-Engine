@@ -19,6 +19,11 @@ import { HostIdentityStore } from './st-host-identity-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
 import { verifyPinnedSourceIdentity } from './st-source-attestation.mjs';
+import {
+  PINNED_ST_MUTATION_COVERAGE_SHA256,
+  PINNED_ST_MUTATION_ROUTE_COUNT,
+  verifyPinnedSillyTavernMutationCoverage,
+} from './st-mutation-route-contract.mjs';
 import { fileURLToPath } from 'node:url';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -47,7 +52,7 @@ export function createSillyTavernHostAdapter({
   fetchImpl = globalThis.fetch,
   persistRootInventory: injectedPersistRootInventory = null,
   verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
-  verifyMutationCoverage: injectedVerifyMutationCoverage,
+  verifyMutationCoverage: injectedVerifyMutationCoverage ?? verifyPinnedSillyTavernMutationCoverage,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
@@ -131,12 +136,16 @@ export function createSillyTavernHostAdapter({
           || !Array.isArray(hostInventory?.filesystem?.entries)) {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
-        const mutationCoverage = hostInventory?.mutation_coverage;
+        let mutationCoverage;
+        try {
+          mutationCoverage = await (injectedVerifyMutationCoverage ?? verifyPinnedSillyTavernMutationCoverage)();
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED' };
+        }
         if (mutationCoverage?.status !== 'VERIFIED'
           || mutationCoverage.source_commit !== PINNED_SILLYTAVERN_COMMIT
-          || !/^[a-f0-9]{64}$/.test(mutationCoverage.coverage_manifest_sha256 ?? '')
-          || !Number.isSafeInteger(mutationCoverage.route_count)
-          || mutationCoverage.route_count < 1
+          || mutationCoverage.coverage_manifest_sha256 !== PINNED_ST_MUTATION_COVERAGE_SHA256
+          || mutationCoverage.route_count !== PINNED_ST_MUTATION_ROUTE_COUNT
           || !/^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '')) {
           return { status: 'NON_READY', code: 'HOST_MUTATION_ROUTE_COVERAGE_UNVERIFIED' };
         }
@@ -160,6 +169,7 @@ export function createSillyTavernHostAdapter({
             snapshotAlignment: hostInventory.snapshot_alignment,
             snapshotSha256: hostInventory.filesystem.snapshot_sha256,
             sourceIdentity,
+            mutationCoverage,
             signal,
           });
           if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
