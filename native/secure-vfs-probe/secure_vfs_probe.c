@@ -2004,20 +2004,21 @@ static int probe_win_delete_role(int role_index, const wchar_t *relative_name,
   if (role->manifest_bound) {
     const char *kind;
     uint32_t broker_status = PROBE_WIN_BROKER_STATUS_NOT_FOUND;
+    int have_expected;
     if (is_main || !suffix || !probe_win_sidecar_kind(suffix)
         || !probe_win_manifest_role_ready(role_index)) return SQLITE_IOERR_DELETE;
     kind = wcscmp(suffix,L"-wal")==0 ? "wal"
       : wcscmp(suffix,L"-shm")==0 ? "shm" : "journal";
+    have_expected=probe_win_sidecar_identity_lookup(role_index,suffix,&expected_sidecar);
     if (!probe_win_broker_role_request(role->role,
           PROBE_WIN_BROKER_OP_DELETE_SIDECAR,kind,&broker_status))
       return SQLITE_IOERR_DELETE;
     if (broker_status==PROBE_WIN_BROKER_STATUS_NOT_FOUND) {
-      if (probe_win_sidecar_identity_lookup(role_index,suffix,&expected_sidecar))
+      if (have_expected)
         (void)probe_win_sidecar_identity_retire(role_index,suffix,&expected_sidecar,1);
       return SQLITE_OK;
     }
-    if (broker_status!=PROBE_WIN_BROKER_STATUS_OK
-        || !probe_win_sidecar_identity_lookup(role_index,suffix,&expected_sidecar))
+    if (broker_status!=PROBE_WIN_BROKER_STATUS_OK||!have_expected)
       return SQLITE_IOERR_DELETE;
     if (!probe_win_sidecar_identity_retire(role_index,suffix,&expected_sidecar,1))
       return SQLITE_IOERR_DELETE;
