@@ -231,7 +231,7 @@ int main(void) {
       "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"shm\","
       "\"basename\":\"memory.sqlite-shm\",\"baseGeneration\":1,"
       "\"targetGeneration\":2,\"expectedIdentity\":null}";
-    if (!le_win_recover_create_intent(&store,namespace_manifest,namespace_manifest_length,
+    if (!le_win_recover_lifecycle_intent(&store,namespace_manifest,namespace_manifest_length,
         missing_create_intent,(DWORD)(sizeof(missing_create_intent)-1),namespace_directory)) goto unlock_store;
   }
   stage = "create sidecar for interrupted CREATE_NEW";
@@ -246,13 +246,13 @@ int main(void) {
       "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
       "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":1,"
       "\"targetGeneration\":2,\"expectedIdentity\":null}";
-    if (!le_win_recover_create_intent(&store,namespace_manifest,namespace_manifest_length,
+    if (!le_win_recover_lifecycle_intent(&store,namespace_manifest,namespace_manifest_length,
         create_intent,(DWORD)(sizeof(create_intent)-1),namespace_directory)) goto unlock_store;
     stage = "read recovered durable manifest";
     if (!le_win_store_read_manifest(&store,&manifest,&manifest_length)
         || !le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_directory)) goto unlock_store;
     stage = "reconcile committed create-sidecar intent";
-    if (!le_win_recover_create_intent(&store,manifest,manifest_length,
+    if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
         create_intent,(DWORD)(sizeof(create_intent)-1),namespace_directory)) goto unlock_store;
   }
   stage = "verify recovered sidecar remains openable";
