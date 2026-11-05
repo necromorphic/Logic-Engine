@@ -630,6 +630,61 @@ int le_win_store_remove_intent(LE_WIN_MANIFEST_STORE *store) {
   return FlushFileBuffers(store->directory) != 0;
 }
 
+int le_win_store_startup_recover(
+    LE_WIN_MANIFEST_STORE *store,
+    LE_STORE_RECOVER recover,
+    void *recovery_context) {
+  unsigned char *manifest = NULL;
+  unsigned char *intent = NULL;
+  DWORD manifest_length = 0;
+  DWORD intent_length = 0;
+  BOOL has_intent = FALSE;
+  int recovered = 0;
+  DWORD read_error = ERROR_SUCCESS;
+
+  if (!store || !recover || store->directory == INVALID_HANDLE_VALUE
+      || store->locked) {
+    SetLastError(ERROR_INVALID_PARAMETER);
+    return 0;
+  }
+  if (!le_win_store_lock(store)) return 0;
+
+  /* A missing manifest is never interpreted as an empty/trusted namespace. */
+  if (!le_win_store_read_manifest(store, &manifest, &manifest_length)) {
+    goto done;
+  }
+
+  if (le_win_store_read_intent(store, &intent, &intent_length)) {
+    has_intent = TRUE;
+  } else {
+    read_error = GetLastError();
+    if (read_error != ERROR_FILE_NOT_FOUND) goto done;
+    SetLastError(ERROR_SUCCESS);
+  }
+
+  /* The callback performs identity-bound physical reconciliation and, when
+   * needed, writes the next validated manifest while this exclusive lock is
+   * held. The intent is retained on every failure/ambiguous outcome. */
+  if (!recover(store, manifest, manifest_length,
+      intent, intent_length, recovery_context)) {
+    SetLastError(ERROR_RECOVERY_FAILURE);
+    goto done;
+  }
+
+  /* Retire the intent only after the callback reports durable reconciliation. */
+  if (has_intent && !le_win_store_remove_intent(store)) goto done;
+  recovered = 1;
+
+done:
+  if (manifest) HeapFree(GetProcessHeap(), 0, manifest);
+  if (intent) HeapFree(GetProcessHeap(), 0, intent);
+  le_win_store_unlock(store);
+  if (!recovered && GetLastError() == ERROR_SUCCESS) {
+    SetLastError(ERROR_RECOVERY_FAILURE);
+  }
+  return recovered;
+}
+
 void le_win_store_close(LE_WIN_MANIFEST_STORE *store) {
   if (!store) return;
   le_win_store_unlock(store);
