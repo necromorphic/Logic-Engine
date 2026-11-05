@@ -44,7 +44,7 @@
     }
   },
   "createdFiles": {
-    "src/logic-engine-final-send-hook.js": "a381af5c32f2fb28f309c80667f061667cd5176a631a8efba8dbbabdde4f60d0",
+    "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e"
   }
 }
