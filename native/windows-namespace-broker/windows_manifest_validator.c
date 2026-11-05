@@ -9,6 +9,8 @@
 #include "windows_manifest_validator.h"
 #include "../secure-vfs-probe/windows_relative_open.h"
 #include <strsafe.h>
+#include <bcrypt.h>
+#include "windows_namespace_adapter.h"
 #define LE_COUNT_OF(value) (sizeof(value) / sizeof((value)[0]))
 
 #define LE_JSON_MAX_NODES 65536u
@@ -578,6 +580,105 @@ done:
  return ok;
 }
 
+
+
+int le_win_create_role_sidecar(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
+    const char*role_name,const char*kind_name,HANDLE*opened,LogicEngineWinFileIdentity*identity){
+ unsigned char*manifest=NULL,*updated=NULL,*existing_intent=NULL;DWORD manifest_length=0,updated_length=0,existing_intent_length=0;
+ JPARSER p;DWORD root,roles,role,side,role_node,db_node,sidecars;uint64_t base,target;
+ HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity root_expected,root_actual,created_identity;
+ wchar_t basename_w[768];char basename[256],role_copy[129],operation_id[33],intent_json[1024];
+ const wchar_t*suffix;const char*kind;BYTE nonce[16];size_t i;DWORD saved_error=ERROR_SUCCESS;
+ int intent_written=0,ok=0;
+ if(!opened||!identity){SetLastError(ERROR_INVALID_PARAMETER);return 0;}
+ *opened=INVALID_HANDLE_VALUE;ZeroMemory(identity,sizeof(*identity));ZeroMemory(&p,sizeof(p));
+ if(!store||!store->locked||!namespace_root||!jascii_role_argument(role_name)
+    ||!kind_name||!(strcmp(kind_name,"wal")==0||strcmp(kind_name,"shm")==0||strcmp(kind_name,"journal")==0)){
+  SetLastError(ERROR_INVALID_PARAMETER);return 0;
+ }
+ if(le_win_store_read_intent(store,&existing_intent,&existing_intent_length)){
+  HeapFree(GetProcessHeap(),0,existing_intent);SetLastError(ERROR_BUSY);return 0;
+ }
+ if(GetLastError()!=ERROR_FILE_NOT_FOUND)return 0;
+ SetLastError(ERROR_SUCCESS);
+ if(!le_win_store_read_manifest(store,&manifest,&manifest_length))return 0;
+ if(!le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root))goto done;
+ p.s=manifest;p.n=manifest_length;
+ p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);
+ if(!p.v)goto done;
+ jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
+ if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root)
+    ||!jnum(&p,jget(&p,root,"generation"),1,9007199254740990ULL,&base))goto done;
+ target=base+1;
+ roles=jget(&p,root,"roles");
+ for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next){
+  role_node=jget(&p,role,"role");
+  if(p.v[role_node].end-p.v[role_node].start==strlen(role_name)
+     &&memcmp(p.s+p.v[role_node].start,role_name,strlen(role_name))==0)break;
+ }
+ if(role==0xffffffffu){SetLastError(ERROR_FILE_NOT_FOUND);goto done;}
+ sidecars=jget(&p,role,"sidecars");
+ for(side=p.v[sidecars].first;side!=0xffffffffu;side=p.v[side].next)
+  if(jeq(&p,jget(&p,side,"kind"),kind_name)&&jeq(&p,jget(&p,side,"state"),"active")){
+   SetLastError(ERROR_ALREADY_EXISTS);goto done;
+  }
+ kind=kind_name;
+ suffix=strcmp(kind,"wal")==0?L"-wal":strcmp(kind,"shm")==0?L"-shm":L"-journal";
+ db_node=jget(&p,role,"databaseBasename");
+ if(!jwide(&p,db_node,basename_w,(DWORD)LE_COUNT_OF(basename_w)))goto done;
+ {
+  DWORD db_bytes=p.v[db_node].end-p.v[db_node].start;
+  size_t suffix_bytes=wcslen(suffix);
+  int converted;
+  if(db_bytes==0||db_bytes+suffix_bytes>255||db_bytes>=sizeof(basename))goto done;
+  memcpy(basename,p.s+p.v[db_node].start,db_bytes);basename[db_bytes]=0;
+  if(FAILED(StringCchCatA(basename,sizeof(basename),kind[0]=='w'?"-wal":kind[0]=='s'?"-shm":"-journal")))goto done;
+  converted=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,basename,-1,basename_w,(int)LE_COUNT_OF(basename_w));
+  if(!converted)goto done;
+ }
+ if(FAILED(StringCchCopyA(role_copy,sizeof(role_copy),role_name)))goto done;
+ if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&root_expected))goto done;
+ root_handle=le_win_store_open_namespace_root(namespace_root);
+ if(root_handle==INVALID_HANDLE_VALUE||!logic_engine_win_identity(root_handle,&root_actual,NULL)
+    ||!logic_engine_win_identity_equal(&root_expected,&root_actual)
+    ||!jopen_role_parent(&p,role,root_handle,&parent))goto done;
+ file=logic_engine_win_open_relative(parent,basename_w,FILE_READ_ATTRIBUTES,
+   FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+   FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+ if(file!=INVALID_HANDLE_VALUE){CloseHandle(file);file=INVALID_HANDLE_VALUE;SetLastError(ERROR_ALREADY_EXISTS);goto done;}
+ if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
+ if(!BCRYPT_SUCCESS(BCryptGenRandom(NULL,nonce,(ULONG)sizeof(nonce),BCRYPT_USE_SYSTEM_PREFERRED_RNG)))goto done;
+ for(i=0;i<sizeof(nonce);i++){
+  static const char digits[]="0123456789abcdef";
+  operation_id[i*2]=digits[nonce[i]>>4];operation_id[i*2+1]=digits[nonce[i]&15];
+ }
+ operation_id[32]=0;
+ if(FAILED(StringCchPrintfA(intent_json,sizeof(intent_json),
+   "{\"schemaVersion\":1,\"operationId\":\"%s\",\"precondition\":\"absent\","
+   "\"operation\":\"create-sidecar\",\"role\":\"%s\",\"kind\":\"%s\","
+   "\"basename\":\"%s\",\"baseGeneration\":%llu,\"targetGeneration\":%llu,\"expectedIdentity\":null}",
+   operation_id,role_copy,kind,basename,(unsigned long long)base,(unsigned long long)target)))goto done;
+ if(!le_win_store_write_intent(store,(const unsigned char*)intent_json,(DWORD)strlen(intent_json)))goto done;
+ intent_written=1;
+ if(!le_win_namespace_create_sidecar(parent,basename_w,&file,&created_identity)
+    ||!le_win_namespace_flush(file)||!le_win_namespace_flush_parent(parent))goto done;
+ if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,role,target,kind,
+      &created_identity,&updated,&updated_length)
+    ||!le_win_store_write_manifest(store,updated,updated_length))goto done;
+ if(!le_win_store_remove_intent(store))goto done;
+ intent_written=0;
+ *identity=created_identity;*opened=file;file=INVALID_HANDLE_VALUE;ok=1;
+done:
+ if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
+ if(parent!=INVALID_HANDLE_VALUE)CloseHandle(parent);
+ if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
+ if(updated)HeapFree(GetProcessHeap(),0,updated);
+ if(p.v)HeapFree(GetProcessHeap(),0,p.v);
+ if(manifest)HeapFree(GetProcessHeap(),0,manifest);
+ if(!ok){saved_error=GetLastError();if(saved_error==ERROR_SUCCESS)saved_error=intent_written?ERROR_RECOVERY_FAILURE:ERROR_GEN_FAILURE;SetLastError(saved_error);}
+ return ok;
+}
 
 int le_win_open_role_file(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespace_root,
     const char*role_name,const char*kind_name,HANDLE*opened){
