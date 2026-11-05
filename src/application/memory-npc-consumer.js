@@ -738,6 +738,7 @@ export class MemoryNpcConsumer {
           world_revision: emptySnapshotRead.world_revision,
           commit_sequence: emptySnapshotRead.commit_sequence,
         }),
+        provider_evidence_cursor: memoryResult.provider_evidence_cursor,
       }));
     }
 
@@ -944,6 +945,7 @@ export class MemoryNpcConsumer {
           world_revision: filteredEmptySnapshotRead.world_revision,
           commit_sequence: filteredEmptySnapshotRead.commit_sequence,
         }),
+        provider_evidence_cursor: memoryResult.provider_evidence_cursor,
       }));
     }
 
