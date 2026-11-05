@@ -22,8 +22,9 @@ The native metadata layer also exposes locked `le_win_open_role_file`,
 resolves only a registered main DB or active sidecar by File ID. Create and
 delete write a validated lifecycle intent before changing the namespace, flush
 the file and parent, commit the next manifest generation, reconcile the result,
-and only then retire the intent. These primitives are smoke-tested but are not
-yet wired to IPC or the SQLite VFS.
+and only then retire the intent. DELETE_SIDECAR calls the delete transaction over
+IPC. The open and create primitives are smoke-tested but are not yet exposed over
+IPC or wired to the SQLite VFS.
 Do not connect the SQLite VFS or install this host for production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
