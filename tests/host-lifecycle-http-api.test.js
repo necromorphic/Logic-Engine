@@ -201,6 +201,14 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
       patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
       host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     },
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: DIGEST('test-vss-snapshot'),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      manifest_sha256: DIGEST('test-source-manifest'),
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+    },
   });
   const completenessBody = {
     host_installation_id: INSTALLATION,
