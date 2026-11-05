@@ -128,7 +128,7 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
  static const char*policy[]={"filesystem","identitySource","directoryMutationBoundary"};
  static const char*rolekeys[]={"role","parentComponents","parentIdentities","databaseBasename","databaseIdentity","state","sidecars"};
  static const char*sidekeys[]={"kind","identity","state","generation"};
- DWORD roles,policyid,rootid,role,side,arr,i,j,k,comp,ident,dbid;uint64_t gen,sg;const char*kind;DWORD role_names[32],dbids[32*256];DWORD dbcount=0;
+ DWORD roles,policyid,rootid,role,side,i,dbid;uint64_t gen,sg;const char*kind;DWORD role_names[32];DWORD dbcount=0;
  if(!jkeys(p,root,top,6)||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jnum(p,jget(p,root,"generation"),1,9007199254740991ULL,&gen)||!jeq(p,jget(p,root,"platform"),"windows"))return 0;
  rootid=jget(p,root,"metadataRootIdentity");if(!jidentity(p,rootid))return 0;
  policyid=jget(p,root,"filesystemPolicy");
@@ -162,7 +162,7 @@ static int jvalidate_intent(JPARSER*p,DWORD root){
 }
 static int jvalidate(const unsigned char*bytes,DWORD length,int intent){
  JPARSER p;DWORD root;int ok=0;
- if(!bytes||!length||length>LE_JSON_MAX_BYTES||length>=3&&bytes[0]==0xef&&bytes[1]==0xbb&&bytes[2]==0xbf)return 0;
+ if(!bytes||!length||length>LE_JSON_MAX_BYTES||(length>=3&&bytes[0]==0xef&&bytes[1]==0xbb&&bytes[2]==0xbf))return 0;
  if(!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)bytes,(int)length,NULL,0))return 0;
  ZeroMemory(&p,sizeof(p));p.s=bytes;p.n=length;p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);if(!p.v)return 0;
  jws(&p);if(jvalue(&p,0,&root)){jws(&p);if(p.pos==p.n&&p.v[root].type==J_OBJECT)ok=intent?jvalidate_intent(&p,root):jvalidate_manifest(&p,root);}
