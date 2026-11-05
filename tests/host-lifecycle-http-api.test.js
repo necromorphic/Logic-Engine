@@ -341,7 +341,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     attestation: changedSourceAttestation,
   });
   assert.equal(sourceDrift.status, 409);
-  assert.equal((await sourceDrift.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID');
+  assert.equal((await sourceDrift.json()).error.code, 'HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT');
 
   const prepared = {
     host_installation_id: INSTALLATION,
