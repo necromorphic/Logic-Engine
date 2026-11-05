@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <strsafe.h>
+#include "windows_manifest_store.h"
+#include "windows_manifest_validator.h"
 
 #ifndef _countof
 #define _countof(array) (sizeof(array) / sizeof((array)[0]))
@@ -23,6 +25,8 @@ typedef struct { uint32_t magic; uint16_t version, operation; uint32_t flags; ui
 #pragma pack(pop)
 static SERVICE_STATUS_HANDLE sh; static SERVICE_STATUS ss; static HANDLE stop_event;
 static PSID allowed_sid; static wchar_t sid_text[184]; static volatile LONG stopping;
+static wchar_t metadata_directory[32768], namespace_root[32768];
+static LE_WIN_MANIFEST_STORE metadata_store;
 static void status(DWORD state, DWORD error) {
  ss.dwServiceType=SERVICE_WIN32_OWN_PROCESS; ss.dwCurrentState=state; ss.dwWin32ExitCode=error;
  ss.dwWaitHint=state==SERVICE_START_PENDING?5000:0;
@@ -92,6 +96,15 @@ static void client(HANDLE pipe) {
  done:
  if(process)CloseHandle(process);
 }
+static int startup_recover(
+    LE_WIN_MANIFEST_STORE *store,
+    const unsigned char *manifest, DWORD manifest_length,
+    const unsigned char *intent, DWORD intent_length,
+    void *context) {
+ (void)store;
+ if(intent||intent_length){SetLastError(ERROR_RECOVERY_FAILURE);return 0;}
+ return le_win_reconcile_manifest_namespace(manifest,manifest_length,(const wchar_t*)context);
+}
 static void run(void) {
  SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
  if(!pipe_sa(&sa,&sd)){status(SERVICE_STOPPED,GetLastError());return;}status(SERVICE_RUNNING,0);
@@ -104,10 +117,28 @@ static void run(void) {
  LocalFree(sd);status(SERVICE_STOPPED,0);
 }
 static VOID WINAPI service_main(DWORD argc,LPWSTR *argv) {
- DWORD i;const wchar_t *sid=NULL;sh=RegisterServiceCtrlHandlerExW(L"LogicEngineSqliteBroker",control,NULL);if(!sh)return;status(SERVICE_START_PENDING,0);
- for(i=1;i<argc;i++){if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc)sid=argv[++i];else{status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}}
+ DWORD i;const wchar_t *sid=NULL;BOOL have_metadata=FALSE,have_namespace=FALSE;
+ sh=RegisterServiceCtrlHandlerExW(L"LogicEngineSqliteBroker",control,NULL);if(!sh)return;status(SERVICE_START_PENDING,0);
+ ZeroMemory(metadata_directory,sizeof(metadata_directory));ZeroMemory(namespace_root,sizeof(namespace_root));
+ for(i=1;i<argc;i++){
+  if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc)sid=argv[++i];
+  else if(!wcscmp(argv[i],L"--metadata-dir")&&i+1<argc){
+   if(FAILED(StringCchCopyW(metadata_directory,_countof(metadata_directory),argv[++i]))){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
+   have_metadata=TRUE;
+  }else if(!wcscmp(argv[i],L"--namespace-root")&&i+1<argc){
+   if(FAILED(StringCchCopyW(namespace_root,_countof(namespace_root),argv[++i]))){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
+   have_namespace=TRUE;
+  }else{status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
+ }
+ if(!have_metadata||!have_namespace){status(SERVICE_STOPPED,ERROR_INVALID_PARAMETER);return;}
  if(!init_sid(sid)){status(SERVICE_STOPPED,ERROR_INVALID_SID);return;}
  stop_event=CreateEventW(NULL,TRUE,FALSE,NULL);if(!stop_event){LocalFree(allowed_sid);allowed_sid=NULL;status(SERVICE_STOPPED,GetLastError());return;}
- run();CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+ if(!le_win_store_open_validated(&metadata_store,metadata_directory)
+     ||!le_win_store_startup_recover(&metadata_store,startup_recover,namespace_root)){
+  DWORD error=GetLastError();le_win_store_close(&metadata_store);
+  CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+  status(SERVICE_STOPPED,error?error:ERROR_RECOVERY_FAILURE);return;
+ }
+ run();le_win_store_close(&metadata_store);CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
 }
 int wmain(void){SERVICE_TABLE_ENTRYW t[]={{L"LogicEngineSqliteBroker",service_main},{NULL,NULL}};if(!StartServiceCtrlDispatcherW(t)){fwprintf(stderr,L"SCM dispatcher failed: %lu\n",GetLastError());return 1;}return 0;}
