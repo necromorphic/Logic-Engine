@@ -60,6 +60,9 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(storeHeader, /le_win_store_remove_intent/);
   assert.match(store, /le_store_acl_is_private/);
   assert.match(store, /SE_DACL_PROTECTED/);
+  assert.match(store, /dacl->AclRevision != ACL_REVISION/);
+  assert.match(store, /header->AceFlags != \(OBJECT_INHERIT_ACE \| CONTAINER_INHERIT_ACE\)/);
+  assert.match(store, /ace->Mask != FILE_ALL_ACCESS/);
   assert.match(store, /GetSecurityInfo/);
   assert.match(store, /ACCESS_ALLOWED_ACE_TYPE/);
   assert.match(store, /GetFinalPathNameByHandleW/);
