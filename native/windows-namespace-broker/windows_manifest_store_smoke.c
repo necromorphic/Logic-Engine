@@ -106,7 +106,8 @@ int main(void) {
   stage = "release store lock before startup recovery";
   le_win_store_unlock(&store);
   stage = "retain intent when recovery callback rejects";
-  if (le_win_store_startup_recover(&store, recover_test, &reject_recovery)) goto close_store;
+  if (le_win_store_startup_recover(&store, recover_test, &reject_recovery)
+      || GetLastError() != ERROR_RECOVERY_FAILURE) goto close_store;
   stage = "verify rejected recovery retained intent";
   if (!le_win_store_lock(&store)
       || !le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
