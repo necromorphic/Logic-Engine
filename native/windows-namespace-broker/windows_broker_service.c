@@ -112,6 +112,21 @@ static void client(HANDLE pipe) {
  if(q.payload_length&&!readn(pipe,payload,q.payload_length))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
  if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
+ else if(q.operation==4){
+  DWORD operation_error=ERROR_SUCCESS;
+  if(!parse_access_payload(payload,q.payload_length,role,kind)||strcmp(kind,"main")==0)
+   response_status=LEB_STATUS_BAD_REQUEST;
+  else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
+  else{
+   if(le_win_delete_role_sidecar(&metadata_store,namespace_root,role,kind))
+    response_status=LEB_STATUS_OK;
+   else{
+    operation_error=GetLastError();
+    response_status=operation_error==ERROR_FILE_NOT_FOUND?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL;
+   }
+   le_win_store_unlock(&metadata_store);
+  }
+ }
  else if(q.operation==8){
   if(!parse_access_payload(payload,q.payload_length,role,kind))response_status=LEB_STATUS_BAD_REQUEST;
   else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
