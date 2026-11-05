@@ -158,6 +158,15 @@ int main(void) {
   if (le_win_namespace_delete_sidecar(store.directory, &sidecar, &wrong_identity)) goto unlock_store;
   stage = "delete verified sidecar";
   if (!le_win_namespace_delete_sidecar(store.directory, &sidecar, &sidecar_identity)) goto unlock_store;
+  stage = "remove manifest to exercise missing-manifest fail-closed path";
+  {
+    wchar_t manifest_path[MAX_PATH];
+    if (FAILED(StringCchPrintfW(manifest_path, LE_COUNT_OF(manifest_path),
+        L"%s\\manifest.json", directory)) || !DeleteFileW(manifest_path)) goto unlock_store;
+  }
+  stage = "reject startup without a manifest";
+  if (le_win_store_startup_recover(&store, recover_test, &reject_recovery)
+      || GetLastError() != ERROR_FILE_NOT_FOUND) goto unlock_store;
   result = 0;
 unlock_store:
 
