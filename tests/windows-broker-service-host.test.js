@@ -58,6 +58,10 @@ test('Windows broker metadata store enforces pinned ancestry, NTFS and protected
   assert.match(store, /validate_intent/);
   assert.match(store, /LE_STORE_MAX_BYTES/);
   assert.match(storeHeader, /le_win_store_open/);
+  assert.match(storeHeader, /le_win_store_open_validated/);
+  assert.match(store, /le_win_store_open_validated/);
+  assert.match(store, /le_win_validate_manifest/);
+  assert.match(store, /le_win_validate_intent/);
   assert.match(storeHeader, /le_win_store_write_manifest/);
   assert.match(storeHeader, /le_win_store_remove_intent/);
   assert.match(store, /le_store_acl_is_private/);
