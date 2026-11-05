@@ -716,7 +716,7 @@ int le_win_delete_role_sidecar(LE_WIN_MANIFEST_STORE*store,const wchar_t*namespa
   if(p.v[role_node].end-p.v[role_node].start==strlen(role_name)
      &&memcmp(p.s+p.v[role_node].start,role_name,strlen(role_name))==0)break;
  }
- if(role==0xffffffffu){SetLastError(ERROR_FILE_NOT_FOUND);goto done;}
+ if(role==0xffffffffu){SetLastError(ERROR_INVALID_NAME);goto done;}
  kind=kind_name;suffix=strcmp(kind,"wal")==0?L"-wal":strcmp(kind,"shm")==0?L"-shm":L"-journal";
  db_node=jget(&p,role,"databaseBasename");
  if(!jwide(&p,db_node,basename_w,(DWORD)LE_COUNT_OF(basename_w)))goto done;
