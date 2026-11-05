@@ -2646,25 +2646,26 @@ export class SQLiteStore {
           if (previous === undefined || event.commit_sequence < previous) affectedAt.set(ref, event.commit_sequence);
         }
       };
-      const projectionChanged = (ref, event) => {
+      const projectionChanged = (ref, event, includeEventEffects = false) => {
         if (!affectedAt.has(ref) || affectedAt.get(ref) >= event.commit_sequence) return false;
+        const projectionCursor = event.commit_sequence + (includeEventEffects ? 1 : 0);
         if (ref.startsWith('entity:')) {
           const entityId = ref.slice('entity:'.length);
-          const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
-          const after = this.entityProjectionAtCursor(id, event.commit_sequence, invalid).get(entityId);
+          const before = this.entityProjectionAtCursor(id, projectionCursor).get(entityId);
+          const after = this.entityProjectionAtCursor(id, projectionCursor, invalid).get(entityId);
           return !isDeepStrictEqual(before, after);
         }
         if (ref.startsWith('fact:')) {
           const factId = ref.slice('fact:'.length);
-          const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
-          const after = this.factProjectionAtCursor(id, event.commit_sequence, invalid).get(factId);
+          const before = this.factProjectionAtCursor(id, projectionCursor).get(factId);
+          const after = this.factProjectionAtCursor(id, projectionCursor, invalid).get(factId);
           return !sameFactProjection(before, after);
         }
         if (ref.startsWith('relationship:')) {
           const pair = parseRelationshipRef(ref);
           if (!pair) return false;
-          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence);
-          const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, invalid);
+          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, projectionCursor);
+          const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, projectionCursor, invalid);
           if (pair.dimension === null) return !isDeepStrictEqual(before, after);
           return !isDeepStrictEqual(before[pair.dimension], after[pair.dimension]);
         }
@@ -2681,7 +2682,7 @@ export class SQLiteStore {
             // A later writer is causally dependent on the projection it overwrites:
             // if rollback changes that projection at the writer's commit cursor,
             // invalidate the writer as well instead of preserving a stale overwrite.
-            || refs(event.effects).some((value) => projectionChanged(value, event))
+            || refs(event.effects).some((value) => projectionChanged(value, event, true))
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') {
