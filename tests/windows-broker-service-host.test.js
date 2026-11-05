@@ -21,8 +21,9 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
   assert.match(source, /PROCESS_DUP_HANDLE/);
 });
 
-test('Windows broker keeps filesystem operations disabled without backend', () => {
-  assert.match(source, /q\.operation>=2&&q\.operation<=8\)r\.flags=3/);
+test('Windows broker keeps unimplemented file operations disabled without backend', () => {
+  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+  assert.match(source, /q\.operation==8/);
   assert.match(docs, /PING and read-only ACCESS_ROLE_FILE are implemented/);
   assert.match(docs, /Do not connect the SQLite VFS/);
 });
