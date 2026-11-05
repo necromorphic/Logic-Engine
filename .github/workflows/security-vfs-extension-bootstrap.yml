@@ -46,6 +46,7 @@ on:
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
 
 permissions:
+      - '.github/workflows/provider-blocker3.yml'
   contents: read
 
 # Keep active exact-head VFS bootstrap probes running across newer integration commits.

@@ -20,6 +20,7 @@ on:
       - 'tests/sillytavern-final-send-adapter.test.js'
       - 'tests/gateway-final-send-composition.test.js'
       - '.github/workflows/gateway-final-send-validation.yml'
+      - '.github/workflows/provider-blocker3.yml'
   push:
     branches: [integration/host-core-v1]
     paths:

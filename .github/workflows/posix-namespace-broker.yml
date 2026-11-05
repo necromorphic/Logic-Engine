@@ -14,6 +14,7 @@ on:
       - ".github/workflows/posix-namespace-broker.yml"
 
 permissions:
+      - ".github/workflows/provider-blocker3.yml"
   contents: read
 
 jobs:

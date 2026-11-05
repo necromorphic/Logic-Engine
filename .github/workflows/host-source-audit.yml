@@ -8,6 +8,7 @@ on:
       - "src/application/host-session-context.js"
       - "src/application/host-session-context.test.js"
       - ".github/workflows/host-source-audit.yml"
+      - ".github/workflows/provider-blocker3.yml"
   push:
     branches:
       - main

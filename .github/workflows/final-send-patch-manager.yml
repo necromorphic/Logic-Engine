@@ -19,6 +19,7 @@ on:
       - "tests/sillytavern-final-send-patch-artifact.test.js"
       - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"
       - ".github/workflows/final-send-patch-manager.yml"
+      - ".github/workflows/provider-blocker3.yml"
   workflow_dispatch:
 
 permissions:

@@ -15,6 +15,7 @@ on:
       - "tests/memory-npc-consumer.test.js"
       - "tests/memory-npc-provider-adapter.test.js"
       - ".github/workflows/npc-generation-context.yml"
+      - ".github/workflows/provider-blocker3.yml"
   push:
     branches: [main, 'npc/**', 'integration/host-core-v1']
     paths:

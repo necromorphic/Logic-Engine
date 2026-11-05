@@ -5,6 +5,7 @@ on:
     paths:
       - 'host-adapter/prototype/**'
       - '.github/workflows/host-lifecycle-browser-storage.yml'
+      - '.github/workflows/provider-blocker3.yml'
   push:
     branches:
       - host/lifecycle-completeness-followup-2026-10-25
