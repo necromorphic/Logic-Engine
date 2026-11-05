@@ -171,6 +171,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
           source_kind: 'canonical_entity',
           source_entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
+          epistemic_kind: dispatchRecord.epistemic_kind,
+          evidence_assessment: dispatchRecord.evidence_assessment,
         }],
         coordinatorLease: providerLease,
       });
@@ -195,6 +197,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
           source_kind: 'canonical_entity',
           source_entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
+          epistemic_kind: dispatchRecord.epistemic_kind,
+          evidence_assessment: dispatchRecord.evidence_assessment,
         }],
       });
     } finally {
