@@ -1014,7 +1014,9 @@ export class HostLifecycleJournal {
     if (attestationRow
       && attestationRow.inventory_sequence === root.sequence
       && attestationRow.manifest_sha256 === root.latest_manifest_sha256
-      && attestationRow.inventory_head_sha256 === root.head_sha256) {
+      && attestationRow.inventory_head_sha256 === root.head_sha256
+      && attestationRow.lifecycle_sequence === lifecycleHead.sequence
+      && attestationRow.lifecycle_head_sha256 === lifecycleHead.head_sha256) {
       try {
         const attestation = JSON.parse(attestationRow.canonical_attestation_json);
         // Resolve the manifest pin from deployment-owned registry state at the
