@@ -145,3 +145,19 @@ test('native Windows validator enforces strict manifest and intent envelopes', (
   assert.match(smoke, /duplicate_key/);
   assert.match(smoke, /bad_intent/);
 });
+
+
+test('Windows SCM readiness is gated by validated manifest and physical namespace reconciliation', () => {
+  assert.match(source, /--metadata-dir/);
+  assert.match(source, /--namespace-root/);
+  assert.match(source, /le_win_store_open_validated/);
+  assert.match(source, /le_win_store_startup_recover/);
+  assert.match(source, /le_win_reconcile_manifest_namespace/);
+  assert.match(source, /if\(intent\|\|intent_length\)/);
+  const serviceMain = source.slice(source.indexOf('static VOID WINAPI service_main'));
+  assert.ok(serviceMain.indexOf('le_win_store_startup_recover') < serviceMain.indexOf('run();'),
+    'SCM must not enter RUNNING before startup reconciliation');
+  assert.match(validator, /jreconcile_role/);
+  assert.match(validator, /jopen_verified/);
+  assert.match(validator, /metadataRootIdentity/);
+});
