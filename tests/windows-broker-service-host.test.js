@@ -214,6 +214,13 @@ test('Windows broker dispatches read-only manifest-backed ACCESS_ROLE_FILE reque
   assert.match(validator, /int le_win_open_role_file/);
   assert.match(validatorHeader, /le_win_create_role_sidecar/);
   assert.match(validator, /int le_win_create_role_sidecar/);
+  assert.match(validatorHeader, /le_win_delete_role_sidecar/);
+  assert.match(validator, /int le_win_delete_role_sidecar/);
+  assert.match(validator, /jmanifest_retire_sidecar/);
+  assert.match(validator, /FILE_DISPOSITION_INFO disposition/);
+  assert.match(smoke, /runtime delete-sidecar transaction writes intent and retires manifest entry/);
+  assert.match(smoke, /runtime-deleted SHM is absent from manifest-backed access/);
+  assert.match(smoke, /runtime-deleted SHM cannot be reopened by role identity/);
   assert.match(validator, /le_win_store_write_intent/);
   assert.match(validator, /le_win_namespace_create_sidecar/);
   assert.match(validator, /jmanifest_add_active_sidecar/);
