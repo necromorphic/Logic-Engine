@@ -15,9 +15,13 @@ OK or NOT_FOUND without exposing a path or handle. OPEN_MAIN, OPEN_SIDECAR,
 DELETE_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR still return
 UNSUPPORTED. The SCM startup path validates and reconciles the durable
 manifest and can recover create- and delete-sidecar crash windows described below.
-The native metadata layer also exposes a locked `le_win_open_role_file` helper
-that opens a registered main database or active sidecar by its manifest File ID;
-it is smoke-tested but is not yet wired to IPC or the SQLite VFS.
+The native metadata layer also exposes locked `le_win_open_role_file`,
+`le_win_create_role_sidecar` and `le_win_delete_role_sidecar` operations. Open
+resolves only a registered main DB or active sidecar by File ID. Create and
+delete write a validated lifecycle intent before changing the namespace, flush
+the file and parent, commit the next manifest generation, reconcile the result,
+and only then retire the intent. These primitives are smoke-tested but are not
+yet wired to IPC or the SQLite VFS.
 Do not connect the SQLite VFS or install this host for production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
@@ -175,5 +179,4 @@ boundaries:
 - crash after delete manifest commit: require the matching retired record and
   an absent pathname before retiring the intent.
 
-The native implementation covers create and delete recovery. ACCESS_ROLE_FILE
-is now enabled as a read-only IPC operation; file-open and mutation IPC remain disabled.
+The native implementation covers startup recovery and durable runtime create/delete transactions. ACCESS_ROLE_FILE is enabled as a read-only IPC operation; file-open and mutation IPC remain disabled.
