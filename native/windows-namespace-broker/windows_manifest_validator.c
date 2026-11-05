@@ -141,7 +141,7 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
  roles=jget(p,root,"roles");if(p->v[roles].type!=J_ARRAY||p->v[roles].count==0||p->v[roles].count>32)return 0;
  for(role=p->v[roles].first;role!=0xffffffffu;role=p->v[role].next){
   DWORD roleid=jget(p,role,"role"),parents=jget(p,role,"parentIdentities"),components=jget(p,role,"parentComponents"),sides=jget(p,role,"sidecars");
-  DWORD pc,pi;unsigned active[3]={0,0,0};
+  DWORD pc,pi,previous;unsigned active[3]={0,0,0};uint64_t active_gen[3]={0,0,0},retired_gen[3]={0,0,0};
   if(!jkeys(p,role,rolekeys,7)||!jrole_name(p,roleid)||!jeq(p,jget(p,role,"state"),"active")||!jcomponent(p,jget(p,role,"databaseBasename"))||!jidentity(p,jget(p,role,"databaseIdentity"))||p->v[parents].type!=J_ARRAY||p->v[components].type!=J_ARRAY||p->v[parents].count!=p->v[components].count||p->v[parents].count>256||p->v[sides].type!=J_ARRAY)return 0;
   for(i=0;i<32;i++)if(i<dbcount&&p->v[role_names[i]].end-p->v[role_names[i]].start==p->v[roleid].end-p->v[roleid].start&&!memcmp(p->s+p->v[role_names[i]].start,p->s+p->v[roleid].start,p->v[roleid].end-p->v[roleid].start))return 0;
   role_names[dbcount]=roleid;dbcount++;
@@ -150,10 +150,20 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
   for(i=0;i<p->v[sides].count;i++){side=(i==0?p->v[sides].first:p->v[side].next);if(!jkeys(p,side,sidekeys,4))return 0;
    kind=jeq(p,jget(p,side,"kind"),"wal")?"wal":jeq(p,jget(p,side,"kind"),"shm")?"shm":jeq(p,jget(p,side,"kind"),"journal")?"journal":NULL;
    if(!kind||!jclaim_identity(p,jget(p,side,"identity"),physical_ids,&physical_count,8192)||!jnum(p,jget(p,side,"generation"),1,gen,&sg))return 0;
-   if(jeq(p,jget(p,side,"state"),"active")){unsigned ix=!strcmp(kind,"wal")?0:!strcmp(kind,"shm")?1:2;if(++active[ix]>1)return 0;}
-   else if(!jeq(p,jget(p,side,"state"),"retired"))return 0;
+   {
+    unsigned ix=!strcmp(kind,"wal")?0:!strcmp(kind,"shm")?1:2;
+    for(previous=p->v[sides].first;previous!=side;previous=p->v[previous].next){
+     uint64_t oldgen;
+     if(jeq(p,jget(p,previous,"kind"),kind)
+         &&jnum(p,jget(p,previous,"generation"),1,gen,&oldgen)&&oldgen==sg)return 0;
+    }
+    if(jeq(p,jget(p,side,"state"),"active")){if(++active[ix]>1)return 0;active_gen[ix]=sg;}
+    else if(jeq(p,jget(p,side,"state"),"retired")){if(sg>retired_gen[ix])retired_gen[ix]=sg;}
+    else return 0;
+   }
 
   }
+  for(i=0;i<3;i++)if(active_gen[i]&&active_gen[i]<=retired_gen[i])return 0;
  }
  return 1;
 }
