@@ -20,7 +20,6 @@ import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
 const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
-const TRUSTED_KNOWLEDGE_ASSIGNMENT = Symbol('TRUSTED_KNOWLEDGE_ASSIGNMENT');
 const TRUSTED_IMPORT_CAPABILITY = Symbol('trusted-import-loader');
 function sameTrustedImportPath(left, right) {
   const normalize = value => {
@@ -587,26 +586,6 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
-  listKnowledgeAssignments(id, subjectId = null) { return this.store.listKnowledgeAssignments(id, subjectId); }
-
-  assignKnowledge(id, input) {
-    assert(obj(input), 'INVALID_KNOWLEDGE_ASSIGNMENT', 'Knowledge assignment request must be an object.');
-    const allowed = ['assignment_id','subject_id','item_id','source_kind','source_ref','source_version','authorization_ref','expected_revision'];
-    assert(Object.keys(input).every(key => allowed.includes(key)), 'UNSUPPORTED_KNOWLEDGE_ASSIGNMENT_FIELD', 'Knowledge assignment request contains unsupported fields.');
-    for (const key of ['assignment_id','subject_id','item_id','source_kind','source_ref','source_version','authorization_ref']) assert(typeof input[key] === 'string' && input[key].trim() === input[key] && input[key].length > 0 && input[key].length <= 200, 'INVALID_KNOWLEDGE_ASSIGNMENT', key + ' must be a non-empty string of at most 200 characters.');
-    assert(['author_initial','imported'].includes(input.source_kind), 'INVALID_KNOWLEDGE_ASSIGNMENT', 'source_kind must be author_initial or imported.');
-    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
-    const sourceEventId = input.source_ref.startsWith('event:') ? input.source_ref.slice(6) : null;
-    if (input.source_ref.startsWith('event:')) assert(sourceEventId.length > 0, 'INVALID_KNOWLEDGE_SOURCE_REF', 'event source_ref requires event ID.');
-    else assert(input.source_ref.startsWith('world_pack:'), 'INVALID_KNOWLEDGE_SOURCE_REF', 'source_ref must be event:<id> or world_pack:<id>@<version>.');
-    const stableKey = 'knowledge-assignment:' + hashRequest({ assignment_id: input.assignment_id }).slice(0,64);
-    return this.commitEvent(id, { idempotency_key:stableKey, turn_id:stableKey, event_type:'knowledge.assignment.created',
-      expected_revision:input.expected_revision, caused_by:sourceEventId?[sourceEventId]:[],
-      causal_links:sourceEventId?[{relation:'READS_SOURCE',target_id:sourceEventId}]:[],
-      effects:[{kind:'knowledge.assignment',assignment_id:input.assignment_id,subject_id:input.subject_id,item_id:input.item_id,
-        source_kind:input.source_kind,source_ref:input.source_ref,source_version:input.source_version,authorization_ref:input.authorization_ref}] },
-      { [TRUSTED_KNOWLEDGE_ASSIGNMENT]:true });
-  }
   /** @internal Provider reconciliation only; not an HTTP/client authorization API. */
   getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
@@ -676,7 +655,6 @@ export class LogicEngine {
       allowRelationshipTransition: options.allowRelationshipTransition === true,
       allowKnowledgeAcquisition: options[INTERNAL_CORE_EFFECTS] === true && options.allowKnowledgeAcquisition === true,
       allowNpcBeliefTransition: options[INTERNAL_CORE_EFFECTS] === true && options.allowNpcBeliefTransition === true,
-      allowKnowledgeAssignment: options[TRUSTED_KNOWLEDGE_ASSIGNMENT] === true,
     });
     const request = {
       operation: 'event.commit',
@@ -1542,8 +1520,6 @@ export class LogicEngine {
   }
 
   commitEvent(id, x, options = {}) {
-    const hasKnowledgeAssignment = Array.isArray(x?.effects) && x.effects.some(effect => effect?.kind === 'knowledge.assignment');
-    assert(!hasKnowledgeAssignment || options[TRUSTED_KNOWLEDGE_ASSIGNMENT] === true, 'KNOWLEDGE_ASSIGNMENT_TRUSTED_PATH_REQUIRED', 'Knowledge assignment requires trusted Core operation.', 403);
     const prepared = this.prepareEventForWorld(id, x, options);
     if (options.mechanicExecution !== undefined && options.mechanicExecution !== null) {
       const metadata = options.mechanicExecution;
@@ -1608,7 +1584,7 @@ export class LogicEngine {
       });
     }
     this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
-    return this.store.commit(id, prepared, { allowKnowledgeAssignment: options[TRUSTED_KNOWLEDGE_ASSIGNMENT] === true });
+    return this.store.commit(id, prepared);
   }
 
   commitSegment(id, x, options = {}) {
