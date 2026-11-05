@@ -228,6 +228,7 @@ int main(void) {
       OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
   if (namespace_handle == INVALID_HANDLE_VALUE) goto unlock_store;
   store.validate_manifest = le_win_validate_manifest;
+  store.validate_intent = le_win_validate_intent;
   stage = "recover create intent when CREATE_NEW never produced a file";
   {
     static const unsigned char missing_create_intent[] =
@@ -316,8 +317,23 @@ int main(void) {
       FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
       FILE_OPEN,FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
   if (reopened!=INVALID_HANDLE_VALUE||GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
+  stage = "runtime create-sidecar transaction writes intent and commits manifest";
+  if (!le_win_create_role_sidecar(&store,namespace_directory,"main","shm",
+      &broker_opened,&sidecar_identity) || broker_opened==INVALID_HANDLE_VALUE) goto unlock_store;
+  stage = "runtime-created SHM is active in manifest-backed access";
+  if (!le_win_access_role_file(&store,namespace_directory,"main","shm",&access_exists)
+      || !access_exists) goto unlock_store;
+  stage = "runtime-created SHM reopens by committed File ID";
+  if (!le_win_open_role_file(&store,namespace_directory,"main","shm",&reopened)
+      || reopened==INVALID_HANDLE_VALUE) goto unlock_store;
+  if (!CloseHandle(reopened) || !CloseHandle(broker_opened)) goto unlock_store;
+  reopened=INVALID_HANDLE_VALUE;broker_opened=INVALID_HANDLE_VALUE;
+  stage = "runtime create-sidecar transaction retires its intent";
+  if (le_win_store_read_intent(&store,&recovery_intent,&recovery_intent_length)
+      || GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
   HeapFree(GetProcessHeap(),0,manifest);manifest=NULL;manifest_length=0;
   store.validate_manifest = validate_test_json;
+  store.validate_intent = validate_test_json;
   CloseHandle(namespace_handle);namespace_handle=INVALID_HANDLE_VALUE;
   stage = "probe directory FlushFileBuffers";
   if (!FlushFileBuffers(store.directory)) goto unlock_store;
