@@ -100,6 +100,7 @@ int main(void) {
   int reject_recovery = 1;
   BOOL access_exists = FALSE;
   HANDLE sidecar = INVALID_HANDLE_VALUE, reopened = INVALID_HANDLE_VALUE;
+  HANDLE broker_opened = INVALID_HANDLE_VALUE;
   HANDLE namespace_handle = INVALID_HANDLE_VALUE, database_handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity namespace_identity, database_identity;
   char namespace_volume[17], namespace_file_id[33], database_volume[17], database_file_id[33];
@@ -266,6 +267,18 @@ int main(void) {
     stage = "manifest-backed access reports unknown role absent";
     if (!le_win_access_role_file(&store,namespace_directory,"missing-role","main",&access_exists)
         || access_exists) goto unlock_store;
+    stage = "open registered main database by manifest identity";
+    if (!le_win_open_role_file(&store,namespace_directory,"main","main",&broker_opened)
+        || broker_opened==INVALID_HANDLE_VALUE) goto unlock_store;
+    if (!CloseHandle(broker_opened)) goto unlock_store;
+    broker_opened=INVALID_HANDLE_VALUE;
+    stage = "open active WAL sidecar by manifest identity";
+    if (!le_win_open_role_file(&store,namespace_directory,"main","wal",&broker_opened)
+        || broker_opened==INVALID_HANDLE_VALUE) goto unlock_store;
+    if (!CloseHandle(broker_opened)) goto unlock_store;
+    broker_opened=INVALID_HANDLE_VALUE;
+    stage = "reject open for unregistered role";
+    if (le_win_open_role_file(&store,namespace_directory,"missing-role","main",&broker_opened)) goto unlock_store;
     stage = "reconcile committed create-sidecar intent";
     if (!le_win_recover_lifecycle_intent(&store,manifest,manifest_length,
         create_intent,(DWORD)(sizeof(create_intent)-1),namespace_directory)) goto unlock_store;
@@ -363,6 +376,7 @@ int main(void) {
   stage = "reject wrong identity";
   if (le_win_namespace_open_sidecar(store.directory, L"smoke-wal", &wrong_identity, &reopened, &reopened_identity)) {
     if (reopened != INVALID_HANDLE_VALUE) CloseHandle(reopened);
+  if (broker_opened != INVALID_HANDLE_VALUE) CloseHandle(broker_opened);
   if (namespace_handle != INVALID_HANDLE_VALUE) CloseHandle(namespace_handle);
   if (database_handle != INVALID_HANDLE_VALUE) CloseHandle(database_handle);
     reopened = INVALID_HANDLE_VALUE;
