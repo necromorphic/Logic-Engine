@@ -255,7 +255,7 @@ test('Core accepts a signed Host root completeness proof before granting lifecyc
     event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
     entries: changedEntries,
   });
-  assert.equal(changedObservation.status, 200);
+  assert.equal(changedObservation.status, 200, await changedObservation.clone().text());
   const changedObservationPayload = await changedObservation.json();
   assert.equal(changedObservationPayload.reconciliation.status, 'NON_READY');
   assert.equal(changedObservationPayload.reconciliation.sequence, 2);
