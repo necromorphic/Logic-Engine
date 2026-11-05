@@ -160,6 +160,6 @@ test('Windows SCM readiness is gated by validated manifest and physical namespac
   assert.match(validator, /jreconcile_role/);
   assert.match(validator, /jopen_verified/);
   assert.match(validator, /jntfs_handle/);
-  assert.match(validator, /wcscmp\(filesystem, L\"NTFS\"\)/);
+  assert.match(validator, /wcscmp\(filesystem,L"NTFS"\)/);
   assert.match(validator, /metadataRootIdentity/);
 });
