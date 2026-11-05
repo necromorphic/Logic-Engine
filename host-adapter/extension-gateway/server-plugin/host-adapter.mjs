@@ -57,7 +57,7 @@ export function createSillyTavernHostAdapter({
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
     || typeof injectedVerifySourceIdentity !== 'function'
-    || (injectedVerifyMutationCoverage !== undefined && typeof injectedVerifyMutationCoverage !== 'function')
+    || (injectedVerifyMutationCoverage !== null && injectedVerifyMutationCoverage !== undefined && typeof injectedVerifyMutationCoverage !== 'function')
     || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
