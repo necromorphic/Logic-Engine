@@ -24,7 +24,7 @@ const unavailable = () => new EngineError(
  * default public visibility policy. Never pass model-produced policy functions.
  */
 export class AuthorizedReadService {
-  constructor(engine, actorBindingService, fieldPolicyOrAuthority) {
+  constructor(engine, actorBindingService, fieldPolicyOrAuthority, knowledgePolicy = null) {
     if (typeof engine?.getSnapshot !== 'function') {
       throw new TypeError('AuthorizedReadService requires a LogicEngine');
     }
@@ -38,6 +38,8 @@ export class AuthorizedReadService {
     this.actorBindingService = actorBindingService;
     this.policyAuthority = isMechanicPolicyAuthority(fieldPolicyOrAuthority) ? fieldPolicyOrAuthority : null;
     this.fieldPolicy = this.policyAuthority ? null : fieldPolicyOrAuthority;
+    if (knowledgePolicy !== null && typeof knowledgePolicy !== 'function') throw new TypeError('Knowledge policy must be trusted configuration.');
+    this.knowledgePolicy = knowledgePolicy;
   }
 
   getPolicyAuthoritySnapshot() {
@@ -210,6 +212,43 @@ export class AuthorizedReadService {
       present,
       ...(present ? { value: entity.attributes[request.attribute] } : {}),
     });
+  }
+
+  /**
+   * Internal actor-bound initial-assignment filter. Default-deny and explicitly
+   * incomplete; not connected to the model egress path.
+   */
+  readKnowledgeAssignments(request) {
+    assert(object(request), 'INVALID_AUTHORIZED_READ', 'Knowledge read request must be an object.');
+    const allowed = new Set(['worldId','adapterId','actorEntityId','recipient','purpose','expectedWorldRevision','expectedCommitSequence']);
+    assert(Object.keys(request).every(key=>allowed.has(key)), 'INVALID_AUTHORIZED_READ', 'Knowledge read contains unsupported fields.');
+    assert(validId(request.worldId)&&validId(request.adapterId)&&validId(request.actorEntityId), 'INVALID_AUTHORIZED_READ', 'Bound world, adapter and actor are required.');
+    assert(request.recipient==='model'&&request.purpose==='npc_decision', 'INVALID_KNOWLEDGE_READ_PURPOSE', 'Initial assignments are limited to model npc_decision reads.',403);
+    assert(Number.isSafeInteger(request.expectedWorldRevision)&&request.expectedWorldRevision>=0&&Number.isSafeInteger(request.expectedCommitSequence)&&request.expectedCommitSequence>=0,
+      'INVALID_AUTHORIZED_READ_SNAPSHOT','Expected snapshot cursor is required.');
+    const binding=this.actorBindingService.resolve(request.worldId,request.adapterId,request.actorEntityId);
+    const context=Object.freeze({worldId:request.worldId,authenticatedAdapterId:binding.adapter_id,actor:Object.freeze({...binding.actor}),recipient:request.recipient,purpose:request.purpose});
+    let snapshot;
+    try{snapshot=this.engine.getSnapshot(request.worldId,{knowledgeSubjectIds:[request.actorEntityId]});}catch{throw unavailable();}
+    if(snapshot.world_revision!==request.expectedWorldRevision||snapshot.commit_sequence!==request.expectedCommitSequence)
+      throw new EngineError('STALE_AUTHORIZED_READ_SNAPSHOT','Authorized knowledge snapshot is stale.',409);
+    const assignments=[];
+    if(this.knowledgePolicy){
+      for(const assignment of snapshot.knowledge_assignments??[]){
+        let allowedAssignment=false;
+        try{allowedAssignment=this.knowledgePolicy(context,Object.freeze({...assignment}))===true;}catch{}
+        if(allowedAssignment)assignments.push(Object.freeze({assignment_id:assignment.assignment_id,item_id:assignment.item_id,source_kind:assignment.source_kind,source_version:assignment.source_version}));
+      }
+    }
+    // Revalidate actor binding and the same cursor after trusted policy callbacks.
+    const currentBinding=this.actorBindingService.resolve(request.worldId,request.adapterId,request.actorEntityId);
+    if(currentBinding.world_id!==request.worldId||currentBinding.adapter_id!==request.adapterId||currentBinding.actor?.entity_id!==request.actorEntityId)
+      throw unavailable();
+    const current=this.engine.getSnapshot(request.worldId,{knowledgeSubjectIds:[request.actorEntityId]});
+    if(current.world_revision!==snapshot.world_revision||current.commit_sequence!==snapshot.commit_sequence)
+      throw new EngineError('STALE_AUTHORIZED_READ_SNAPSHOT','Authorized knowledge snapshot changed during disclosure.',409);
+    return Object.freeze({world_id:snapshot.world_id,world_revision:snapshot.world_revision,commit_sequence:snapshot.commit_sequence,
+      status:'incomplete',coverage:'initial_assignments_only',assignments:Object.freeze(assignments)});
   }
 
   readEntityFields(request) {
