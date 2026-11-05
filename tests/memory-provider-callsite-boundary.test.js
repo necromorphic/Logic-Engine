@@ -63,14 +63,14 @@ function stripComments(content) {
     if (current === '/' && next === '*') {
       index += 2;
       while (index < content.length && !(content[index] === '*' && content[index + 1] === '/')) {
-        if (content[index] === '\\n') output += '\\n';
+        if (content[index] === '\n') output += '\n';
         index += 1;
       }
       index += 2;
       continue;
     }
     if (current === '/' && next === '/' && (index === 0 || content[index - 1] !== ':')) {
-      while (index < content.length && content[index] !== '\\n') index += 1;
+      while (index < content.length && content[index] !== '\n') index += 1;
       continue;
     }
     output += current;
