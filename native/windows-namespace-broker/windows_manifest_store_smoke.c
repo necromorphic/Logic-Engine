@@ -187,6 +187,65 @@ int main(void) {
   namespace_manifest_length = (DWORD)strlen((const char *)namespace_manifest);
   if (le_win_reconcile_manifest_namespace(namespace_manifest, namespace_manifest_length,
       namespace_directory)) goto unlock_store;
+  stage = "open namespace root for create-intent recovery";
+  namespace_handle = CreateFileW(namespace_directory,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_ADD_FILE | FILE_DELETE_CHILD | FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+      OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+  if (namespace_handle == INVALID_HANDLE_VALUE) goto unlock_store;
+  stage = "create orphan sidecar for interrupted CREATE_NEW";
+  if (!le_win_namespace_create_sidecar(namespace_handle, L"memory.sqlite-wal",
+      &sidecar, &sidecar_identity)) goto unlock_store;
+  if (!le_win_namespace_flush(sidecar) || !CloseHandle(sidecar)) goto unlock_store;
+  sidecar = INVALID_HANDLE_VALUE;
+  stage = "recover uncommitted create-sidecar intent";
+  {
+    static const unsigned char create_intent[] =
+      "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
+      "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
+      "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":1,"
+      "\"targetGeneration\":2,\"expectedIdentity\":null}";
+    if (!le_win_recover_create_intent(namespace_manifest, namespace_manifest_length,
+        create_intent, (DWORD)(sizeof(create_intent)-1), namespace_directory)) goto unlock_store;
+  }
+  stage = "verify uncommitted sidecar was removed";
+  reopened = logic_engine_win_open_relative(namespace_handle, L"memory.sqlite-wal",
+      FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_NON_DIRECTORY_FILE, FILE_ATTRIBUTE_NORMAL, NULL, NULL);
+  if (reopened != INVALID_HANDLE_VALUE || GetLastError() != ERROR_FILE_NOT_FOUND) goto unlock_store;
+  stage = "create committed sidecar generation";
+  if (!le_win_namespace_create_sidecar(namespace_handle, L"memory.sqlite-wal",
+      &sidecar, &sidecar_identity)) goto unlock_store;
+  if (!le_win_namespace_flush(sidecar) || !logic_engine_win_identity(sidecar,&sidecar_identity,NULL)
+      || !format_identity(&sidecar_identity,namespace_volume,namespace_file_id,
+          sizeof(namespace_file_id))) goto unlock_store;
+  stage = "recover create intent after manifest commit";
+  if (FAILED(StringCchPrintfA((char *)namespace_manifest,LE_COUNT_OF(namespace_manifest),
+      "{\"schemaVersion\":1,\"generation\":2,\"platform\":\"windows\","
+      "\"metadataRootIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"filesystemPolicy\":{\"filesystem\":\"NTFS\",\"identitySource\":\"opened-handle\",\"directoryMutationBoundary\":\"dedicated-service-identity\"},"
+      "\"roles\":[{\"role\":\"main\",\"parentComponents\":[],\"parentIdentities\":[],\"databaseBasename\":\"memory.sqlite\","
+      "\"databaseIdentity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"state\":\"active\",\"sidecars\":[{\"kind\":\"wal\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},"
+      "\"state\":\"active\",\"generation\":2}]}]}",
+      namespace_volume,namespace_file_id,database_volume,database_file_id,
+      namespace_volume,namespace_file_id))) goto unlock_store;
+  namespace_manifest_length=(DWORD)strlen((const char *)namespace_manifest);
+  {
+    static const unsigned char committed_intent[] =
+      "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
+      "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
+      "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":1,"
+      "\"targetGeneration\":2,\"expectedIdentity\":null}";
+    if (!le_win_recover_create_intent(namespace_manifest,namespace_manifest_length,
+        committed_intent,(DWORD)(sizeof(committed_intent)-1),namespace_directory)) goto unlock_store;
+  }
+  stage = "verify committed sidecar remains openable";
+  if (!le_win_namespace_open_sidecar(namespace_handle,L"memory.sqlite-wal",
+      &sidecar_identity,&reopened,&reopened_identity)) goto unlock_store;
+  CloseHandle(reopened);reopened=INVALID_HANDLE_VALUE;
+  if (!le_win_namespace_delete_sidecar(namespace_handle,&sidecar,&sidecar_identity)) goto unlock_store;
+  CloseHandle(namespace_handle);namespace_handle=INVALID_HANDLE_VALUE;
   stage = "probe directory FlushFileBuffers";
   if (!FlushFileBuffers(store.directory)) goto unlock_store;
   stage = "write manifest";
