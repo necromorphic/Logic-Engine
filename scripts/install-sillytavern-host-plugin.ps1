@@ -55,7 +55,8 @@ Write-Host "Copied Logic-Engine plugin to: $pluginPath"
 
 Push-Location $pluginPath
 try {
-    & npm ci --omit=dev
+    # This repository intentionally has no package-lock.json; npm ci cannot run here.
+    & npm install --omit=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
 
     & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $pluginPath
