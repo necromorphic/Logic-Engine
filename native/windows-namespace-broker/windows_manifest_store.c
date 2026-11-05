@@ -299,6 +299,34 @@ fail:
   return 0;
 }
 
+HANDLE le_win_store_open_namespace_root(const wchar_t *configured_directory) {
+  HANDLE parent = INVALID_HANDLE_VALUE;
+  HANDLE directory = INVALID_HANDLE_VALUE;
+  wchar_t *basename = NULL;
+  FILE_ATTRIBUTE_TAG_INFO tag;
+  LogicEngineWinFileIdentity identity;
+  if (!le_store_open_parent_chain(configured_directory, &parent, &basename)) return INVALID_HANDLE_VALUE;
+  directory = logic_engine_win_open_relative(parent, basename,
+      FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_DELETE_CHILD |
+      FILE_READ_ATTRIBUTES | READ_CONTROL | FILE_WRITE_ATTRIBUTES | GENERIC_WRITE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_OPEN, FILE_DIRECTORY_FILE, FILE_ATTRIBUTE_DIRECTORY, NULL, NULL);
+  CloseHandle(parent);
+  HeapFree(GetProcessHeap(), 0, basename);
+  if (directory == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
+  if (!GetFileInformationByHandleEx(directory, FileAttributeTagInfo, &tag, sizeof(tag))
+      || (tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0
+      || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+      || !le_store_acl_is_private(directory)
+      || !le_store_is_ntfs(directory)
+      || !logic_engine_win_identity(directory, &identity, NULL)) {
+    CloseHandle(directory);
+    SetLastError(ERROR_ACCESS_DENIED);
+    return INVALID_HANDLE_VALUE;
+  }
+  return directory;
+}
+
 int le_win_store_open(
     LE_WIN_MANIFEST_STORE *store,
     const wchar_t *configured_directory,
