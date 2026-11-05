@@ -1,5 +1,6 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const { DatabaseSync } = require('node:sqlite');
+const traceStage = (stage) => process.stderr.write('VFS_WORKER_STAGE:' + stage + '\n');
 
 if (!parentPort || !workerData
   || typeof workerData.extensionPath !== 'string'
@@ -7,17 +8,22 @@ if (!parentPort || !workerData
   throw new Error('SECURE_VFS_WORKER_DATA_INVALID');
 }
 
+traceStage('bootstrap-start');
 const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
 try {
   bootstrap.loadExtension(workerData.extensionPath, 'sqlite3_secure_vfs_probe_init');
   bootstrap.enableLoadExtension(false);
+  traceStage('extension-loaded');
 } finally {
   bootstrap.close();
 }
+traceStage('bootstrap-closed');
 
 const openAndCreate = () => {
+  traceStage('file-db-open-start');
   const db = new DatabaseSync(workerData.path);
   try {
+    traceStage('file-db-open-complete');
     db.exec('CREATE TABLE worker_probe(value TEXT);');
     return {
       openCount: db.prepare(
@@ -33,6 +39,7 @@ const openAndCreate = () => {
 };
 
 let result;
+traceStage('first-open-attempt');
 try {
   // Prefer a process-shared role if this Node build exposes one to workers.
   result = openAndCreate();
@@ -55,4 +62,5 @@ try {
   }
 }
 
+traceStage('post-message');
 parentPort.postMessage(result);
