@@ -171,9 +171,9 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
  return 1;
 }
 static int jvalidate_intent(JPARSER*p,DWORD root){
- static const char*keys[]={"baseGeneration","basename","expectedIdentity","kind","operation","operationId","role","schemaVersion","targetGeneration"};
+ static const char*keys[]={"baseGeneration","basename","expectedIdentity","kind","operation","operationId","precondition","role","schemaVersion","targetGeneration"};
  DWORD op=jget(p,root,"operation"),expected=jget(p,root,"expectedIdentity");uint64_t base,target;
- if(!jkeys(p,root,keys,9)||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jhex(p,jget(p,root,"operationId"),32,1)||!jrole_name(p,jget(p,root,"role"))||!jcomponent(p,jget(p,root,"basename"))||!jnum(p,jget(p,root,"baseGeneration"),1,9007199254740990ULL,&base)||!jnum(p,jget(p,root,"targetGeneration"),2,9007199254740991ULL,&target)||target!=base+1)return 0;
+ if(!jkeys(p,root,keys,10)||!jeq(p,jget(p,root,"precondition"),"absent")||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jhex(p,jget(p,root,"operationId"),32,1)||!jrole_name(p,jget(p,root,"role"))||!jcomponent(p,jget(p,root,"basename"))||!jnum(p,jget(p,root,"baseGeneration"),1,9007199254740990ULL,&base)||!jnum(p,jget(p,root,"targetGeneration"),2,9007199254740991ULL,&target)||target!=base+1)return 0;
  if(!(jeq(p,jget(p,root,"kind"),"wal")||jeq(p,jget(p,root,"kind"),"shm")||jeq(p,jget(p,root,"kind"),"journal")))return 0;
  if(jeq(p,op,"delete-sidecar"))return jidentity(p,expected);
  return jeq(p,op,"create-sidecar")&&p->v[expected].type==J_NULL;
@@ -363,7 +363,7 @@ int le_win_recover_create_intent(const unsigned char*manifest,DWORD manifest_len
  if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
  jws(&q);if(!jvalue(&q,0,&ir))goto done;jws(&q);
  if(q.pos!=q.n||q.v[ir].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
- op=jget(&q,ir,"operation");if(!jeq(&q,op,"create-sidecar"))goto done;
+ op=jget(&q,ir,"operation");if(!jeq(&q,op,"create-sidecar")||!jeq(&q,jget(&q,ir,"precondition"),"absent"))goto done;
  kind=jget(&q,ir,"kind");
  suffix=jeq(&q,kind,"wal")?L"-wal":jeq(&q,kind,"shm")?L"-shm":L"-journal";
  if(!jnum(&p,jget(&p,root,"generation"),1,9007199254740991ULL,&generation)
