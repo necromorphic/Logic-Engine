@@ -11,6 +11,7 @@ import { Worker } from 'node:worker_threads';
 import { registerWindowsManifestRole } from '../native/secure-vfs-probe/windows-role-manifest.js';
 
 const extensionPath = process.env.LOGIC_ENGINE_VFS_PROBE_PATH;
+const traceStage = (stage) => process.stderr.write('VFS_STAGE:' + stage + '\n');
 
 test('Node 22.14 node:sqlite keeps a loadable default VFS registered after bootstrap closes', {
   // The full npm test suite runs in a separate job without the native probe artifact.
@@ -30,11 +31,13 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
   } finally {
     bootstrap.close();
   }
+  traceStage('bootstrap-loaded');
 
   // Every file-backed main database must be registered before opening. The
   // in-memory registrar shares the extension's process-local role registry.
   const roleRegistrar = new DatabaseSync(':memory:');
   t.after(() => roleRegistrar.close());
+  traceStage('role-registrar-open');
   const registerRole = (rolePath, roleName) => roleRegistrar.prepare(
     'SELECT logic_engine_vfs_probe_register_database_role(?, ?) AS registered'
   ).get(rolePath, roleName);
@@ -180,6 +183,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     manifestEnrollmentOpenCountDelta = manifestOpenCountAfter - manifestOpenCountBefore;
   }
 
+  traceStage('manifest-enrollment-complete');
   const unregisteredPath = join(directory, 'unregistered.sqlite');
   assert.throws(() => new DatabaseSync(unregisteredPath),
     'an unregistered file-backed main database must fail closed');
@@ -190,6 +194,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     'an unregistered delete must not fall through to the parent VFS by pathname',
   );
 
+  traceStage('worker-start');
   const workerResult = await new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./fixtures/secure-vfs-worker.cjs', import.meta.url), {
       workerData: { extensionPath, path: workerPath },
@@ -200,11 +205,14 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       if (code !== 0) reject(new Error('VFS worker exited with code ' + code));
     });
   });
+  traceStage('worker-complete');
   assert.ok(workerResult.openCount > 0,
     'a worker thread must route its file-backed DatabaseSync through the registered VFS');
   assert.equal(workerResult.sqliteVersion, '3.47.2');
 
+  traceStage('core-open-start');
   const first = new DatabaseSync(corePath);
+  traceStage('core-open-complete');
   let reader;
   try {
     assert.equal(first.prepare('SELECT sqlite_version() AS version').get().version, '3.47.2',
@@ -232,6 +240,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       1,
       'the VFS must reject all unsupported file-backed temp classes even when SQLITE_OPEN_MEMORY is also set, without OS opens, while not classifying ordinary in-memory main-DB flags as unsupported',
     );
+    traceStage('core-basic-io-complete');
     const journalMode = first.prepare("PRAGMA journal_mode=WAL").get().journal_mode;
     assert.equal(journalMode, "wal", "the registered VFS must permit WAL activation");
     first.exec("INSERT INTO probe VALUES('ok');");
@@ -261,6 +270,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
       first.prepare('SELECT logic_engine_vfs_probe_sidecar_identity_check_count() AS count').get().count >= 2,
       'the actual WAL and SHM OS objects must be inspected and remain distinct from the Core database'
     );
+    traceStage('wal-sidecars-complete');
     reader.exec('ROLLBACK;');
     reader.close();
     reader = undefined;
@@ -268,6 +278,7 @@ test('Node 22.14 node:sqlite keeps a loadable default VFS registered after boots
     reader?.close();
     first.close();
   }
+  traceStage('core-close-complete');
 
   if (process.platform !== 'win32') {
     const writableParent = join(directory, 'writable-parent');
