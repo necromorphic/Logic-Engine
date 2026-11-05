@@ -13,10 +13,12 @@ function Stop-WithCode([string]$Code) { throw $Code }
 
 function Copy-FilteredTree([string]$Source, [string]$Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $excludedDirectories = @('.git', 'node_modules', 'tests', 'coverage', 'data')
     foreach ($entry in Get-ChildItem -LiteralPath $Source -Force) {
         if ($entry.PSIsContainer) {
-            if ($entry.Name -in @('.git', 'node_modules', 'tests', 'coverage', 'data')
-                -or $entry.Name -like 'worktree-backup-*') { continue }
+            if (($entry.Name -in $excludedDirectories) -or ($entry.Name -like 'worktree-backup-*')) {
+                continue
+            }
             Copy-FilteredTree $entry.FullName (Join-Path $Destination $entry.Name)
             continue
         }
