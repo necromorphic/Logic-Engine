@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include "windows_manifest_validator.h"
+#include "../secure-vfs-probe/windows_relative_open.h"
+#include <strsafe.h>
 
 #define LE_JSON_MAX_NODES 65536u
 #define LE_JSON_MAX_DEPTH 32u
@@ -183,6 +185,119 @@ static int jvalidate(const unsigned char*bytes,DWORD length,int intent){
  jws(&p);if(jvalue(&p,0,&root)){jws(&p);if(p.pos==p.n&&p.v[root].type==J_OBJECT)ok=intent?jvalidate_intent(&p,root):jvalidate_manifest(&p,root);}
  HeapFree(GetProcessHeap(),0,p.v);return ok;
 }
+static unsigned jhex_nibble(unsigned char c){
+ if(c>='0'&&c<='9')return c-'0';
+ if(c>='a'&&c<='f')return c-'a'+10;
+ if(c>='A'&&c<='F')return c-'A'+10;
+ return 16;
+}
+static int jwide(JPARSER*p,DWORD id,wchar_t*out,DWORD capacity){
+ DWORD bytes,needed;
+ if(id==0xffffffffu||p->v[id].type!=J_STRING||!out||capacity==0)return 0;
+ bytes=p->v[id].end-p->v[id].start;
+ needed=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,NULL,0);
+ if(!needed||needed>=capacity)return 0;
+ return MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,(LPCCH)(p->s+p->v[id].start),(int)bytes,out,(int)capacity)!=0;
+}
+static int jnative_identity(JPARSER*p,DWORD id,LogicEngineWinFileIdentity*out){
+ DWORD vs=jget(p,id,"volumeSerial"),fid=jget(p,id,"fileId"),i;
+ ULONGLONG serial=0;
+ if(!out||!jidentity(p,id))return 0;
+ for(i=p->v[vs].start;i<p->v[vs].end;i++){unsigned n=jhex_nibble(p->s[i]);if(n>15)return 0;serial=(serial<<4)|n;}
+ ZeroMemory(out,sizeof(*out));out->volume_serial=serial;
+ for(i=0;i<16;i++){unsigned hi=jhex_nibble(p->s[p->v[fid].start+i*2]);unsigned lo=jhex_nibble(p->s[p->v[fid].start+i*2+1]);if(hi>15||lo>15)return 0;out->file_id.Identifier[i]=(BYTE)((hi<<4)|lo);}
+ return 1;
+}
+static HANDLE jopen_verified(HANDLE parent,const wchar_t*name,
+    const LogicEngineWinFileIdentity*expected,int directory){
+ LogicEngineWinFileIdentity observed;FILE_ATTRIBUTE_TAG_INFO tag;HANDLE opened;
+ ACCESS_MASK access=FILE_READ_ATTRIBUTES;
+ ULONG options=directory?FILE_DIRECTORY_FILE:FILE_NON_DIRECTORY_FILE;
+ if(directory)access|=FILE_LIST_DIRECTORY|FILE_TRAVERSE|READ_CONTROL;
+ opened=logic_engine_win_open_relative(parent,name,access,
+   FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,options,
+   directory?FILE_ATTRIBUTE_DIRECTORY:FILE_ATTRIBUTE_NORMAL,NULL,&observed);
+ if(opened==INVALID_HANDLE_VALUE)return INVALID_HANDLE_VALUE;
+ if(!GetFileInformationByHandleEx(opened,FileAttributeTagInfo,&tag,sizeof(tag))
+    ||(tag.FileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)!=0
+    ||(((tag.FileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=0)!=(directory!=0))
+    ||!logic_engine_win_identity_equal(expected,&observed)){
+  CloseHandle(opened);SetLastError(ERROR_ACCESS_DENIED);return INVALID_HANDLE_VALUE;
+ }
+ return opened;
+}
+static int jreconcile_role(JPARSER*p,DWORD role,HANDLE root){
+ DWORD components=jget(p,role,"parentComponents"),parents=jget(p,role,"parentIdentities");
+ DWORD component,parent_id,side,sides=jget(p,role,"sidecars"),dbid=jget(p,role,"databaseIdentity");
+ wchar_t name[512],database[512],sidecar_name[768];HANDLE current=root,next,file;
+ LogicEngineWinFileIdentity expected;int owns_current=0;
+ if(!jwide(p,jget(p,role,"databaseBasename"),database,(DWORD)LE_COUNT_OF(database)))return 0;
+ for(component=p->v[components].first,parent_id=p->v[parents].first;
+     component!=0xffffffffu;component=p->v[component].next,parent_id=p->v[parent_id].next){
+  if(!jwide(p,component,name,(DWORD)LE_COUNT_OF(name))||!jnative_identity(p,parent_id,&expected))goto fail;
+  next=jopen_verified(current,name,&expected,1);if(next==INVALID_HANDLE_VALUE)goto fail;
+  if(owns_current)CloseHandle(current);
+  current=next;owns_current=1;
+ }
+ if(!jnative_identity(p,dbid,&expected))goto fail;
+ file=jopen_verified(current,database,&expected,0);if(file==INVALID_HANDLE_VALUE)goto fail;
+ CloseHandle(file);
+ for(side=p->v[sides].first;side!=0xffffffffu;side=p->v[side].next){
+  DWORD kind=jget(p,side,"kind"),state=jget(p,side,"state"),identity=jget(p,side,"identity");
+  const wchar_t*suffix=jeq(p,kind,"wal")?L"-wal":jeq(p,kind,"shm")?L"-shm":L"-journal";
+  DWORD other;int has_active=0;
+  if(FAILED(StringCchCopyW(sidecar_name,LE_COUNT_OF(sidecar_name),database))
+      ||FAILED(StringCchCatW(sidecar_name,LE_COUNT_OF(sidecar_name),suffix)))goto fail;
+  if(jeq(p,state,"active")){
+   if(!jnative_identity(p,identity,&expected))goto fail;
+   file=jopen_verified(current,sidecar_name,&expected,0);if(file==INVALID_HANDLE_VALUE)goto fail;
+   CloseHandle(file);
+  }else{
+   for(other=p->v[sides].first;other!=0xffffffffu;other=p->v[other].next){
+    if(jeq(p,jget(p,other,"kind"),jeq(p,kind,"wal")?"wal":jeq(p,kind,"shm")?"shm":"journal")
+       &&jeq(p,jget(p,other,"state"),"active")){has_active=1;break;}
+   }
+   if(!has_active){
+    file=logic_engine_win_open_relative(current,sidecar_name,FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+      FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+    if(file!=INVALID_HANDLE_VALUE){CloseHandle(file);SetLastError(ERROR_FILE_INVALID);goto fail;}
+    if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto fail;
+   }
+  }
+ }
+ if(owns_current)CloseHandle(current);
+ return 1;
+fail:
+ if(owns_current)CloseHandle(current);
+ return 0;
+}
+int le_win_reconcile_manifest_namespace(const unsigned char*bytes,DWORD length,const wchar_t*namespace_root){
+ JPARSER p;DWORD root,roles,role,rootid;HANDLE root_parent=INVALID_HANDLE_VALUE,root_handle=INVALID_HANDLE_VALUE;
+ LogicEngineWinDirectoryAnchor anchor;LogicEngineWinFileIdentity expected;int ok=0;
+ if(!bytes||!namespace_root||!length||length>LE_JSON_MAX_BYTES)return 0;
+ ZeroMemory(&p,sizeof(p));ZeroMemory(&anchor,sizeof(anchor));p.s=bytes;p.n=length;
+ p.v=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(JNODE)*LE_JSON_MAX_NODES);if(!p.v)return 0;
+ jws(&p);
+ if(!jvalue(&p,0,&root))goto done;
+ jws(&p);if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
+ if(!logic_engine_win_anchor_path(namespace_root,&anchor))goto done;
+ root_parent=anchor.parent;
+ if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
+ root_handle=jopen_verified(root_parent,anchor.basename,&expected,1);
+ if(root_handle==INVALID_HANDLE_VALUE)goto done;
+ roles=jget(&p,root,"roles");
+ for(role=p.v[roles].first;role!=0xffffffffu;role=p.v[role].next)
+  if(!jreconcile_role(&p,role,root_handle))goto done;
+ ok=1;
+done:
+ if(root_handle!=INVALID_HANDLE_VALUE)CloseHandle(root_handle);
+ if(root_parent!=INVALID_HANDLE_VALUE)CloseHandle(root_parent);
+ if(anchor.basename)HeapFree(GetProcessHeap(),0,anchor.basename);
+ HeapFree(GetProcessHeap(),0,p.v);
+ return ok;
+}
+
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
 #endif
