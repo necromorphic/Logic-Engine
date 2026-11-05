@@ -101,7 +101,7 @@ static int jnum(JPARSER*p,DWORD id,uint64_t min,uint64_t max,uint64_t*out){
 }
 static int jhex(JPARSER*p,DWORD id,DWORD length,int lower){
  DWORD i;if(id==0xffffffffu||p->v[id].type!=J_STRING||p->v[id].end-p->v[id].start!=length)return 0;
- for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(!((c>='0'&&c<='9')||(c>='a'&&c<=(lower?'f':'f'))||(!lower&&c>='A'&&c<='F')))return 0;}return 1;
+ for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')||(!lower&&c>='A'&&c<='F')))return 0;}return 1;
 }
 static int jidentity(JPARSER*p,DWORD id){
  static const char*k[]={"kind","volumeSerial","fileId"};DWORD a=jget(p,id,"kind");
@@ -109,12 +109,17 @@ static int jidentity(JPARSER*p,DWORD id){
 }
 static int jrole_name(JPARSER*p,DWORD id){
  DWORD i;if(id==0xffffffffu||p->v[id].type!=J_STRING||p->v[id].end==p->v[id].start||p->v[id].end-p->v[id].start>128)return 0;
- for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')||(i==p->v[id].start&&!(isalnum(c))))return 0;}return 1;
+ for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')||(i==p->v[id].start&&!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9'))))return 0;}return 1;
 }
 static int jcomponent(JPARSER*p,DWORD id){
  DWORD i;if(id==0xffffffffu||p->v[id].type!=J_STRING||p->v[id].end==p->v[id].start||p->v[id].end-p->v[id].start>255)return 0;
  for(i=p->v[id].start;i<p->v[id].end;i++){unsigned char c=p->s[i];if(c<0x20||c=='\\'||c=='/'||c==':'||c=='*'||c=='?'||c=='"'||c=='<'||c=='>'||c=='|' )return 0;}
  return p->s[p->v[id].end-1]!='.'&&p->s[p->v[id].end-1]!=' ';
+}
+static int jclaim_identity(JPARSER*p,DWORD id,DWORD*ids,DWORD*count,DWORD capacity){
+ DWORD i;if(!jidentity(p,id)||*count>=capacity)return 0;
+ for(i=0;i<*count;i++)if(jidentity_equal(p,id,ids[i]))return 0;
+ ids[(*count)++]=id;return 1;
 }
 static int jidentity_equal(JPARSER*p,DWORD a,DWORD b){
  DWORD av=jget(p,a,"volumeSerial"),af=jget(p,a,"fileId"),bv=jget(p,b,"volumeSerial"),bf=jget(p,b,"fileId");
@@ -128,9 +133,9 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
  static const char*policy[]={"filesystem","identitySource","directoryMutationBoundary"};
  static const char*rolekeys[]={"role","parentComponents","parentIdentities","databaseBasename","databaseIdentity","state","sidecars"};
  static const char*sidekeys[]={"kind","identity","state","generation"};
- DWORD roles,policyid,rootid,role,side,i,dbid;uint64_t gen,sg;const char*kind;DWORD role_names[32];DWORD dbcount=0;
+ DWORD roles,policyid,rootid,role,side,i,dbid;uint64_t gen,sg;const char*kind;DWORD role_names[32],physical_ids[8192],physical_count=0;DWORD dbcount=0;
  if(!jkeys(p,root,top,6)||!jnum(p,jget(p,root,"schemaVersion"),1,1,NULL)||!jnum(p,jget(p,root,"generation"),1,9007199254740991ULL,&gen)||!jeq(p,jget(p,root,"platform"),"windows"))return 0;
- rootid=jget(p,root,"metadataRootIdentity");if(!jidentity(p,rootid))return 0;
+ rootid=jget(p,root,"metadataRootIdentity");if(!jclaim_identity(p,rootid,physical_ids,&physical_count,8192))return 0;
  policyid=jget(p,root,"filesystemPolicy");
  if(!jkeys(p,policyid,policy,3)||!jeq(p,jget(p,policyid,"filesystem"),"NTFS")||!jeq(p,jget(p,policyid,"identitySource"),"opened-handle")||!jeq(p,jget(p,policyid,"directoryMutationBoundary"),"dedicated-service-identity"))return 0;
  roles=jget(p,root,"roles");if(p->v[roles].type!=J_ARRAY||p->v[roles].count==0||p->v[roles].count>32)return 0;
@@ -140,14 +145,14 @@ static int jvalidate_manifest(JPARSER*p,DWORD root){
   if(!jkeys(p,role,rolekeys,7)||!jrole_name(p,roleid)||!jeq(p,jget(p,role,"state"),"active")||!jcomponent(p,jget(p,role,"databaseBasename"))||!jidentity(p,jget(p,role,"databaseIdentity"))||p->v[parents].type!=J_ARRAY||p->v[components].type!=J_ARRAY||p->v[parents].count!=p->v[components].count||p->v[parents].count>256||p->v[sides].type!=J_ARRAY)return 0;
   for(i=0;i<32;i++)if(i<dbcount&&p->v[role_names[i]].end-p->v[role_names[i]].start==p->v[roleid].end-p->v[roleid].start&&!memcmp(p->s+p->v[role_names[i]].start,p->s+p->v[roleid].start,p->v[roleid].end-p->v[roleid].start))return 0;
   role_names[dbcount]=roleid;dbcount++;
-  for(pc=p->v[components].first,pi=p->v[parents].first;pc!=0xffffffffu;pc=p->v[pc].next,pi=p->v[pi].next)if(!jcomponent(p,pc)||!jidentity(p,pi))return 0;
-  dbid=jget(p,role,"databaseIdentity");
+  for(pc=p->v[components].first,pi=p->v[parents].first;pc!=0xffffffffu;pc=p->v[pc].next,pi=p->v[pi].next)if(!jcomponent(p,pc)||!jclaim_identity(p,pi,physical_ids,&physical_count,8192))return 0;
+  dbid=jget(p,role,"databaseIdentity");if(!jclaim_identity(p,dbid,physical_ids,&physical_count,8192))return 0;
   for(i=0;i<p->v[sides].count;i++){side=(i==0?p->v[sides].first:p->v[side].next);if(!jkeys(p,side,sidekeys,4))return 0;
    kind=jeq(p,jget(p,side,"kind"),"wal")?"wal":jeq(p,jget(p,side,"kind"),"shm")?"shm":jeq(p,jget(p,side,"kind"),"journal")?"journal":NULL;
-   if(!kind||!jidentity(p,jget(p,side,"identity"))||!jnum(p,jget(p,side,"generation"),1,gen,&sg))return 0;
+   if(!kind||!jclaim_identity(p,jget(p,side,"identity"),physical_ids,&physical_count,8192)||!jnum(p,jget(p,side,"generation"),1,gen,&sg))return 0;
    if(jeq(p,jget(p,side,"state"),"active")){unsigned ix=!strcmp(kind,"wal")?0:!strcmp(kind,"shm")?1:2;if(++active[ix]>1)return 0;}
    else if(!jeq(p,jget(p,side,"state"),"retired"))return 0;
-   if(jidentity_equal(p,dbid,jget(p,side,"identity")))return 0;
+
   }
  }
  return 1;
