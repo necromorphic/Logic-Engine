@@ -225,6 +225,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       source_kind: 'canonical_entity',
       source_entity_id: dispatchRecord.source_entity_id,
       source_version: dispatchRecord.source_version,
+      epistemic_kind: dispatchRecord.epistemic_kind,
+      evidence_assessment: dispatchRecord.evidence_assessment,
     };
     provider.revokeRecord(scope, dispatchRecord.record_ref, dispatchRecord.record_version);
     const revokeCoordinator = openCoordinatorDatabase(coordinatorPath);
@@ -234,9 +236,10 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         worldId: scope.world_id,
         actorId: scope.subject_id,
         purpose: scope.purpose,
+        providerEvidenceCursor: providerRetrieval.provider_evidence_cursor,
         sources: [{
           source_kind: 'canonical_entity',
-          source_entity_id: dispatchRecord.source_entity_id,
+          entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
         }],
         candidates: [staleCandidate],
