@@ -210,6 +210,13 @@ test('Windows broker dispatches read-only manifest-backed ACCESS_ROLE_FILE reque
   assert.match(source, /exists\?LEB_STATUS_OK:LEB_STATUS_NOT_FOUND/);
   assert.match(validatorHeader, /le_win_access_role_file/);
   assert.match(validator, /int le_win_access_role_file/);
+  assert.match(validatorHeader, /le_win_open_role_file/);
+  assert.match(validator, /int le_win_open_role_file/);
+  assert.match(validator, /jopen_role_parent\(&p,role,root_handle,&parent\)/);
+  assert.match(validator, /FILE_SHARE_READ\|FILE_SHARE_WRITE\|FILE_SHARE_DELETE,FILE_OPEN/);
+  assert.match(smoke, /open registered main database by manifest identity/);
+  assert.match(smoke, /open active WAL sidecar by manifest identity/);
+  assert.match(smoke, /reject open for unregistered role/);
   assert.match(smoke, /manifest-backed access recognizes registered main file/);
   assert.match(smoke, /manifest-backed access recognizes active WAL sidecar/);
   assert.match(smoke, /manifest-backed access reports absent SHM sidecar/);
