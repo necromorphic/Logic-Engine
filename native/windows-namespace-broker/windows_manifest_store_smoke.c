@@ -50,10 +50,14 @@ static int test_native_schema_validator(void) {
     "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
     "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
     "\"baseGeneration\":1,\"targetGeneration\":3,\"expectedIdentity\":null}";
+  static const unsigned char missing_precondition_intent[] =
+    "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
+    "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"baseGeneration\":1,\"targetGeneration\":2,\"expectedIdentity\":null}";
   if (!le_win_validate_manifest(valid_manifest, (DWORD)(sizeof(valid_manifest)-1), NULL)) return 0;
   if (le_win_validate_manifest(duplicate_key, (DWORD)(sizeof(duplicate_key)-1), NULL)) return 0;
   if (!le_win_validate_intent(valid_intent, (DWORD)(sizeof(valid_intent)-1), NULL)) return 0;
-  if (le_win_validate_intent(bad_intent, (DWORD)(sizeof(bad_intent)-1), NULL)) return 0;
+  if (le_win_validate_intent(bad_intent, (DWORD)(sizeof(bad_intent)-1), NULL)) return 0;\n  if (le_win_validate_intent(missing_precondition_intent, (DWORD)(sizeof(missing_precondition_intent)-1), NULL)) return 0;
   return 1;
 }
 
