@@ -73,3 +73,22 @@ The service continues to return UNSUPPORTED for all filesystem operations
 until trusted native manifest/intent validation, startup recovery, namespace
 lifecycle coordination and safe client-handle transfer are implemented and
 tested end-to-end.
+
+
+## Locked startup-recovery primitive
+
+`le_win_store_startup_recover` is the first recovery coordinator boundary for
+the native store. It acquires the exclusive store lock, requires a valid
+manifest, reads and validates the optional intent, and invokes the caller's
+reconciliation callback while the lock remains held. The callback may commit a
+validated next manifest through the same store. The store removes the intent
+only after the callback reports durable reconciliation; callback failure,
+invalid metadata, or ambiguous reads leave the intent in place and return
+failure. A missing manifest is always fatal.
+
+The native smoke test verifies both branches: a rejected callback leaves the
+intent readable, while a successful callback causes the intent to be retired.
+The callback is deliberately not implemented by the SCM host yet. Production
+use still requires a native strict-schema validator and an identity-bound
+reconciliation callback that checks every registered DB and sidecar against
+the manifest before the service can report ready.
