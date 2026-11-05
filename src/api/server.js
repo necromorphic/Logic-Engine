@@ -105,7 +105,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, authorizedKnowledgePolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -117,7 +117,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
     throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
   }
-  if (authorizedKnowledgePolicy !== null && typeof authorizedKnowledgePolicy !== 'function') throw new TypeError('Authorized-knowledge policy must be trusted application configuration.');
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
@@ -204,7 +203,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
   const authorizedReads = new AuthorizedReadService(engine, actorBindings,
-    mechanicPolicyAuthority || authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy, authorizedKnowledgePolicy);
+    mechanicPolicyAuthority || authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
     try {
@@ -916,10 +915,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               return retrieval;
             },
           );
-          if (!validMemoryNpcResult(retrieval)) {
+          // Provider evidence cursors are internal dispatch evidence, not part
+          // of the public memory-npc-result/v1 disclosure envelope.
+          const publicRetrieval = { ...retrieval };
+          delete publicRetrieval.provider_evidence_cursor;
+          if (!validMemoryNpcResult(publicRetrieval)) {
             return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory returned an invalid result envelope.' } });
           }
-          return send(res, 200, { retrieval });
+          return send(res, 200, { retrieval: publicRetrieval });
         } catch (error) {
           // The signed assertion has already been verified before the callback
           // runs. Never misreport a Consumer/runtime exception as an auth error.
@@ -1081,20 +1084,6 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
-      }
-
-      if (action === 'knowledge-assignments') {
-        if (parts.length !== 4) return send(res,404,{error:{code:'ROUTE_NOT_FOUND',message:'Route not found.'}});
-        if (!secretMatches(req.headers['x-admin-token'],adminToken)) return send(res,403,{error:{code:'ADMIN_REQUIRED',message:'Initial knowledge assignment requires a separate administrative credential.'}});
-        if(req.method==='GET') return send(res,200,{knowledge:engine.listKnowledgeAssignments(worldId,url.searchParams.get('subject_id'))});
-        if(req.method==='POST'){
-          const body=await readBody(req);
-          const allowed=['assignment_id','subject_id','item_id','source_kind','source_ref','source_version','authorization_ref','expected_revision'];
-          if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!allowed.includes(key))) throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT','Request contains unsupported fields.');
-          const result=engine.assignKnowledge(worldId,body);
-          return send(res,result.idempotent_replay?200:201,{assignment:result});
-        }
-        return send(res,405,{error:{code:'METHOD_NOT_ALLOWED',message:'Unsupported knowledge-assignment operation.'}});
       }
 
       if (action === 'time-configurations') {
