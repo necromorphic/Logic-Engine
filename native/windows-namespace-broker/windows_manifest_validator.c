@@ -397,11 +397,12 @@ static int jmanifest_retire_sidecar(const unsigned char*manifest,DWORD manifest_
 }
 int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
- JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides;
+ JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides,expected_identity;
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
- const wchar_t*suffix;const char*kind_text;HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
- LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;
- unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0;
+ const wchar_t*suffix;const char*kind_text;int is_create,is_delete;
+ HANDLE root_handle=INVALID_HANDLE_VALUE,parent=INVALID_HANDLE_VALUE,file=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity expected,observed;FILE_ATTRIBUTE_TAG_INFO tag;FILE_DISPOSITION_INFO disposition;
+ unsigned char*updated=NULL;DWORD updated_length=0;int owns_parent=0,ok=0,sidecar_match=0;
  if(!store||!store->locked||!manifest||!intent||!namespace_root||!manifest_length||!intent_length)return 0;
  ZeroMemory(&p,sizeof(p));ZeroMemory(&q,sizeof(q));
  p.s=manifest;p.n=manifest_length;q.s=intent;q.n=intent_length;
@@ -413,7 +414,11 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  jws(&q);if(!jvalue(&q,0,&ir))goto done;jws(&q);
  if(q.pos!=q.n||q.v[ir].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
  op=jget(&q,ir,"operation");
- if(!jeq(&q,op,"create-sidecar")||!jeq(&q,jget(&q,ir,"precondition"),"absent"))goto done;
+ is_create=jeq(&q,op,"create-sidecar");
+ is_delete=jeq(&q,op,"delete-sidecar");
+ if((!is_create&&!is_delete)
+    ||(is_create&&!jeq(&q,jget(&q,ir,"precondition"),"absent"))
+    ||(is_delete&&!jeq(&q,jget(&q,ir,"precondition"),"identity-match")))goto done;
  kind=jget(&q,ir,"kind");
  if(jeq(&q,kind,"wal")){suffix=L"-wal";kind_text="wal";}
  else if(jeq(&q,kind,"shm")){suffix=L"-shm";kind_text="shm";}
@@ -432,38 +437,82 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
    ||FAILED(StringCchCatW(expected_basename,LE_COUNT_OF(expected_basename),suffix))
    ||!jwide(&q,jget(&q,ir,"basename"),actual_basename,(DWORD)LE_COUNT_OF(actual_basename))
    ||_wcsicmp(expected_basename,actual_basename)!=0)goto done;
- if(!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&expected))goto done;
+ expected_identity=jget(&q,ir,"expectedIdentity");
+ if(is_delete&&!jnative_identity(&q,expected_identity,&expected))goto done;
  root_handle=le_win_store_open_namespace_root(namespace_root);
  if(root_handle==INVALID_HANDLE_VALUE
-    ||!logic_engine_win_identity(root_handle,&observed,NULL)
-    ||!logic_engine_win_identity_equal(&expected,&observed))goto done;
+    ||!jnative_identity(&p,jget(&p,root,"metadataRootIdentity"),&observed)
+    ||!logic_engine_win_identity(root_handle,&expected,NULL)
+    ||!logic_engine_win_identity_equal(&observed,&expected))goto done;
  sides=jget(&p,match,"sidecars");
  if(generation==target){
-  int committed=0;
   for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
-   if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active")
-      &&jnum(&p,jget(&p,side,"generation"),target,target,NULL))committed=1;
+   if(!jeq(&p,jget(&p,side,"kind"),kind_text))continue;
+   if(is_create&&jeq(&p,jget(&p,side,"state"),"active")
+      &&jnum(&p,jget(&p,side,"generation"),target,target,NULL))sidecar_match=1;
+   if(is_delete&&jeq(&p,jget(&p,side,"state"),"retired")
+      &&jidentity_nodes_equal(&p,jget(&p,side,"identity"),&q,expected_identity))sidecar_match=1;
   }
-  if(!committed)goto done;
+  if(!sidecar_match)goto done;
+  if(is_delete){
+   if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
+   owns_parent=1;
+   file=logic_engine_win_open_relative(parent,actual_basename,FILE_READ_ATTRIBUTES,
+     FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+     FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+   if(file!=INVALID_HANDLE_VALUE)goto done;
+   if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
+  }
   ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
  }else if(generation==base){
-  for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next)
-   if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active"))goto done;
   if(!jopen_role_parent(&p,match,root_handle,&parent))goto done;
   owns_parent=1;
-  file=logic_engine_win_open_relative(parent,actual_basename,GENERIC_READ|GENERIC_WRITE|FILE_READ_ATTRIBUTES,
-    FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
-    FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
-  if(file==INVALID_HANDLE_VALUE){
-   if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
-   ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
+  if(is_create){
+   for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next)
+    if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active"))goto done;
+   file=logic_engine_win_open_relative(parent,actual_basename,GENERIC_READ|GENERIC_WRITE|FILE_READ_ATTRIBUTES,
+     FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+     FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+   if(file==INVALID_HANDLE_VALUE){
+    if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
+    ok=le_win_reconcile_manifest_namespace(manifest,manifest_length,namespace_root);
+   }else{
+    if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
+       ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0
+       ||!logic_engine_win_identity(file,&observed,NULL)
+       ||!FlushFileBuffers(file)||!FlushFileBuffers(parent))goto done;
+    if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,match,target,
+         kind_text,&observed,&updated,&updated_length))goto done;
+    if(!le_win_store_write_manifest(store,updated,updated_length))goto done;
+    ok=le_win_reconcile_manifest_namespace(updated,updated_length,namespace_root);
+   }
   }else{
-   if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
-      ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0
-      ||!logic_engine_win_identity(file,&observed,NULL)
-      ||!FlushFileBuffers(file)||!FlushFileBuffers(parent))goto done;
-   if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,match,target,
-        kind_text,&observed,&updated,&updated_length))goto done;
+   for(side=p.v[sides].first;side!=0xffffffffu;side=p.v[side].next){
+    if(jeq(&p,jget(&p,side,"kind"),kind_text)&&jeq(&p,jget(&p,side,"state"),"active")
+       &&jidentity_nodes_equal(&p,jget(&p,side,"identity"),&q,expected_identity)){
+     sidecar_match=side+1;break;
+    }
+   }
+   if(!sidecar_match)goto done;
+   side=sidecar_match-1;
+   file=logic_engine_win_open_relative(parent,actual_basename,DELETE|FILE_READ_ATTRIBUTES,
+     FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,FILE_OPEN,
+     FILE_NON_DIRECTORY_FILE,FILE_ATTRIBUTE_NORMAL,NULL,NULL);
+   if(file==INVALID_HANDLE_VALUE){
+    if(GetLastError()!=ERROR_FILE_NOT_FOUND)goto done;
+   }else{
+    if(!GetFileInformationByHandleEx(file,FileAttributeTagInfo,&tag,sizeof(tag))
+       ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0
+       ||!logic_engine_win_identity(file,&observed,NULL)
+       ||!logic_engine_win_identity_equal(&expected,&observed))goto done;
+    disposition.DeleteFile=TRUE;
+    if(!SetFileInformationByHandle(file,FileDispositionInfo,&disposition,sizeof(disposition)))goto done;
+    if(!CloseHandle(file))goto done;
+    file=INVALID_HANDLE_VALUE;
+    if(!FlushFileBuffers(parent))goto done;
+   }
+   if(!jmanifest_retire_sidecar(manifest,manifest_length,&p,root,
+       jget(&p,side,"state"),target,&updated,&updated_length))goto done;
    if(!le_win_store_write_manifest(store,updated,updated_length))goto done;
    ok=le_win_reconcile_manifest_namespace(updated,updated_length,namespace_root);
   }
@@ -478,7 +527,6 @@ done:
  if(!ok&&GetLastError()==ERROR_SUCCESS)SetLastError(ERROR_RECOVERY_FAILURE);
  return ok;
 }
-
 
 int le_win_validate_manifest(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,0);}
 int le_win_validate_intent(const unsigned char*b,DWORD n,void*c){(void)c;return jvalidate(b,n,1);}
