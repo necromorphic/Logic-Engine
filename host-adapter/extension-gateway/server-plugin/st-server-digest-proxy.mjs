@@ -989,10 +989,21 @@ export function createHostMemoryDispatchProxyHandler({
       try { payload = await upstream.json(); } catch {
         return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_INVALID_RESPONSE' });
       }
-      if (!upstream.ok) return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
-        status: 'NON_READY',
-        code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE' : 'CORE_HOST_DISPATCH_REJECTED',
-      });
+      if (!upstream.ok) {
+        // Preserve a bounded internal Core denial code across the authenticated
+        // server-to-server boundary. Collapsing every 503 into one code hides
+        // whether the failure is identity, replay protection, or Memory wiring.
+        const upstreamCode = payload?.error?.code;
+        const safeUpstreamCode = typeof upstreamCode === 'string'
+          && /^[A-Z][A-Z0-9_]{1,95}$/.test(upstreamCode)
+          ? upstreamCode : null;
+        return response.status(upstream.status === 404 || upstream.status === 503 ? 503 : 502).json({
+          status: 'NON_READY',
+          code: upstream.status === 404 ? 'CORE_HOST_DISPATCH_ROUTE_UNAVAILABLE'
+            : upstream.status === 503 && safeUpstreamCode ? safeUpstreamCode
+              : 'CORE_HOST_DISPATCH_REJECTED',
+        });
+      }
       return response.status(200).json({ host_context: hostBindings, retrieval: payload?.retrieval });
     } catch {
       return response.status(502).json({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
