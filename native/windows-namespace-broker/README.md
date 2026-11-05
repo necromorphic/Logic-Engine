@@ -8,11 +8,13 @@ by impersonating the pipe client and comparing its TokenUser SID. Remote pipe
 clients are rejected. Frames are bounded and contain logical operation data,
 never filesystem paths.
 
-PING and read-only ACCESS_ROLE_FILE are implemented. ACCESS_ROLE_FILE accepts
-an ASCII `role\\0kind` payload, takes the metadata-store lock, validates and
-reconciles the complete manifest against physical NTFS identities, then returns
-OK or NOT_FOUND without exposing a path or handle. OPEN_MAIN, OPEN_SIDECAR,
-DELETE_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR still return
+PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented.
+Both role operations accept an ASCII `role\\0kind` payload and take the
+metadata-store lock. ACCESS_ROLE_FILE validates and reconciles the complete
+manifest against physical NTFS identities, then returns OK or NOT_FOUND without
+exposing a path or handle. DELETE_SIDECAR uses the durable intent/manifest
+transaction and deletes only the sidecar matching its recorded File ID.
+OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR still return
 UNSUPPORTED. The SCM startup path validates and reconciles the durable
 manifest and can recover create- and delete-sidecar crash windows described below.
 The native metadata layer also exposes locked `le_win_open_role_file`,
@@ -56,7 +58,7 @@ The SCM host opens this store with the native strict validators and invokes lock
 - file flush and parent-directory flush primitives;
 - deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
 
-The adapter is not yet connected to the named-pipe protocol or SQLite VFS. ACCESS_ROLE_FILE is a read-only manifest query; all file-opening and mutating operations remain UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
+The adapter is not yet connected to the SQLite VFS. ACCESS_ROLE_FILE and DELETE_SIDECAR are connected to the named-pipe protocol; file-open and sidecar-create IPC remain UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
 
 ## Strict Windows manifest byte validation
 
@@ -77,11 +79,12 @@ SCM host together with the manifest-store and namespace-adapter translation
 units using MSVC `/W4 /WX`, then compiles and runs the native metadata/sidecar
 smoke test. It also runs the source-contract and Windows handle-relative VFS
 tests. This catches C compiler/linker regressions and exercises the implemented
-startup trust gate, create/delete recovery and read-only ACCESS_ROLE_FILE IPC.
+startup trust gate, create/delete recovery, ACCESS_ROLE_FILE and DELETE_SIDECAR IPC.
 It does **not** make the SCM host operational or authorize SQLite byte I/O.
 OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR, OPEN_OR_CREATE_SIDECAR and
-DELETE_SIDECAR remain UNSUPPORTED until lifecycle transactions, safe client
-HANDLE transfer, VFS integration and end-to-end tests are implemented.
+OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR remain
+UNSUPPORTED until safe client HANDLE transfer, VFS integration and end-to-end
+tests are implemented.
 
 
 ## Locked startup-recovery primitive
@@ -152,7 +155,7 @@ generation. If the manifest already reached targetGeneration, recovery requires
 the matching retired record and an absent pathname. A replacement file or
 ambiguous filesystem result fails closed.
 
-Only read-only ACCESS_ROLE_FILE is enabled in addition to PING. The startup gate proves
+Read-only ACCESS_ROLE_FILE and durable DELETE_SIDECAR are enabled in addition to PING. The startup gate proves
 that the configured namespace matches the trusted manifest and recovers validated
 create- and delete-sidecar intents before PING becomes available. OPEN_MAIN,
 sidecar lifecycle IPC and client HANDLE transfer are not implemented.
@@ -179,4 +182,4 @@ boundaries:
 - crash after delete manifest commit: require the matching retired record and
   an absent pathname before retiring the intent.
 
-The native implementation covers startup recovery and durable runtime create/delete transactions. ACCESS_ROLE_FILE is enabled as a read-only IPC operation; file-open and mutation IPC remain disabled.
+The native implementation covers startup recovery and durable runtime create/delete transactions. ACCESS_ROLE_FILE and DELETE_SIDECAR are enabled over IPC; main/sidecar open and sidecar create IPC remain disabled.
