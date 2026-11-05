@@ -3,6 +3,7 @@ name: Memory Provider blocker 3
 # Touch this workflow to fan out the PR's required exact-head acceptance matrix.
 # Runtime/Provider must be paired after any test-contract or workflow-trigger correction.
 # Pair the final diagnostic benchmark contract with Provider acceptance on the same integration head.
+# The VFS workflow also keys off this marker so its platform checks share the accepted revision.
 # Final fan-out includes the VFS probe when its installer contract changes.
 on:
   push:

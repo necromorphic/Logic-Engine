@@ -1,4 +1,5 @@
 name: better-sqlite3 default VFS integration
+# Pair VFS validation with the final integration acceptance marker on every push.
 # Install only runtime deps from the unpacked release; its dev deps include sqlite3 and require an unconfigured MSVC toolchain.
 
 on:
@@ -21,6 +22,7 @@ on:
       - 'tests/windows-broker-service-host.test.js'
       - '.github/workflows/windows-namespace-broker.yml'
       - '.github/workflows/better-sqlite3-vfs-integration.yml'
+      - '.github/workflows/provider-blocker3.yml'
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
