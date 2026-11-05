@@ -8,6 +8,7 @@ const store = await readFile(new URL('../native/windows-namespace-broker/windows
 const storeHeader = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store.h', import.meta.url), 'utf8');
 const namespace = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.c', import.meta.url), 'utf8');
 const namespaceHeader = await readFile(new URL('../native/windows-namespace-broker/windows_namespace_adapter.h', import.meta.url), 'utf8');
+const smoke = await readFile(new URL('../native/windows-namespace-broker/windows_manifest_store_smoke.c', import.meta.url), 'utf8');
 
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
@@ -108,4 +109,13 @@ test('Windows startup recovery holds the manifest lock and preserves intent on a
     'the pending intent must remain until reconciliation succeeds',
   );
   assert.match(recovery, /le_win_store_unlock\(store\)/);
+});
+
+
+test('Windows native recovery smoke covers pending, clean and missing-manifest startup', () => {
+  assert.match(smoke, /retain intent when recovery callback rejects/);
+  assert.match(smoke, /complete startup recovery and retire intent/);
+  assert.match(smoke, /recover clean startup with no pending intent/);
+  assert.match(smoke, /reject startup without a manifest/);
+  assert.match(smoke, /ERROR_FILE_NOT_FOUND\) goto unlock_store/);
 });
