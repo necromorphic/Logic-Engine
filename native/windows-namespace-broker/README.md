@@ -34,7 +34,7 @@ exclusively writable by the broker identity.
 - writes a unique temporary file, flushes it, atomically renames it relative to the directory handle, then requires a directory flush;
 - removes the pending intent through the opened file handle and requires a directory flush.
 
-The SCM host opens this store with the native strict validators and invokes locked startup recovery before reporting ready. Deployment must still provision the dedicated broker service identity, exact protected ACLs and trusted namespace root. The Windows CI job compiles the store with MSVC and runs native recovery/namespace smoke tests; it is not a full crash-injection matrix or cross-identity ACL-isolation test.
+The SCM host opens this store with the native strict validators and invokes locked startup recovery before reporting ready. The configured namespace root is separately opened only after every ancestor passes the parent ACL policy and the root itself passes the exact protected broker/SYSTEM/Administrators ACL check on NTFS. Deployment must still provision the dedicated broker service identity, exact protected ACLs and trusted namespace root. The Windows CI job compiles the store with MSVC and runs native recovery/namespace smoke tests; it is not a full crash-injection matrix or cross-identity ACL-isolation test.
 
 ## NTFS sidecar adapter increment
 
@@ -115,9 +115,10 @@ The SCM host now requires `--client-sid`, `--metadata-dir` and
 `--namespace-root` in the service executable's configured ImagePath command line. Before it reports SERVICE_RUNNING or creates the named
 pipe, it opens the broker metadata store with the native strict validators and
 runs the locked startup coordinator. With no pending intent, the validator
-opens the configured namespace root and checks the manifest's root, every
-parent-directory, database and active-sidecar identity using handle-relative
-opens. Retired sidecars must be absent unless a newer active generation of
+opens the configured namespace root only after checking every ancestor's
+mutation ACL and requiring the root's protected three-principal broker ACL on
+NTFS. It then checks the manifest's root, every parent-directory, database and
+active-sidecar identity using handle-relative opens. Retired sidecars must be absent unless a newer active generation of
 the same kind occupies that basename.
 
 A pending create-sidecar intent is recovered in two supported crash
