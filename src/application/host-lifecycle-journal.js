@@ -1011,12 +1011,35 @@ export class HostLifecycleJournal {
     let authorityStatus = 'REVIEW_ONLY';
     let attestationSha256 = null;
     let sourceManifestSha256 = null;
+    const attestationLifecycleHead = attestationRow?.lifecycle_sequence === 0
+      ? '0'.repeat(64)
+      : attestationRow
+        ? this.db.prepare(`
+          SELECT event_sha256 FROM host_lifecycle_events
+          WHERE host_installation_id=? AND authenticated_account_id=? AND sequence=?
+        `).get(identity.host_installation_id, identity.authenticated_account_id,
+          attestationRow.lifecycle_sequence)?.event_sha256 ?? null
+        : null;
+    const lifecycleEventsAfterAttestation = attestationRow
+      ? this.db.prepare(`
+        SELECT sequence,event_type FROM host_lifecycle_events
+        WHERE host_installation_id=? AND authenticated_account_id=? AND sequence>?
+        ORDER BY sequence
+      `).all(identity.host_installation_id, identity.authenticated_account_id,
+        attestationRow.lifecycle_sequence)
+      : [];
+    const lifecycleContinuationIsControlOnly = Boolean(attestationRow)
+      && attestationRow.lifecycle_sequence <= lifecycleHead.sequence
+      && lifecycleEventsAfterAttestation.length === lifecycleHead.sequence - attestationRow.lifecycle_sequence
+      && lifecycleEventsAfterAttestation.every((event, index) =>
+        event.sequence === attestationRow.lifecycle_sequence + index + 1
+        && ['MUTATION_PREPARED', 'MUTATION_ABORTED'].includes(event.event_type));
     if (attestationRow
       && attestationRow.inventory_sequence === root.sequence
       && attestationRow.manifest_sha256 === root.latest_manifest_sha256
       && attestationRow.inventory_head_sha256 === root.head_sha256
-      && attestationRow.lifecycle_sequence === lifecycleHead.sequence
-      && attestationRow.lifecycle_head_sha256 === lifecycleHead.head_sha256) {
+      && attestationRow.lifecycle_head_sha256 === attestationLifecycleHead
+      && lifecycleContinuationIsControlOnly) {
       try {
         const attestation = JSON.parse(attestationRow.canonical_attestation_json);
         // Resolve the manifest pin from deployment-owned registry state at the
