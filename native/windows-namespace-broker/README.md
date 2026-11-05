@@ -108,3 +108,28 @@ The validator is now compiled by the Windows CI gate. It is not yet wired into
 the SCM service's metadata-store open or startup path. Physical identity
 reconciliation and service readiness remain disabled; this increment does not
 authorize any filesystem IPC operation.
+
+
+## SCM startup trust gate
+
+The SCM host now requires `--client-sid`, `--metadata-dir` and
+`--namespace-root`. Before it reports SERVICE_RUNNING or creates the named
+pipe, it opens the broker metadata store with the native strict validators and
+runs the locked startup coordinator. With no pending intent, the validator
+opens the configured namespace root and checks the manifest's root, every
+parent-directory, database and active-sidecar identity using handle-relative
+opens. Retired sidecars must be absent unless a newer active generation of
+the same kind occupies that basename.
+
+A pending lifecycle intent currently makes startup fail closed. The service
+does not yet infer whether an interrupted create/delete can be safely
+completed. This is deliberate: a create intent has no expected file identity,
+so deleting or adopting an unmanifested file by basename would be unsafe.
+The next increment must implement operation-specific, identity-bound intent
+recovery and durable manifest transition before pending-intent startup can be
+accepted.
+
+All filesystem IPC operations remain UNSUPPORTED. This startup gate proves
+that the configured namespace matches the trusted manifest before PING becomes
+available; it does not yet implement OPEN_MAIN, sidecar lifecycle IPC or
+client HANDLE transfer.
