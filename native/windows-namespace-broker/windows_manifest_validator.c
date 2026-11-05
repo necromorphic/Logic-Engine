@@ -395,7 +395,7 @@ static int jmanifest_retire_sidecar(const unsigned char*manifest,DWORD manifest_
  }
  *updated=out;*updated_length=new_length;return 1;
 }
-int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char*manifest,DWORD manifest_length,
+int le_win_recover_lifecycle_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char*manifest,DWORD manifest_length,
  const unsigned char*intent,DWORD intent_length,const wchar_t*namespace_root){
  JPARSER p,q;DWORD root,roles,role,side,match=0xffffffffu,ir,kind,op,role_name,sides,expected_identity;
  uint64_t generation,base,target;wchar_t database[512],expected_basename[768],actual_basename[768];
