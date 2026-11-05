@@ -102,7 +102,6 @@ int main(void) {
   HANDLE namespace_handle = INVALID_HANDLE_VALUE, database_handle = INVALID_HANDLE_VALUE;
   LogicEngineWinFileIdentity namespace_identity, database_identity;
   char namespace_volume[17], namespace_file_id[33], database_volume[17], database_file_id[33];
-  char sidecar_volume[17], sidecar_file_id[33];
   char wrong_database_file_id[33];
   unsigned char namespace_manifest[4096];
   DWORD namespace_manifest_length = 0;
