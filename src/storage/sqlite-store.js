@@ -2739,6 +2739,18 @@ export class SQLiteStore {
                 : null;
             if (!targetRef || !affectedAt.has(targetRef)
               || affectedAt.get(targetRef) >= event.commit_sequence) return [];
+            // Review is required only when rollback changes the projection
+            // supporting the unknown predicate. Removing one duplicate source
+            // must not force review when the same unknown projection remains.
+            if (targetRef.startsWith('fact:')) {
+              const factId = targetRef.slice('fact:'.length);
+              const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
+              if (sameFactProjection(before, facts.get(factId))) return [];
+            } else if (targetRef.startsWith('entity:')) {
+              const entityId = targetRef.slice('entity:'.length);
+              const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
+              if (isDeepStrictEqual(before, entities.get(entityId))) return [];
+            }
             return [{
               event_id: event.event_id,
               reason_code: 'historical_predicate_unknown',
