@@ -123,6 +123,7 @@ int main(void) {
   if (!le_win_store_lock(&store)) goto close_store;
   if (le_win_store_read_intent(&store, &recovery_intent, &recovery_intent_length)
       || GetLastError() != ERROR_FILE_NOT_FOUND) goto unlock_store;
+  le_win_store_unlock(&store);
   stage = "recover clean startup with no pending intent";
   if (!le_win_store_startup_recover(&store, recover_test, &reject_recovery)) goto close_store;
   stage = "create sidecar";
