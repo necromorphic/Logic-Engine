@@ -11,7 +11,7 @@ never filesystem paths.
 Only PING is implemented. OPEN_MAIN, OPEN_SIDECAR, DELETE_SIDECAR,
 CREATE_SIDECAR, OPEN_OR_CREATE_SIDECAR and ACCESS_ROLE_FILE still return
 UNSUPPORTED. The SCM startup path now validates and reconciles the durable
-manifest and can recover the two create-sidecar crash windows described below.
+manifest and can recover create- and delete-sidecar crash windows described below.
 Do not connect the SQLite VFS or install this host for production use yet.
 
 Build from a Visual Studio Developer Command Prompt:
@@ -87,10 +87,11 @@ failure. A missing manifest is always fatal.
 
 The native smoke test verifies that a rejected callback leaves the intent
 readable, while a successful callback causes the intent to be retired. The SCM
-host now supplies the callback: clean startup reconciles every registered DB
-and sidecar, and create-sidecar recovery either rolls back an absent file or
-commits its captured identity into the next manifest generation. Delete-sidecar
-recovery remains fail-closed.
+host supplies the callback: clean startup reconciles every registered DB and
+sidecar; create recovery rolls back an absent file or enrolls its captured
+identity into the next manifest generation; delete recovery verifies the
+expected identity, deletes only that opened file, and retires the matching
+manifest entry.
 
 
 ## Native strict manifest and intent validator
@@ -121,7 +122,7 @@ NTFS. It then checks the manifest's root, every parent-directory, database and
 active-sidecar identity using handle-relative opens. Retired sidecars must be absent unless a newer active generation of
 the same kind occupies that basename.
 
-A pending create-sidecar intent is recovered in two supported crash
+Pending create-sidecar intents are recovered in the two supported crash
 windows. If the manifest is still at baseGeneration, the role and sidecar basename
 are derived from the validated manifest and intent, the parent chain is reopened
 by recorded directory identities, and the sidecar is opened without following
@@ -133,14 +134,17 @@ targetGeneration, recovery requires the corresponding sidecar kind to be active
 at that exact generation and verifies its physical identity against the manifest. Other generations, mismatched names, active
 conflicts, reparse points and ambiguous filesystem errors fail closed.
 
-Delete-sidecar intents remain unsupported and fail closed. They require a
-separate manifest-retirement transition with crash-safe handling of the
-identity-bound delete operation; the broker does not guess or retire a sidecar
-entry automatically.
+Delete-sidecar intents require the identity-match precondition and an exact
+match between the intent's expected File ID and the active manifest record.
+Recovery deletes only a no-follow opened handle with that identity, flushes the
+parent, then durably changes the manifest record to retired and advances the
+generation. If the manifest already reached targetGeneration, recovery requires
+the matching retired record and an absent pathname. A replacement file or
+ambiguous filesystem result fails closed.
 
 All filesystem IPC operations remain UNSUPPORTED. The startup gate proves
-that the configured namespace matches the trusted manifest and recovers only
-create-sidecar intents before PING becomes available. It does not yet implement
+that the configured namespace matches the trusted manifest and recovers validated
+create- and delete-sidecar intents before PING becomes available. It does not yet implement
 OPEN_MAIN, sidecar lifecycle IPC or client HANDLE transfer.
 
 ## Create-sidecar startup recovery
