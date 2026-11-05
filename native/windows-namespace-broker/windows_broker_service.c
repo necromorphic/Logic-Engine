@@ -78,20 +78,54 @@ static HANDLE authenticated_process(HANDLE pipe) {
  if(process)CloseHandle(process);
  return NULL;
 }
+#define LEB_STATUS_OK 0u
+#define LEB_STATUS_BAD_REQUEST 1u
+#define LEB_STATUS_UNAUTHORIZED 2u
+#define LEB_STATUS_UNSUPPORTED 3u
+#define LEB_STATUS_INTERNAL 4u
+#define LEB_STATUS_NOT_FOUND 5u
+static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129],char kind[16]) {
+ DWORD separator=0,i,role_length,kind_length;
+ if(!payload||!length||length>145)return FALSE;
+ while(separator<length&&payload[separator]!=0)separator++;
+ if(separator==0||separator==length)return FALSE;
+ role_length=separator;kind_length=length-separator-1;
+ if(role_length>128||kind_length==0||kind_length>=16)return FALSE;
+ for(i=0;i<role_length;i++){
+  BYTE c=payload[i];
+  if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')
+     ||(i==0&&!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9'))))return FALSE;
+ }
+ for(i=separator+1;i<length;i++)if(payload[i]==0||payload[i]<0x21||payload[i]>0x7e)return FALSE;
+ memcpy(role,payload,role_length);role[role_length]=0;
+ memcpy(kind,payload+separator+1,kind_length);kind[kind_length]=0;
+ return !strcmp(kind,"main")||!strcmp(kind,"wal")||!strcmp(kind,"shm")||!strcmp(kind,"journal");
+}
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
+ DWORD response_status=LEB_STATUS_BAD_REQUEST;BOOL exists=FALSE;
+ char role[129],kind[16];
  if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn(pipe,&q,sizeof(q)))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))goto done;
  if(q.payload_length&&!readn(pipe,payload,q.payload_length))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
- ZeroMemory(&r,sizeof(r));r.magic=MAGIC;r.version=VERSION;r.operation=q.operation;r.request_id=q.request_id;
- if(q.operation==1&&!q.payload_length)r.flags=0;
- else if(q.operation>=2&&q.operation<=8)r.flags=3; /* UNSUPPORTED: backend absent */
- else r.flags=1;
- r.magic=net32(r.magic);r.version=net16(r.version);r.operation=net16(r.operation);
- r.flags=net32(r.flags);r.request_id=net64(r.request_id);r.payload_length=net32(r.payload_length);
+ if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
+ else if(q.operation==8){
+  if(!parse_access_payload(payload,q.payload_length,role,kind))response_status=LEB_STATUS_BAD_REQUEST;
+  else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
+  else{
+   if(le_win_access_role_file(&metadata_store,namespace_root,role,kind,&exists))
+    response_status=exists?LEB_STATUS_OK:LEB_STATUS_NOT_FOUND;
+   else response_status=LEB_STATUS_INTERNAL;
+   le_win_store_unlock(&metadata_store);
+  }
+ }else if(q.operation>=2&&q.operation<=8)response_status=LEB_STATUS_UNSUPPORTED;
+ else response_status=LEB_STATUS_UNSUPPORTED;
+ ZeroMemory(&r,sizeof(r));r.magic=net32(MAGIC);r.version=net16(VERSION);
+ r.operation=net16(q.operation);r.flags=net32(response_status);
+ r.request_id=net64(q.request_id);r.payload_length=0;
  (void)writen(pipe,&r,sizeof(r));
  done:
  if(process)CloseHandle(process);
