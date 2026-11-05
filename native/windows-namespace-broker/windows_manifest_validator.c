@@ -339,17 +339,17 @@ static int jformat_identity(const LogicEngineWinFileIdentity*identity,char*volum
  return 1;
 }
 static int jmanifest_add_active_sidecar(const unsigned char*manifest,DWORD manifest_length,
- JPARSER*p,DWORD root,DWORD role,DWORD target,const char*kind,
+ JPARSER*p,DWORD root,DWORD role,uint64_t target,const char*kind,
  const LogicEngineWinFileIdentity*identity,unsigned char**updated,DWORD*updated_length){
  DWORD generation_node=jget(p,root,"generation"),sides=jget(p,role,"sidecars");
  DWORD insert_at,old_generation_length,new_generation_length,record_length,new_length,cursor=0;
  char generation_text[32],volume[17],file_id[33],record[512];int written;
  unsigned char*out;
  if(!jformat_identity(identity,volume,sizeof(volume),file_id,sizeof(file_id))
-    ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%lu",(unsigned long)target))
+    ||FAILED(StringCchPrintfA(generation_text,sizeof(generation_text),"%llu",(unsigned long long)target))
     ||FAILED(StringCchPrintfA(record,sizeof(record),
       "{\"kind\":\"%s\",\"identity\":{\"kind\":\"windows\",\"volumeSerial\":\"%s\",\"fileId\":\"%s\"},\"state\":\"active\",\"generation\":%lu}",
-      kind,volume,file_id,(unsigned long)target)))return 0;
+      kind,volume,file_id,(unsigned long long)target)))return 0;
  insert_at=p->v[sides].end-1;
  old_generation_length=p->v[generation_node].end-p->v[generation_node].start;
  new_generation_length=(DWORD)strlen(generation_text);
@@ -387,7 +387,7 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
  jws(&p);if(!jvalue(&p,0,&root))goto done;jws(&p);
  if(p.pos!=p.n||p.v[root].type!=J_OBJECT||!jvalidate_manifest(&p,root))goto done;
  jws(&q);if(!jvalue(&q,0,&ir))goto done;jws(&q);
- if(q.pos!=q.n||p.v[root].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
+ if(q.pos!=q.n||q.v[ir].type!=J_OBJECT||!jvalidate_intent(&q,ir))goto done;
  op=jget(&q,ir,"operation");
  if(!jeq(&q,op,"create-sidecar")||!jeq(&q,jget(&q,ir,"precondition"),"absent"))goto done;
  kind=jget(&q,ir,"kind");
@@ -438,7 +438,7 @@ int le_win_recover_create_intent(LE_WIN_MANIFEST_STORE*store,const unsigned char
       ||(tag.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))!=0
       ||!logic_engine_win_identity(file,&observed,NULL)
       ||!FlushFileBuffers(file)||!FlushFileBuffers(parent))goto done;
-   if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,match,(DWORD)target,
+   if(!jmanifest_add_active_sidecar(manifest,manifest_length,&p,root,match,target,
         kind_text,&observed,&updated,&updated_length))goto done;
    if(!le_win_store_write_manifest(store,updated,updated_length))goto done;
    ok=le_win_reconcile_manifest_namespace(updated,updated_length,namespace_root);
