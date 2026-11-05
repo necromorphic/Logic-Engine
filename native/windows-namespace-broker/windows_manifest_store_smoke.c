@@ -44,11 +44,11 @@ static int test_native_schema_validator(void) {
     "{\"schemaVersion\":1,\"schemaVersion\":1}";
   static const unsigned char valid_intent[] =
     "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
-    "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
     "\"baseGeneration\":1,\"targetGeneration\":2,\"expectedIdentity\":null}";
   static const unsigned char bad_intent[] =
     "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
-    "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
+    "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\",\"basename\":\"memory.sqlite-wal\","
     "\"baseGeneration\":1,\"targetGeneration\":3,\"expectedIdentity\":null}";
   if (!le_win_validate_manifest(valid_manifest, (DWORD)(sizeof(valid_manifest)-1), NULL)) return 0;
   if (le_win_validate_manifest(duplicate_key, (DWORD)(sizeof(duplicate_key)-1), NULL)) return 0;
@@ -235,7 +235,7 @@ int main(void) {
   {
     static const unsigned char committed_intent[] =
       "{\"schemaVersion\":1,\"operationId\":\"0123456789abcdef0123456789abcdef\","
-      "\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
+      "\"precondition\":\"absent\",\"operation\":\"create-sidecar\",\"role\":\"main\",\"kind\":\"wal\","
       "\"basename\":\"memory.sqlite-wal\",\"baseGeneration\":1,"
       "\"targetGeneration\":2,\"expectedIdentity\":null}";
     if (!le_win_recover_create_intent(namespace_manifest,namespace_manifest_length,
