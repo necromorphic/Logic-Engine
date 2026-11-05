@@ -1184,6 +1184,8 @@ export class HostLifecycleJournal {
         input.authenticated_account_id, input.root_id, rows);
       if (!integrity.valid) throw new Error(integrity.reason);
       const currentAuthority = this.#rootInventoryAuthoritySnapshot(input);
+      const mayAcceptDelta = currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE'
+        && !this.#hasPendingMutation(input.host_installation_id, input.authenticated_account_id);
       const reusedEventId = rows.find((row) => row.event_id === input.event_id);
       if (reusedEventId) {
         const eventIndex = rows.indexOf(reusedEventId);
@@ -1269,7 +1271,7 @@ export class HostLifecycleJournal {
         const recorded = this.#appendRootInventoryEvent({ ...input, event_type: 'DELTA_LIMIT_EXCEEDED',
           entries, manifest_sha256: manifestSha256, delta: null, delta_sha256: deltaSha256 });
         return { ...recorded,
-          accepted: currentAuthority?.authority_status === 'AUTHORITATIVE_COMPLETE',
+          accepted: mayAcceptDelta,
           reason: restoringBaseline
             ? 'previously observed root inventory delta remains unresolved; HOST_ROOT_INVENTORY_DELTA_LIMIT'
             : 'HOST_ROOT_INVENTORY_DELTA_LIMIT',
