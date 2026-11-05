@@ -36,10 +36,47 @@ const isTestOrFixture = (path) => /(?:^|\/)(?:tests?|fixtures|experiments)(?:\/|
   || /\.test\.[cm]?js$/i.test(path);
 
 function stripComments(content) {
-  // These boundary checks inspect executable references, not documentation.
-  // Preserve quoted strings while removing line/block comments.
-  return content.replace(/(["'`])(?:\\\\.|(?!\\1)[^\\\\])*?\\1|\\/\\*[\\s\\S]*?\\*\\/|(^|[^:])\\/\\/.*$/gm,
-    (match, quote) => quote ? match : match.startsWith('\\n') ? '\\n' : '');
+  // Remove comments while preserving quoted strings and template literals.
+  let output = '';
+  let index = 0;
+  let quote = null;
+  while (index < content.length) {
+    const current = content[index];
+    const next = content[index + 1];
+    if (quote) {
+      output += current;
+      if (current === '\\') {
+        index += 1;
+        if (index < content.length) output += content[index];
+      } else if (current === quote) {
+        quote = null;
+      }
+      index += 1;
+      continue;
+    }
+    if (current === '"' || current === "'" || current === '`') {
+      quote = current;
+      output += current;
+      index += 1;
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < content.length && !(content[index] === '*' && content[index + 1] === '/')) {
+        if (content[index] === '\\n') output += '\\n';
+        index += 1;
+      }
+      index += 2;
+      continue;
+    }
+    if (current === '/' && next === '/' && (index === 0 || content[index - 1] !== ':')) {
+      while (index < content.length && content[index] !== '\\n') index += 1;
+      continue;
+    }
+    output += current;
+    index += 1;
+  }
+  return output;
 }
 
 function productionFiles() {
