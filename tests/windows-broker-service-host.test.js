@@ -229,6 +229,8 @@ test('Windows broker dispatches manifest-backed access and sidecar deletion requ
   assert.match(validator, /jmanifest_retire_sidecar/);
   assert.match(validator, /FILE_DISPOSITION_INFO disposition/);
   assert.match(smoke, /runtime delete-sidecar transaction writes intent and retires manifest entry/);
+  assert.match(smoke, /runtime delete rejects unknown role instead of treating it as absent sidecar/);
+  assert.match(validator, /if\(role==0xffffffffu\)\{SetLastError\(ERROR_INVALID_NAME\);goto done;\}/);
   assert.match(smoke, /runtime-deleted SHM is absent from manifest-backed access/);
   assert.match(smoke, /runtime-deleted SHM cannot be reopened by role identity/);
   assert.match(validator, /le_win_store_write_intent/);
