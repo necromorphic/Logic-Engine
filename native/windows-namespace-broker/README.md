@@ -113,7 +113,7 @@ authorize any filesystem IPC operation.
 ## SCM startup trust gate
 
 The SCM host now requires `--client-sid`, `--metadata-dir` and
-`--namespace-root` in its service-start arguments. Before it reports SERVICE_RUNNING or creates the named
+`--namespace-root` in the service executable's configured ImagePath command line. Before it reports SERVICE_RUNNING or creates the named
 pipe, it opens the broker metadata store with the native strict validators and
 runs the locked startup coordinator. With no pending intent, the validator
 opens the configured namespace root and checks the manifest's root, every
