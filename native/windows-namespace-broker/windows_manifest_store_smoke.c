@@ -140,7 +140,7 @@ int main(void) {
   if (!le_win_store_lock(&store)) goto close_store;
   stage = "create identity-pinned namespace root";
   if (FAILED(StringCchPrintfW(namespace_directory, LE_COUNT_OF(namespace_directory),
-      L"%s\\namespace", directory)) || !CreateDirectoryW(namespace_directory, &security_attributes)) goto unlock_store;
+      L"%s\\namespace", directory)) || !CreateDirectoryW(namespace_directory, NULL)) goto unlock_store;
   stage = "open namespace root identity";
   namespace_handle = CreateFileW(namespace_directory,
       FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | READ_CONTROL,
