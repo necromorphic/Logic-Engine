@@ -2,7 +2,7 @@ name: better-sqlite3 default VFS integration
 
 on:
   push:
-    branches: ['security/**']
+    branches: ['security/**', 'integration/host-core-v1']
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
