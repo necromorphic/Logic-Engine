@@ -4,6 +4,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
 import {
   PINNED_HOST_COMMIT,
   SOURCE_FILE_PATHS,
@@ -126,9 +127,21 @@ try {
   runGit(stagingRoot, ['config', 'core.eol', 'lf']);
   runGit(stagingRoot, ['checkout-index', '--force', '--all']);
 
-  // The archive/checkout supplied by the operator must match the exact pinned
-  // upstream source for every covered pre-patch file. Existing partial patches
-  // and files created by a previous incomplete installation are rejected.
+  // Final-Send is installed independently by its own transactional manager.
+  // Accept its source changes only when the manager verifies the pinned patch,
+  // every patched file, and every byte-exact backup. Never infer trust from
+  // matching import names or from a partially patched source file.
+  const finalSendManager = new SillyTavernPatchManager({
+    extensionRoot: repoRoot,
+    stRoot,
+  });
+  const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
+  const finalSendManifest = finalSendManager.manifest;
+
+  // The target must be either the exact pinned upstream baseline or the exact
+  // verified Final-Send post-install state for the specific files that patch
+  // changes. All other local modifications remain a hard conflict.
   const generatedPrefixes = [
     'public/scripts/logic-engine-lifecycle/',
     'plugins/logic-engine-extension-gateway/',
@@ -145,9 +158,34 @@ try {
     }
     if (!await exists(target)) throw new Error('HOST_PATCH_BASELINE_FILE_MISSING: ' + relativePath);
     const [expectedBytes, actualBytes] = await Promise.all([readFile(baseline), readFile(target)]);
-    if (sha256(normalizeText(expectedBytes)) !== sha256(normalizeText(actualBytes))) {
-      throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
+    const expectedHash = sha256(normalizeText(expectedBytes));
+    const actualHash = sha256(normalizeText(actualBytes));
+    if (expectedHash !== actualHash) {
+      const finalSendExpected = finalSendManifest.sourceFiles?.[relativePath];
+      const isVerifiedFinalSendState = finalSendInstalled
+        && finalSendExpected && typeof finalSendExpected === 'object'
+        && typeof finalSendExpected.after === 'string'
+        && actualHash === finalSendExpected.after;
+      if (!isVerifiedFinalSendState) {
+        throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
+      }
     }
+  }
+
+  // Reproduce the independently verified Final-Send state in staging before
+  // layering the Host lifecycle/inventory patches. This prevents the bundle
+  // from silently overwriting Final-Send on shared files such as chat-completions
+  // and extensions.js. The patch is checked against the immutable pinned tree.
+  if (finalSendInstalled) {
+    const finalSendPatch = path.join(repoRoot, finalSendManifest.patch.path);
+    runGit(stagingRoot, [
+      '-c', 'core.autocrlf=false', 'apply', '--ignore-space-change',
+      '--ignore-whitespace', '--check', finalSendPatch,
+    ]);
+    runGit(stagingRoot, [
+      '-c', 'core.autocrlf=false', 'apply', '--ignore-space-change',
+      '--ignore-whitespace', finalSendPatch,
+    ]);
   }
 
   const patches = [
