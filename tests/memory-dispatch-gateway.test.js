@@ -89,7 +89,10 @@ function installTestTransport(gateway, factory) {
   return gateway;
 }
 
-async function createFixture({ sendUpstream, createTransport, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({
+  sendUpstream, createTransport, coreHead = 1, providerHead = 1,
+  initialProviderGrant = true, providerCandidatesOverride, onReadCoreEvidence,
+} = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -120,7 +123,9 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
     coordinatorPath,
     authorityPort: service.port,
     readToken,
-    readCoreEvidence: ({ worldId, actorId, sources }) => ({
+    readCoreEvidence: ({ worldId, actorId, sources }) => {
+      onReadCoreEvidence?.({ worldId, actorId, sources });
+      return {
       head: coreHead,
       world_id: worldId,
       actor_id: actorId,
@@ -128,7 +133,8 @@ async function createFixture({ sendUpstream, createTransport, coreHead = 1, prov
       inventory_status: 'READY',
       policy_authority: policyAuthority,
       sources,
-    }),
+      };
+    },
     readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor }) => ({
       head: providerHead,
       world_id: worldId,
@@ -1391,6 +1397,44 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
+test('cancellation during Core evidence read is rechecked before durable start even when AbortSignal.aborted is shadowed', async () => {
+  const controller = new AbortController();
+  Object.defineProperty(controller.signal, 'aborted', {
+    configurable: true,
+    value: false,
+  });
+  let evidenceReads = 0;
+  const fixture = await createFixture({
+    onReadCoreEvidence: () => {
+      evidenceReads += 1;
+      if (evidenceReads === 1) controller.abort(new Error('cancelled during authorization'));
+    },
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('cancel-during-evidence-read', {
+        signal: controller.signal,
+      })),
+      /MEMORY_DISPATCH_CANCELLED_BEFORE_START/,
+    );
+    assert.equal(evidenceReads, 1);
+    assert.equal(fixture.calls.length, 0, 'cancellation during evidence authorization must produce zero egress');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger WHERE request_id=?')
+          .get('cancel-during-evidence-read').n,
+        0,
+        'cancelled authorization must not create DISPATCH_STARTED',
+      );
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('pre-aborted Host generation is rejected before durable start or upstream egress', async () => {
   const fixture = await createFixture();
   const controller = new AbortController();
@@ -1468,6 +1512,68 @@ test('cancellation after dispatch-start records UNKNOWN and blocks every retry',
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(sends, 1, 'same-ID and new-ID retries must both remain blocked');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Host abort after upstream headers but before final response release records UNKNOWN and blocks replay', async () => {
+  const controller = new AbortController();
+  // Caller-owned own properties must not replace the captured EventTarget
+  // intrinsics used by the Gateway to observe and clean up cancellation.
+  Object.defineProperties(controller.signal, {
+    addEventListener: { configurable: true, value() { throw new Error('POISONED_ABORT_LISTENER'); } },
+    removeEventListener: { configurable: true, value() { throw new Error('POISONED_ABORT_CLEANUP'); } },
+  });
+  let sends = 0;
+  const fixture = await createFixture({
+    createTransport: () => () => {
+      sends += 1;
+      // Model fetch resolving at response headers while a Host-transformed
+      // stream is still pending and no final Host write has been authorized.
+      return Promise.resolve({ status: 200, body: 'stream-open' });
+    },
+  });
+  const request = validRequest('host-abort-after-headers', {
+    stream: true,
+    hostTransformsStream: true,
+    signal: controller.signal,
+  });
+  try {
+    const response = await fixture.gateway.dispatchProtectedRequest(request);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.gateway.pendingReleases.has(request.requestId), true);
+
+    controller.abort();
+
+    const ledger = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get(request.requestId).status,
+        'UNKNOWN',
+        'disconnect after upstream headers must terminally resolve the ambiguous dispatch',
+      );
+    } finally {
+      ledger.close();
+    }
+    assert.equal(fixture.gateway.pendingReleases.has(request.requestId), false);
+    assert.throws(
+      () => fixture.gateway.authorizeResponseWrite(request.requestId, () => undefined, { final: true }),
+      /MEMORY_DISPATCH_RELEASE_NOT_PENDING/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers')),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers-new-id', {
+        stream: true,
+        hostTransformsStream: true,
+      })),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(sends, 1, 'disconnect after headers must never reopen the provider transport');
   } finally {
     await fixture.close();
   }
@@ -2262,7 +2368,7 @@ test('client cancellation after upstream completion blocks the first response re
     });
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(request),
-      /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
     );
     const ledger = new DatabaseSync(fixture.ledgerPath);
     try {
