@@ -101,7 +101,7 @@ test('server and browser extension loaders reject unreviewed third-party code be
   const pluginFilePath = pluginSection.indexOf('const pluginFilePath = path.join(pluginsPath, file)');
   assert.ok(files >= 0 && pluginLoader.indexOf('await updatePlugins(pluginsPath)') > files
     && pluginSection.includes('if (hostAuthorityConfigured) {')
-    && update >= 0 && allowlist > update && pluginFilePath > allowlist,
+    && update >= 0 && pluginFilePath >= 0 && allowlist > pluginFilePath,
   'server plugin updates must be disabled in Host mode and unreviewed plugins rejected before import');
 
   const extensionStart = rootMutationPatch.indexOf('diff --git a/src/endpoints/extensions.js ');
