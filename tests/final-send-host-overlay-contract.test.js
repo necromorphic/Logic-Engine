@@ -22,6 +22,16 @@ test('Final-Send keeps fail-closed behavior when Host overlay attestation is una
   assert.match(source, /throw new Error\('PATCH_VERIFY_FAILED: ' \+ relativePath\)/);
 });
 
+test('Host Bundle accepts only an exact reproduced Host overlay on reinstall', () => {
+  const stagedIdentityCheck = installer.indexOf("if (stagedIdentity.status !== 'CURRENT_IDENTITIES_VERIFIED')");
+  const overlayComparison = installer.indexOf("actualHash !== baselineHash && actualHash !== stagedHash");
+  assert.match(installer, /const upstreamBaselineHashes = new Map\(\)/);
+  assert.ok(stagedIdentityCheck >= 0 && overlayComparison > stagedIdentityCheck,
+    'installed Host overlay must be compared only after the pinned staging identity is verified');
+  assert.match(installer, /actualHash !== baselineHash && actualHash !== stagedHash/);
+  assert.match(installer, /HOST_PATCH_BASELINE_MISMATCH: ' \+ relativePath/);
+});
+
 test('Host Bundle installs and pins the updated Patch Manager in the Core plugin', () => {
   assert.match(installer, /plugins\/logic-engine\/scripts\/sillytavern-patch-manager\.mjs/);
   assert.match(installer, /Update this[\s\S]*single managed file transactionally/);
