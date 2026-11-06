@@ -2591,7 +2591,7 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,16 @@
+@@ -64,2 +72,15 @@
          for (const file of files) {
              const pluginFilePath = path.join(pluginsPath, file);
 +            // Match SillyTavern's executable plugin candidates; metadata and placeholders are not plugins.
