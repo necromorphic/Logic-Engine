@@ -8,8 +8,7 @@ const patchPath = path.resolve('host-adapter/prototype/patches/sillytavern-1.19.
 test('Host plugin loader requires both first-party Logic Engine runtime and Gateway under Host authority', () => {
     const patch = fs.readFileSync(patchPath, 'utf8');
     const allowFirstParty = [
-        "+            if (hostAuthorityConfigured",
-        "+                && pluginCandidate",
+        "+            if (hostAuthorityConfigured && pluginCandidate",
         "+                && file !== 'logic-engine'",
         "+                && file !== 'logic-engine-extension-gateway') {",
     ].join('\n');
