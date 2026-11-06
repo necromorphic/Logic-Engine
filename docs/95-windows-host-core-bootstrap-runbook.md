@@ -49,7 +49,7 @@ The current source reads these names:
 - `LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN` (separate from Core and Provider tokens)
 - `LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH`
 - `ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES`
-- `ENGINE_MEMORY_NPC_CONTENT_FIELDS` (non-empty allowlist is required to construct this runtime, even when Memory is not enabled)
+- `ENGINE_MEMORY_NPC_CONTENT_FIELDS` (non-empty allowlist required only when the embedded Memory/NPC runtime or Core Memory Provider is configured; do not add it merely for Memory-disabled native-generation acceptance)
 - `ENGINE_HOST_ROOT_IDENTITIES`
 - `ENGINE_HOST_AUTHORITY_ID`
 - `ENGINE_HOST_AUTHORITY_GENERATION`
@@ -88,10 +88,10 @@ Core and Provider must use the same absolute `LOGIC_ENGINE_COORDINATOR_DB_PATH`;
 5. **Restrict the Accepted-Head DB.** Apply and verify a Windows ACL that grants write access only to the authority service identity and required read access only where explicitly needed. The Core/Provider/Gateway clients communicate over the authenticated loopback service; they must not write the authority DB directly.
 6. **Start the Accepted-Head service only after the ACL check.** Confirm it listens on the configured loopback port. Query its status with the read token. Both domains must initially be un-enrolled with head 0 and no pending operation.
 7. **Review each database baseline independently.** Produce an evidence record for Core and Provider separately. Only after review may an operator provide an approval ID and baseline digest to the explicit enrollment script. Enroll Core and Provider separately; verify both report enrolled, no pending operations, and the expected head.
-8. **Obtain real Host identity evidence from the installed acceptance ST.** The root registry needs actual `host_installation_id`, `authenticated_account_id`, `root_id`, and the exact pinned `source_manifest_sha256`. The registry is an authorization allowlist, not an enrollment endpoint. Do not invent UUIDs or hashes.
-9. **Establish Host lifecycle authority.** Set a deployment-owned authority ID and positive generation only after the authority's root binding and signed inventory/receipt process are available and reviewed. A registry entry alone does not prove inventory completeness.
-10. **Run read-only preflight.** Validate every process-specific variable, JSON schema, path separation, ACL, source hash, World Pack catalog, Accepted-Head status, and Host identity. Stop on any missing or ambiguous value.
-11. **Only then start Core and the acceptance ST copy.** Keep Memory → NPC disabled. Complete lifecycle persistence checks and two ordinary native model generations with exactly-once response delivery before considering any protected Memory dispatch.
+8. **Start the isolated ST copy in Host-only acceptance mode.** Keep `LOGIC_ENGINE_MEMORY_NPC_ENABLED` unset/false. Configure only the Host identity/receipt directories and the pinned Host components. This startup is for collecting the real signed ST session identity; it is not a protected generation test.
+9. **Collect the real ST session identity.** From the authenticated browser session, call `/api/plugins/logic-engine-extension-gateway/session`, then `/identity`. Record the returned installation/account/session identifiers locally. Do not fabricate them. The identity route does not prove Root Inventory completeness.
+10. **Start Core with isolated paths and reviewed deployment configuration.** Then verify the Host `/inventory` route can persist the full-root manifest and receive a signed authoritative result. A missing root registry binding, source-manifest mismatch, missing shared VSS snapshot, or incomplete lifecycle chain must remain NON_READY.
+11. **Run read-only preflight and base integration acceptance.** Validate process-specific variables, JSON schemas, path separation, ACL, source hash, World Pack catalog, Accepted-Head status, and actual Host identity. Keep Memory → NPC disabled. Once Host inventory is AUTHORITATIVE_COMPLETE, run lifecycle persistence checks and two ordinary native model generations with exactly-once response delivery. The separate Host Version Digest Ledger verifier remains deny-only by design; it is not a substitute for, nor proof of, the signed Root Inventory gate required by Host preparation.
 
 ## 5. Current known blockers
 
@@ -100,7 +100,7 @@ Core and Provider must use the same absolute `LOGIC_ENGINE_COORDINATOR_DB_PATH`;
 - No verified Windows ACL/service identity has been established for Accepted-Head.
 - No reviewed World Pack artifact/catalog has been selected.
 - The current Host lifecycle design remains fail-closed when the required signed inventory/receipt evidence is absent.
-- A non-empty Memory content-field allowlist is required by the Embedded Gateway constructor, but this must not be interpreted as permission to enable Memory → NPC.
+- The embedded Memory/NPC runtime is optional while `LOGIC_ENGINE_MEMORY_NPC_ENABLED` is false. Its content-field allowlist is not a prerequisite for the base Host identity/session and ordinary native-generation acceptance path unless the Core Memory Provider is separately configured.
 
 ## 6. Acceptance rule
 
