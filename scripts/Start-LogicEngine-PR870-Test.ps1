@@ -1,152 +1,192 @@
-# Temporary, isolated Logic-Engine PR #870 smoke-test deployment.
-# Does NOT modify the original SillyTavern folder or ST-VectorService.
-$ErrorActionPreference = 'Stop'
-$Commit = '928eb5625ea17c1febb403824bfc622a0065d7b6'
-$Repo = 'https://github.com/necromorphic/Logic-Engine.git'
-$TempRoot = Join-Path $env:TEMP ("LogicEngine-ST-Test-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-$TestSt = Join-Path $TempRoot 'SillyTavern'
-$LogicRepo = Join-Path $TempRoot 'Logic-Engine'
+# Isolated Logic-Engine PR 870 smoke-test launcher.
+# ASCII-only, Windows PowerShell 5.1 compatible. Original ST and VectorService are not modified.
+$ErrorActionPreference = "Stop"
 
-function Find-StRoot {
-    $procs = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue
-    foreach ($proc in $procs) {
-        if ($proc.CommandLine -match '(?i)([A-Z]:\\[^"]*?SillyTavern[^"]*?)\\server\.js') {
-            $candidate = $Matches[1]
-            if (Test-Path (Join-Path $candidate 'package.json')) { return (Resolve-Path $candidate).Path }
+$Commit = "928eb5625ea17c1febb403824bfc622a0065d7b6"
+$Repo = "https://github.com/necromorphic/Logic-Engine.git"
+$TempRoot = Join-Path $env:TEMP ("LogicEngine-ST-Test-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+$TestSt = Join-Path $TempRoot "SillyTavern"
+$LogicRepo = Join-Path $TempRoot "Logic-Engine"
+
+Write-Host "=== Logic-Engine PR 870 isolated test ===" -ForegroundColor Cyan
+
+$SourceSt = ""
+$nodeProcesses = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue
+foreach ($processItem in $nodeProcesses) {
+    $commandLine = [string]$processItem.CommandLine
+    if ($commandLine -match "(?i)([A-Z]:\\.*?SillyTavern)\\server\.js") {
+        $candidate = $Matches[1]
+        if (Test-Path (Join-Path $candidate "package.json")) {
+            $SourceSt = (Resolve-Path $candidate).Path
+            break
         }
     }
-    $entered = Read-Host 'Не удалось определить путь автоматически. Введи путь к папке работающей SillyTavern 1.19.0'
-    if (-not (Test-Path (Join-Path $entered 'package.json'))) { throw 'ST_ROOT_NOT_FOUND' }
-    return (Resolve-Path $entered).Path
 }
 
-function Get-FreePort {
-    $listener = [System.Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
-    $listener.Stop()
-    return $port
+if ([string]::IsNullOrWhiteSpace($SourceSt)) {
+    $SourceSt = Read-Host "Enter the full path to your running SillyTavern 1.19.0 folder"
+    if (-not (Test-Path (Join-Path $SourceSt "package.json"))) {
+        throw "ST_ROOT_NOT_FOUND"
+    }
+    $SourceSt = (Resolve-Path $SourceSt).Path
 }
 
-Write-Host '=== Logic-Engine PR #870 isolated smoke-test setup ===' -ForegroundColor Cyan
-$SourceSt = Find-StRoot
-$pkg = Get-Content (Join-Path $SourceSt 'package.json') -Raw | ConvertFrom-Json
-if ($pkg.version -ne '1.19.0') { throw "Expected SillyTavern 1.19.0; found $($pkg.version). Nothing changed." }
-if (-not (Test-Path (Join-Path $SourceSt 'src/plugin-loader.js'))) { throw 'ST_PLUGIN_LOADER_NOT_FOUND' }
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'Git is required.' }
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Node.js is required.' }
-$nodeVer = [version]((node --version).TrimStart('v'))
-if ($nodeVer -lt [version]'22.13.0') { throw "Node >=22.13.0 required; found $nodeVer" }
+$packagePath = Join-Path $SourceSt "package.json"
+$packageData = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+if ($packageData.version -ne "1.19.0") {
+    throw ("EXPECTED_ST_1_19_0_FOUND_" + $packageData.version)
+}
+if (-not (Test-Path (Join-Path $SourceSt "src/plugin-loader.js"))) {
+    throw "ST_PLUGIN_LOADER_NOT_FOUND"
+}
+if (-not (Get-Command "git" -ErrorAction SilentlyContinue)) {
+    throw "GIT_REQUIRED"
+}
+if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
+    throw "NODE_REQUIRED"
+}
+$nodeVersionText = (node --version).TrimStart("v")
+$nodeVersion = [version]$nodeVersionText
+if ($nodeVersion -lt [version]"22.13.0") {
+    throw ("NODE_VERSION_TOO_OLD_" + $nodeVersionText)
+}
 
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
-Write-Host "Source ST: $SourceSt"
-Write-Host "Temporary test root: $TempRoot"
-Read-Host 'Закрой окно SillyTavern (ST-VectorService не закрывай), затем нажми Enter для создания согласованной копии'
+Write-Host ("Original ST: " + $SourceSt)
+Write-Host ("Temporary test folder: " + $TempRoot)
+Read-Host "Close the original SillyTavern window. Keep ST-VectorService running. Press Enter to continue"
 
 git clone --no-checkout $Repo $LogicRepo
-if ($LASTEXITCODE -ne 0) { throw 'GIT_CLONE_FAILED' }
+if ($LASTEXITCODE -ne 0) { throw "GIT_CLONE_FAILED" }
 git -C $LogicRepo checkout --detach $Commit
-if ($LASTEXITCODE -ne 0) { throw 'CANDIDATE_CHECKOUT_FAILED' }
-$actual = (git -C $LogicRepo rev-parse HEAD).Trim()
-if ($actual -ne $Commit) { throw "WRONG_COMMIT: $actual" }
+if ($LASTEXITCODE -ne 0) { throw "CANDIDATE_CHECKOUT_FAILED" }
+$actualCommit = (git -C $LogicRepo rev-parse HEAD).Trim()
+if ($actualCommit -ne $Commit) { throw ("WRONG_COMMIT_" + $actualCommit) }
 
-$excludeDirs = @('.git', 'node_modules', 'coverage', 'logs', 'temp')
-$robocopyArgs = @($SourceSt, $TestSt, '/E', '/COPY:DAT', '/DCOPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NP')
-foreach ($d in $excludeDirs) { $robocopyArgs += @('/XD', (Join-Path $SourceSt $d)) }
-& robocopy @robocopyArgs
-$rc = $LASTEXITCODE
-if ($rc -ge 8) { throw "ST_COPY_FAILED_ROBOCOPY_$rc" }
+$excludePaths = @(
+    (Join-Path $SourceSt ".git"),
+    (Join-Path $SourceSt "node_modules"),
+    (Join-Path $SourceSt "coverage"),
+    (Join-Path $SourceSt "logs"),
+    (Join-Path $SourceSt "temp")
+)
+$copyArgs = @($SourceSt, $TestSt, "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:1", "/W:1", "/NFL", "/NDL", "/NP")
+foreach ($excludePath in $excludePaths) { $copyArgs += @("/XD", $excludePath) }
+& robocopy @copyArgs
+$copyCode = $LASTEXITCODE
+if ($copyCode -ge 8) { throw ("ST_COPY_FAILED_" + $copyCode) }
 
 Push-Location $TestSt
-try {
-    npm install --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { throw 'TEMP_ST_NPM_INSTALL_FAILED' }
-} finally { Pop-Location }
+npm install --no-audit --no-fund
+$npmCode = $LASTEXITCODE
+Pop-Location
+if ($npmCode -ne 0) { throw "TEMP_ST_NPM_INSTALL_FAILED" }
 
-$pluginPath = Join-Path $TestSt 'plugins\logic-engine'
-$gatewayPluginPath = Join-Path $TestSt 'plugins\logic-engine-extension-gateway'
-if (Test-Path $pluginPath) { throw 'TEMP_PLUGIN_PATH_ALREADY_EXISTS' }
+$pluginPath = Join-Path $TestSt "plugins/logic-engine"
+$gatewayPath = Join-Path $TestSt "plugins/logic-engine-extension-gateway"
+if (Test-Path $pluginPath) { throw "TEMP_PLUGIN_PATH_ALREADY_EXISTS" }
 New-Item -ItemType Directory -Path (Split-Path $pluginPath) -Force | Out-Null
-$copyArgs = @($LogicRepo, $pluginPath, '/E', '/COPY:DAT', '/DCOPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NP',
-              '/XD', (Join-Path $LogicRepo '.git'), (Join-Path $LogicRepo 'node_modules'),
-              (Join-Path $LogicRepo 'tests'), (Join-Path $LogicRepo 'coverage'))
-& robocopy @copyArgs
-$rc = $LASTEXITCODE
-if ($rc -ge 8) { throw "PLUGIN_COPY_FAILED_ROBOCOPY_$rc" }
 
-# Replace only the Gateway inside the isolated TEMPORARY copy. The original ST
-# and its plugin folder remain untouched. This is the missing Host ingress plugin.
-if (Test-Path $gatewayPluginPath) {
-    Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force
+$pluginCopyArgs = @(
+    $LogicRepo, $pluginPath, "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:1", "/W:1", "/NFL", "/NDL", "/NP",
+    "/XD", (Join-Path $LogicRepo ".git"),
+    (Join-Path $LogicRepo "node_modules"),
+    (Join-Path $LogicRepo "tests"),
+    (Join-Path $LogicRepo "coverage")
+)
+& robocopy @pluginCopyArgs
+$pluginCopyCode = $LASTEXITCODE
+if ($pluginCopyCode -ge 8) { throw ("PLUGIN_COPY_FAILED_" + $pluginCopyCode) }
+
+if (Test-Path $gatewayPath) {
+    Remove-Item -LiteralPath $gatewayPath -Recurse -Force
 }
-$gatewaySource = Join-Path $LogicRepo 'host-adapter\extension-gateway\server-plugin'
-if (-not (Test-Path (Join-Path $gatewaySource 'index.mjs'))) { throw 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND' }
-$gatewayCopyArgs = @($gatewaySource, $gatewayPluginPath, '/E', '/COPY:DAT', '/DCOPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NP')
+$gatewaySource = Join-Path $LogicRepo "host-adapter/extension-gateway/server-plugin"
+if (-not (Test-Path (Join-Path $gatewaySource "index.mjs"))) {
+    throw "HOST_GATEWAY_SOURCE_NOT_FOUND"
+}
+$gatewayCopyArgs = @($gatewaySource, $gatewayPath, "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:1", "/W:1", "/NFL", "/NDL", "/NP")
 & robocopy @gatewayCopyArgs
-$rc = $LASTEXITCODE
-if ($rc -ge 8) { throw "GATEWAY_COPY_FAILED_ROBOCOPY_$rc" }
+$gatewayCopyCode = $LASTEXITCODE
+if ($gatewayCopyCode -ge 8) { throw ("GATEWAY_COPY_FAILED_" + $gatewayCopyCode) }
 
 Push-Location $pluginPath
-try {
-    npm install --omit=dev --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { throw 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
-    node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $TestSt --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { throw 'PATCH_PREFLIGHT_FAILED' }
-    node 'scripts/sillytavern-patch-manager.mjs' install --st-root $TestSt --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { throw 'PATCH_INSTALL_FAILED' }
-    node 'scripts/sillytavern-patch-manager.mjs' verify --st-root $TestSt --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
-} finally { Pop-Location }
+npm install --omit=dev --no-audit --no-fund
+$pluginNpmCode = $LASTEXITCODE
+if ($pluginNpmCode -eq 0) {
+    node "scripts/sillytavern-patch-manager.mjs" preflight --st-root $TestSt --extension-root $pluginPath
+    $preflightCode = $LASTEXITCODE
+} else {
+    $preflightCode = 1
+}
+if ($preflightCode -eq 0) {
+    node "scripts/sillytavern-patch-manager.mjs" install --st-root $TestSt --extension-root $pluginPath
+    $installCode = $LASTEXITCODE
+} else {
+    $installCode = 1
+}
+if ($installCode -eq 0) {
+    node "scripts/sillytavern-patch-manager.mjs" verify --st-root $TestSt --extension-root $pluginPath
+    $verifyCode = $LASTEXITCODE
+} else {
+    $verifyCode = 1
+}
+Pop-Location
+if ($pluginNpmCode -ne 0) { throw "PLUGIN_DEPENDENCY_INSTALL_FAILED" }
+if ($preflightCode -ne 0) { throw "PATCH_PREFLIGHT_FAILED" }
+if ($installCode -ne 0) { throw "PATCH_INSTALL_FAILED" }
+if ($verifyCode -ne 0) { throw "PATCH_VERIFY_FAILED" }
 
-$configPath = Join-Path $TestSt 'config.yaml'
+$configPath = Join-Path $TestSt "config.yaml"
 if (-not (Test-Path $configPath)) {
-    $templatePath = Join-Path $TestSt 'default\config.yaml'
-    if (-not (Test-Path $templatePath)) { throw 'TEMP_CONFIG_TEMPLATE_NOT_FOUND' }
+    $templatePath = Join-Path $TestSt "default/config.yaml"
+    if (-not (Test-Path $templatePath)) { throw "TEMP_CONFIG_TEMPLATE_NOT_FOUND" }
     Copy-Item -LiteralPath $templatePath -Destination $configPath
 }
-$config = Get-Content $configPath -Raw
+$configText = Get-Content -LiteralPath $configPath -Raw
 $newline = [Environment]::NewLine
-if ($config -match '(?m)^enableServerPlugins\s*:') {
-    $config = [regex]::Replace($config, '(?m)^enableServerPlugins\s*:.*$', 'enableServerPlugins: true')
-} else { $config += $newline + 'enableServerPlugins: true' + $newline }
-if ($config -match '(?m)^enableServerPluginsAutoUpdate\s*:') {
-    $config = [regex]::Replace($config, '(?m)^enableServerPluginsAutoUpdate\s*:.*$', 'enableServerPluginsAutoUpdate: false')
-} else { $config += 'enableServerPluginsAutoUpdate: false' + $newline }
-Set-Content -Path $configPath -Value $config -Encoding UTF8
+if ($configText -match "(?m)^enableServerPlugins\s*:") {
+    $configText = [regex]::Replace($configText, "(?m)^enableServerPlugins\s*:.*$", "enableServerPlugins: true")
+} else {
+    $configText = $configText + $newline + "enableServerPlugins: true" + $newline
+}
+if ($configText -match "(?m)^enableServerPluginsAutoUpdate\s*:") {
+    $configText = [regex]::Replace($configText, "(?m)^enableServerPluginsAutoUpdate\s*:.*$", "enableServerPluginsAutoUpdate: false")
+} else {
+    $configText = $configText + "enableServerPluginsAutoUpdate: false" + $newline
+}
+Set-Content -LiteralPath $configPath -Value $configText -Encoding UTF8
 
-$port = Get-FreePort
-$env:LOGIC_ENGINE_MEMORY_NPC_ENABLED = 'false'
-$env:LOGIC_ENGINE_HOST_IDENTITY_DIR = Join-Path $TempRoot 'host-identity'
+$listener = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+$listener.Start()
+$port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+$listener.Stop()
+
+$env:LOGIC_ENGINE_MEMORY_NPC_ENABLED = "false"
+$env:LOGIC_ENGINE_HOST_IDENTITY_DIR = Join-Path $TempRoot "host-identity"
 $env:LOGIC_ENGINE_HOST_BUILD_SHA = $Commit
 $env:LOGIC_ENGINE_SILLYTAVERN_ROOT = $TestSt
 
-$testInfoLines = @(
-    'TEMPORARY TEST READY'
-    "Candidate commit: $actual"
-    "Test SillyTavern: $TestSt"
-    "Original SillyTavern: $SourceSt"
-    "Temporary port: $port"
-    'ST-VectorService: NOT MODIFIED; existing endpoint/settings copied as-is.'
-    'Vectorization patch: NOT ENABLED OR MODIFIED.'
-    'Memory -> NPC: DISABLED.'
-    'Host Gateway plugin: installed separately at plugins/logic-engine-extension-gateway.'
+$infoLines = @(
+    "TEMPORARY TEST READY"
+    ("Candidate commit: " + $actualCommit)
+    ("Temporary ST: " + $TestSt)
+    ("Original ST: " + $SourceSt)
+    ("Temporary port: " + $port)
+    "ST-VectorService: not modified"
+    "Vectorization patch: unchanged"
+    "Memory to NPC: disabled"
+    "Gateway: installed as a separate server plugin"
 )
-$testInfoPath = Join-Path $TempRoot 'TEST-INFO.txt'
-Set-Content -LiteralPath $testInfoPath -Value $testInfoLines -Encoding UTF8
+Set-Content -LiteralPath (Join-Path $TempRoot "TEST-INFO.txt") -Value $infoLines -Encoding UTF8
 
-Write-Host ''
-Write-Host "Setup complete. Starting the TEMPORARY SillyTavern on port $port." -ForegroundColor Green
-Write-Host 'The original SillyTavern process and ST-VectorService are not stopped or modified.'
-Write-Host 'Use the browser URL printed by SillyTavern. Test in a NEW chat only.'
-# Start the isolated server without nested quoted path expressions.
-$serverScript = Join-Path -Path $TestSt -ChildPath "server.js"
-$nodeExe = (Get-Command -Name "node" -ErrorAction Stop).Source
-Set-Location -LiteralPath $TestSt
-& $nodeExe $serverScript --port $port
-$serverExitCode = $LASTEXITCODE
-Set-Location -LiteralPath $PSScriptRoot
-if ($serverExitCode -ne 0) {
-    throw ("TEMP_ST_SERVER_EXITED_" + $serverExitCode)
-}
+Write-Host ""
+Write-Host ("Starting TEMPORARY SillyTavern on port " + $port) -ForegroundColor Green
+Write-Host "Original SillyTavern and ST-VectorService are not modified."
+Push-Location $TestSt
+node "server.js" --port $port
+$serverCode = $LASTEXITCODE
+Pop-Location
+if ($serverCode -ne 0) { throw ("TEMP_ST_SERVER_EXITED_" + $serverCode) }
 
-Write-Host ("To remove the test copy after stopping it, delete only: " + $TempRoot)
+Write-Host ("After stopping the server, the temporary folder can be deleted: " + $TempRoot)
