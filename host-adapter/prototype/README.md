@@ -310,3 +310,17 @@ The source-attestation unit tests now include fixtures for an unreviewed server 
 
 
 The extension execution boundary is enforced before activation: the pinned ST server plugin loader permits only the Logic Engine Gateway under Host authority and skips automatic server-plugin updates; the /api/extensions/discover route hides account-local third-party extensions and returns only the attested Gateway from the global third-party directory. The Host request resolver requires the account-local extension directory to be inside the inventoried account root and empty. Runtime source identity repeats that empty-directory check, while the source manifest pins the browser extension loader and the patched server discovery route.
+
+## Installing the pinned Host patch bundle
+
+The Host patch stack is separate from the Final-Send patch manager. Install it from the Logic-Engine repository root with:
+
+```powershell
+npm run host:install:bundle -- --st-root "C:\\Path\\To\\SillyTavern"
+```
+
+The installer fetches the exact SillyTavern commit pinned by `st-source-attestation.mjs`, checks every covered pre-patch source file in the target installation against that clean source, applies the lifecycle hooks, unenrolled-chat fix, and root-mutation-guard patches to a staging checkout, copies the reviewed Gateway server/browser files, and generates the deployment source manifest. It then installs only the attested files and verifies the installed source identity. A timestamped backup is retained beside the SillyTavern directory.
+
+The installer refuses a different SillyTavern source revision, partial/modified covered source files, symlinks, and unreviewed server-plugin or third-party extension directories. It does not remove unknown extensions or user data. If the installation contains another server plugin or third-party extension, use a separate clean test installation; the runtime attestation intentionally rejects unreviewed executable extensions.
+
+This command installs the **Host patch bundle only**. It does not install or modify Final-Send, does not enable Memory→NPC, and does not make an incomplete lifecycle inventory authoritative. Keep the existing fail-closed readiness gates.
