@@ -62,6 +62,15 @@ const finalSendHashAt = async relativePath => {
   const bytes = await readFile(path.join(sourceRoot, relativePath));
   return sha256(normalizeLineEndings(bytes));
 };
+let finalSendBeforeMatches = true;
+let finalSendAfterMatches = true;
+for (const [relativePath, expected] of Object.entries(finalSendManifest.sourceFiles ?? {})) {
+  const actual = await finalSendHashAt(relativePath);
+  const before = typeof expected === 'string' ? expected : expected.before;
+  const after = typeof expected === 'string' ? expected : expected.after;
+  if (actual !== before) finalSendBeforeMatches = false;
+  if (actual !== after) finalSendAfterMatches = false;
+}
 let finalSendCreatedFilesAbsent = true;
 let finalSendCreatedFilesMatch = true;
 for (const [relativePath, expected] of Object.entries(finalSendManifest.createdFiles ?? {})) {
@@ -74,8 +83,8 @@ for (const [relativePath, expected] of Object.entries(finalSendManifest.createdF
     finalSendCreatedFilesMatch = false;
   }
 }
-const finalSendInstalled = !finalSendCreatedFilesAbsent && finalSendCreatedFilesMatch;
-const finalSendPristine = finalSendCreatedFilesAbsent;
+const finalSendInstalled = finalSendAfterMatches && finalSendCreatedFilesMatch;
+const finalSendPristine = finalSendBeforeMatches && finalSendCreatedFilesAbsent;
 if (!finalSendInstalled && !finalSendPristine) {
   throw new Error('HOST_FINAL_SEND_SOURCE_STATE_UNRECOGNIZED');
 }
@@ -92,8 +101,12 @@ let files = [];
 try {
   execFileSync('git', ['-C', sourceRoot, 'worktree', 'add', '--detach', expectedRoot, PINNED_HOST_COMMIT], { stdio: 'ignore' });
   // Reproduce the exact checkout and whitespace-tolerant patch application used
-  // by host-adapter-pinned-source-audit.yml. Otherwise Windows worktree EOL or
-  // patch-context normalization can produce a false source-manifest mismatch.
+  // by host-adapter-pinned-source-audit.yml. Checkout the pinned index FIRST:
+  // checkout-index --force --all overwrites tracked files, so running it after
+  // Final-Send would silently erase that patch from the expected tree.
+  execFileSync('git', ['-C', expectedRoot, 'config', 'core.autocrlf', 'false'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', expectedRoot, 'config', 'core.eol', 'lf'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', expectedRoot, 'checkout-index', '--force', '--all'], { stdio: 'ignore' });
   // Match the independently verified Final-Send state before applying the
   // Host lifecycle/inventory patches. This is intentionally conditional:
   // CI and standalone Host installs from pristine upstream remain unchanged.
@@ -111,9 +124,6 @@ try {
       finalSendPatchPath,
     ], { stdio: 'ignore' });
   }
-  execFileSync('git', ['-C', expectedRoot, 'config', 'core.autocrlf', 'false'], { stdio: 'ignore' });
-  execFileSync('git', ['-C', expectedRoot, 'config', 'core.eol', 'lf'], { stdio: 'ignore' });
-  execFileSync('git', ['-C', expectedRoot, 'checkout-index', '--force', '--all'], { stdio: 'ignore' });
   for (const [patchPath, allowZeroContext] of [
     [lifecyclePatchPath, true],
     [unenrolledFixPatchPath, false],
