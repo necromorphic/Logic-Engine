@@ -115,11 +115,17 @@ async function exactDirectoryChildren(root, relativeDirectory, expectedNames) {
     const actualPath = await realpath(directory);
     if (!within(root, actualPath)) return false;
     const entries = await readdir(directory, { withFileTypes: true });
-    if (entries.length !== expectedNames.length
-      || entries.some(entry => !entry.isDirectory() || entry.isSymbolicLink())) return false;
-    const actual = entries.map(entry => entry.name).sort();
+    const directories = entries.filter(entry => entry.isDirectory());
+    const metadataFiles = entries.filter(entry => entry.isFile());
+    // Pinned SillyTavern archives include harmless root metadata alongside
+    // executable extension directories. Keep the allow-list narrow: no
+    // unknown files, directories, symlinks, or other filesystem entries.
+    if (entries.some(entry => !entry.isDirectory() && !entry.isFile())
+      || metadataFiles.some(entry => !['.gitkeep', 'package.json'].includes(entry.name))) return false;
+    const actual = directories.map(entry => entry.name).sort();
     const expected = [...expectedNames].sort();
-    return actual.every((name, index) => name === expected[index]);
+    return actual.length === expected.length
+      && actual.every((name, index) => name === expected[index]);
   } catch {
     return false;
   }
