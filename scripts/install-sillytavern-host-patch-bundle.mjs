@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
+import { verifyLegacyHostBundle } from './verify-legacy-host-bundle.mjs';
 import {
   PINNED_HOST_COMMIT,
   PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS,
@@ -157,6 +158,14 @@ try {
   const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
   const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
   const finalSendManifest = finalSendManager.manifest;
+  // Upgrade only from the exact previously installed Host bundle. Its old
+  // manifest pin and every covered byte must verify before it is trusted.
+  const previousHostBundle = await verifyLegacyHostBundle({
+    installRoot: stRoot,
+    expectedCommit: PINNED_HOST_COMMIT,
+    expectedPatchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
+    expectedManifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
+  });
 
   // Reproduce the independently verified Final-Send state in staging before
   // layering the Host lifecycle/inventory patches. This prevents the bundle
@@ -246,14 +255,18 @@ try {
     const stagedHash = await exists(stagedPath)
       ? sha256(normalizeText(await readFile(stagedPath)))
       : null;
-    const actualHash = sha256(normalizeText(await readFile(target)));
+    const targetBytes = await readFile(target);
+    const actualHash = sha256(normalizeText(targetBytes));
     if (actualHash !== baselineHash && actualHash !== stagedHash) {
       const finalSendExpected = finalSendManifest.sourceFiles?.[relativePath];
       const isVerifiedFinalSendState = finalSendInstalled
         && finalSendExpected && typeof finalSendExpected === 'object'
         && typeof finalSendExpected.after === 'string'
         && actualHash === finalSendExpected.after;
-      if (!isVerifiedFinalSendState) {
+      const previousHostFileHash = previousHostBundle.files.get(relativePath);
+      const isVerifiedPreviousHostState = previousHostBundle.verified
+        && previousHostFileHash === sha256(targetBytes);
+      if (!isVerifiedFinalSendState && !isVerifiedPreviousHostState) {
         throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
       }
     }
