@@ -215,7 +215,9 @@ export async function verifyPinnedSourceIdentity({
     // the only accepted entries in these executable extension roots are the
     // Logic Engine Gateway itself. Unknown extensions make Host authority
     // non-ready; a root data scan cannot attest their code.
-    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine-extension-gateway'])
+    // The separately managed Logic Engine server plugin is installed before this bundle.
+    // It is explicitly allowed by the installer and must remain alongside the attested Gateway.
+    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine', 'logic-engine-extension-gateway'])
       || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'])
       || !await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
       || !await exactDirectoryFiles(root, 'public/scripts/extensions/third-party/logic-engine-extension-gateway', clientNames)) {
