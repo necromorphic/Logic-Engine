@@ -135,6 +135,17 @@ try {
   runGit(stagingRoot, ['config', 'core.eol', 'lf']);
   runGit(stagingRoot, ['checkout-index', '--force', '--all']);
 
+  // Capture immutable upstream hashes before Final-Send and Host overlays are staged.
+  // This lets a repeat install distinguish our exact previously installed output
+  // from an unrelated local modification without trusting the target blindly.
+  const upstreamBaselineHashes = new Map();
+  for (const relativePath of SOURCE_FILE_PATHS) {
+    const baselinePath = path.join(stagingRoot, relativePath);
+    if (await exists(baselinePath)) {
+      upstreamBaselineHashes.set(relativePath, sha256(normalizeText(await readFile(baselinePath))));
+    }
+  }
+
   // Final-Send is installed independently by its own transactional manager.
   // Accept its source changes only when the manager verifies the pinned patch,
   // every patched file, and every byte-exact backup. Never infer trust from
@@ -146,39 +157,6 @@ try {
   const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
   const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
   const finalSendManifest = finalSendManager.manifest;
-
-  // The target must be either the exact pinned upstream baseline or the exact
-  // verified Final-Send post-install state for the specific files that patch
-  // changes. All other local modifications remain a hard conflict.
-  const generatedPrefixes = [
-    'public/scripts/logic-engine-lifecycle/',
-    'plugins/logic-engine-extension-gateway/',
-    'public/scripts/extensions/third-party/logic-engine-extension-gateway/',
-  ];
-  for (const relativePath of SOURCE_FILE_PATHS) {
-    if (generatedPrefixes.some(prefix => relativePath.startsWith(prefix))
-      || relativePath === 'src/endpoints/logic-engine-host-inventory-handler.mjs') continue;
-    const baseline = path.join(stagingRoot, relativePath);
-    const target = await assertSafeTarget(relativePath);
-    if (!await exists(baseline)) {
-      if (await exists(target)) throw new Error('HOST_PATCH_BASELINE_CONFLICT: unexpected file ' + relativePath);
-      continue;
-    }
-    if (!await exists(target)) throw new Error('HOST_PATCH_BASELINE_FILE_MISSING: ' + relativePath);
-    const [expectedBytes, actualBytes] = await Promise.all([readFile(baseline), readFile(target)]);
-    const expectedHash = sha256(normalizeText(expectedBytes));
-    const actualHash = sha256(normalizeText(actualBytes));
-    if (expectedHash !== actualHash) {
-      const finalSendExpected = finalSendManifest.sourceFiles?.[relativePath];
-      const isVerifiedFinalSendState = finalSendInstalled
-        && finalSendExpected && typeof finalSendExpected === 'object'
-        && typeof finalSendExpected.after === 'string'
-        && actualHash === finalSendExpected.after;
-      if (!isVerifiedFinalSendState) {
-        throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
-      }
-    }
-  }
 
   // Reproduce the independently verified Final-Send state in staging before
   // layering the Host lifecycle/inventory patches. This prevents the bundle
@@ -243,6 +221,42 @@ try {
   const stagedIdentity = await verifyPinnedSourceIdentity({ installRoot: stagingRoot });
   if (stagedIdentity.status !== 'CURRENT_IDENTITIES_VERIFIED') {
     throw new Error('HOST_PATCH_STAGING_ATTESTATION_FAILED: ' + stagedIdentity.code);
+  }
+
+  // Accept only three exact states for shared Host files:
+  // pinned upstream, independently verified Final-Send-only, or the exact
+  // Host overlay just reproduced from the pinned source and reviewed patches.
+  // The last case makes installation idempotent while still rejecting drift.
+  const generatedPrefixes = [
+    'public/scripts/logic-engine-lifecycle/',
+    'plugins/logic-engine-extension-gateway/',
+    'public/scripts/extensions/third-party/logic-engine-extension-gateway/',
+  ];
+  for (const relativePath of SOURCE_FILE_PATHS) {
+    if (generatedPrefixes.some(prefix => relativePath.startsWith(prefix))
+      || relativePath === 'src/endpoints/logic-engine-host-inventory-handler.mjs') continue;
+    const target = await assertSafeTarget(relativePath);
+    const baselineHash = upstreamBaselineHashes.get(relativePath);
+    if (baselineHash === undefined) {
+      if (await exists(target)) throw new Error('HOST_PATCH_BASELINE_CONFLICT: unexpected file ' + relativePath);
+      continue;
+    }
+    if (!await exists(target)) throw new Error('HOST_PATCH_BASELINE_FILE_MISSING: ' + relativePath);
+    const stagedPath = path.join(stagingRoot, relativePath);
+    const stagedHash = await exists(stagedPath)
+      ? sha256(normalizeText(await readFile(stagedPath)))
+      : null;
+    const actualHash = sha256(normalizeText(await readFile(target)));
+    if (actualHash !== baselineHash && actualHash !== stagedHash) {
+      const finalSendExpected = finalSendManifest.sourceFiles?.[relativePath];
+      const isVerifiedFinalSendState = finalSendInstalled
+        && finalSendExpected && typeof finalSendExpected === 'object'
+        && typeof finalSendExpected.after === 'string'
+        && actualHash === finalSendExpected.after;
+      if (!isVerifiedFinalSendState) {
+        throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
+      }
+    }
   }
 
   // Preserve the existing extension roots exactly: only the reviewed Gateway
