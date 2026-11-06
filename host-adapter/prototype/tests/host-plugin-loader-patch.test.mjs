@@ -9,6 +9,7 @@ test('Host plugin loader requires both first-party Logic Engine runtime and Gate
     const patch = fs.readFileSync(patchPath, 'utf8');
     const allowFirstParty = [
         "+            if (hostAuthorityConfigured",
+        "+                && pluginCandidate",
         "+                && file !== 'logic-engine'",
         "+                && file !== 'logic-engine-extension-gateway') {",
     ].join('\n');
