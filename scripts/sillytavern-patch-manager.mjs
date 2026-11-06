@@ -268,35 +268,45 @@ export class SillyTavernPatchManager {
   // SillyTavern files that Final-Send also inventories. Accept an overlap only
   // when the installed Gateway independently verifies the complete pinned Host
   // source tree and the exact current file bytes appear in that verified manifest.
+  async loadVerifiedHostOverlayManifest() {
+    if (!this._hostOverlayManifestPromise) {
+      this._hostOverlayManifestPromise = (async () => {
+        const attestationPath = await assertRegularFile(
+          this.stRoot,
+          'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
+        );
+        const { verifyPinnedSourceIdentity } = await import(pathToFileURL(attestationPath).href);
+        if (typeof verifyPinnedSourceIdentity !== 'function') return null;
+        const identity = await verifyPinnedSourceIdentity({ installRoot: this.stRoot });
+        if (identity?.status !== 'CURRENT_IDENTITIES_VERIFIED') return null;
+
+        const manifestPath = await assertRegularFile(
+          this.stRoot,
+          'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
+        );
+        return JSON.parse(await readFile(manifestPath, 'utf8'));
+      })().catch(() => null);
+    }
+    return this._hostOverlayManifestPromise;
+  }
+
   async verifyHostOverlay(relativePath) {
+    const hostManifest = await this.loadVerifiedHostOverlayManifest();
+    const pinnedFile = hostManifest?.files?.find(entry => entry?.path === relativePath);
+    if (!pinnedFile || !/^[a-f0-9]{64}$/.test(pinnedFile.sha256 ?? '')) return false;
     try {
-      const attestationPath = await assertRegularFile(
-        this.stRoot,
-        'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
-      );
-      const { verifyPinnedSourceIdentity } = await import(pathToFileURL(attestationPath).href);
-      if (typeof verifyPinnedSourceIdentity !== 'function') return false;
-      const identity = await verifyPinnedSourceIdentity({ installRoot: this.stRoot });
-      if (identity?.status !== 'CURRENT_IDENTITIES_VERIFIED') return false;
-
-      const manifestPath = await assertRegularFile(
-        this.stRoot,
-        'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
-      );
-      const hostManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-      const pinnedFile = hostManifest.files?.find(entry => entry?.path === relativePath);
-      if (!pinnedFile || !/^[a-f0-9]{64}$/.test(pinnedFile.sha256 ?? '')) return false;
-
       const target = await assertRegularFile(this.stRoot, relativePath);
       return sha256(await readFile(target)) === pinnedFile.sha256;
     } catch {
-      // Missing, malformed, or non-matching Host attestation never weakens the
-      // original Final-Send hash requirement.
+      // Missing or unsafe files never weaken the original Final-Send hash requirement.
       return false;
     }
   }
 
   async verifyInstalled() {
+    // Re-attest on every verification call; within one call, verify the complete
+    // Host tree once and reuse that result for every overlapping source file.
+    this._hostOverlayManifestPromise = null;
     for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
       const after = typeof expected === 'string' ? expected : expected.after;
       const actual = await this.hashAt(relativePath);
