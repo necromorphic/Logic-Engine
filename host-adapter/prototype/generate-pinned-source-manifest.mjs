@@ -71,6 +71,7 @@ for (const [relativePath, expected] of Object.entries(finalSendManifest.createdF
     if (actual !== expected) finalSendCreatedFilesMatch = false;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
+    finalSendCreatedFilesMatch = false;
   }
 }
 const finalSendInstalled = !finalSendCreatedFilesAbsent && finalSendCreatedFilesMatch;
