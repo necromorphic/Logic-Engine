@@ -2591,8 +2591,10 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,5 @@
+@@ -64,2 +72,6 @@
          for (const file of files) {
++            // The Logic Engine core is a package, not a SillyTavern server plugin.
++            if (hostAuthorityConfigured && file === 'logic-engine') continue;
 +            if (hostAuthorityConfigured && file !== 'logic-engine-extension-gateway') {
 +                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
 +            }
