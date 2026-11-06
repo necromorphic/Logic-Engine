@@ -176,7 +176,6 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
   }),
   'src/endpoints/assets.js': Object.freeze({
     '/delete': 'hostUnsupportedMutationGuard',
-    '/character': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/files.js': Object.freeze({
     '/upload': 'hostUnsupportedMutationGuard',
