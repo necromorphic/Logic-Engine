@@ -70,7 +70,10 @@ test('runtime process starts with isolated credentials/database and serves healt
     },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
+  let stdout = '';
   let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', chunk => { stdout += chunk; });
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', chunk => { stderr += chunk; });
 
@@ -79,7 +82,7 @@ test('runtime process starts with isolated credentials/database and serves healt
     let lastError = null;
     for (let attempt = 0; attempt < 300; attempt += 1) {
       if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error('Runtime exited before becoming healthy (code=' + child.exitCode + ', signal=' + child.signalCode + '): ' + stderr);
+        throw new Error('Runtime exited before becoming healthy (code=' + child.exitCode + ', signal=' + child.signalCode + '): ' + (stdout ? 'stdout: ' + stdout + '; ' : '') + stderr);
       }
       try {
         response = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(500) });

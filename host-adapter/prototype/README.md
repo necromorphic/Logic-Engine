@@ -297,19 +297,18 @@ The Host candidate remains NON_READY until the resolver is wired to the canonica
 After applying the base lifecycle patch, apply `patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch` as well. It makes lifecycle hooks return `NOT_ENROLLED` for chats without a locator enrollment, so unrelated older enrollments cannot block ordinary SillyTavern message operations. Enrolled chats retain the strict identity-migration guard. The Host lifecycle patch-check workflow applies both patches in order.
 
 
-## Executable extension boundary — 3 Nov 2026
+## Executable extension boundary — 6 Nov 2026
 
-The runtime pinned-source verifier now rejects additional entries under both SillyTavern executable extension roots:
+When Host authority is active, exactly two first-party server plugins are accepted:
 
-- `plugins/` must contain only `logic-engine-extension-gateway/`;
-- `public/scripts/extensions/third-party/` must contain only `logic-engine-extension-gateway/`.
+- plugins/logic-engine/ — required; the root runtime registers the Final-Send adapter and status route.
+- plugins/logic-engine-extension-gateway/ — required; the Gateway provides the single authenticated Host ingress.
 
-This is intentional fail-closed policy. A server plugin can register routes and a third-party browser extension can initiate mutations that are not covered by the built-in pinned route patch. A full account data-root scan cannot attest executable extension code. Installing another plugin or third-party extension therefore makes Host source identity NON_READY until that code is added to a reviewed source-coverage contract and pinned deployment manifest.
+Both plugins must load. The loader rejects every other server plugin and fails closed if either first-party plugin is missing. The separately managed root plugin is not overwritten by the Host bundle installer; its entrypoint, manifest, and package identity are checked before the bundle is accepted.
 
-The source-attestation unit tests now include fixtures for an unreviewed server plugin and an unreviewed third-party browser extension. They have been added but have **not** been run in this work session, per the instruction to finish implementation before testing.
+The only accepted third-party browser extension is public/scripts/extensions/third-party/logic-engine-extension-gateway/. Account-local third-party extension directories must remain empty and inside the inventoried account root. Unreviewed executable extensions make Host source identity NON_READY.
 
-
-The extension execution boundary is enforced before activation: the pinned ST server plugin loader permits only the Logic Engine Gateway under Host authority and skips automatic server-plugin updates; the /api/extensions/discover route hides account-local third-party extensions and returns only the attested Gateway from the global third-party directory. The Host request resolver requires the account-local extension directory to be inside the inventoried account root and empty. Runtime source identity repeats that empty-directory check, while the source manifest pins the browser extension loader and the patched server discovery route.
+The source-attestation tests cover a missing/tampered root Logic Engine entrypoint, an unreviewed server plugin, and an unreviewed third-party browser extension.
 
 ## Installing the pinned Host patch bundle
 

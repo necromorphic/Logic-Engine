@@ -205,6 +205,14 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
   }),
 });
 
+// 91 routes use route middleware. /logout is a separately guarded handler-level mutation.
+// It remains part of the authoritative total because session revocation is a protected mutation.
+export const PINNED_ST_SPECIAL_MUTATION_ROUTES = Object.freeze({
+  'src/endpoints/users-private.js': Object.freeze({
+    '/logout': 'revokeHostSessionBeforeLogout(request)',
+  }),
+});
+
 const PINNED_ST_ALL_MUTATION_ROUTES = Object.freeze(Object.fromEntries(
   [...new Set([
     ...Object.keys(PINNED_ST_MUTATION_ROUTES),
@@ -230,9 +238,13 @@ const canonical = value => Array.isArray(value)
     : JSON.stringify(value);
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const routeCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
-  .reduce((count, routes) => count + Object.keys(routes).length, 0);
+  .reduce((count, routes) => count + Object.keys(routes).length, 0)
+  + Object.values(PINNED_ST_SPECIAL_MUTATION_ROUTES)
+    .reduce((count, routes) => count + Object.keys(routes).length, 0);
 const guardAssertionCount = Object.values(PINNED_ST_ALL_MUTATION_ROUTES)
-  .reduce((count, routes) => count + Object.values(routes).reduce((total, guards) => total + guards.length, 0), 0);
+  .reduce((count, routes) => count + Object.values(routes).reduce((total, guards) => total + guards.length, 0), 0)
+  + Object.values(PINNED_ST_SPECIAL_MUTATION_ROUTES)
+    .reduce((count, routes) => count + Object.values(routes).length, 0);
 
 export const PINNED_ST_MUTATION_ROUTE_COUNT = routeCount;
 export const PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT = guardAssertionCount;
@@ -240,6 +252,7 @@ export const PINNED_ST_MUTATION_COVERAGE_SHA256 = sha256(canonical({
   version: 1,
   source_commit: PINNED_ST_COMMIT,
   routes: PINNED_ST_ALL_MUTATION_ROUTES,
+  special_routes: PINNED_ST_SPECIAL_MUTATION_ROUTES,
   source_guards: [
     'HOST_EXTENSION_SOURCE_MUTATION_UNSUPPORTED',
     'HOST_MUTATION_ROUTE_UNSUPPORTED',
@@ -337,8 +350,15 @@ export async function verifyPinnedSillyTavernMutationCoverage({
         || !source.includes('revokeHostSessionBeforeLogout(request)')
         || !source.includes('Host session revocation unavailable; session was not logged out.')
         || !source.includes('request.session = null')
-        || source.indexOf('revokeHostSessionBeforeLogout(request)') > source.indexOf('request.session = null'))) {
+        || !PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]?.['/logout']
+        || !source.includes(PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]['/logout'])
+        || source.indexOf(PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]['/logout']) > source.indexOf('request.session = null'))) {
       throw new Error('HOST_ST_LOGOUT_SESSION_INVALIDATION_MISSING');
+    }
+    if (relative.endsWith('users-private.js')) {
+      const specialRoutes = PINNED_ST_SPECIAL_MUTATION_ROUTES[relative] ?? {};
+      checkedRoutes += Object.keys(specialRoutes).length;
+      checkedGuards += Object.values(specialRoutes).length;
     }
     if (relative.endsWith('users-private.js') && !source.includes('HOST_USER_ROOT_RESET_UNSUPPORTED')) {
       throw new Error('HOST_ST_ROOT_RESET_GUARD_MISSING');

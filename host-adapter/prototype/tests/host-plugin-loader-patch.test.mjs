@@ -5,15 +5,23 @@ import path from 'node:path';
 
 const patchPath = path.resolve('host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
 
-test('Host plugin loader skips the Logic Engine core package but loads only the reviewed Gateway', () => {
+test('Host plugin loader requires both first-party Logic Engine runtime and Gateway under Host authority', () => {
     const patch = fs.readFileSync(patchPath, 'utf8');
-    const skipCore = "+            if (hostAuthorityConfigured && file === 'logic-engine') continue;";
-    const rejectUnreviewed = "+            if (hostAuthorityConfigured && file !== 'logic-engine-extension-gateway') {";
+    const allowFirstParty = [
+        "+            if (hostAuthorityConfigured",
+        "+                && file !== 'logic-engine'",
+        "+                && file !== 'logic-engine-extension-gateway') {",
+    ].join('\n');
+    const rejectUnreviewed = "+                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);";
+    const requireCore = "+        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine')) {";
     const requireGateway = "+        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine-extension-gateway')) {";
+    const skippedCore = "+            if (hostAuthorityConfigured && file === 'logic-engine') continue;";
 
-    assert.ok(patch.includes(skipCore), 'Logic Engine core package must be skipped by the ST server-plugin loader');
-    assert.ok(patch.includes(rejectUnreviewed), 'all other server plugins must remain blocked');
-    assert.ok(patch.includes(requireGateway), 'the reviewed Gateway must still be required');
-    assert.ok(patch.indexOf(skipCore) < patch.indexOf(rejectUnreviewed),
-        'the core package must be skipped before the unreviewed-plugin rejection');
+    assert.ok(patch.includes(allowFirstParty), 'only the two reviewed first-party plugins may load');
+    assert.ok(patch.includes(rejectUnreviewed), 'all other server plugins remain blocked');
+    assert.ok(patch.includes(requireCore), 'the root Logic Engine runtime must load and register Final-Send');
+    assert.ok(patch.includes(requireGateway), 'the Host Gateway must load');
+    assert.ok(!patch.includes(skippedCore), 'the root runtime must not be skipped while Host authority is active');
+    assert.ok(patch.indexOf(requireCore) < patch.indexOf(requireGateway),
+        'the Final-Send runtime is required before the Host Gateway readiness check');
 });

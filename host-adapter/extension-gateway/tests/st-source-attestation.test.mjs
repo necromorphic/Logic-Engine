@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   PINNED_HOST_COMMIT,
   PINNED_PATCH_BUNDLE_SHA256,
   PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS,
   SOURCE_FILE_PATHS,
   createSignedRootInventoryAttestation,
   verifyPinnedSourceIdentity,
@@ -56,6 +57,13 @@ async function createManifestRoot() {
     await writeFile(target, bytes);
     files.push({ path: relative, sha256: sha256(bytes) });
   }
+  const corePluginRoot = path.join(root, 'plugins/logic-engine');
+  await mkdir(corePluginRoot, { recursive: true });
+  for (const name of Object.keys(PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS)) {
+    const target = path.join(corePluginRoot, name);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, await readFile(path.resolve(name)));
+  }
   const proof = {
     protocol_version: 1,
     pinned_host_commit: PINNED_HOST_COMMIT,
@@ -83,6 +91,15 @@ test('pinned source verifier accepts only the exact manifest and matching deploy
   const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
   assert.equal(rejected.status, 'NON_READY');
   assert.equal(rejected.code, 'HOST_SOURCE_FILE_DIGEST_MISMATCH');
+});
+
+test('pinned source verifier rejects a changed root Logic Engine Final-Send runtime module', async t => {
+  const fixture = await createManifestRoot();
+  t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  await writeFile(path.join(fixture.root, 'plugins/logic-engine/host-adapter/sillytavern-final-send-adapter.mjs'), 'tampered Final-Send adapter');
+  const rejected = await verifyPinnedSourceIdentity({ installRoot: fixture.root });
+  assert.equal(rejected.status, 'NON_READY');
+  assert.equal(rejected.code, 'HOST_LOGIC_ENGINE_PLUGIN_SOURCE_MISMATCH');
 });
 
 test('pinned source verifier does not accept a caller-selected manifest outside the installed Gateway', async t => {

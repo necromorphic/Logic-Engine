@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
 import {
   PINNED_HOST_COMMIT,
+  PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS,
   SOURCE_FILE_PATHS,
   verifyPinnedSourceIdentity,
 } from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
@@ -60,7 +61,10 @@ async function assertSafeTarget(relativePath, allowMissing = true) {
 
 async function assertOnlyGatewayDirectory(relativeDirectory) {
   const directory = path.join(stRoot, relativeDirectory);
-  if (!await exists(directory)) return;
+  if (!await exists(directory)) {
+    if (relativeDirectory === 'plugins') throw new Error('HOST_CORE_PLUGIN_DIRECTORY_MISSING');
+    return;
+  }
   const info = await lstat(directory);
   if (!info.isDirectory() || info.isSymbolicLink()) {
     throw new Error('HOST_PATCH_EXTENSION_ROOT_UNSAFE: ' + relativeDirectory);
@@ -80,6 +84,10 @@ async function assertOnlyGatewayDirectory(relativeDirectory) {
   });
   if (unexpected.length > 0) {
     throw new Error('HOST_PATCH_UNREVIEWED_EXTENSION_PRESENT: ' + relativeDirectory);
+  }
+  if (relativeDirectory === 'plugins'
+    && !entries.some(entry => entry.name === 'logic-engine' && entry.isDirectory() && !entry.isSymbolicLink())) {
+    throw new Error('HOST_CORE_PLUGIN_REQUIRED');
   }
 }
 
@@ -215,6 +223,16 @@ try {
   await mkdir(clientTarget, { recursive: true });
   for (const name of ['index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json']) {
     await copyFile(path.join(clientSource, name), path.join(clientTarget, name));
+  }
+
+  // Stage the separately installed root runtime's pinned entrypoint and direct imports
+  // for source verification. The target plugin is checked, never replaced.
+  const stagedCorePlugin = path.join(stagingRoot, 'plugins/logic-engine');
+  for (const name of Object.keys(PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS)) {
+    const source = path.join(repoRoot, name);
+    const destination = path.join(stagedCorePlugin, name);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(source, destination);
   }
 
   const generator = path.join(repoRoot, 'host-adapter/prototype/generate-pinned-source-manifest.mjs');

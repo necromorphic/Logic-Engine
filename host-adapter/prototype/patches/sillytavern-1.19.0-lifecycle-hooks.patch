@@ -2591,20 +2591,24 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,7 @@
+@@ -64,2 +72,8 @@
          for (const file of files) {
-+            // The Logic Engine core is a package, not a SillyTavern server plugin.
-+            if (hostAuthorityConfigured && file === 'logic-engine') continue;
-+            if (hostAuthorityConfigured && file !== 'logic-engine-extension-gateway') {
++            // Only the first-party Logic Engine runtime and Host Gateway may load under Host authority.
++            if (hostAuthorityConfigured
++                && file !== 'logic-engine'
++                && file !== 'logic-engine-extension-gateway') {
 +                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
 +            }
              const pluginFilePath = path.join(pluginsPath, file);
-@@ -80,1 +94,4 @@
+@@ -80,1 +95,7 @@
++        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine')) {
++            throw new Error('HOST_CORE_PLUGIN_NOT_LOADED');
++        }
 +        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine-extension-gateway')) {
 +            throw new Error('HOST_SERVER_PLUGIN_NOT_LOADED');
 +        }
          if (loadedPlugins.size > 0) {
-@@ -86,3 +103,4 @@
+@@ -86,3 +107,4 @@
      } catch (error) {
          console.error('Plugin loading failed.', error);
 +        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) throw error;

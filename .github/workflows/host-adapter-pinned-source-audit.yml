@@ -41,6 +41,24 @@ jobs:
           robocopy Sillytavern $target /E /NFL /NDL /NJH /NJS /NP | Out-Null
           if ($LASTEXITCODE -gt 7) { throw 'Could not copy clean pinned SillyTavern source into installer acceptance target' }
           $global:LASTEXITCODE = 0
+          $corePlugin = Join-Path $target 'plugins/logic-engine'
+          $corePluginFiles = @(
+            'index.mjs',
+            'manifest.json',
+            'package.json',
+            'scripts/sillytavern-patch-manager.mjs',
+            'host-adapter/sillytavern-final-send-adapter.mjs',
+            'host-adapter/embedded-gateway-runtime.mjs',
+            'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/npc-generation-request-metadata.mjs',
+            'host-adapter/npc-generation-content-projection.mjs',
+            'src/application/npc-generation-context-host-bridge.js'
+          )
+          foreach ($relative in $corePluginFiles) {
+            $destination = Join-Path $corePlugin $relative
+            New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
+            Copy-Item $relative $destination
+          }
           node scripts/install-sillytavern-host-patch-bundle.mjs --st-root $target
           if ($LASTEXITCODE -ne 0) { throw 'Transactional Host patch-bundle installer acceptance failed' }
       - name: Install pinned SillyTavern runtime dependencies
@@ -50,6 +68,24 @@ jobs:
       - name: Install Gateway artifacts and apply pinned lifecycle patch
         shell: pwsh
         run: |
+          $corePlugin = 'Sillytavern/plugins/logic-engine'
+          $corePluginFiles = @(
+            'index.mjs',
+            'manifest.json',
+            'package.json',
+            'scripts/sillytavern-patch-manager.mjs',
+            'host-adapter/sillytavern-final-send-adapter.mjs',
+            'host-adapter/embedded-gateway-runtime.mjs',
+            'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/npc-generation-request-metadata.mjs',
+            'host-adapter/npc-generation-content-projection.mjs',
+            'src/application/npc-generation-context-host-bridge.js'
+          )
+          foreach ($relative in $corePluginFiles) {
+            $destination = Join-Path $corePlugin $relative
+            New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
+            Copy-Item $relative $destination
+          }
           New-Item -ItemType Directory -Force Sillytavern/plugins/logic-engine-extension-gateway | Out-Null
           Copy-Item host-adapter/extension-gateway/server-plugin/*.mjs,host-adapter/extension-gateway/server-plugin/*.js,host-adapter/extension-gateway/server-plugin/package.json Sillytavern/plugins/logic-engine-extension-gateway/
           New-Item -ItemType Directory -Force Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway | Out-Null

@@ -5,8 +5,20 @@ import path from 'node:path';
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
-export const PINNED_PATCH_BUNDLE_SHA256 = '1a55633377a68215699b373468f1273b2382945f60633b24fc5eb5f51a1f3a5e';
+export const PINNED_PATCH_BUNDLE_SHA256 = 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067';
 export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = '706d8c008388c78ece7d32cc51809da1a836f8ff';
+export const PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS = Object.freeze({
+  'index.mjs': '11bbe249f684a1f488cd930cda78aedcf3e9c3f9',
+  'manifest.json': '50a0bb089db397c67fb2293e25b01044b086e706',
+  'package.json': '7f19277fe4aae24722ea8ceb913cba366efefccb',
+  'scripts/sillytavern-patch-manager.mjs': '7dedae534869d0bd9a7a3772c58cc51a30acfbd8',
+  'host-adapter/sillytavern-final-send-adapter.mjs': 'ac0fd50b10acb9c76501562563437564392334b4',
+  'host-adapter/embedded-gateway-runtime.mjs': '1d048c63e678e32e984ce26ac9d31d0d733bed31',
+  'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'e82f9cff8d7fe1d216443383e29e45c01f49c339',
+  'host-adapter/npc-generation-request-metadata.mjs': '3c7ad9c9aa909387b7e40ed5a598faf7252f5409',
+  'host-adapter/npc-generation-content-projection.mjs': 'c2743ae36754a1460ac414c47c53fda4c75cf0b1',
+  'src/application/npc-generation-context-host-bridge.js': '9d56164fb878316294bbf8b5aa18f64d45b3eee9',
+});
 
 export const SOURCE_FILE_PATHS = Object.freeze([
   'public/script.js',
@@ -78,6 +90,13 @@ export const SOURCE_FILE_PATHS = Object.freeze([
 ]);
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const gitBlobSha = bytes => {
+  const normalized = Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8');
+  return createHash('sha1')
+    .update(Buffer.from('blob ' + normalized.length + '\0', 'utf8'))
+    .update(normalized)
+    .digest('hex');
+};
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -126,6 +145,29 @@ async function exactDirectoryChildren(root, relativeDirectory, allowedNames, req
     const allowed = new Set(allowedNames);
     return requiredNames.every(name => actual.includes(name))
       && actual.every(name => allowed.has(name));
+  } catch {
+    return false;
+  }
+}
+
+async function verifyPinnedLogicEnginePlugin(root) {
+  try {
+    const directory = path.resolve(root, 'plugins/logic-engine');
+    if (!within(root, directory)) return false;
+    const directoryInfo = await lstat(directory);
+    if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) return false;
+    const actualDirectory = await realpath(directory);
+    if (!within(root, actualDirectory)) return false;
+    for (const [name, expectedSha] of Object.entries(PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS)) {
+      const candidate = path.resolve(directory, name);
+      if (!within(directory, candidate)) return false;
+      const info = await lstat(candidate);
+      if (!info.isFile() || info.isSymbolicLink()) return false;
+      const actualPath = await realpath(candidate);
+      if (!within(directory, actualPath)) return false;
+      if (gitBlobSha(await readFile(candidate)) !== expectedSha) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -209,19 +251,17 @@ export async function verifyPinnedSourceIdentity({
     pluginNames.push('pinned-source-manifest.json');
     const clientNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(clientPrefix))
       .map(file => file.slice(clientPrefix.length));
-    // SillyTavern server plugins and third-party browser extensions can add
-    // routes or mutate account data outside the built-in endpoint patch set.
-    // Until each extension has its own reviewed source attestation contract,
-    // the only accepted entries in these executable extension roots are the
-    // Logic Engine Gateway itself. Unknown extensions make Host authority
-    // non-ready; a root data scan cannot attest their code.
-    // The separately managed Logic Engine server plugin may already be installed.
-    // Permit it without requiring it in clean verifier fixtures; Gateway remains mandatory.
-    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine', 'logic-engine-extension-gateway'], ['logic-engine-extension-gateway'])
+    // Exactly two first-party server plugins are accepted under Host authority.
+    // The root Logic Engine runtime registers Final-Send; the Gateway owns the
+    // single Host ingress. Both are required, and unknown plugins fail closed.
+    if (!await exactDirectoryChildren(root, 'plugins', ['logic-engine', 'logic-engine-extension-gateway'], ['logic-engine', 'logic-engine-extension-gateway'])
       || !await exactDirectoryChildren(root, 'public/scripts/extensions/third-party', ['logic-engine-extension-gateway'])
       || !await exactDirectoryFiles(root, 'plugins/logic-engine-extension-gateway', pluginNames)
       || !await exactDirectoryFiles(root, 'public/scripts/extensions/third-party/logic-engine-extension-gateway', clientNames)) {
       return { status: 'NON_READY', code: 'HOST_SOURCE_DIRECTORY_CONTENT_MISMATCH' };
+    }
+    if (!await verifyPinnedLogicEnginePlugin(root)) {
+      return { status: 'NON_READY', code: 'HOST_LOGIC_ENGINE_PLUGIN_SOURCE_MISMATCH' };
     }
     const { manifest_sha256, ...proof } = manifest;
     if (manifest_sha256 !== sha256(Buffer.from(canonical(proof), 'utf8'))) {

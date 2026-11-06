@@ -1,60 +1,66 @@
-# Install the Logic-Engine candidate into an existing SillyTavern 1.19.0 copy
+# Install the existing SillyTavern candidate
 
-This installs the current checkout as a **server plugin** in the selected SillyTavern folder and applies the managed Final-Send patch to that same folder. It does not install into a clean/new Tavern, start SillyTavern, or enable Memory → NPC.
+This procedure installs the first-party Logic Engine runtime and prepares an existing SillyTavern 1.19.0 copy for the Host patch bundle.
 
 ## Preconditions
 
-- Windows PowerShell.
-- SillyTavern 1.19.0 source checkout matching the pinned build accepted by Patch Manager.
-- Node.js >=22.13.0 and Git available.
-- Logic-Engine checkout has its dependencies installed (npm ci).
-- Use a disposable ST profile/copy for first acceptance. Back up that copy before installing.
-- Keep LOGIC_ENGINE_MEMORY_NPC_ENABLED unset or false.
+- Use a disposable SillyTavern 1.19.0 copy, not the daily profile.
+- Node.js 22.13.0 or newer and npm are available.
+- The Logic Engine checkout is on the intended integration commit.
+- Back up the target SillyTavern directory and its user data before installation.
+- Do not run the procedure over an existing plugins/logic-engine directory without first verifying its ownership and preserving it.
 
-## Install
+## 1. Install repository dependencies
 
-From the Logic-Engine checkout:
-
-```powershell
-npm ci
-npm run host:install:st -- -SillyTavernRoot "C:\Path\To\Your\SillyTavern"
-```
-
-The installer:
-1. verifies Node and SillyTavern version;
-2. creates SillyTavern\plugins\logic-engine as a junction to this Logic-Engine checkout (refuses to overwrite an existing plugin directory);
-3. runs Patch Manager preflight, install and verify against the selected ST root;
-4. leaves the server stopped.
-
-The installed plugin is a managed copy, not a junction. Re-run installation only after preserving/removing the existing plugin copy and reviewing its state. The source checkout remains the development workspace.
-
-## Enable the server-plugin loader
-
-In the selected ST copy's default/config.yaml, set:
-
-```yaml
-enableServerPlugins: true
-enableServerPluginsAutoUpdate: false
-```
-
-Disable auto-update because this plugin is a junction to the candidate checkout; ST must not run an implicit git update against it. Do not change any other plugin settings.
-
-## First startup and smoke test
-
-1. Start the **existing selected ST copy** normally.
-2. Confirm the console reports the Logic Engine plugin and the managed Final-Send patch as installed.
-3. Open the status endpoint from the same authenticated ST browser session: /api/plugins/logic-engine/final-send/status
-4. Expected while Memory → NPC is disabled: HTTP 200, patch installed/verified, Gateway DISABLED_FAIL_CLOSED.
-5. Send an ordinary message using the existing configured model. This checks that native generation still works through the managed hook; it does **not** test protected Memory or authorize enabling it.
-
-Stop if plugin initialization fails, patch verification is not installed/verified, or ordinary generation does not work. Preserve the console error and do not enable Memory → NPC.
-
-## Uninstall / restore
-
-Stop SillyTavern first. From the Logic-Engine checkout:
+From the Logic Engine repository root:
 
 ```powershell
-node scripts/sillytavern-patch-manager.mjs uninstall --st-root "C:\Path\To\Your\SillyTavern" --extension-root "$PWD"
+npm install
 ```
 
-Then remove only the junction SillyTavern\plugins\logic-engine (not the Logic-Engine checkout). Patch Manager restores only its verified preimage files.
+Use npm install, not npm ci: the repository does not currently provide a committed root package-lock file.
+
+## 2. Install the root Logic Engine runtime
+
+```powershell
+npm run host:install:st -- -SillyTavernRoot "C:\Path\To\SillyTavern"
+```
+
+The installer creates a managed copy at plugins/logic-engine, installs the Gateway server-plugin package, and applies/verifies the managed Final-Send patch.
+
+It does not create a junction. It refuses to overwrite an existing managed plugin directory. If the target already contains plugins/logic-engine or plugins/logic-engine-extension-gateway, stop and inspect the existing installation instead of deleting or replacing it blindly.
+
+## 3. Install the Host patch bundle
+
+After the root runtime is installed:
+
+```powershell
+npm run host:install:bundle -- --st-root "C:\Path\To\SillyTavern"
+```
+
+The bundle installer:
+
+- verifies the pinned SillyTavern 1.19.0 source;
+- verifies the existing root Logic Engine entrypoint, manifest, and package identity;
+- applies the three reviewed Host patches;
+- installs the Gateway server plugin and browser extension;
+- creates a pinned source manifest;
+- backs up every managed file before replacement;
+- rolls back a partial installation if any verification fails.
+
+It does not overwrite the root Logic Engine plugin, its Final-Send patch state, user profiles, chats, or databases. Unknown server plugins and third-party browser extensions are rejected.
+
+## 4. Verify before starting SillyTavern
+
+Confirm these paths exist:
+
+- plugins/logic-engine
+- plugins/logic-engine-extension-gateway
+- public/scripts/extensions/third-party/logic-engine-extension-gateway
+- plugins/logic-engine-extension-gateway/pinned-source-manifest.json
+
+When Host authority is configured, both first-party server plugins must load: the root runtime registers Final-Send, and the Gateway provides the Host ingress. No other server plugin is accepted.
+
+Keep Memory → NPC disabled during this installation and initial Windows acceptance. Do not enable LOGIC_ENGINE_MEMORY_NPC_ENABLED as part of this procedure.
+
+See [Phase 2 Windows live acceptance preparation](110-phase2-windows-live-acceptance-preparation.md) for the post-install checks.
