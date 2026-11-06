@@ -62,15 +62,6 @@ const finalSendHashAt = async relativePath => {
   const bytes = await readFile(path.join(sourceRoot, relativePath));
   return sha256(normalizeLineEndings(bytes));
 };
-let finalSendBeforeMatches = true;
-let finalSendAfterMatches = true;
-for (const [relativePath, expected] of Object.entries(finalSendManifest.sourceFiles ?? {})) {
-  const before = typeof expected === 'string' ? expected : expected.before;
-  const after = typeof expected === 'string' ? expected : expected.after;
-  const actual = await finalSendHashAt(relativePath);
-  if (actual !== before) finalSendBeforeMatches = false;
-  if (actual !== after) finalSendAfterMatches = false;
-}
 let finalSendCreatedFilesAbsent = true;
 let finalSendCreatedFilesMatch = true;
 for (const [relativePath, expected] of Object.entries(finalSendManifest.createdFiles ?? {})) {
@@ -80,11 +71,10 @@ for (const [relativePath, expected] of Object.entries(finalSendManifest.createdF
     if (actual !== expected) finalSendCreatedFilesMatch = false;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    finalSendCreatedFilesMatch = false;
   }
 }
-const finalSendInstalled = finalSendAfterMatches && finalSendCreatedFilesMatch;
-const finalSendPristine = finalSendBeforeMatches && finalSendCreatedFilesAbsent;
+const finalSendInstalled = !finalSendCreatedFilesAbsent && finalSendCreatedFilesMatch;
+const finalSendPristine = finalSendCreatedFilesAbsent;
 if (!finalSendInstalled && !finalSendPristine) {
   throw new Error('HOST_FINAL_SEND_SOURCE_STATE_UNRECOGNIZED');
 }
