@@ -68,7 +68,7 @@ test('runtime process starts with isolated credentials/database and serves healt
       ENGINE_ADAPTER_TOKENS: '{}',
       ENGINE_ALLOW_REMOTE: '',
     },
-    stdio: ['ignore', 'ignore', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
   let stderr = '';
@@ -94,7 +94,7 @@ test('runtime process starts with isolated credentials/database and serves healt
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
 
-    assert.ok(response?.ok, 'Runtime did not become healthy: ' + String(lastError) + (stderr ? '; stderr: ' + stderr : ''));
+    assert.ok(response?.ok, 'Runtime did not become healthy: ' + String(lastError) + (stdout ? '; stdout: ' + stdout : '') + (stderr ? '; stderr: ' + stderr : ''));
     assert.deepEqual(await response.json(), {
       ok: true,
       service: 'logic-engine',
