@@ -65,12 +65,16 @@ async function assertOnlyGatewayDirectory(relativeDirectory) {
     throw new Error('HOST_PATCH_EXTENSION_ROOT_UNSAFE: ' + relativeDirectory);
   }
   const entries = await readdir(directory, { withFileTypes: true });
-  // The pinned upstream tree intentionally contains metadata files (.gitkeep and package.json)
-  // in these directories. Only executable extension directories are subject to the allow-list.
-  // Reject symlinks and every unexpected directory; do not mistake upstream metadata for plugins.
+  // The existing Final-Send plugin is installed separately and must be preserved.
+  // The pinned Host patch bundle owns only the Gateway directory; allow the known
+  // Logic-Engine plugin alongside it without treating it as an unreviewed extension.
+  // On the public third-party root, only the Gateway directory is allowed.
+  const allowedDirectories = relativeDirectory === 'plugins'
+    ? new Set(['logic-engine', 'logic-engine-extension-gateway'])
+    : new Set(['logic-engine-extension-gateway']);
   const unexpected = entries.filter(entry => {
     if (entry.isSymbolicLink()) return true;
-    if (entry.isDirectory()) return entry.name !== 'logic-engine-extension-gateway';
+    if (entry.isDirectory()) return !allowedDirectories.has(entry.name);
     return !entry.isFile() || !['.gitkeep', 'package.json'].includes(entry.name);
   });
   if (unexpected.length > 0) {
