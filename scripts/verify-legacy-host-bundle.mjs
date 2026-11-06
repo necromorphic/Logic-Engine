@@ -33,10 +33,16 @@ export async function verifyLegacyHostBundle({
       return { verified: false, files: new Map() };
     }
     const root = await realpath(installRoot);
-    const manifestPath = path.join(root, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
-    const manifestStat = await lstat(manifestPath);
-    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
-      return { verified: false, files: new Map() };
+    const manifestSegments = ['plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json'];
+    let manifestPath = root;
+    for (let index = 0; index < manifestSegments.length; index += 1) {
+      manifestPath = path.join(manifestPath, manifestSegments[index]);
+      const stat = await lstat(manifestPath);
+      if (stat.isSymbolicLink()
+        || (index < manifestSegments.length - 1 && !stat.isDirectory())
+        || (index === manifestSegments.length - 1 && !stat.isFile())) {
+        return { verified: false, files: new Map() };
+      }
     }
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.files)) {
