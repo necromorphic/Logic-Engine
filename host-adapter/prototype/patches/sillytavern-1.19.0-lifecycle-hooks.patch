@@ -2591,7 +2591,7 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,6 @@
+@@ -64,2 +72,7 @@
          for (const file of files) {
 +            // The Logic Engine core is a package, not a SillyTavern server plugin.
 +            if (hostAuthorityConfigured && file === 'logic-engine') continue;
