@@ -42,6 +42,52 @@ const patchBlobSha = sha256(Buffer.from(
   lifecycleBlobSha + '\n' + unenrolledFixBlobSha + '\n' + rootMutationBlobSha, 'utf8',
 ));
 const handlerBlobSha = gitBlobSha(handlerSource);
+
+// The Host Bundle installer may receive a SillyTavern tree where the separate
+// Final-Send Patch Manager has already installed its pinned patch. Reproduce
+// that state in the independent expected tree only when every managed source
+// file and every created hook file matches the exact post-install manifest.
+// A pristine upstream tree remains the other accepted state; partial or
+// unrecognized edits are rejected rather than silently normalized.
+const finalSendManifestPath = path.join(repoRoot, 'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json');
+const finalSendPatchPath = path.join(repoRoot, 'host-adapter/patches/sillytavern-1.19.0-final-send.patch');
+const finalSendManifest = JSON.parse(await readFile(finalSendManifestPath, 'utf8'));
+const finalSendPatchBytes = await readFile(finalSendPatchPath);
+if (finalSendManifest.host?.commit !== PINNED_HOST_COMMIT
+  || finalSendManifest.patch?.path !== 'host-adapter/patches/sillytavern-1.19.0-final-send.patch'
+  || finalSendManifest.patch?.sha256 !== sha256(finalSendPatchBytes)) {
+  throw new Error('HOST_FINAL_SEND_PINNED_ARTIFACT_INVALID');
+}
+const finalSendHashAt = async relativePath => {
+  const bytes = await readFile(path.join(sourceRoot, relativePath));
+  return sha256(normalizeLineEndings(bytes));
+};
+let finalSendBeforeMatches = true;
+let finalSendAfterMatches = true;
+for (const [relativePath, expected] of Object.entries(finalSendManifest.sourceFiles ?? {})) {
+  const before = typeof expected === 'string' ? expected : expected.before;
+  const after = typeof expected === 'string' ? expected : expected.after;
+  const actual = await finalSendHashAt(relativePath);
+  if (actual !== before) finalSendBeforeMatches = false;
+  if (actual !== after) finalSendAfterMatches = false;
+}
+let finalSendCreatedFilesAbsent = true;
+let finalSendCreatedFilesMatch = true;
+for (const [relativePath, expected] of Object.entries(finalSendManifest.createdFiles ?? {})) {
+  try {
+    const actual = await finalSendHashAt(relativePath);
+    finalSendCreatedFilesAbsent = false;
+    if (actual !== expected) finalSendCreatedFilesMatch = false;
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    finalSendCreatedFilesMatch = false;
+  }
+}
+const finalSendInstalled = finalSendAfterMatches && finalSendCreatedFilesMatch;
+const finalSendPristine = finalSendBeforeMatches && finalSendCreatedFilesAbsent;
+if (!finalSendInstalled && !finalSendPristine) {
+  throw new Error('HOST_FINAL_SEND_SOURCE_STATE_UNRECOGNIZED');
+}
 if (patchBlobSha !== PINNED_PATCH_BUNDLE_SHA256) {
   throw new Error('HOST_PINNED_PATCH_BUNDLE_SHA_MISMATCH:' + patchBlobSha);
 }
@@ -57,6 +103,23 @@ try {
   // Reproduce the exact checkout and whitespace-tolerant patch application used
   // by host-adapter-pinned-source-audit.yml. Otherwise Windows worktree EOL or
   // patch-context normalization can produce a false source-manifest mismatch.
+  // Match the independently verified Final-Send state before applying the
+  // Host lifecycle/inventory patches. This is intentionally conditional:
+  // CI and standalone Host installs from pristine upstream remain unchanged.
+  if (finalSendInstalled) {
+    execFileSync('git', [
+      '-C', expectedRoot,
+      '-c', 'core.autocrlf=false',
+      'apply', '--ignore-space-change', '--ignore-whitespace', '--check',
+      finalSendPatchPath,
+    ], { stdio: 'ignore' });
+    execFileSync('git', [
+      '-C', expectedRoot,
+      '-c', 'core.autocrlf=false',
+      'apply', '--ignore-space-change', '--ignore-whitespace',
+      finalSendPatchPath,
+    ], { stdio: 'ignore' });
+  }
   execFileSync('git', ['-C', expectedRoot, 'config', 'core.autocrlf', 'false'], { stdio: 'ignore' });
   execFileSync('git', ['-C', expectedRoot, 'config', 'core.eol', 'lf'], { stdio: 'ignore' });
   execFileSync('git', ['-C', expectedRoot, 'checkout-index', '--force', '--all'], { stdio: 'ignore' });
