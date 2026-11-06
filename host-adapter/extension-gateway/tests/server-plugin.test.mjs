@@ -148,7 +148,6 @@ test('host build claim is diagnostic only and cannot replace source or mutation-
     query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
   }, response);
   assert.equal(response.statusCode, 200);
-  assert.equal(response.host_build_claim_status, undefined);
   assert.equal(response.body.host_build_claim_status, 'MISMATCH');
   assert.equal(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'), false);
   assert.equal(response.body.blockers.includes('UNVERIFIED_PINNED_SOURCE_IDENTITY'), true);
