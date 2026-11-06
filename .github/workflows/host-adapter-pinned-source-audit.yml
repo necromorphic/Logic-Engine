@@ -33,6 +33,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF' }
       - name: Syntax-check transactional Host patch-bundle installer
         run: node --check scripts/install-sillytavern-host-patch-bundle.mjs
+      - name: Exercise transactional Host bundle installer against a clean pinned source copy
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'SillyTavern-host-bundle-install-test'
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item -Path 'Sillytavern/.' -Destination $target -Recurse -Force
+          node scripts/install-sillytavern-host-patch-bundle.mjs --st-root $target
+          if ($LASTEXITCODE -ne 0) { throw 'Transactional Host patch-bundle installer acceptance failed' }
       - name: Install pinned SillyTavern runtime dependencies
         shell: pwsh
         working-directory: Sillytavern
