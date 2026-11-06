@@ -140,7 +140,10 @@ Write-Host 'The original SillyTavern process and ST-VectorService are not stoppe
 Write-Host 'Use the browser URL printed by SillyTavern. Test in a NEW chat only.'
 Push-Location $TestSt
 try {
-    & node (Join-Path $TestSt 'server.js') --port $port
+    $serverScript = Join-Path $TestSt 'server.js'
+    $nodeExe = (Get-Command node -ErrorAction Stop).Source
+    & $nodeExe $serverScript --port "$port"
+    if ($LASTEXITCODE -ne 0) { throw "TEMP_ST_SERVER_EXITED_$LASTEXITCODE" }
 } finally { Pop-Location }
 
 Write-Host "To remove the test copy after stopping it, delete only: $TempRoot"
