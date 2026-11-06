@@ -248,11 +248,20 @@ export function createHostInventoryHandler({
         host_source_identity_status: sourceIdentity?.status ?? 'NON_READY',
         ...(sourceIdentity?.manifest_sha256 ? { host_source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       });
-    } catch {
-      // Never return absolute paths, chat IDs, file counts, or per-source failures on denial.
+    } catch (error) {
+      // Return only a bounded diagnostic token. Never expose paths, chat IDs,
+      // file counts, raw PowerShell output, or exception text to the browser.
+      const message = typeof error?.message === 'string' ? error.message : '';
+      const marker = message.match(/^(HOST_[A-Z0-9_]+)(?::([0-9]+))?/);
+      const reason = marker
+        ? marker[2] ? `${marker[1]}:${marker[2]}` : marker[1]
+        : ['EACCES', 'EPERM', 'ENOENT', 'EEXIST', 'EINVAL', 'ENOTDIR', 'EISDIR'].includes(error?.code)
+          ? error.code
+          : 'UNKNOWN';
       return response.status(503).json({
         status: 'NON_READY',
         code: 'SOURCE_INVENTORY_UNAVAILABLE',
+        reason,
       });
     }
   };
