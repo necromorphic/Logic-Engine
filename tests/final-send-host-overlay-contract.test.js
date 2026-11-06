@@ -12,7 +12,7 @@ test('Final-Send accepts shared Host files only through the pinned Host source a
   assert.match(source, /this\._hostOverlayManifestPromise = null/);
   assert.match(source, /verifyPinnedSourceIdentity\(\{ installRoot: this\.stRoot \}\)/);
   assert.match(source, /identity\?\.status !== 'CURRENT_IDENTITIES_VERIFIED'/);
-  assert.match(source, /hostManifest\.files\?\.find\(entry => entry\?\.path === relativePath\)/);
+  assert.match(source, /hostManifest\?\.files\?\.find\(entry => entry\?\.path === relativePath\)/);
   assert.match(source, /sha256\(await readFile\(target\)\) === pinnedFile\.sha256/);
   assert.match(source, /actual !== after && !\(await this\.verifyHostOverlay\(relativePath\)\)/);
 });
