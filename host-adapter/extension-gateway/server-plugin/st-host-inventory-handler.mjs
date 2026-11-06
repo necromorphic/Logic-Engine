@@ -82,13 +82,14 @@ export function createHostInventoryHandler({
     const { userHandle, directories, session } = identity;
     const sessionId = session.logicEngineSessionId;
 
-    // This is an operator-supplied deployment claim, not runtime source attestation.
-    if (hostBuildClaim && hostBuildClaim !== pinnedHostCommit) {
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_BUILD_NOT_PINNED',
-      });
-    }
+    // LOGIC_ENGINE_HOST_BUILD_SHA is an operator-supplied deployment claim,
+    // not source evidence. Do not let a stale or unrelated parent-process
+    // environment value short-circuit the independent runtime source
+    // attestation below. Authority is granted only by the pinned source
+    // manifest, exact file digests, mutation-route coverage and Core receipt.
+    const hostBuildClaimStatus = hostBuildClaim === pinnedHostCommit
+      ? 'MATCHES_PINNED'
+      : hostBuildClaim ? 'MISMATCH' : 'ABSENT';
 
     try {
       const requestedConversationUuid = request?.query?.conversation_uuid;
@@ -243,6 +244,7 @@ export function createHostInventoryHandler({
         host_user_handle: userHandle,
         host_build_claim: hostBuildClaim,
         host_build_claim_type: hostBuildClaim ? 'DEPLOYMENT_ASSERTION_ONLY' : 'ABSENT',
+        host_build_claim_status: hostBuildClaimStatus,
         host_source_identity_status: sourceIdentity?.status ?? 'NON_READY',
         ...(sourceIdentity?.manifest_sha256 ? { host_source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       });
