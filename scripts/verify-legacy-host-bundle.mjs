@@ -1,0 +1,85 @@
+import { createHash } from 'node:crypto';
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import path from 'node:path';
+
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const canonical = value => Array.isArray(value)
+  ? '[' + value.map(canonical).join(',') + ']'
+  : value && typeof value === 'object'
+    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+    : JSON.stringify(value);
+const within = (root, candidate) => {
+  const relative = path.relative(root, candidate);
+  return Boolean(relative) && !relative.startsWith('..' + path.sep)
+    && relative !== '..' && !path.isAbsolute(relative);
+};
+
+/**
+ * Verify a specifically pinned predecessor deployment before allowing an
+ * atomic upgrade. A matching file hash alone is never sufficient: the old
+ * signed-by-content manifest and every file it covers must match.
+ */
+export async function verifyLegacyHostBundle({
+  installRoot,
+  expectedCommit,
+  expectedPatchBlobSha,
+  expectedManifestSha256,
+} = {}) {
+  try {
+    if (typeof installRoot !== 'string' || !path.isAbsolute(installRoot)
+      || typeof expectedCommit !== 'string'
+      || !/^[a-f0-9]{64}$/.test(expectedPatchBlobSha ?? '')
+      || !/^[a-f0-9]{64}$/.test(expectedManifestSha256 ?? '')) {
+      return { verified: false, files: new Map() };
+    }
+    const root = await realpath(installRoot);
+    const manifestPath = path.join(root, 'plugins', 'logic-engine-extension-gateway', 'pinned-source-manifest.json');
+    const manifestStat = await lstat(manifestPath);
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+      return { verified: false, files: new Map() };
+    }
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.files)) {
+      return { verified: false, files: new Map() };
+    }
+    const { manifest_sha256, ...proof } = manifest;
+    if (manifest.pinned_host_commit !== expectedCommit
+      || manifest.patch_blob_sha !== expectedPatchBlobSha
+      || manifest_sha256 !== expectedManifestSha256
+      || sha256(Buffer.from(canonical(proof), 'utf8')) !== expectedManifestSha256) {
+      return { verified: false, files: new Map() };
+    }
+
+    const verifiedFiles = new Map();
+    for (const entry of manifest.files) {
+      if (!entry || typeof entry.path !== 'string'
+        || !/^[a-f0-9]{64}$/.test(entry.sha256 ?? '')
+        || verifiedFiles.has(entry.path)) {
+        return { verified: false, files: new Map() };
+      }
+      const candidate = path.resolve(root, entry.path);
+      if (!within(root, candidate)) return { verified: false, files: new Map() };
+      let cursor = root;
+      for (const segment of entry.path.split(/[\\/]/)) {
+        if (!segment || segment === '.' || segment === '..') {
+          return { verified: false, files: new Map() };
+        }
+        cursor = path.join(cursor, segment);
+        const stat = await lstat(cursor);
+        if (stat.isSymbolicLink()) return { verified: false, files: new Map() };
+      }
+      const stat = await lstat(candidate);
+      if (!stat.isFile() || stat.isSymbolicLink()
+        || sha256(await readFile(candidate)) !== entry.sha256) {
+        return { verified: false, files: new Map() };
+      }
+      verifiedFiles.set(entry.path, entry.sha256);
+    }
+    if (!verifiedFiles.has('src/plugin-loader.js')) {
+      return { verified: false, files: new Map() };
+    }
+    return { verified: true, files: verifiedFiles };
+  } catch {
+    return { verified: false, files: new Map() };
+  }
+}
