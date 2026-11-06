@@ -186,7 +186,7 @@ function projectLaneAItems(items) {
       fact_id: values.fact_id,
       subject_ref: values.subject_ref,
       predicate: values.predicate,
-      value: values.value,
+      value: snapshotFinalSendJsonValue(values.value),
       acquisition_kind: values.acquisition_kind,
       provenance_ref: values.provenance_ref,
       provenance_digest: values.provenance_digest,
@@ -199,6 +199,45 @@ function projectLaneAItems(items) {
     projected[projected.length] = record;
   }
   return projected;
+}
+
+const LANE_B_EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
+
+function snapshotFinalSendJsonValue(value, depth = 0, state = { nodes: 0, ancestors: [] }) {
+  state.nodes += 1;
+  if (state.nodes > 10_000 || depth > 32) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'object' || isProxy(value)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  for (let index = 0; index < state.ancestors.length; index += 1) if (state.ancestors[index] === value) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+  state.ancestors[state.ancestors.length] = value;
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype || value.length > 1000) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1 || !arrayContains(keys, 'length')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const result = new Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+        result[index] = snapshotFinalSendJsonValue(descriptor.value, depth + 1, state);
+      }
+      return result;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 1000) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+    const result = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
+      Object.defineProperty(result, key, { value: snapshotFinalSendJsonValue(descriptor.value, depth + 1, state), enumerable: true, writable: false, configurable: false });
+    }
+    return result;
+  } finally { state.ancestors.length -= 1; }
 }
 
 function renderNpcContext(laneAItems, contentBlocks) {
@@ -228,16 +267,19 @@ function renderNpcContext(laneAItems, contentBlocks) {
       const epistemic = Object.getOwnPropertyDescriptor(block, 'epistemic_kind');
       const assessment = Object.getOwnPropertyDescriptor(block, 'evidence_assessment');
       const content = Object.getOwnPropertyDescriptor(block, 'content');
-      if (!epistemic || !Object.hasOwn(epistemic, 'value')
+      if (Reflect.ownKeys(block).length !== 3
+        || !epistemic || !Object.hasOwn(epistemic, 'value')
         || !assessment || !Object.hasOwn(assessment, 'value')
         || assessment.value !== 'supported'
-        || !content || !Object.hasOwn(content, 'value')) {
+        || !content || !Object.hasOwn(content, 'value')
+        || typeof epistemic.value !== 'string'
+        || !LANE_B_EPISTEMIC_KINDS.has(epistemic.value)) {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_LANE_B_INVALID');
       }
       bounded[bounded.length] = {
         epistemic_kind: epistemic.value,
         evidence_assessment: assessment.value,
-        content: content.value,
+        content: snapshotFinalSendJsonValue(content.value),
       };
     }
     sections[sections.length] = '[Logic Engine NPC Memory Context — Lane B]\n'
@@ -285,7 +327,7 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
     }
   }
   const serialized = JSON.stringify(body);
-  if (serialized.length === 0 || serialized.length > 4_000_000) {
+  if (serialized.length === 0 || Buffer.byteLength(serialized, 'utf8') > 4_000_000) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_BODY_INVALID');
   }
   return serialized;
@@ -328,7 +370,7 @@ function assertRequest(endpointUrl, requestInit) {
   if (typeof endpointUrl !== 'string' || !/^https?:\/\//i.test(endpointUrl)
     || !requestInit || typeof requestInit !== 'object'
     || typeof requestInit.body !== 'string' || requestInit.body.length === 0
-    || requestInit.body.length > 4_000_000
+    || Buffer.byteLength(requestInit.body, 'utf8') > 4_000_000
     || typeof requestInit.method !== 'string' || requestInit.method.toUpperCase() !== 'POST') {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_INVALID');
   }
