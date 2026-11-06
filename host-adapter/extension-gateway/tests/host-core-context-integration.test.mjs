@@ -304,7 +304,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: 91,
       source_files_sha256: 'b'.repeat(64),
     }),
     fetchImpl: async (url, options) => {
@@ -478,7 +478,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: 91,
       source_files_sha256: 'b'.repeat(64),
     }),
   });
