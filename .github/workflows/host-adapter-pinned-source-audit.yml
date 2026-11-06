@@ -38,7 +38,9 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'SillyTavern-host-bundle-install-test'
           New-Item -ItemType Directory -Force $target | Out-Null
-          Copy-Item -Path 'Sillytavern/.' -Destination $target -Recurse -Force
+          robocopy Sillytavern $target /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -gt 7) { throw 'Could not copy clean pinned SillyTavern source into installer acceptance target' }
+          $global:LASTEXITCODE = 0
           node scripts/install-sillytavern-host-patch-bundle.mjs --st-root $target
           if ($LASTEXITCODE -ne 0) { throw 'Transactional Host patch-bundle installer acceptance failed' }
       - name: Install pinned SillyTavern runtime dependencies
