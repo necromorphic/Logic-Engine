@@ -138,12 +138,15 @@ Write-Host ''
 Write-Host "Setup complete. Starting the TEMPORARY SillyTavern on port $port." -ForegroundColor Green
 Write-Host 'The original SillyTavern process and ST-VectorService are not stopped or modified.'
 Write-Host 'Use the browser URL printed by SillyTavern. Test in a NEW chat only.'
-Push-Location $TestSt
-try {
-    $serverScript = Join-Path $TestSt 'server.js'
-    $nodeExe = (Get-Command node -ErrorAction Stop).Source
-    & $nodeExe $serverScript --port "$port"
-    if ($LASTEXITCODE -ne 0) { throw "TEMP_ST_SERVER_EXITED_$LASTEXITCODE" }
-} finally { Pop-Location }
+# Start the isolated server without nested quoted path expressions.
+$serverScript = Join-Path -Path $TestSt -ChildPath "server.js"
+$nodeExe = (Get-Command -Name "node" -ErrorAction Stop).Source
+Set-Location -LiteralPath $TestSt
+& $nodeExe $serverScript --port $port
+$serverExitCode = $LASTEXITCODE
+Set-Location -LiteralPath $PSScriptRoot
+if ($serverExitCode -ne 0) {
+    throw ("TEMP_ST_SERVER_EXITED_" + $serverExitCode)
+}
 
-Write-Host "To remove the test copy after stopping it, delete only: $TempRoot"
+Write-Host ("To remove the test copy after stopping it, delete only: " + $TempRoot)
