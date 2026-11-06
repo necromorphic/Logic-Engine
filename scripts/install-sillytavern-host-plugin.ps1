@@ -8,6 +8,7 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $stRoot = (Resolve-Path $SillyTavernRoot).Path
 $pluginRoot = Join-Path $stRoot 'plugins'
 $pluginPath = Join-Path $pluginRoot 'logic-engine'
+$gatewayPluginPath = Join-Path $pluginRoot 'logic-engine-extension-gateway'
 
 function Stop-WithCode([string]$Code) { throw $Code }
 
@@ -51,9 +52,22 @@ if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
 if (Test-Path -LiteralPath $pluginPath) {
     Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS; preserve it and inspect before replacing'
 }
+if (Test-Path -LiteralPath $gatewayPluginPath) {
+    Stop-WithCode 'GATEWAY_PLUGIN_PATH_ALREADY_EXISTS; preserve it and inspect before replacing'
+}
 
 Copy-FilteredTree $repoRoot $pluginPath
-Write-Host "Copied Logic-Engine plugin to: $pluginPath"
+Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
+
+# The bounded Host ingress is a separate SillyTavern server plugin. Installing
+# only the repository-root plugin leaves /session, /identity and /inventory
+# unregistered even though the source modules exist in the copied repository.
+$gatewaySource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
+if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathType Leaf)) {
+    Stop-WithCode 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND'
+}
+Copy-FilteredTree $gatewaySource $gatewayPluginPath
+Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
 
 Push-Location $pluginPath
 try {
