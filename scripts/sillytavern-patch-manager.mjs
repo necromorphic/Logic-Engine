@@ -6,7 +6,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MANIFEST = resolve(here, '../host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json');
@@ -264,10 +264,45 @@ export class SillyTavernPatchManager {
     }
   }
 
+  // Host Bundle layers reviewed lifecycle/inventory changes over several
+  // SillyTavern files that Final-Send also inventories. Accept an overlap only
+  // when the installed Gateway independently verifies the complete pinned Host
+  // source tree and the exact current file bytes appear in that verified manifest.
+  async verifyHostOverlay(relativePath) {
+    try {
+      const attestationPath = await assertRegularFile(
+        this.stRoot,
+        'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
+      );
+      const { verifyPinnedSourceIdentity } = await import(pathToFileURL(attestationPath).href);
+      if (typeof verifyPinnedSourceIdentity !== 'function') return false;
+      const identity = await verifyPinnedSourceIdentity({ installRoot: this.stRoot });
+      if (identity?.status !== 'CURRENT_IDENTITIES_VERIFIED') return false;
+
+      const manifestPath = await assertRegularFile(
+        this.stRoot,
+        'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
+      );
+      const hostManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const pinnedFile = hostManifest.files?.find(entry => entry?.path === relativePath);
+      if (!pinnedFile || !/^[a-f0-9]{64}$/.test(pinnedFile.sha256 ?? '')) return false;
+
+      const target = await assertRegularFile(this.stRoot, relativePath);
+      return sha256(await readFile(target)) === pinnedFile.sha256;
+    } catch {
+      // Missing, malformed, or non-matching Host attestation never weakens the
+      // original Final-Send hash requirement.
+      return false;
+    }
+  }
+
   async verifyInstalled() {
     for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
       const after = typeof expected === 'string' ? expected : expected.after;
-      if (await this.hashAt(relativePath) !== after) throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
+      const actual = await this.hashAt(relativePath);
+      if (actual !== after && !(await this.verifyHostOverlay(relativePath))) {
+        throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
+      }
     }
     for (const [relativePath, expected] of Object.entries(this.manifest.createdFiles)) {
       const actual = await this.hashAt(relativePath);
