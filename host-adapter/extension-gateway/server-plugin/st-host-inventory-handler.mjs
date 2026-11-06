@@ -77,9 +77,26 @@ export function createHostInventoryHandler({
   return async function hostInventoryHandler(request, response) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
-    const identity = getAuthenticatedHostIdentity(request, { requireDirectories: true, requireSessionIdentity: true });
-    if (!identity) return response.sendStatus(403);
-    const { userHandle, directories, session } = identity;
+    const user = request?.user;
+    const session = request?.session;
+    const userHandle = user?.profile?.handle;
+    if (!session || typeof userHandle !== 'string' || !userHandle.trim()) {
+      return response.status(403).json({ status: 'NON_READY', code: 'HOST_AUTHENTICATED_CONTEXT_UNAVAILABLE' });
+    }
+    const directories = resolveHostDataDirectories(user?.directories);
+    if (!directories) {
+      return response.status(403).json({ status: 'NON_READY', code: 'HOST_INVENTORY_PATHS_UNAVAILABLE' });
+    }
+    if (session.handle !== undefined
+      && (typeof session.handle !== 'string' || session.handle !== userHandle)) {
+      return response.status(403).json({ status: 'NON_READY', code: 'HOST_SESSION_HANDLE_MISMATCH' });
+    }
+    if (typeof session.logicEngineSessionId !== 'string'
+      || !HOST_SESSION_UUID.test(session.logicEngineSessionId)
+      || session.logicEngineSessionHandle !== userHandle) {
+      return response.status(403).json({ status: 'NON_READY', code: 'HOST_SESSION_BINDING_UNAVAILABLE' });
+    }
+    const identity = { userHandle, directories, session };
     const sessionId = session.logicEngineSessionId;
 
     // LOGIC_ENGINE_HOST_BUILD_SHA is an operator-supplied deployment claim,
