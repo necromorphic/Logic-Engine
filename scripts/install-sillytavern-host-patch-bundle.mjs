@@ -71,6 +71,21 @@ async function assertOnlyGatewayDirectory(relativeDirectory) {
   }
 }
 
+async function assertExpectedFilesOnly(relativeDirectory, expectedNames) {
+  const directory = path.join(stRoot, relativeDirectory);
+  if (!await exists(directory)) return;
+  const info = await lstat(directory);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error('HOST_PATCH_EXTENSION_DIRECTORY_UNSAFE: ' + relativeDirectory);
+  }
+  const entries = await readdir(directory, { withFileTypes: true });
+  const unexpected = entries.filter(entry => !entry.isFile() || entry.isSymbolicLink()
+    || !expectedNames.includes(entry.name));
+  if (unexpected.length > 0) {
+    throw new Error('HOST_PATCH_UNREVIEWED_EXTENSION_FILE_PRESENT: ' + relativeDirectory);
+  }
+}
+
 const packageJson = JSON.parse(await readFile(path.join(stRoot, 'package.json'), 'utf8'));
 if (packageJson.version !== '1.19.0') {
   throw new Error('SILLYTAVERN_VERSION_UNSUPPORTED: ' + packageJson.version);
@@ -164,9 +179,18 @@ try {
   }
 
   // Preserve the existing extension roots exactly: only the reviewed Gateway
-  // is accepted by the runtime source attestation.
+  // is accepted by the runtime source attestation. Existing partial Gateway
+  // copies may be replaced, but unknown executable files are never deleted.
   await assertOnlyGatewayDirectory('plugins');
   await assertOnlyGatewayDirectory('public/scripts/extensions/third-party');
+  const pluginPrefix = 'plugins/logic-engine-extension-gateway/';
+  const clientPrefix = 'public/scripts/extensions/third-party/logic-engine-extension-gateway/';
+  const expectedPluginNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(pluginPrefix))
+    .map(file => file.slice(pluginPrefix.length)).concat('pinned-source-manifest.json');
+  const expectedClientNames = SOURCE_FILE_PATHS.filter(file => file.startsWith(clientPrefix))
+    .map(file => file.slice(clientPrefix.length));
+  await assertExpectedFilesOnly('plugins/logic-engine-extension-gateway', expectedPluginNames);
+  await assertExpectedFilesOnly('public/scripts/extensions/third-party/logic-engine-extension-gateway', expectedClientNames);
 
   const filesToInstall = [...SOURCE_FILE_PATHS, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'];
   await mkdir(backupRoot, { recursive: true });
@@ -180,9 +204,9 @@ try {
       await copyFile(target, backup);
       backups.set(relativePath, backup);
     }
+    changedPaths.push(relativePath);
     await mkdir(path.dirname(target), { recursive: true });
     await copyFile(source, target);
-    changedPaths.push(relativePath);
   }
 
   const installedIdentity = await verifyPinnedSourceIdentity({ installRoot: stRoot });
