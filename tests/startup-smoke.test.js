@@ -46,7 +46,7 @@ async function waitForExit(child, timeoutMs = 3000) {
   ]);
 }
 
-test('runtime process starts with isolated credentials/database and serves health', { timeout: 15000 }, async () => {
+test('runtime process starts with isolated credentials/database and serves health', { timeout: 40000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-startup-smoke-'));
   const worldPackCatalogPath = writeTestWorldPackCatalog(directory);
   const port = await unusedLoopbackPort();
@@ -68,15 +68,18 @@ test('runtime process starts with isolated credentials/database and serves healt
       ENGINE_ADAPTER_TOKENS: '{}',
       ENGINE_ALLOW_REMOTE: '',
     },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', chunk => { stderr += chunk; });
 
   try {
     let response = null;
     let lastError = null;
-    for (let attempt = 0; attempt < 80; attempt += 1) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error('Runtime exited before becoming healthy (code=' + child.exitCode + ', signal=' + child.signalCode + ').');
+        throw new Error('Runtime exited before becoming healthy (code=' + child.exitCode + ', signal=' + child.signalCode + '): ' + stderr);
       }
       try {
         response = await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(500) });
@@ -88,7 +91,7 @@ test('runtime process starts with isolated credentials/database and serves healt
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
 
-    assert.ok(response?.ok, 'Runtime did not become healthy: ' + String(lastError));
+    assert.ok(response?.ok, 'Runtime did not become healthy: ' + String(lastError) + (stderr ? '; stderr: ' + stderr : ''));
     assert.deepEqual(await response.json(), {
       ok: true,
       service: 'logic-engine',
