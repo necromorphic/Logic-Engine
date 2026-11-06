@@ -2591,15 +2591,22 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 +        } else {
 +            await updatePlugins(pluginsPath);
 +        }
-@@ -64,2 +72,8 @@
+@@ -64,2 +72,16 @@
          for (const file of files) {
-+            // Only the first-party Logic Engine runtime and Host Gateway may load under Host authority.
-+            if (hostAuthorityConfigured
+             const pluginFilePath = path.join(pluginsPath, file);
++            // Match SillyTavern's executable plugin candidates; metadata and placeholders are not plugins.
++            const pluginStat = hostAuthorityConfigured ? fs.lstatSync(pluginFilePath) : fs.statSync(pluginFilePath);
++            const pluginCandidate = pluginStat.isDirectory()
++                || (pluginStat.isFile() && (isCommonJS(file) || isESModule(file)));
++            if (hostAuthorityConfigured && pluginStat.isSymbolicLink()) {
++                throw new Error('HOST_SERVER_PLUGIN_SYMLINK_BLOCKED:' + file);
++            }
++            if (hostAuthorityConfigured && pluginCandidate
 +                && file !== 'logic-engine'
 +                && file !== 'logic-engine-extension-gateway') {
 +                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
 +            }
-             const pluginFilePath = path.join(pluginsPath, file);
++            if (!pluginCandidate) continue;
 @@ -80,1 +95,7 @@
 +        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine')) {
 +            throw new Error('HOST_CORE_PLUGIN_NOT_LOADED');
