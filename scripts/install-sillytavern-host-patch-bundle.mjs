@@ -259,7 +259,14 @@ try {
   await assertExpectedFilesOnly('plugins/logic-engine-extension-gateway', expectedPluginNames);
   await assertExpectedFilesOnly('public/scripts/extensions/third-party/logic-engine-extension-gateway', expectedClientNames);
 
-  const filesToInstall = [...SOURCE_FILE_PATHS, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'];
+  // The Patch Manager is part of the pinned Core plugin identity. Update this
+  // single managed file transactionally so runtime lifecycle calls use the same
+  // Host-overlay-aware verifier as the deployment installer.
+  const filesToInstall = [
+    ...SOURCE_FILE_PATHS,
+    'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
+    'plugins/logic-engine/scripts/sillytavern-patch-manager.mjs',
+  ];
   await mkdir(backupRoot, { recursive: true });
   for (const relativePath of filesToInstall) {
     const source = path.join(stagingRoot, relativePath);
