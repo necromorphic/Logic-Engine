@@ -62,9 +62,20 @@ const finalSendHashAt = async relativePath => {
   const bytes = await readFile(path.join(sourceRoot, relativePath));
   return sha256(normalizeLineEndings(bytes));
 };
+// These files are also modified by the Host Bundle patches before this
+// generator runs. Their final combined state is verified below against the
+// independently reconstructed pinned tree, so they cannot be used to classify
+// the Final-Send-only state at this point.
+const hostPatchedSharedPaths = new Set([
+  'src/server-main.js',
+  'src/plugin-loader.js',
+  'src/endpoints/backends/chat-completions.js',
+  'src/endpoints/extensions.js',
+]);
 let finalSendBeforeMatches = true;
 let finalSendAfterMatches = true;
 for (const [relativePath, expected] of Object.entries(finalSendManifest.sourceFiles ?? {})) {
+  if (hostPatchedSharedPaths.has(relativePath)) continue;
   const actual = await finalSendHashAt(relativePath);
   const before = typeof expected === 'string' ? expected : expected.before;
   const after = typeof expected === 'string' ? expected : expected.after;
