@@ -20,7 +20,8 @@
     "host:patch:repair": "node scripts/sillytavern-patch-manager.mjs repair",
     "host:patch:update": "node scripts/sillytavern-patch-manager.mjs update",
     "host:patch:uninstall": "node scripts/sillytavern-patch-manager.mjs uninstall",
-    "deployment:verify": "node scripts/deployment/verify.mjs"
+    "deployment:verify": "node scripts/deployment/verify.mjs",
+    "host:install:bundle": "node scripts/install-sillytavern-host-patch-bundle.mjs"
   },
   "dependencies": {
     "ajv": "8.17.1",
