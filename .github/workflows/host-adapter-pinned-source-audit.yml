@@ -31,6 +31,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern checkout could not be normalized to LF' }
           git -C Sillytavern checkout-index --force --all
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF' }
+      - name: Syntax-check transactional Host patch-bundle installer
+        run: node --check scripts/install-sillytavern-host-patch-bundle.mjs
       - name: Install pinned SillyTavern runtime dependencies
         shell: pwsh
         working-directory: Sillytavern
