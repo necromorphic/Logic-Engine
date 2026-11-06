@@ -6,7 +6,7 @@ const test = nodeTest;
 
 import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../../extension-gateway/server-plugin/st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
-import { PINNED_ST_MUTATION_COVERAGE_SHA256 } from '../../extension-gateway/server-plugin/st-mutation-route-contract.mjs';
+import { PINNED_ST_MUTATION_COVERAGE_SHA256, PINNED_ST_MUTATION_ROUTE_COUNT } from '../../extension-gateway/server-plugin/st-mutation-route-contract.mjs';
 
 function makeResponse() {
   return {
@@ -122,18 +122,36 @@ test('host inventory route rejects an authenticated account whose signed session
   assert.equal(calls, 0);
 });
 
-test('host inventory route rejects a contradictory deployment build claim', async () => {
+test('host build claim is diagnostic only and cannot replace source or mutation-route attestation', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
-    enumerate: async () => { calls += 1; return {}; },
+    enumerate: async () => {
+      calls += 1;
+      return {
+        filesystem: { status: 'complete', snapshot_sha256: 'b'.repeat(64), file_count: 0, total_bytes: 0, entries: [] },
+        source: { status: 'DOUBLE_SCAN_CANDIDATE', authority: 'NON_AUTHORITATIVE', inventory_sha256: 'a'.repeat(64), blockers: [], files: [] },
+        snapshot_alignment: 'UNKNOWN',
+      };
+    },
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED', source_commit: pinned,
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT, source_files_sha256: 'c'.repeat(64),
+    }),
     pinnedHostCommit: pinned,
     hostBuildClaim: 'not-the-pinned-commit',
   });
   const response = makeResponse();
-  await handler({ user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories }, session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' } }, response);
-  assert.equal(response.statusCode, 503);
-  assert.deepEqual(response.body, { status: 'NON_READY', code: 'HOST_BUILD_NOT_PINNED' });
-  assert.equal(calls, 0);
+  await handler({
+    user: { profile: { handle: 'default-user' }, directories: absoluteTestDirectories },
+    session: { handle: 'default-user', logicEngineSessionId: '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401', logicEngineSessionHandle: 'default-user' },
+    query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
+  }, response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.host_build_claim_status, 'MISMATCH');
+  assert.equal(response.body.blockers.includes('UNVERIFIED_MUTATION_ROUTE_COVERAGE'), false);
+  assert.equal(response.body.blockers.includes('UNVERIFIED_PINNED_SOURCE_IDENTITY'), true);
+  assert.equal(calls, 1);
 });
 
 test('host inventory route passes only the authenticated user data roots and returns a non-authoritative manifest', async () => {
@@ -241,7 +259,7 @@ test('host inventory persists the full root manifest server-side and removes onl
       status: 'VERIFIED',
       source_commit: pinned,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
       source_files_sha256: 'b'.repeat(64),
     }),
     persistRootInventory: async input => {
@@ -308,8 +326,8 @@ test('host inventory refuses Core baseline persistence for forged mutation cover
     extensions: '/srv/st/data/extensions',
   };
   for (const mutationCoverage of [
-    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: 'a'.repeat(64), route_count: 92, source_files_sha256: 'b'.repeat(64) },
-    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256, route_count: 91, source_files_sha256: 'b'.repeat(64) },
+    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: 'a'.repeat(64), route_count: PINNED_ST_MUTATION_ROUTE_COUNT, source_files_sha256: 'b'.repeat(64) },
+    { status: 'VERIFIED', source_commit: pinned, coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256, route_count: PINNED_ST_MUTATION_ROUTE_COUNT - 1, source_files_sha256: 'b'.repeat(64) },
   ]) {
     let persistenceCalls = 0;
     const handler = createHostInventoryHandler({
@@ -383,7 +401,7 @@ test('host inventory clears only blockers covered by verified source and Core VS
       status: 'VERIFIED',
       source_commit: pinned,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
       source_files_sha256: 'b'.repeat(64),
     }),
     persistRootInventory: async input => {
@@ -468,7 +486,7 @@ test('Host inventory cannot promote Core baseline without signed lifecycle attes
       status: 'VERIFIED',
       source_commit: pinned,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
       source_files_sha256: 'b'.repeat(64),
     }),
     persistRootInventory: async () => ({
@@ -528,7 +546,7 @@ test('persisted but unexplained root drift remains an explicit NON_READY blocker
       status: 'VERIFIED',
       source_commit: pinned,
       coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
-      route_count: 92,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
       source_files_sha256: 'b'.repeat(64),
     }),
     persistRootInventory: async () => ({
@@ -637,7 +655,7 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
     query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
   }, response);
   assert.equal(response.statusCode, 503);
-  assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE' });
+  assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE', reason: 'UNKNOWN' });
   assert.equal(JSON.stringify(response.body).includes('private'), false);
 });
 
