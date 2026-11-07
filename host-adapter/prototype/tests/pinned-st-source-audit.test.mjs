@@ -302,7 +302,7 @@ test('account switching and version invalidation revoke the old Host capability 
 test('Host lifecycle patch embeds the canonical lifecycle source files without drift', () => {
     const repositoryRoot = process.cwd();
     const patchPath = path.join(repositoryRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
-    const patch = fs.readFileSync(patchPath, 'utf8').replace(/\\r\\n?/g, '\\n');
+    const patch = fs.readFileSync(patchPath, 'utf8').replace(/\r\n?/g, '\n');
     const pairs = [
         ['host-adapter/prototype/conversation-identity.mjs', 'public/scripts/logic-engine-lifecycle/conversation-identity.mjs'],
         ['host-adapter/prototype/lifecycle-journal.mjs', 'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs'],
@@ -313,15 +313,15 @@ test('Host lifecycle patch embeds the canonical lifecycle source files without d
         const marker = `diff --git a/${installedPath} b/${installedPath}`;
         const start = patch.indexOf(marker);
         assert.ok(start >= 0, `Lifecycle patch is missing ${installedPath}`);
-        const next = patch.indexOf('\\ndiff --git ', start + marker.length);
+        const next = patch.indexOf('\ndiff --git ', start + marker.length);
         const section = patch.slice(start, next < 0 ? patch.length : next);
         assert.ok(section.includes('new file mode 100644'), `${installedPath} must be an explicitly created file`);
-        const embedded = section.split('\\n')
+        const embedded = section.split('\n')
             .filter(line => line.startsWith('+') && !line.startsWith('+++ '))
             .map(line => line.slice(1))
-            .join('\\n') + '\\n';
+            .join('\n') + '\n';
         const canonicalSource = fs.readFileSync(path.join(repositoryRoot, sourcePath), 'utf8')
-            .replace(/\\r\\n?/g, '\\n');
+            .replace(/\r\n?/g, '\n');
         assert.equal(embedded, canonicalSource, `${installedPath} in the installer patch drifted from ${sourcePath}`);
     }
 });
