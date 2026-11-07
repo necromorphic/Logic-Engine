@@ -411,6 +411,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
 
   let lockPath;
   let markerPath;
+  let lockCreated = false;
   try {
     const root = realpathSync(directories.root);
     const characters = realpathSync(directories.characters);
@@ -443,6 +444,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
 
     // Exclusive creation makes concurrent first-run requests fail closed.
     const lockFd = openSync(lockPath, 'wx', 0o600);
+    lockCreated = true;
     try {
       writeFileSync(lockFd, JSON.stringify({
         schema_version: 1,
@@ -458,7 +460,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
       finalized = true;
       const successful = response.statusCode >= 200 && response.statusCode < 300;
       if (!successful) {
-        try { unlinkSync(lockPath); } catch {}
+        try { unlinkSync(lockPath); lockCreated = false; } catch {}
         return;
       }
       // A 2xx response is accepted only if ST actually created both bootstrap artifacts.
@@ -478,6 +480,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
           closeSync(markerFd);
         }
         unlinkSync(lockPath);
+        lockCreated = false;
       } catch {
         // Keep the lock on ambiguous completion. A later request must not
         // repeat a possibly completed bootstrap mutation.
@@ -487,7 +490,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
     response.once('close', finalize);
     return true;
   } catch {
-    if (lockPath) {
+    if (lockCreated && lockPath) {
       try { unlinkSync(lockPath); } catch {}
     }
     return false;
