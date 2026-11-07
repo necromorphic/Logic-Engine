@@ -49,14 +49,23 @@ jobs:
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
-      - name: Verify installer refuses an existing plugin directory
+      - name: Verify installer refuses an existing plugin directory without mutation
         shell: pwsh
         run: |
+          $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
+          $gatewayRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine-extension-gateway'
+          $backupRoot = Join-Path $env:ST_ROOT '.logic-engine-plugin-backups'
+          if (-not (Test-Path (Join-Path $gatewayRoot 'index.mjs'))) { throw 'GATEWAY_PLUGIN_ENTRYPOINT_MISSING_BEFORE_REFUSAL_TEST' }
+          $backupCountBefore = if (Test-Path $backupRoot) { @(Get-ChildItem -LiteralPath $backupRoot -Directory).Count } else { 0 }
           try {
             ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
             throw 'INSTALLER_OVERWROTE_EXISTING_PLUGIN'
           } catch {
             if ($_.Exception.Message -notlike '*PLUGIN_PATH_ALREADY_EXISTS*') { throw }
           }
-          node (Join-Path $env:ST_ROOT 'plugins/logic-engine/scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root (Join-Path $env:ST_ROOT 'plugins/logic-engine')
+          if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_REMOVED_AFTER_REFUSAL' }
+          if (-not (Test-Path (Join-Path $gatewayRoot 'index.mjs'))) { throw 'GATEWAY_PLUGIN_REMOVED_AFTER_REFUSAL' }
+          $backupCountAfter = if (Test-Path $backupRoot) { @(Get-ChildItem -LiteralPath $backupRoot -Directory).Count } else { 0 }
+          if ($backupCountAfter -ne $backupCountBefore) { throw 'INSTALLER_MUTATED_BACKUP_STATE_ON_REFUSAL' }
+          node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED_AFTER_REFUSAL' }
