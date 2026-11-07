@@ -1007,7 +1007,7 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
 @@ -206 +211 @@
 -router.post('/save', function (request, response) {
-+router.post('/save', hostUnsupportedMutationGuard, function (request, response) {
++router.post('/save', function (request, response) {
 @@ -340 +345 @@
 -router.post('/make-snapshot', async (request, response) => {
 +router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
