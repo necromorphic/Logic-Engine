@@ -147,25 +147,25 @@ try {
     }
   }
 
-  // Final-Send is installed independently by its own transactional manager.
-  // Accept its source changes only when the manager verifies the pinned patch,
-  // every patched file, and every byte-exact backup. Never infer trust from
-  // matching import names or from a partially patched source file.
-  const finalSendManager = new SillyTavernPatchManager({
-    extensionRoot: repoRoot,
-    stRoot,
-  });
-  const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
-  const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
-  const finalSendManifest = finalSendManager.manifest;
-  // Upgrade only from the exact previously installed Host bundle. Its old
-  // manifest pin and every covered byte must verify before it is trusted.
+  // Verify the exact predecessor Host overlay before inspecting Final-Send.
+  // Its pinned manifest is the only additional proof accepted for shared files
+  // while the new Gateway attestation has not yet been installed.
   const previousHostBundle = await verifyLegacyHostBundle({
     installRoot: stRoot,
     expectedCommit: PINNED_HOST_COMMIT,
     expectedPatchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
     expectedManifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
   });
+  // Final-Send remains independently verified. The legacy overlay exception
+  // is limited to exact file hashes covered by the verified predecessor manifest.
+  const finalSendManager = new SillyTavernPatchManager({
+    extensionRoot: repoRoot,
+    stRoot,
+    trustedHostOverlayFiles: previousHostBundle.verified ? previousHostBundle.files : new Map(),
+  });
+  const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
+  const finalSendManifest = finalSendManager.manifest;
 
   // Reproduce the independently verified Final-Send state in staging before
   // layering the Host lifecycle/inventory patches. This prevents the bundle
