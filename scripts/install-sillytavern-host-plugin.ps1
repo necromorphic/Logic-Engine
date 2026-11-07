@@ -49,21 +49,21 @@ if (-not (Test-Path -LiteralPath (Join-Path $stRoot 'src/plugin-loader.js') -Pat
 if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
     New-Item -ItemType Directory -Path $pluginRoot | Out-Null
 }
-# Replacing an existing test installation is allowed, but never destructive:
-# move both prior plugin directories into a timestamped backup first.
+# This installer is intentionally first-install-only. Replacing an existing plugin
+# tree here would discard the installed Patch Manager state and can make the
+# Host bundle verifier misclassify our own Final-Send patch as a local edit.
+# Updates and repairs must use the dedicated Patch Manager commands instead.
+if ((Test-Path -LiteralPath $pluginPath) -or (Test-Path -LiteralPath $gatewayPluginPath)) {
+    Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS'
+}
+
 $gatewaySource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
 if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathType Leaf)) {
     Stop-WithCode 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND'
 }
-# Verify the root plugin's deployment-pinned files before touching the current ST installation.
-# This catches stale identity pins in the repository itself, rather than after copying
-# plugins and entering Final-Send's patch preflight.
-& node (Join-Path $repoRoot 'scripts/verify-host-plugin-pins.mjs') --plugin-root $repoRoot
-if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PLUGIN_PIN_PREFLIGHT_FAILED' }
 
-$backupName = 'logic-engine-plugin-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
-# Backups must stay outside SillyTavern's plugins directory: the pinned Host
-# inventory intentionally rejects every unrecognized server-plugin directory.
+# Backups from older installer versions may still be nested in plugins.
+# Migrate them outside the plugin inventory before any new installation.
 $backupStorageRoot = Join-Path $stRoot '.logic-engine-plugin-backups'
 if (Test-Path -LiteralPath $backupStorageRoot) {
     $backupStorageInfo = Get-Item -LiteralPath $backupStorageRoot -Force
@@ -71,10 +71,8 @@ if (Test-Path -LiteralPath $backupStorageRoot) {
         Stop-WithCode 'PLUGIN_BACKUP_STORAGE_UNSAFE'
     }
 }
-$hadPlugin = Test-Path -LiteralPath $pluginPath
-$hadGateway = Test-Path -LiteralPath $gatewayPluginPath
 $legacyBackupDirs = @(Get-ChildItem -LiteralPath $pluginRoot -Directory -Filter 'logic-engine-plugin-backup-*' -ErrorAction SilentlyContinue)
-if ($hadPlugin -or $hadGateway -or $legacyBackupDirs.Count -gt 0) {
+if ($legacyBackupDirs.Count -gt 0) {
     New-Item -ItemType Directory -Path $backupStorageRoot -Force | Out-Null
     foreach ($legacyBackup in $legacyBackupDirs) {
         if ($legacyBackup.Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -83,13 +81,6 @@ if ($hadPlugin -or $hadGateway -or $legacyBackupDirs.Count -gt 0) {
         $legacyDestination = Join-Path $backupStorageRoot ($legacyBackup.Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         Move-Item -LiteralPath $legacyBackup.FullName -Destination $legacyDestination
     }
-}
-$backupRoot = Join-Path $backupStorageRoot $backupName
-if ($hadPlugin -or $hadGateway) {
-    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
-    if ($hadPlugin) { Move-Item -LiteralPath $pluginPath -Destination (Join-Path $backupRoot 'logic-engine') }
-    if ($hadGateway) { Move-Item -LiteralPath $gatewayPluginPath -Destination (Join-Path $backupRoot 'logic-engine-extension-gateway') }
-    Write-Host "Previous test plugins backed up to: $backupRoot"
 }
 
 try {
