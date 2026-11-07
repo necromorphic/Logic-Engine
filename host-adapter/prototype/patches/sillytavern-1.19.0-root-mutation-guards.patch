@@ -275,7 +275,7 @@ diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 +++ b/src/endpoints/image-metadata.js
 @@ -704 +706 @@
 -router.post('/all', async function (request, response) {
-+router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
++router.post('/all', async function (request, response) {
 diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.js
 --- a/src/endpoints/stable-diffusion.js
 +++ b/src/endpoints/stable-diffusion.js
