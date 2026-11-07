@@ -383,8 +383,16 @@ export function createHostUnsupportedMutationGuard({
  * account root. All subsequent character mutations remain fail-closed.
  */
 function isInitialAssistantBootstrapCreate(request, response) {
-  if (request?.method !== 'POST' || request?.baseUrl !== '/api/characters'
-    || request?.path !== '/create' || typeof response?.once !== 'function') return false;
+  // Express may expose the mounted path differently depending on whether
+  // the endpoint router is mounted directly or through the API router. Prefer
+  // the immutable request URL, retaining the baseUrl/path pair as a fallback.
+  const originalPath = typeof request?.originalUrl === 'string'
+    ? request.originalUrl.split('?', 1)[0]
+    : null;
+  const isAssistantCreateRoute = originalPath === '/api/characters/create'
+    || (request?.baseUrl === '/api/characters' && request?.path === '/create');
+  if (request?.method !== 'POST' || !isAssistantCreateRoute
+    || typeof response?.once !== 'function') return false;
   const session = request?.session;
   const user = request?.user;
   const handle = user?.profile?.handle;
