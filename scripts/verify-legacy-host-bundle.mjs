@@ -29,12 +29,16 @@ export async function verifyLegacyHostBundle({
   expectedCommit,
   expectedPatchBlobSha,
   expectedManifestSha256,
+  expectedPredecessors,
+  expectedOverlayFiles = new Map(),
 } = {}) {
   try {
     if (typeof installRoot !== 'string' || !path.isAbsolute(installRoot)
-      || typeof expectedCommit !== 'string'
-      || !/^[a-f0-9]{64}$/.test(expectedPatchBlobSha ?? '')
-      || !/^[a-f0-9]{64}$/.test(expectedManifestSha256 ?? '')) {
+      || (!(Array.isArray(expectedPredecessors) && expectedPredecessors.length > 0)
+        && (typeof expectedCommit !== 'string'
+          || !/^[a-f0-9]{64}$/.test(expectedPatchBlobSha ?? '')
+          || !/^[a-f0-9]{64}$/.test(expectedManifestSha256 ?? '')))
+      || !(expectedOverlayFiles instanceof Map)) {
       return { verified: false, files: new Map() };
     }
     const root = await realpath(installRoot);
@@ -54,10 +58,16 @@ export async function verifyLegacyHostBundle({
       return { verified: false, files: new Map() };
     }
     const { manifest_sha256, ...proof } = manifest;
-    if (manifest.pinned_host_commit !== expectedCommit
-      || manifest.patch_blob_sha !== expectedPatchBlobSha
-      || manifest_sha256 !== expectedManifestSha256
-      || sha256(Buffer.from(canonical(proof), 'utf8')) !== expectedManifestSha256) {
+    const predecessorPins = Array.isArray(expectedPredecessors)
+      ? expectedPredecessors
+      : [{ commit: expectedCommit, patchBlobSha: expectedPatchBlobSha, manifestSha256: expectedManifestSha256 }];
+    const matchingPredecessor = predecessorPins.some(pin => pin
+      && typeof pin.commit === 'string'
+      && manifest.pinned_host_commit === pin.commit
+      && manifest.patch_blob_sha === pin.patchBlobSha
+      && manifest_sha256 === pin.manifestSha256
+      && sha256(Buffer.from(canonical(proof), 'utf8')) === pin.manifestSha256);
+    if (!matchingPredecessor) {
       return { verified: false, files: new Map() };
     }
 
@@ -87,7 +97,13 @@ export async function verifyLegacyHostBundle({
       // The signed deployment manifest authenticates exact installed bytes.
       // Patch Manager hashes source text canonically (LF), so retain the
       // canonical hash only after the raw-byte manifest proof has succeeded.
-      if (sha256(bytes) !== entry.sha256) {
+      const installedHash = sha256(bytes);
+      const expectedOverlayHash = expectedOverlayFiles.get(entry.path);
+      // A predecessor manifest may predate a reviewed Host patch revision.
+      // Accept that transition only when the installed bytes exactly match
+      // the deterministic output reconstructed from the current pinned
+      // SillyTavern commit and reviewed Host patches by the installer.
+      if (installedHash !== entry.sha256 && installedHash !== expectedOverlayHash) {
         return { verified: false, files: new Map() };
       }
       verifiedFiles.set(entry.path, canonicalTextHash(bytes));
