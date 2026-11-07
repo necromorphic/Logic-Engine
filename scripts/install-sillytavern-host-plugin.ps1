@@ -14,7 +14,7 @@ function Stop-WithCode([string]$Code) { throw $Code }
 
 function Copy-FilteredTree([string]$Source, [string]$Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    $excludedDirectories = @('.git', 'node_modules', 'tests', 'coverage', 'data')
+    $excludedDirectories = @('.git', 'node_modules', 'tests', 'coverage', 'data', 'fireemblem8u_repo')
     foreach ($entry in Get-ChildItem -LiteralPath $Source -Force) {
         if ($entry.PSIsContainer) {
             if (($entry.Name -in $excludedDirectories) -or ($entry.Name -like 'worktree-backup-*')) {
@@ -88,13 +88,6 @@ try {
     Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
     Copy-FilteredTree $gatewaySource $gatewayPluginPath
     Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
-    
-    # Re-run the idempotent Host Bundle installer after replacing the plugins.
-    # It reconstructs the pinned source tree independently, regenerates the
-    # deployment manifest, and installs that manifest into the new Gateway folder.
-    # This avoids trusting or losing the manifest from the previous plugin copy.
-    & node 'scripts/install-sillytavern-host-patch-bundle.mjs' --st-root $stRoot
-    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PATCH_BUNDLE_REFRESH_FAILED' }
 } catch {
     if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
     if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
@@ -118,11 +111,32 @@ try {
     & node 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $pluginPath
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_INSTALL_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' verify --st-root $stRoot --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_VERIFY_FAILED' }
 } finally {
     Pop-Location
 }
+
+# Install Final-Send before Host Bundle. The Host bundle generator explicitly
+# reconstructs the combined Final-Send + Host tree; applying Final-Send after
+# Host would make its rollback mistake the legitimate combined plugin-loader.js
+# for an unrelated user edit.
+try {
+    & node (Join-Path $repoRoot 'scripts/install-sillytavern-host-patch-bundle.mjs') --st-root $stRoot
+    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PATCH_BUNDLE_INSTALL_FAILED' }
+} catch {
+    # The bundle installer rolls back its own files. Remove the separately
+    # installed Final-Send patch only if its own transaction can verify rollback.
+    & node (Join-Path $pluginPath 'scripts/sillytavern-patch-manager.mjs') uninstall --st-root $stRoot --extension-root $pluginPath
+    if ($LASTEXITCODE -eq 0) {
+        if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
+        if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
+    } else {
+        Write-Warning 'Final-Send rollback was not confirmed; plugin files were preserved for recovery.'
+    }
+    throw
+}
+
+& node (Join-Path $pluginPath 'scripts/sillytavern-patch-manager.mjs') verify --st-root $stRoot --extension-root $pluginPath
+if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_VERIFY_FAILED_AFTER_HOST_BUNDLE' }
 
 Write-Host ''
 Write-Host 'Install candidate prepared. Do not start SillyTavern until server plugins are explicitly enabled.'
