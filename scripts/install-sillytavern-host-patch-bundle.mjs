@@ -305,7 +305,7 @@ try {
         && actualHash === finalSendExpected.after;
       const previousHostFileHash = previousHostBundle.files.get(relativePath);
       const isVerifiedPreviousHostState = previousHostBundle.verified
-        && previousHostFileHash === sha256(targetBytes);
+        && previousHostFileHash === sha256(normalizeText(targetBytes));
       if (!isVerifiedFinalSendState && !isVerifiedPreviousHostState) {
         throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
       }
