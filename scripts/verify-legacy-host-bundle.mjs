@@ -94,9 +94,10 @@ export async function verifyLegacyHostBundle({
         return { verified: false, files: new Map() };
       }
       const bytes = await readFile(candidate);
-      // The signed deployment manifest authenticates exact installed bytes.
-      // Patch Manager hashes source text canonically (LF), so retain the
-      // canonical hash only after the raw-byte manifest proof has succeeded.
+      // The pinned predecessor manifest authenticates the predecessor tree.
+      // A changed file is accepted only when it matches the separately
+      // reconstructed, reviewed Host overlay byte-for-byte. Patch Manager
+      // consumes canonical LF hashes after this raw-byte proof succeeds.
       const installedHash = sha256(bytes);
       const expectedOverlayHash = expectedOverlayFiles.get(entry.path);
       // A predecessor manifest may predate a reviewed Host patch revision.
