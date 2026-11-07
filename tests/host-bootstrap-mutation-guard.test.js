@@ -8,20 +8,26 @@ import { createHostBulkMutationGuard } from '../host-adapter/extension-gateway/s
 
 const PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-function fixture() {
+function fixture(t) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'logic-engine-host-bootstrap-'));
+  const identity = mkdtempSync(path.join(os.tmpdir(), 'logic-engine-host-identity-'));
   const characters = path.join(root, 'characters');
   const chats = path.join(root, 'chats');
   mkdirSync(characters);
   mkdirSync(chats);
-  return {
-    root,
-    directories: { root, characters, chats },
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
-  };
+  const previousIdentityDir = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = identity;
+  t.after(() => {
+    if (previousIdentityDir === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previousIdentityDir;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(identity, { recursive: true, force: true });
+  });
+  return { root, identity, directories: { root, characters, chats } };
 }
 
 function makeResponse() {
+  const listeners = new Map();
   return {
     statusCode: null,
     body: null,
@@ -29,6 +35,16 @@ function makeResponse() {
     set(name, value) { this.headers[name.toLowerCase()] = value; return this; },
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
+    once(event, callback) {
+      const callbacks = listeners.get(event) ?? [];
+      callbacks.push(callback);
+      listeners.set(event, callbacks);
+      return this;
+    },
+    finish(statusCode) {
+      this.statusCode = statusCode;
+      for (const callback of listeners.get('finish') ?? []) callback();
+    },
   };
 }
 
@@ -48,8 +64,7 @@ function makeRequest(directories, overrides = {}) {
 }
 
 test('Host bulk guard permits only first-run native default Assistant creation', t => {
-  const fx = fixture();
-  t.after(fx.cleanup);
+  const fx = fixture(t);
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
   const response = makeResponse();
   let nextCalls = 0;
@@ -58,11 +73,19 @@ test('Host bulk guard permits only first-run native default Assistant creation',
 
   assert.equal(nextCalls, 1);
   assert.equal(response.statusCode, null);
+  writeFileSync(path.join(fx.directories.characters, 'default_Assistant.png'), 'png');
+  mkdirSync(path.join(fx.directories.chats, 'default_Assistant'));
+  response.finish(200);
+
+  const repeated = makeResponse();
+  let repeatedNextCalls = 0;
+  guard(makeRequest(fx.directories), repeated, () => { repeatedNextCalls++; });
+  assert.equal(repeatedNextCalls, 0);
+  assert.equal(repeated.statusCode, 503);
 });
 
 test('Host bulk guard keeps ordinary character creation fail-closed', t => {
-  const fx = fixture();
-  t.after(fx.cleanup);
+  const fx = fixture(t);
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
   const cases = [
     makeRequest(fx.directories, { baseUrl: '/api/groups' }),
@@ -81,9 +104,8 @@ test('Host bulk guard keeps ordinary character creation fail-closed', t => {
   }
 });
 
-test('Host bulk guard denies bootstrap if Assistant avatar or chat directory already exists', t => {
-  const fx = fixture();
-  t.after(fx.cleanup);
+test('Host bulk guard denies bootstrap if Assistant avatar or a non-empty chat directory already exists', t => {
+  const fx = fixture(t);
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
 
   for (const target of [
@@ -91,7 +113,10 @@ test('Host bulk guard denies bootstrap if Assistant avatar or chat directory alr
     path.join(fx.directories.chats, 'default_Assistant'),
   ]) {
     if (target.endsWith('.png')) writeFileSync(target, 'existing');
-    else mkdirSync(target);
+    else {
+      mkdirSync(target);
+      writeFileSync(path.join(target, 'existing.jsonl'), '{}');
+    }
     const response = makeResponse();
     let nextCalls = 0;
     guard(makeRequest(fx.directories), response, () => { nextCalls++; });
@@ -102,9 +127,9 @@ test('Host bulk guard denies bootstrap if Assistant avatar or chat directory alr
 });
 
 test('Host bulk guard denies bootstrap when account directories escape the root', t => {
-  const fx = fixture();
+  const fx = fixture(t);
   const outside = mkdtempSync(path.join(os.tmpdir(), 'logic-engine-host-outside-'));
-  t.after(() => { fx.cleanup(); rmSync(outside, { recursive: true, force: true }); });
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
   const response = makeResponse();
   let nextCalls = 0;
@@ -116,8 +141,7 @@ test('Host bulk guard denies bootstrap when account directories escape the root'
 });
 
 test('Host bulk guard accepts only the stock Assistant image upload shape', t => {
-  const fx = fixture();
-  t.after(fx.cleanup);
+  const fx = fixture(t);
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
   const response = makeResponse();
   let nextCalls = 0;
@@ -128,4 +152,21 @@ test('Host bulk guard accepts only the stock Assistant image upload shape', t =>
 
   assert.equal(nextCalls, 0);
   assert.equal(response.statusCode, 503);
+});
+
+test('Host bulk guard releases an unsuccessful bootstrap reservation for a safe retry', t => {
+  const fx = fixture(t);
+  const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
+  const response = makeResponse();
+  let nextCalls = 0;
+
+  guard(makeRequest(fx.directories), response, () => { nextCalls++; });
+  assert.equal(nextCalls, 1);
+  response.finish(500);
+
+  const retry = makeResponse();
+  let retryNextCalls = 0;
+  guard(makeRequest(fx.directories), retry, () => { retryNextCalls++; });
+  assert.equal(retryNextCalls, 1);
+  retry.finish(500);
 });
