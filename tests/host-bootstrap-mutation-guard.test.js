@@ -172,3 +172,17 @@ test('Host bulk guard releases an unsuccessful bootstrap reservation for a safe 
   assert.equal(retryNextCalls, 1);
   retry.finish(500);
 });
+
+test('Host bulk guard permits the stock default Assistant PNG upload', t => {
+  const fx = fixture(t);
+  const guard = createHostBulkMutationGuard({ pinnedHostCommit: PINNED_COMMIT });
+  const response = makeResponse();
+  let nextCalls = 0;
+
+  guard(makeRequest(fx.directories, {
+    file: { originalname: 'default_Assistant.png', mimetype: 'image/png', size: 4096 },
+  }), response, () => { nextCalls++; });
+
+  assert.equal(nextCalls, 1);
+  response.finish(500);
+});
