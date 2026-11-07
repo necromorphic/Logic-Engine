@@ -23,11 +23,6 @@ const gitBlobSha = bytes => createHash('sha1')
   .update(Buffer.from('blob ' + bytes.length + '\0', 'utf8'))
   .update(bytes).digest('hex');
 
-const actualCommit = execFileSync('git', ['-C', sourceRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-if (actualCommit !== PINNED_HOST_COMMIT) {
-  throw new Error('HOST_SOURCE_MANIFEST_REQUIRES_EXACT_PINNED_COMMIT');
-}
-
 const lifecyclePatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
 const unenrolledFixPatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch');
 const rootMutationPatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch');
@@ -107,10 +102,22 @@ if (handlerBlobSha !== PINNED_HOST_HANDLER_GIT_BLOB_SHA) {
 }
 
 const worktreeParent = await mkdtemp(path.join(tmpdir(), 'host-pinned-source-tree-'));
+const pinnedRepositoryRoot = path.join(worktreeParent, 'pinned-source-repository');
 const expectedRoot = path.join(worktreeParent, 'SillyTavern');
 let files = [];
 try {
-  execFileSync('git', ['-C', sourceRoot, 'worktree', 'add', '--detach', expectedRoot, PINNED_HOST_COMMIT], { stdio: 'ignore' });
+  // An installed SillyTavern directory is normally a release archive and has no
+  // .git metadata. Reconstruct the expected tree from the immutable upstream pin
+  // in an isolated temporary repository instead of requiring Git metadata in the
+  // user's installation directory.
+  await mkdir(pinnedRepositoryRoot, { recursive: true });
+  execFileSync('git', ['init', pinnedRepositoryRoot], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'remote', 'add', 'origin', 'https://github.com/SillyTavern/SillyTavern.git'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'fetch', '--depth=1', 'origin', PINNED_HOST_COMMIT], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'checkout', '--detach', 'FETCH_HEAD'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'config', 'core.autocrlf', 'false'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'config', 'core.eol', 'lf'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', pinnedRepositoryRoot, 'worktree', 'add', '--detach', expectedRoot, PINNED_HOST_COMMIT], { stdio: 'ignore' });
   // Reproduce the exact checkout and whitespace-tolerant patch application used
   // by host-adapter-pinned-source-audit.yml. Checkout the pinned index FIRST:
   // checkout-index --force --all overwrites tracked files, so running it after
@@ -200,7 +207,7 @@ try {
     files.push({ path: relativePath, sha256: sha256(actualBytes) });
   }
 } finally {
-  try { execFileSync('git', ['-C', sourceRoot, 'worktree', 'remove', '--force', expectedRoot], { stdio: 'ignore' }); } catch {}
+  try { execFileSync('git', ['-C', pinnedRepositoryRoot, 'worktree', 'remove', '--force', expectedRoot], { stdio: 'ignore' }); } catch {}
   await rm(worktreeParent, { recursive: true, force: true });
 }
 const proof = {
