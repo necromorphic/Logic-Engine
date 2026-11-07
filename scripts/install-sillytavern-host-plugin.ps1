@@ -98,12 +98,6 @@ try {
 } catch {
     if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
     if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
-    if ($hadPlugin -and (Test-Path -LiteralPath (Join-Path $backupRoot 'logic-engine'))) {
-        Move-Item -LiteralPath (Join-Path $backupRoot 'logic-engine') -Destination $pluginPath
-    }
-    if ($hadGateway -and (Test-Path -LiteralPath (Join-Path $backupRoot 'logic-engine-extension-gateway'))) {
-        Move-Item -LiteralPath (Join-Path $backupRoot 'logic-engine-extension-gateway') -Destination $gatewayPluginPath
-    }
     throw
 }
 
