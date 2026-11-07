@@ -134,7 +134,7 @@ function runGit(args, cwd) {
 
 function canonicalTextHash(bytes) {
   if (!isUtf8(bytes)) throw new Error('PATCH_BACKUP_ENCODING_INVALID');
-  return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'));
+  return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8'));
 }
 
 export class SillyTavernPatchManager {
