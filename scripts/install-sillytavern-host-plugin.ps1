@@ -87,7 +87,12 @@ try {
 Push-Location $pluginPath
 try {
     # This repository intentionally has no package-lock.json; npm ci cannot run here.
-    & npm install --omit=dev --no-audit --no-fund
+    # Invoke the Windows command shim explicitly. In PowerShell, resolving
+    # "npm" can select npm.ps1 and produce malformed command dispatch on some
+    # installations (for example, "Unknown command: pm").
+    $npmCommand = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
+    if (-not $npmCommand) { Stop-WithCode 'NPM_CMD_NOT_FOUND' }
+    & $npmCommand.Source install --omit=dev --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
 
     & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $pluginPath
