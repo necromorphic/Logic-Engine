@@ -56,10 +56,10 @@ test('Legacy Host bundle accepts the exact reviewed overlay when Windows materia
   mkdirSync(sourceDirectory, { recursive: true });
   mkdirSync(lifecycleDirectory, { recursive: true });
 
-  const pluginLoader = Buffer.from('export const pinnedHost = true;\\n', 'utf8');
+  const pluginLoader = Buffer.from('export const pinnedHost = true;\n', 'utf8');
   const overlayPath = 'public/scripts/logic-engine-lifecycle/conversation-identity.mjs';
-  const overlayLf = 'export const lifecycleIdentity = true;\\n';
-  const overlayCrLf = overlayLf.replace(/\\n/g, '\\r\\n');
+  const overlayLf = 'export const lifecycleIdentity = true;\n';
+  const overlayCrLf = overlayLf.replace(/\n/g, '\r\n');
   writeFileSync(join(sourceDirectory, 'plugin-loader.js'), pluginLoader);
   writeFileSync(join(root, overlayPath), overlayCrLf);
 
@@ -72,7 +72,6 @@ test('Legacy Host bundle accepts the exact reviewed overlay when Windows materia
       { path: overlayPath, sha256: createHash('sha256').update(Buffer.alloc(0)).digest('hex') },
     ],
   };
-  const manifestSha256 = createHash('sha256').update(JSON.stringify(proof, Object.keys(proof).sort())).digest('hex');
   const canonicalProof = '{' + Object.keys(proof).sort().map(key => JSON.stringify(key) + ':' + JSON.stringify(proof[key])).join(',') + '}';
   const trustedManifestSha256 = createHash('sha256').update(canonicalProof, 'utf8').digest('hex');
   writeFileSync(join(gateway, 'pinned-source-manifest.json'), JSON.stringify({
