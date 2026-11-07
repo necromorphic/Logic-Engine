@@ -307,10 +307,3 @@ diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
          if (!fs.existsSync(pathToCachedFile)) {
              const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
 
-
-diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
---- a/src/endpoints/image-metadata.js
-+++ b/src/endpoints/image-metadata.js
-@@ -704 +706 @@
--router.post('/all', async function (request, response) {
-+router.post('/all', hostUnsupportedMutationGuard, async function (request, response) {
