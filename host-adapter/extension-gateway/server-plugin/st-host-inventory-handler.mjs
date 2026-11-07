@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { lstat, open } from 'node:fs/promises';
+import { lstatSync, realpathSync } from 'node:fs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import {
   PINNED_ST_MUTATION_COVERAGE_SHA256,
@@ -375,6 +376,61 @@ export function createHostUnsupportedMutationGuard({
 }
 
 /**
+ * Permit SillyTavern's one-time built-in Assistant bootstrap only. This is
+ * deliberately narrower than a general bootstrap mode: it accepts only the
+ * native /api/characters/create request for default_Assistant, only while both
+ * the avatar and its chat directory are absent, and only inside the authenticated
+ * account root. All subsequent character mutations remain fail-closed.
+ */
+function isInitialAssistantBootstrapCreate(request) {
+  if (request?.method !== 'POST' || request?.baseUrl !== '/api/characters'
+    || request?.path !== '/create') return false;
+  const session = request?.session;
+  const user = request?.user;
+  const handle = user?.profile?.handle;
+  if (typeof handle !== 'string' || !handle.trim()
+    || !session || !HOST_SESSION_UUID.test(session.logicEngineSessionId ?? '')
+    || session.logicEngineSessionHandle !== handle
+    || (session.handle !== undefined && session.handle !== handle)) return false;
+
+  const body = request.body;
+  if (!body || body.file_name !== 'default_Assistant'
+    || typeof body.ch_name !== 'string' || !body.ch_name.trim()
+    || body.ch_name.length > 128) return false;
+  if (request.file && (request.file.originalname !== 'default_Assistant.png'
+    || request.file.mimetype !== 'image/png'
+    || !Number.isSafeInteger(request.file.size) || request.file.size < 1
+    || request.file.size > 5 * 1024 * 1024)) return false;
+
+  const directories = user.directories;
+  if (!directories || typeof directories.root !== 'string'
+    || typeof directories.characters !== 'string'
+    || typeof directories.chats !== 'string') return false;
+  try {
+    const root = realpathSync(directories.root);
+    const characters = realpathSync(directories.characters);
+    const chats = realpathSync(directories.chats);
+    const isInside = target => {
+      const relative = path.relative(root, target);
+      return relative !== '' && relative !== '..'
+        && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+    };
+    if (!isInside(characters) || !isInside(chats)) return false;
+    // lstatSync rejects symlink targets too; only ENOENT means first-run state.
+    for (const target of [
+      path.join(characters, 'default_Assistant.png'),
+      path.join(chats, 'default_Assistant'),
+    ]) {
+      try { lstatSync(target); return false; }
+      catch (error) { if (error?.code !== 'ENOENT') return false; }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fail-closed guard for bulk or non-lineage-aware mutations. A pre-mutation
  * filesystem scan cannot authorize a write: it cannot prove route coverage,
  * prevent a concurrent write, or produce a post-mutation receipt. Until the
@@ -396,6 +452,7 @@ export function createHostBulkMutationGuard({
     const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
       && request.session.logicEngineSessionId.length > 0;
     if (!hostConfigured && !hostSessionActive) return next();
+    if (isInitialAssistantBootstrapCreate(request)) return next();
     return response.status(503).json({
       status: 'NON_READY',
       code: 'HOST_BULK_MUTATION_UNSUPPORTED',
