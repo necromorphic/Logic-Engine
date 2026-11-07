@@ -35,3 +35,11 @@ test('Host and Core pin the same exact lifecycle patch bundle and inventory hand
   assert.equal(coreHandlerPin, PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     'Core must accept only the exact Gateway handler blob');
 });
+
+test('Legacy Host overlay verification compares canonical LF hashes on every platform', () => {
+  const installer = read('scripts/install-sillytavern-host-patch-bundle.mjs').toString('utf8');
+  assert.ok(installer.includes('previousHostFileHash === sha256(normalizeText(targetBytes))'),
+    'installer must compare the canonical hash returned by verifyLegacyHostBundle');
+  assert.equal(installer.includes('previousHostFileHash === sha256(targetBytes)'), false,
+    'raw CRLF bytes must not be compared with the canonical LF hash');
+});
