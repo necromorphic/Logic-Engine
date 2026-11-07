@@ -264,8 +264,7 @@ try {
         && typeof finalSendExpected.after === 'string'
         && actualHash === finalSendExpected.after;
       const previousHostFileHash = previousHostBundle.files.get(relativePath);
-      const isVerifiedPreviousHostState = finalSendInstalled
-        && previousHostBundle.verified
+      const isVerifiedPreviousHostState = previousHostBundle.verified
         && previousHostFileHash === sha256(targetBytes);
       if (!isVerifiedFinalSendState && !isVerifiedPreviousHostState) {
         throw new Error('HOST_PATCH_BASELINE_MISMATCH: ' + relativePath);
