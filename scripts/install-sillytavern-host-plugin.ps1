@@ -86,8 +86,6 @@ if ($legacyBackupDirs.Count -gt 0) {
 try {
     Copy-FilteredTree $repoRoot $pluginPath
     Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
-    Copy-FilteredTree $gatewaySource $gatewayPluginPath
-    Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
 } catch {
     if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
     if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
@@ -120,6 +118,8 @@ try {
 # Host would make its rollback mistake the legitimate combined plugin-loader.js
 # for an unrelated user edit.
 try {
+    Copy-FilteredTree $gatewaySource $gatewayPluginPath
+    Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
     & node (Join-Path $repoRoot 'scripts/install-sillytavern-host-patch-bundle.mjs') --st-root $stRoot
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PATCH_BUNDLE_INSTALL_FAILED' }
 } catch {
