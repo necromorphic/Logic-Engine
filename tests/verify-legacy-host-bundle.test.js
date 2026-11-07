@@ -95,6 +95,29 @@ test('legacy Host bundle accepts only an exact independently reconstructed Host 
   }
 });
 
+test('legacy Host bundle accepts the exact reconstructed Host overlay with Windows CRLF line endings', async () => {
+  const fixture = await makeLegacyInstall();
+  try {
+    const overlay = Buffer.from('reviewed current Host overlay\\r\\n');
+    await writeFile(path.join(fixture.root, 'src/plugin-loader.js'), overlay);
+    const result = await verifyLegacyHostBundle({
+      installRoot: fixture.root,
+      expectedPredecessors: [{
+        commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+        patchBlobSha: 'a'.repeat(64),
+        manifestSha256: fixture.manifestSha,
+      }],
+      expectedOverlayFiles: new Map([
+        ['src/plugin-loader.js', sha256(Buffer.from('reviewed current Host overlay\\n'))],
+      ]),
+    });
+    assert.equal(result.verified, true);
+    assert.equal(result.files.get('src/plugin-loader.js'), sha256(Buffer.from('reviewed current Host overlay\\n')));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('legacy Host bundle rejects an overlay that differs from the reconstructed output', async () => {
   const fixture = await makeLegacyInstall();
   try {
