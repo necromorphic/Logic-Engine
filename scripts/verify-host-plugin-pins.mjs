@@ -8,14 +8,14 @@ const rootIndex = args.indexOf('--plugin-root');
 const rootArgument = rootIndex >= 0 ? args[rootIndex + 1] : undefined;
 const pluginRoot = typeof rootArgument === 'string' && rootArgument.length ? path.resolve(rootArgument) : null;
 if (!pluginRoot) {
-  process.stderr.write('Usage: node scripts/verify-host-plugin-pins.mjs --plugin-root <repository-or-plugin-root>\\n');
+  process.stderr.write('Usage: node scripts/verify-host-plugin-pins.mjs --plugin-root <repository-or-plugin-root>\n');
   process.exit(2);
 }
 
 function gitBlobSha(bytes) {
-  const normalized = Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+  const normalized = Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8');
   return createHash('sha1')
-    .update(Buffer.from('blob ' + normalized.length + '\\0', 'utf8'))
+    .update(Buffer.from('blob ' + normalized.length + '\0', 'utf8'))
     .update(normalized)
     .digest('hex');
 }
@@ -46,11 +46,11 @@ if (failures.length) {
     status: 'DENY_FAIL_CLOSED',
     code: 'HOST_PLUGIN_PIN_PREFLIGHT_FAILED',
     failures,
-  }) + '\\n');
+  }) + '\n');
   process.exit(1);
 }
 
 process.stdout.write(JSON.stringify({
   status: 'HOST_PLUGIN_PINS_VERIFIED',
   verifiedFileCount: Object.keys(PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS).length,
-}) + '\\n');
+}) + '\n');
