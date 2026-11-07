@@ -49,25 +49,40 @@ if (-not (Test-Path -LiteralPath (Join-Path $stRoot 'src/plugin-loader.js') -Pat
 if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
     New-Item -ItemType Directory -Path $pluginRoot | Out-Null
 }
-if (Test-Path -LiteralPath $pluginPath) {
-    Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS; preserve it and inspect before replacing'
-}
-if (Test-Path -LiteralPath $gatewayPluginPath) {
-    Stop-WithCode 'GATEWAY_PLUGIN_PATH_ALREADY_EXISTS; preserve it and inspect before replacing'
-}
-
-Copy-FilteredTree $repoRoot $pluginPath
-Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
-
-# The bounded Host ingress is a separate SillyTavern server plugin. Installing
-# only the repository-root plugin leaves /session, /identity and /inventory
-# unregistered even though the source modules exist in the copied repository.
+# Replacing an existing test installation is allowed, but never destructive:
+# move both prior plugin directories into a timestamped backup first.
 $gatewaySource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
 if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathType Leaf)) {
     Stop-WithCode 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND'
 }
-Copy-FilteredTree $gatewaySource $gatewayPluginPath
-Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
+
+$backupName = 'logic-engine-plugin-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
+$backupRoot = Join-Path $pluginRoot $backupName
+$hadPlugin = Test-Path -LiteralPath $pluginPath
+$hadGateway = Test-Path -LiteralPath $gatewayPluginPath
+if ($hadPlugin -or $hadGateway) {
+    New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+    if ($hadPlugin) { Move-Item -LiteralPath $pluginPath -Destination (Join-Path $backupRoot 'logic-engine') }
+    if ($hadGateway) { Move-Item -LiteralPath $gatewayPluginPath -Destination (Join-Path $backupRoot 'logic-engine-extension-gateway') }
+    Write-Host "Previous test plugins backed up to: $backupRoot"
+}
+
+try {
+    Copy-FilteredTree $repoRoot $pluginPath
+    Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
+    Copy-FilteredTree $gatewaySource $gatewayPluginPath
+    Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
+} catch {
+    if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
+    if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
+    if ($hadPlugin -and (Test-Path -LiteralPath (Join-Path $backupRoot 'logic-engine'))) {
+        Move-Item -LiteralPath (Join-Path $backupRoot 'logic-engine') -Destination $pluginPath
+    }
+    if ($hadGateway -and (Test-Path -LiteralPath (Join-Path $backupRoot 'logic-engine-extension-gateway'))) {
+        Move-Item -LiteralPath (Join-Path $backupRoot 'logic-engine-extension-gateway') -Destination $gatewayPluginPath
+    }
+    throw
+}
 
 Push-Location $pluginPath
 try {
