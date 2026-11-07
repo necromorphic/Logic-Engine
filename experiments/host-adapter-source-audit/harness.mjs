@@ -318,10 +318,14 @@ test('bulk mutation guards do not authorize writes from a pre-mutation filesyste
   assert.doesNotMatch(guard, /return next\(\);[\s\S]*?enumerate/);
 });
 
-test('settings save and snapshot creation are blocked while Host authority is active', () => {
-  const source = mutationSources['src/endpoints/settings.js'];
-  assert.match(source, /router\.post\('\/save',\s*hostUnsupportedMutationGuard,/);
-  assert.match(source, /router\.post\('\/make-snapshot',\s*hostUnsupportedMutationGuard,/);
+test('settings save and image metadata listing remain Host-compatible routes', () => {
+  const settings = mutationSources['src/endpoints/settings.js'];
+  const metadata = mutationSources['src/endpoints/image-metadata.js'];
+  assert.match(settings, /router\\.post\\('\\/save',\\s*function/);
+  assert.doesNotMatch(settings, /router\\.post\\('\\/save',\\s*hostUnsupportedMutationGuard,/);
+  assert.match(settings, /router\\.post\\('\\/make-snapshot',\\s*hostUnsupportedMutationGuard,/);
+  assert.match(metadata, /router\\.post\\('\\/all',\\s*async function/);
+  assert.doesNotMatch(metadata, /router\\.post\\('\\/all',\\s*hostUnsupportedMutationGuard,/);
 });
 
 test('ComfyUI workflow file mutations are guarded and included in source identity coverage', async () => {
@@ -456,7 +460,6 @@ test('additional account-root and source mutation routes are fail-closed under H
     ['src/endpoints/image-metadata.js', '/folders/assign'],
     ['src/endpoints/image-metadata.js', '/folders/unassign'],
     ['src/endpoints/image-metadata.js', '/'],
-    ['src/endpoints/image-metadata.js', '/all'],
     ['src/endpoints/image-metadata.js', '/cleanup'],
     ['src/endpoints/images.js', '/upload'],
     ['src/endpoints/images.js', '/delete'],
