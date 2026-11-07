@@ -321,11 +321,11 @@ test('bulk mutation guards do not authorize writes from a pre-mutation filesyste
 test('settings save and image metadata listing remain Host-compatible routes', () => {
   const settings = mutationSources['src/endpoints/settings.js'];
   const metadata = mutationSources['src/endpoints/image-metadata.js'];
-  assert.match(settings, /router\\.post\\('\\/save',\\s*function/);
-  assert.doesNotMatch(settings, /router\\.post\\('\\/save',\\s*hostUnsupportedMutationGuard,/);
-  assert.match(settings, /router\\.post\\('\\/make-snapshot',\\s*hostUnsupportedMutationGuard,/);
-  assert.match(metadata, /router\\.post\\('\\/all',\\s*async function/);
-  assert.doesNotMatch(metadata, /router\\.post\\('\\/all',\\s*hostUnsupportedMutationGuard,/);
+  assert.match(settings, /router\.post\('\/save',\s*function/);
+  assert.doesNotMatch(settings, /router\.post\('\/save',\s*hostUnsupportedMutationGuard,/);
+  assert.match(settings, /router\.post\('\/make-snapshot',\s*hostUnsupportedMutationGuard,/);
+  assert.match(metadata, /router\.post\('\/all',\s*async function/);
+  assert.doesNotMatch(metadata, /router\.post\('\/all',\s*hostUnsupportedMutationGuard,/);
 });
 
 test('ComfyUI workflow file mutations are guarded and included in source identity coverage', async () => {
