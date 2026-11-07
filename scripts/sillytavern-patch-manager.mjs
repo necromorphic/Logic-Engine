@@ -256,7 +256,7 @@ export class SillyTavernPatchManager {
     // All audited SillyTavern source artifacts are UTF-8 text and are pinned
     // by their canonical LF representation, independent of core.autocrlf.
     if (!isUtf8(bytes)) throw new Error('SILLYTAVERN_SOURCE_ENCODING_INVALID: ' + relativePath);
-    return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8'));
+    return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8'));
   }
 
   async verifyBaseline() {
