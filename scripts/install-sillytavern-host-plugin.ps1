@@ -23,7 +23,7 @@ function Copy-FilteredTree([string]$Source, [string]$Destination) {
             Copy-FilteredTree $entry.FullName (Join-Path $Destination $entry.Name)
             continue
         }
-        if ($entry.Name -eq '.env' -or $entry.Name -like '.env.*') { continue }
+        if ($entry.Name -eq '.env' -or $entry.Name -like '.env.*' -or $entry.Name -eq 'package-lock.json') { continue }
         Copy-Item -LiteralPath $entry.FullName -Destination (Join-Path $Destination $entry.Name)
     }
 }
