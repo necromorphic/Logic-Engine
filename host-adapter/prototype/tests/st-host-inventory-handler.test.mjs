@@ -1,6 +1,7 @@
 import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
 
@@ -17,6 +18,7 @@ function makeResponse() {
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
     sendStatus(code) { this.statusCode = code; return this; },
+    once() { return this; },
   };
 }
 
@@ -70,6 +72,57 @@ test('server bulk mutation guard blocks unreceipted mutations for an active Host
   assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   assert.equal(nextCalls, 0);
   assert.equal(enumerateCalls, 0);
+});
+
+test('one-time Assistant bootstrap is allowed only after the character multipart parser populated the request', t => {
+  const previousIdentityDir = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+  const root = mkdtempSync(join(tmpdir(), 'host-assistant-bootstrap-'));
+  const directories = {
+    root,
+    characters: join(root, 'characters'),
+    chats: join(root, 'chats'),
+  };
+  const identityDirectory = join(root, '..', 'host-assistant-identity-' + Math.random().toString(16).slice(2));
+  mkdirSync(directories.characters, { recursive: true });
+  mkdirSync(directories.chats, { recursive: true });
+  mkdirSync(identityDirectory, { recursive: true });
+  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = identityDirectory;
+  t.after(() => {
+    if (previousIdentityDir === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previousIdentityDir;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(identityDirectory, { recursive: true, force: true });
+  });
+
+  const guard = createHostBulkMutationGuard({ pinnedHostCommit: pinned });
+  const response = makeResponse();
+  const request = {
+    method: 'POST',
+    originalUrl: '/api/characters/create',
+    baseUrl: '/api/characters',
+    path: '/create',
+    session: {
+      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
+      logicEngineSessionHandle: 'default-user',
+    },
+    user: {
+      profile: { handle: 'default-user' },
+      directories,
+    },
+    // These fields are populated by getFileNameValidationFunction('file_name').
+    body: { file_name: 'default_Assistant', ch_name: 'Assistant' },
+  };
+  let nextCalls = 0;
+  guard(request, response, () => { nextCalls += 1; });
+  assert.equal(nextCalls, 1, 'the parsed built-in Assistant request must pass the one-time bootstrap gate');
+  assert.equal(response.statusCode, null);
+
+  const deniedResponse = makeResponse();
+  let deniedNextCalls = 0;
+  guard({ ...request, body: undefined }, deniedResponse, () => { deniedNextCalls += 1; });
+  assert.equal(deniedNextCalls, 0, 'a request observed before multipart parsing must remain blocked');
+  assert.equal(deniedResponse.statusCode, 503);
+  assert.equal(deniedResponse.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
 });
 
 test('server bulk mutation guard does not let an empty pre-mutation scan authorize a write', () => {
