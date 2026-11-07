@@ -76,6 +76,8 @@ test('Host bulk guard permits only first-run native default Assistant creation',
   writeFileSync(path.join(fx.directories.characters, 'default_Assistant.png'), 'png');
   mkdirSync(path.join(fx.directories.chats, 'default_Assistant'));
   response.finish(200);
+  rmSync(path.join(fx.directories.characters, 'default_Assistant.png'), { force: true });
+  rmSync(path.join(fx.directories.chats, 'default_Assistant'), { recursive: true, force: true });
 
   const repeated = makeResponse();
   let repeatedNextCalls = 0;
