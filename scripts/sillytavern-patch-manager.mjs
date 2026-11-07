@@ -265,7 +265,14 @@ export class SillyTavernPatchManager {
     for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
       const before = typeof expected === 'string' ? expected : expected.before;
       const actual = await this.hashAt(relativePath);
-      if (actual !== before) throw new Error('SILLYTAVERN_SOURCE_CONFLICT: ' + relativePath);
+      // The separately installed Host Patch Bundle legitimately overlays a
+      // small, reviewed set of SillyTavern files (including plugin-loader.js).
+      // Accept such a baseline difference only when the Gateway's pinned
+      // source attestation verifies the complete Host tree and this exact
+      // file's bytes match its manifest. Unattested local edits still fail closed.
+      if (actual !== before && !(await this.verifyHostOverlay(relativePath))) {
+        throw new Error('SILLYTAVERN_SOURCE_CONFLICT: ' + relativePath);
+      }
     }
   }
 
