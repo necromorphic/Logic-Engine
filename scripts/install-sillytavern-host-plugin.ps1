@@ -55,6 +55,11 @@ $gatewaySource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plug
 if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathType Leaf)) {
     Stop-WithCode 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND'
 }
+# Verify the root plugin's deployment-pinned files before touching the current ST installation.
+# This catches stale identity pins in the repository itself, rather than after copying
+# plugins and entering Final-Send's patch preflight.
+& node (Join-Path $repoRoot 'scripts/verify-host-plugin-pins.mjs') --plugin-root $repoRoot
+if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PLUGIN_PIN_PREFLIGHT_FAILED' }
 
 $backupName = 'logic-engine-plugin-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
 $backupRoot = Join-Path $pluginRoot $backupName
