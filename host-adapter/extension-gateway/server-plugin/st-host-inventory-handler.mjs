@@ -383,6 +383,11 @@ export function createHostUnsupportedMutationGuard({
  * account root. All subsequent character mutations remain fail-closed.
  */
 function isInitialAssistantBootstrapCreate(request, response) {
+  const reject = reason => {
+    // Emit only a bounded reason token; never log user data or filesystem paths.
+    console.warn('[Logic Engine] Assistant bootstrap denied:', reason);
+    return false;
+  };
   // Express may expose the mounted path differently depending on whether
   // the endpoint router is mounted directly or through the API router. Prefer
   // the immutable request URL, retaining the baseUrl/path pair as a fallback.
@@ -392,30 +397,30 @@ function isInitialAssistantBootstrapCreate(request, response) {
   const isAssistantCreateRoute = originalPath === '/api/characters/create'
     || (request?.baseUrl === '/api/characters' && request?.path === '/create');
   if (request?.method !== 'POST' || !isAssistantCreateRoute
-    || typeof response?.once !== 'function') return false;
+    || typeof response?.once !== 'function') return reject('ROUTE_OR_RESPONSE_MISMATCH');
   const session = request?.session;
   const user = request?.user;
   const handle = user?.profile?.handle;
   if (typeof handle !== 'string' || !handle.trim()
     || !session || !HOST_SESSION_UUID.test(session.logicEngineSessionId ?? '')
     || session.logicEngineSessionHandle !== handle
-    || (session.handle !== undefined && session.handle !== handle)) return false;
+    || (session.handle !== undefined && session.handle !== handle)) return reject('SESSION_BINDING_MISMATCH');
 
   const body = request.body;
   if (!body || body.file_name !== 'default_Assistant'
     || typeof body.ch_name !== 'string' || !body.ch_name.trim()
-    || body.ch_name.length > 128) return false;
+    || body.ch_name.length > 128) return reject('REQUEST_BODY_MISMATCH');
   if (request.file && (request.file.originalname !== 'default_Assistant.png'
     || request.file.mimetype !== 'image/png'
     || !Number.isSafeInteger(request.file.size) || request.file.size < 1
-    || request.file.size > 5 * 1024 * 1024)) return false;
+    || request.file.size > 5 * 1024 * 1024)) return reject('AVATAR_FILE_MISMATCH');
 
   const directories = user.directories;
   const identityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   if (!directories || typeof directories.root !== 'string'
     || typeof directories.characters !== 'string'
     || typeof directories.chats !== 'string'
-    || typeof identityDirectory !== 'string' || !path.isAbsolute(identityDirectory)) return false;
+    || typeof identityDirectory !== 'string' || !path.isAbsolute(identityDirectory)) return reject('DIRECTORIES_OR_IDENTITY_PATH_UNAVAILABLE');
 
   let lockPath;
   let markerPath;
@@ -425,30 +430,30 @@ function isInitialAssistantBootstrapCreate(request, response) {
     const characters = realpathSync(directories.characters);
     const chats = realpathSync(directories.chats);
     const identityStat = lstatSync(identityDirectory);
-    if (!identityStat.isDirectory() || identityStat.isSymbolicLink()) return false;
+    if (!identityStat.isDirectory() || identityStat.isSymbolicLink()) return reject('IDENTITY_DIRECTORY_INVALID');
     const identityRoot = realpathSync(identityDirectory);
     const isInside = target => {
       const relative = path.relative(root, target);
       return relative !== '' && relative !== '..'
         && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
     };
-    if (!isInside(characters) || !isInside(chats) || isInside(identityRoot)) return false;
+    if (!isInside(characters) || !isInside(chats) || isInside(identityRoot)) return reject('ACCOUNT_PATH_BOUNDARY_INVALID');
 
     const avatarPath = path.join(characters, 'default_Assistant.png');
     const chatPath = path.join(chats, 'default_Assistant');
-    try { lstatSync(avatarPath); return false; }
-    catch (error) { if (error?.code !== 'ENOENT') return false; }
+    try { lstatSync(avatarPath); return reject('ASSISTANT_AVATAR_ALREADY_EXISTS'); }
+    catch (error) { if (error?.code !== 'ENOENT') return reject('ASSISTANT_AVATAR_CHECK_FAILED'); }
     try {
       const chatStat = lstatSync(chatPath);
-      if (!chatStat.isDirectory() || chatStat.isSymbolicLink() || readdirSync(chatPath).length !== 0) return false;
+      if (!chatStat.isDirectory() || chatStat.isSymbolicLink() || readdirSync(chatPath).length !== 0) return reject('ASSISTANT_CHAT_PATH_NOT_EMPTY');
     } catch (error) {
-      if (error?.code !== 'ENOENT') return false;
+      if (error?.code !== 'ENOENT') return reject('ASSISTANT_CHAT_PATH_CHECK_FAILED');
     }
 
     markerPath = path.join(identityRoot, 'assistant-bootstrap-complete.json');
     lockPath = path.join(identityRoot, 'assistant-bootstrap-in-progress.lock');
-    try { lstatSync(markerPath); return false; }
-    catch (error) { if (error?.code !== 'ENOENT') return false; }
+    try { lstatSync(markerPath); return reject('BOOTSTRAP_ALREADY_COMPLETED'); }
+    catch (error) { if (error?.code !== 'ENOENT') return reject('BOOTSTRAP_MARKER_CHECK_FAILED'); }
 
     // Exclusive creation makes concurrent first-run requests fail closed.
     const lockFd = openSync(lockPath, 'wx', 0o600);
@@ -501,7 +506,7 @@ function isInitialAssistantBootstrapCreate(request, response) {
     if (lockCreated && lockPath) {
       try { unlinkSync(lockPath); } catch {}
     }
-    return false;
+    return reject('FILESYSTEM_OR_BOOTSTRAP_LOCK_FAILED');
   }
 }
 
