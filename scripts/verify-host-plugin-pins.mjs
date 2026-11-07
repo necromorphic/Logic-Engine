@@ -1,21 +1,22 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS } from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
 
 const args = process.argv.slice(2);
 const rootIndex = args.indexOf('--plugin-root');
-const pluginRoot = rootIndex >= 0 ? path.resolve(args[rootIndex + 1] ?? '') : '';
-if (!pluginRoot || !path.isAbsolute(pluginRoot)) {
+const rootArgument = rootIndex >= 0 ? args[rootIndex + 1] : undefined;
+const pluginRoot = typeof rootArgument === 'string' && rootArgument.length ? path.resolve(rootArgument) : null;
+if (!pluginRoot) {
   process.stderr.write('Usage: node scripts/verify-host-plugin-pins.mjs --plugin-root <repository-or-plugin-root>\\n');
   process.exit(2);
 }
 
 function gitBlobSha(bytes) {
+  const normalized = Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
   return createHash('sha1')
-    .update(Buffer.from('blob ' + bytes.length + '\\0', 'utf8'))
-    .update(bytes)
+    .update(Buffer.from('blob ' + normalized.length + '\\0', 'utf8'))
+    .update(normalized)
     .digest('hex');
 }
 
