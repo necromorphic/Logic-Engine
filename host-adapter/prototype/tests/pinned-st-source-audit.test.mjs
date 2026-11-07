@@ -109,7 +109,6 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         ['src/endpoints/characters.js', "router.post('/duplicate', hostBulkMutationGuard"],
         ['src/endpoints/backups.js', "router.post('/chat/delete', hostBulkMutationGuard"],
         ['src/endpoints/data-maid.js', "router.post('/delete', hostBulkMutationGuard"],
-        ['src/endpoints/settings.js', "router.post('/save', hostUnsupportedMutationGuard"],
         ['src/endpoints/settings.js', "router.post('/make-snapshot', hostUnsupportedMutationGuard"],
         ['src/endpoints/settings.js', "router.post('/restore-snapshot', hostBulkMutationGuard"],
         ['src/endpoints/users-private.js', "router.post('/reset-settings', hostBulkMutationGuard"],
@@ -133,7 +132,6 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
         ['src/endpoints/image-metadata.js', "router.post('/folders/assign', hostUnsupportedMutationGuard"],
         ['src/endpoints/image-metadata.js', "router.post('/folders/unassign', hostUnsupportedMutationGuard"],
         ['src/endpoints/image-metadata.js', "router.post('/', hostUnsupportedMutationGuard"],
-        ['src/endpoints/image-metadata.js', "router.post('/all', hostUnsupportedMutationGuard"],
         ['src/endpoints/image-metadata.js', "router.post('/cleanup', hostUnsupportedMutationGuard"],
         ['src/endpoints/images.js', "router.post('/upload', hostUnsupportedMutationGuard"],
         ['src/endpoints/images.js', "router.post('/delete', hostUnsupportedMutationGuard"],
@@ -227,6 +225,20 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     }
 });
 
+
+
+test('settings save and image metadata listing remain unguarded Host-compatible routes', { skip: !root }, () => {
+    const settings = fs.readFileSync(path.join(root, 'src/endpoints/settings.js'), 'utf8');
+    const metadata = fs.readFileSync(path.join(root, 'src/endpoints/image-metadata.js'), 'utf8');
+    assert.match(settings, /router\\.post\\('\\/save',\\s*function\\s*\\(/,
+        'settings save must remain a functional native settings route');
+    assert.doesNotMatch(settings, /router\\.post\\('\\/save',\\s*hostUnsupportedMutationGuard/,
+        'settings save must not be blocked by the unsupported-mutation guard');
+    assert.match(metadata, /router\\.post\\('\\/all',\\s*async\\s+function\\s*\\(/,
+        'image metadata listing must remain a functional read route');
+    assert.doesNotMatch(metadata, /router\\.post\\('\\/all',\\s*hostUnsupportedMutationGuard/,
+        'image metadata listing must not be blocked by the unsupported-mutation guard');
+});
 
 test('native logout must fail closed before clearing the session', { skip: !root }, () => {
     const source = fs.readFileSync(path.join(root, 'src/endpoints/users-private.js'), 'utf8');
