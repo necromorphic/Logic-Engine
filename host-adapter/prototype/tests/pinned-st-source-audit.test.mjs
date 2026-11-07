@@ -230,13 +230,13 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
 test('settings save and image metadata listing remain unguarded Host-compatible routes', { skip: !root }, () => {
     const settings = fs.readFileSync(path.join(root, 'src/endpoints/settings.js'), 'utf8');
     const metadata = fs.readFileSync(path.join(root, 'src/endpoints/image-metadata.js'), 'utf8');
-    assert.match(settings, /router\\.post\\('\\/save',\\s*function\\s*\\(/,
+    assert.ok(settings.includes("router.post('/save', function ("),
         'settings save must remain a functional native settings route');
-    assert.doesNotMatch(settings, /router\\.post\\('\\/save',\\s*hostUnsupportedMutationGuard/,
+    assert.equal(settings.includes("router.post('/save', hostUnsupportedMutationGuard"), false,
         'settings save must not be blocked by the unsupported-mutation guard');
-    assert.match(metadata, /router\\.post\\('\\/all',\\s*async\\s+function\\s*\\(/,
+    assert.ok(metadata.includes("router.post('/all', async function ("),
         'image metadata listing must remain a functional read route');
-    assert.doesNotMatch(metadata, /router\\.post\\('\\/all',\\s*hostUnsupportedMutationGuard/,
+    assert.equal(metadata.includes("router.post('/all', hostUnsupportedMutationGuard"), false,
         'image metadata listing must not be blocked by the unsupported-mutation guard');
 });
 
