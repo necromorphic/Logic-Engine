@@ -171,7 +171,9 @@ try {
   for (const relativePath of SOURCE_FILE_PATHS) {
     const expectedPath = path.join(overlayStagingRoot, relativePath);
     if (await exists(expectedPath)) {
-      expectedOverlayFiles.set(relativePath, sha256(await readFile(expectedPath)));
+      // Compare source content independently of Windows CRLF/LF checkout policy.
+      // The verifier still requires an exact canonical hash of the reconstructed overlay.
+      expectedOverlayFiles.set(relativePath, sha256(normalizeText(await readFile(expectedPath))));
     }
   }
 
