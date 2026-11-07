@@ -856,7 +856,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
  export const router = express.Router();
  
 -router.post('/create', getFileNameValidationFunction('file_name'), async function (request, response) {
-+router.post('/create', hostBulkMutationGuard, getFileNameValidationFunction('file_name'), async function (request, response) {
++router.post('/create', getFileNameValidationFunction('file_name'), hostBulkMutationGuard, async function (request, response) {
      try {
          if (!request.body) return response.sendStatus(400);
  
