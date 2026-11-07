@@ -308,19 +308,6 @@ diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
              const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
 
 
-diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
---- a/src/endpoints/settings.js
-+++ b/src/endpoints/settings.js
-@@ -11,0 +12,2 @@
-+import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -206 +208 @@
--router.post('/save', function (request, response) {
-+router.post('/save', hostUnsupportedMutationGuard, function (request, response) {
-@@ -340 +342 @@
--router.post('/make-snapshot', async (request, response) => {
-+router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
-
 diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 --- a/src/endpoints/image-metadata.js
 +++ b/src/endpoints/image-metadata.js
