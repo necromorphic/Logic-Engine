@@ -99,8 +99,10 @@ test('one-time Assistant bootstrap is allowed only after the character multipart
   const request = {
     method: 'POST',
     originalUrl: '/api/characters/create',
-    baseUrl: '/api/characters',
-    path: '/create',
+    // The endpoint is mounted under /api in this server composition; the
+    // original URL is the only reliable full route identifier here.
+    baseUrl: '/api',
+    path: '/characters/create',
     session: {
       logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
       logicEngineSessionHandle: 'default-user',
