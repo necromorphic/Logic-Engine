@@ -100,11 +100,12 @@ export async function verifyLegacyHostBundle({
       // consumes canonical LF hashes after this raw-byte proof succeeds.
       const installedHash = sha256(bytes);
       const expectedOverlayHash = expectedOverlayFiles.get(entry.path);
+      const canonicalInstalledHash = canonicalTextHash(bytes);
       // A predecessor manifest may predate a reviewed Host patch revision.
       // Accept that transition only when the installed bytes exactly match
       // the deterministic output reconstructed from the current pinned
       // SillyTavern commit and reviewed Host patches by the installer.
-      if (installedHash !== entry.sha256 && installedHash !== expectedOverlayHash) {
+      if (installedHash !== entry.sha256 && canonicalInstalledHash !== expectedOverlayHash) {
         return { verified: false, files: new Map() };
       }
       verifiedFiles.set(entry.path, canonicalTextHash(bytes));
