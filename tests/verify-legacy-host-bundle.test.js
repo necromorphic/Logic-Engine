@@ -98,7 +98,7 @@ test('legacy Host bundle accepts only an exact independently reconstructed Host 
 test('legacy Host bundle accepts the exact reconstructed Host overlay with Windows CRLF line endings', async () => {
   const fixture = await makeLegacyInstall();
   try {
-    const overlay = Buffer.from('reviewed current Host overlay\\r\\n');
+    const overlay = Buffer.from('reviewed current Host overlay\r\n');
     await writeFile(path.join(fixture.root, 'src/plugin-loader.js'), overlay);
     const result = await verifyLegacyHostBundle({
       installRoot: fixture.root,
@@ -108,11 +108,11 @@ test('legacy Host bundle accepts the exact reconstructed Host overlay with Windo
         manifestSha256: fixture.manifestSha,
       }],
       expectedOverlayFiles: new Map([
-        ['src/plugin-loader.js', sha256(Buffer.from('reviewed current Host overlay\\n'))],
+        ['src/plugin-loader.js', sha256(Buffer.from('reviewed current Host overlay\n'))],
       ]),
     });
     assert.equal(result.verified, true);
-    assert.equal(result.files.get('src/plugin-loader.js'), sha256(Buffer.from('reviewed current Host overlay\\n')));
+    assert.equal(result.files.get('src/plugin-loader.js'), sha256(Buffer.from('reviewed current Host overlay\n')));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
