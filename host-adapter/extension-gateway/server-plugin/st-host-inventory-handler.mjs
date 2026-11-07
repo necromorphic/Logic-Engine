@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { lstat, open } from 'node:fs/promises';
-import { lstatSync, realpathSync } from 'node:fs';
+import { closeSync, lstatSync, openSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import {
   PINNED_ST_MUTATION_COVERAGE_SHA256,
@@ -382,9 +382,9 @@ export function createHostUnsupportedMutationGuard({
  * the avatar and its chat directory are absent, and only inside the authenticated
  * account root. All subsequent character mutations remain fail-closed.
  */
-function isInitialAssistantBootstrapCreate(request) {
+function isInitialAssistantBootstrapCreate(request, response) {
   if (request?.method !== 'POST' || request?.baseUrl !== '/api/characters'
-    || request?.path !== '/create') return false;
+    || request?.path !== '/create' || typeof response?.once !== 'function') return false;
   const session = request?.session;
   const user = request?.user;
   const handle = user?.profile?.handle;
@@ -403,29 +403,93 @@ function isInitialAssistantBootstrapCreate(request) {
     || request.file.size > 5 * 1024 * 1024)) return false;
 
   const directories = user.directories;
+  const identityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   if (!directories || typeof directories.root !== 'string'
     || typeof directories.characters !== 'string'
-    || typeof directories.chats !== 'string') return false;
+    || typeof directories.chats !== 'string'
+    || typeof identityDirectory !== 'string' || !path.isAbsolute(identityDirectory)) return false;
+
+  let lockPath;
+  let markerPath;
   try {
     const root = realpathSync(directories.root);
     const characters = realpathSync(directories.characters);
     const chats = realpathSync(directories.chats);
+    const identityStat = lstatSync(identityDirectory);
+    if (!identityStat.isDirectory() || identityStat.isSymbolicLink()) return false;
+    const identityRoot = realpathSync(identityDirectory);
     const isInside = target => {
       const relative = path.relative(root, target);
       return relative !== '' && relative !== '..'
         && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
     };
-    if (!isInside(characters) || !isInside(chats)) return false;
-    // lstatSync rejects symlink targets too; only ENOENT means first-run state.
-    for (const target of [
-      path.join(characters, 'default_Assistant.png'),
-      path.join(chats, 'default_Assistant'),
-    ]) {
-      try { lstatSync(target); return false; }
-      catch (error) { if (error?.code !== 'ENOENT') return false; }
+    if (!isInside(characters) || !isInside(chats) || isInside(identityRoot)) return false;
+
+    const avatarPath = path.join(characters, 'default_Assistant.png');
+    const chatPath = path.join(chats, 'default_Assistant');
+    try { lstatSync(avatarPath); return false; }
+    catch (error) { if (error?.code !== 'ENOENT') return false; }
+    try {
+      const chatStat = lstatSync(chatPath);
+      if (!chatStat.isDirectory() || chatStat.isSymbolicLink() || readdirSync(chatPath).length !== 0) return false;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') return false;
     }
+
+    markerPath = path.join(identityRoot, 'assistant-bootstrap-complete.json');
+    lockPath = path.join(identityRoot, 'assistant-bootstrap-in-progress.lock');
+    try { lstatSync(markerPath); return false; }
+    catch (error) { if (error?.code !== 'ENOENT') return false; }
+
+    // Exclusive creation makes concurrent first-run requests fail closed.
+    const lockFd = openSync(lockPath, 'wx', 0o600);
+    try {
+      writeFileSync(lockFd, JSON.stringify({
+        schema_version: 1,
+        host_session_id: session.logicEngineSessionId,
+        started_at: new Date().toISOString(),
+      }), 'utf8');
+    } finally {
+      closeSync(lockFd);
+    }
+    let finalized = false;
+    const finalize = () => {
+      if (finalized) return;
+      finalized = true;
+      const successful = response.statusCode >= 200 && response.statusCode < 300;
+      if (!successful) {
+        try { unlinkSync(lockPath); } catch {}
+        return;
+      }
+      // A 2xx response is accepted only if ST actually created both bootstrap artifacts.
+      try {
+        const avatarStat = lstatSync(avatarPath);
+        const chatStat = lstatSync(chatPath);
+        if (!avatarStat.isFile() || avatarStat.isSymbolicLink()
+          || !chatStat.isDirectory() || chatStat.isSymbolicLink()) return;
+        const markerFd = openSync(markerPath, 'wx', 0o600);
+        try {
+          writeFileSync(markerFd, JSON.stringify({
+            schema_version: 1,
+            host_session_id: session.logicEngineSessionId,
+            completed_at: new Date().toISOString(),
+          }), 'utf8');
+        } finally {
+          closeSync(markerFd);
+        }
+        unlinkSync(lockPath);
+      } catch {
+        // Keep the lock on ambiguous completion. A later request must not
+        // repeat a possibly completed bootstrap mutation.
+      }
+    };
+    response.once('finish', finalize);
+    response.once('close', finalize);
     return true;
   } catch {
+    if (lockPath) {
+      try { unlinkSync(lockPath); } catch {}
+    }
     return false;
   }
 }
@@ -452,7 +516,7 @@ export function createHostBulkMutationGuard({
     const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
       && request.session.logicEngineSessionId.length > 0;
     if (!hostConfigured && !hostSessionActive) return next();
-    if (isInitialAssistantBootstrapCreate(request)) return next();
+    if (isInitialAssistantBootstrapCreate(request, response)) return next();
     return response.status(503).json({
       status: 'NON_READY',
       code: 'HOST_BULK_MUTATION_UNSUPPORTED',
