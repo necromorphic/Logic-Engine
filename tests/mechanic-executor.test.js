@@ -65,7 +65,7 @@ function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = 
   });
 }
 
-function enableFixture(engine, worldId, value = template()) {
+function enableFixture(engine, worldId, value = template(), instanceOptions = {}) {
   engine.registerMechanicTemplate(value);
   commit(engine, worldId, 'create-instance', 0, [
     { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
@@ -75,6 +75,8 @@ function enableFixture(engine, worldId, value = template()) {
       instance_id: 'instance.executor',
       template_id: value.template_id,
       template_version: value.version,
+      parameters: instanceOptions.parameters ?? {},
+      state: instanceOptions.state ?? {},
     },
   ]);
   const created = engine.getMechanicInstance(worldId, 'instance.executor');
@@ -212,7 +214,7 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.condition_ast_dependencies_complete, true);
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.deepEqual(result.dependency_manifest.effect_target_dependencies, [
-    { kind: 'entity_absence', target_id: 'entity.new' },
+    { kind: 'entity_absence', target_id: 'entity.new', effect_index: 0, effect_id: 'create-entity' },
   ]);
   assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
   assert.equal(result.dependency_manifest.causal_read_set_complete_for_supported_slice, true);
@@ -1666,4 +1668,283 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
   assert.equal(proposals.db.prepare(
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
+});
+
+test('executor rejects unbound instance parameters and mutable instance state', (t) => {
+  for (const instanceOptions of [{ parameters: { rate: 2 } }, { state: { count: 1 } }]) {
+    const { engine, worldId } = setup(t, 'executor-instance-data-' + hashRequest(instanceOptions).slice(0, 12));
+    enableFixture(engine, worldId, template(), instanceOptions);
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+test('executor rejects template unknown policies whose behavior it does not implement', (t) => {
+  const { engine, worldId } = setup(t, 'executor-unknown-policy-world');
+  enableFixture(engine, worldId, template({ unknown_policy: 'needs_review' }));
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_UNKNOWN_POLICY');
+  assert.deepEqual(result.effects, []);
+});
+
+test('executor rejects non-canonical action input instead of treating hidden properties as empty input', (t) => {
+  const { engine, worldId } = setup(t, 'executor-noncanonical-input-world');
+  enableFixture(engine, worldId);
+  const input = {};
+  Object.defineProperty(input, 'hidden', { value: 'ignored', enumerable: false });
+  assert.throws(
+    () => new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait', input }),
+    (error) => error.code === 'INVALID_MECHANIC_ACTION_INPUT',
+  );
+});
+
+
+test('executor rejects fact-set intents that reuse a fact ID with a different subject or predicate', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-identity-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-identity', 2, [
+    { kind: 'entity.create', entity_id: 'entity.other-context', entity_type: 'character' },
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.other-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_EFFECT_FACT_IDENTITY_MISMATCH');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 3);
+});
+
+
+test('executor records existing fact identity as an effect dependency', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-existing',
+        kind: 'assert_fact',
+        target_ref: 'fact.existing',
+        payload: { predicate: 'likes', value: true, subject_ref: 'entity.actor-context' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  commit(engine, worldId, 'seed-fact-dependency', 2, [
+    { kind: 'fact.set', fact_id: 'fact.existing', subject_ref: 'entity.actor-context', predicate: 'likes', value: true },
+  ]);
+
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'fact_identity'
+      && item.target_id === 'fact.existing'
+      && item.subject_ref === 'entity.actor-context'
+      && item.predicate === 'likes'));
+  assert.ok(result.read_set.includes('fact:fact.existing'));
+  assert.ok(result.causal_links.some((link) => link.relation === 'READS_CLAIM' && link.target_id === 'fact.existing'));
+});
+
+
+test('executor rejects participant and interaction contracts before resolving context', (t) => {
+  const cases = [
+    template({ eligible_participants: [{ role_id: 'actor' }] }),
+    template({ interactions: [{ interaction_id: 'test.interaction', other_template_id: 'test.other', policy: 'compatible' }] }),
+  ];
+  for (let index = 0; index < cases.length; index += 1) {
+    const { engine, worldId } = setup(t, 'executor-unsupported-participant-' + index);
+    enableFixture(engine, worldId, cases[index]);
+    let providerCalls = 0;
+    const result = new MechanicExecutor(engine, {
+      resolveAuthorizedContext: () => {
+        providerCalls += 1;
+        return contextProvider()({ snapshot: engine.getSnapshot(worldId), template: cases[index], action: cases[index].actions[0] });
+      },
+    }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY');
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(result.effects, []);
+  }
+});
+
+test('executor evaluates fact subjects against entity status at the effect position', (t) => {
+  const cases = [
+    {
+      name: 'destroyed-existing-subject',
+      effects: [
+        { effect_id: 'destroy-actor', kind: 'update_attribute', target_ref: 'entity.actor-context', payload: { status: 'destroyed' } },
+        { effect_id: 'assert-after-destroy', kind: 'assert_fact', target_ref: 'fact.after-destroy', payload: { predicate: 'active', value: true, subject_ref: 'entity.actor-context' } },
+      ],
+    },
+    {
+      name: 'created-destroyed-subject',
+      effects: [
+        { effect_id: 'create-destroyed-subject', kind: 'create_entity', target_ref: 'entity.destroyed-subject', payload: { entity_type: 'character', status: 'destroyed' } },
+        { effect_id: 'assert-destroyed-subject', kind: 'assert_fact', target_ref: 'fact.destroyed-subject', payload: { predicate: 'active', value: true, subject_ref: 'entity.destroyed-subject' } },
+      ],
+    },
+  ];
+  for (const item of cases) {
+    const { engine, worldId } = setup(t, 'executor-fact-subject-order-' + item.name);
+    enableFixture(engine, worldId, template({
+      actions: [{
+        action_id: 'ordered',
+        input_schema: { type: 'object' },
+        preconditions: [],
+        effects: item.effects,
+        ambiguity_policy: 'deterministic_only',
+      }],
+    }));
+    const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'ordered' });
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.reason_code, 'MECHANIC_EFFECT_SUBJECT_NOT_FOUND');
+    assert.deepEqual(result.effects, []);
+    assert.equal(engine.getState(worldId).world_revision, 2);
+  }
+});
+
+
+test('executor pins the complete active mechanic set and rejects multi-instance conflict scope', (t) => {
+  const { engine, worldId } = setup(t, 'executor-inbound-interaction-world');
+  enableFixture(engine, worldId);
+  const otherTemplate = template({
+    template_id: 'test.other',
+    interactions: [{
+      interaction_id: 'other.conflicts.executor',
+      other_template_id: 'test.executor',
+      policy: 'conflicts',
+    }],
+  });
+  engine.registerMechanicTemplate(otherTemplate);
+  commit(engine, worldId, 'create-other-instance', 2, [{
+    kind: 'mechanic.instance.create',
+    instance_id: 'instance.other',
+    template_id: otherTemplate.template_id,
+    template_version: otherTemplate.version,
+  }]);
+  const created = engine.getMechanicInstance(worldId, 'instance.other');
+  commit(engine, worldId, 'enable-other-instance', 3, [{
+    kind: 'mechanic.instance.enable',
+    instance_id: 'instance.other',
+  }], [created.last_event_id]);
+
+  let providerCalls = 0;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: () => {
+      providerCalls += 1;
+      return contextProvider()({
+        snapshot: engine.getSnapshot(worldId),
+        template: template(),
+        action: template().actions[0],
+      });
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MULTIPLE_ACTIVE_MECHANICS');
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(result.effects, []);
+  assert.equal(result.snapshot_identity.active_mechanic_set.length, 2);
+  assert.deepEqual(result.snapshot_identity.active_mechanic_set.map((item) => item.instance_id),
+    ['instance.executor', 'instance.other'].sort());
+  assert.equal(engine.getState(worldId).world_revision, 4);
+});
+
+
+test('executor binds a fact subject dependency to the earlier create effect and commits through proposals', (t) => {
+  const { engine, worldId } = setup(t, 'executor-created-subject-dependency-world');
+  const value = template({
+    actions: [{
+      action_id: 'create-and-assert',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        {
+          effect_id: 'create-subject',
+          kind: 'create_entity',
+          target_ref: 'entity.new-subject',
+          payload: { entity_type: 'character' },
+        },
+        {
+          effect_id: 'assert-subject',
+          kind: 'assert_fact',
+          target_ref: 'fact.new-subject',
+          payload: { predicate: 'active', value: true, subject_ref: 'entity.new-subject' },
+        },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'create-and-assert' });
+  assert.equal(result.status, 'ready');
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_created_in_action'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 1
+      && item.effect_id === 'assert-subject'
+      && item.source_effect_index === 0));
+  assert.ok(result.dependency_manifest.effect_target_dependencies.some((item) =>
+    item.kind === 'entity_absence'
+      && item.target_id === 'entity.new-subject'
+      && item.effect_index === 0
+      && item.effect_id === 'create-subject'));
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
+    idempotencyKey: 'created-subject-dependency',
+    turnId: 'turn-created-subject-dependency',
+    sourceText: 'Create the subject before asserting its fact.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+  proposals.commit(worldId, proposal.proposal_id);
+  const fact = engine.getState(worldId).facts.find((item) => item.fact_id === 'fact.new-subject');
+  assert.equal(fact.subject_ref, 'entity.new-subject');
+  assert.equal(engine.getState(worldId).entities.some((item) => item.entity_id === 'entity.new-subject'), true);
+});
+
+
+test('executor rejects Proxy-backed action input before invoking reflection traps', (t) => {
+  const { engine, worldId } = setup(t, 'executor-proxy-input-world');
+  enableFixture(engine, worldId);
+  let traps = 0;
+  const input = new Proxy({}, {
+    ownKeys() { traps += 1; throw new Error('must not enumerate input proxy'); },
+    getPrototypeOf() { traps += 1; throw new Error('must not inspect input proxy'); },
+  });
+  assert.throws(
+    () => new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait', input }),
+    (error) => error.code === 'INVALID_MECHANIC_ACTION_INPUT',
+  );
+  assert.equal(traps, 0);
 });

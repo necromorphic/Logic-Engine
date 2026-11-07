@@ -1,61 +1,208 @@
-name: Host Adapter pinned SillyTavern source audit
-
+name: Host Extension Gateway pinned SillyTavern source audit
 on:
   pull_request:
-    paths:
-      - ".github/workflows/host-adapter-pinned-source-audit.yml"
-      - "host-adapter/prototype/**"
-      - "experiments/host-adapter-source-audit/harness.mjs"
-      - "experiments/host-adapter-runtime-harness/harness.mjs"
+  push:
+    branches:
+      - "host/**"
+      - "integration/host-core-v1"
   workflow_dispatch:
-
 permissions:
   contents: read
-
-defaults:
-  run:
-    shell: cmd
-
 jobs:
-  pinned-source-audit:
-    runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+  pinned-source:
+    runs-on: windows-latest
+    timeout-minutes: 45
     steps:
-      - name: Checkout Logic-Engine
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Verify installed Node.js
-        shell: cmd
-        run: |
-          node --version
-          node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
-
-      - name: Checkout exact SillyTavern target
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
-          path: SillyTavern
-
-      - name: Install pinned SillyTavern dependencies
-        run: npm ci --prefix SillyTavern
-
-      - name: Verify pinned checkout
-        shell: cmd
+          path: Sillytavern
+      - name: Normalize pinned SillyTavern checkout line endings
+        shell: pwsh
         run: |
-          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
-          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
-            echo Unexpected SillyTavern SHA: %actual%
-            exit /b 1
+          git -C Sillytavern config core.autocrlf false
+          git -C Sillytavern config core.eol lf
+          git -C Sillytavern reset --hard 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern checkout could not be normalized to LF' }
+          git -C Sillytavern checkout-index --force --all
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF' }
+      - name: Syntax-check transactional Host patch-bundle installer
+        run: node --check scripts/install-sillytavern-host-patch-bundle.mjs
+      - name: Exercise transactional Host bundle installer against a clean pinned source copy
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'SillyTavern-host-bundle-install-test'
+          New-Item -ItemType Directory -Force $target | Out-Null
+          robocopy Sillytavern $target /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -gt 7) { throw 'Could not copy clean pinned SillyTavern source into installer acceptance target' }
+          $global:LASTEXITCODE = 0
+          $corePlugin = Join-Path $target 'plugins/logic-engine'
+          $corePluginFiles = @(
+            'index.mjs',
+            'manifest.json',
+            'package.json',
+            'scripts/sillytavern-patch-manager.mjs',
+            'host-adapter/sillytavern-final-send-adapter.mjs',
+            'host-adapter/embedded-gateway-runtime.mjs',
+            'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/npc-generation-request-metadata.mjs',
+            'host-adapter/npc-generation-content-projection.mjs',
+            'src/application/npc-generation-context-host-bridge.js'
           )
-          echo SillyTavern target SHA: %actual%
-
-      - name: Run source-level lifecycle assertions
+          foreach ($relative in $corePluginFiles) {
+            $destination = Join-Path $corePlugin $relative
+            New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
+            Copy-Item $relative $destination
+          }
+          node scripts/install-sillytavern-host-patch-bundle.mjs --st-root $target
+          if ($LASTEXITCODE -ne 0) { throw 'Transactional Host patch-bundle installer acceptance failed' }
+      - name: Install pinned SillyTavern runtime dependencies
+        shell: pwsh
+        working-directory: Sillytavern
+        run: npm ci --no-audit --no-fund
+      - name: Install Gateway artifacts and apply pinned lifecycle patch
+        shell: pwsh
+        run: |
+          $corePlugin = 'Sillytavern/plugins/logic-engine'
+          $corePluginFiles = @(
+            'index.mjs',
+            'manifest.json',
+            'package.json',
+            'scripts/sillytavern-patch-manager.mjs',
+            'host-adapter/sillytavern-final-send-adapter.mjs',
+            'host-adapter/embedded-gateway-runtime.mjs',
+            'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/npc-generation-request-metadata.mjs',
+            'host-adapter/npc-generation-content-projection.mjs',
+            'src/application/npc-generation-context-host-bridge.js'
+          )
+          foreach ($relative in $corePluginFiles) {
+            $destination = Join-Path $corePlugin $relative
+            New-Item -ItemType Directory -Force (Split-Path $destination) | Out-Null
+            Copy-Item $relative $destination
+          }
+          New-Item -ItemType Directory -Force Sillytavern/plugins/logic-engine-extension-gateway | Out-Null
+          Copy-Item host-adapter/extension-gateway/server-plugin/*.mjs,host-adapter/extension-gateway/server-plugin/*.js,host-adapter/extension-gateway/server-plugin/package.json Sillytavern/plugins/logic-engine-extension-gateway/
+          New-Item -ItemType Directory -Force Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway | Out-Null
+          Copy-Item host-adapter/extension-gateway/index.js,host-adapter/extension-gateway/gateway-policy.mjs,host-adapter/extension-gateway/host-context.mjs,host-adapter/extension-gateway/conversation-identity.mjs,host-adapter/extension-gateway/manifest.json Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/
+          # Re-checkout pinned blobs with LF before applying LF-authored patches.
+          git -C Sillytavern config core.autocrlf false
+          git -C Sillytavern config core.eol lf
+          git -C Sillytavern reset --hard HEAD
+          git -C Sillytavern checkout-index --force --all
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF before patching' }
+          $patch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch).Path
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero --check $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch application failed' }
+          $deltaPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch).Path
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --check $deltaPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix does not apply cleanly' }
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace $deltaPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix application failed' }
+          $rootMutationPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch).Path
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero --check $rootMutationPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch does not apply cleanly' }
+          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero $rootMutationPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch application failed' }
+          git -C Sillytavern -c core.whitespace=cr-at-eol diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch contains whitespace errors' }
+          $expected = @(
+            'public/script.js',
+            'public/scripts/bookmarks.js',
+            'public/scripts/chat-backups.js',
+            'public/scripts/group-chats.js',
+            'public/scripts/logic-engine-lifecycle/conversation-identity.mjs',
+            'public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs',
+            'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs',
+            'public/scripts/slash-commands.js',
+            'src/endpoints/assets.js',
+            'src/endpoints/avatars.js',
+            'src/endpoints/backends/chat-completions.js',
+            'src/endpoints/backgrounds.js',
+            'src/endpoints/backups.js',
+            'src/endpoints/characters.js',
+            'src/endpoints/chats.js',
+            'src/endpoints/content-manager.js',
+            'src/endpoints/data-maid.js',
+            'src/endpoints/extensions.js',
+            'src/endpoints/files.js',
+            'src/endpoints/groups.js',
+            'src/endpoints/image-metadata.js',
+            'src/endpoints/images.js',
+            'src/endpoints/logic-engine-host-inventory-handler.mjs',
+            'src/endpoints/moving-ui.js',
+            'src/endpoints/presets.js',
+            'src/endpoints/quick-replies.js',
+            'src/endpoints/secrets.js',
+            'src/endpoints/settings.js',
+            'src/endpoints/sprites.js',
+            'src/endpoints/stable-diffusion.js',
+            'src/endpoints/stats.js',
+            'src/endpoints/themes.js',
+            'src/endpoints/thumbnails.js',
+            'src/endpoints/users-admin.js',
+            'src/endpoints/users-private.js',
+            'src/endpoints/users-public.js',
+            'src/endpoints/vectors.js',
+            'src/endpoints/worldinfo.js',
+            'src/plugin-loader.js',
+            'src/server-main.js',
+            'src/users.js'
+          )
+          $actual = @((git -C Sillytavern diff --name-only) + (git -C Sillytavern ls-files --others --exclude-standard) | Sort-Object)
+          if (Compare-Object ($expected | Sort-Object) $actual) { throw 'Pinned Host patch changed files outside the reviewed allowlist' }
+          if (Test-Path Sillytavern/src/endpoints/logic-engine-lifecycle.js) { throw 'Unexpected independent lifecycle route' }
+          if (Test-Path Sillytavern/src/endpoints/logic-engine-host-inventory.js) { throw 'Unexpected independent inventory route' }
+      - name: Verify pinned server plugin load order
+        shell: pwsh
+        run: |
+          $server = Get-Content Sillytavern/src/server-main.js -Raw
+          $loader = Get-Content Sillytavern/src/plugin-loader.js -Raw
+          if ($server.IndexOf('app.use(requireLoginMiddleware)') -ge $server.IndexOf('loadPlugins(app, pluginsDirectory)')) { throw 'Plugin loader is not behind ST authentication middleware' }
+          if (-not ($loader.Contains('/api/plugins/') -and $loader.Contains('router'))) { throw 'Native plugin route mount changed' }
+          if ($server.Contains('/api/logic-engine')) { throw 'Unexpected direct Host API route' }
+      - name: Syntax-check patched Host and Gateway modules
+        shell: pwsh
+        run: |
+          Get-ChildItem Sillytavern/plugins/logic-engine-extension-gateway/*.mjs | ForEach-Object { node --check $_.FullName }
+          node --check Sillytavern/plugins/logic-engine-extension-gateway/fs-inventory.js
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/index.js
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/host-context.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/gateway-policy.mjs
+          node --check Sillytavern/public/scripts/extensions/third-party/logic-engine-extension-gateway/conversation-identity.mjs
+          node --check host-adapter/prototype/generate-pinned-source-manifest.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          node --check Sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-public.js', 'src/endpoints/users-admin.js', 'src/users.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs', 'src/endpoints/content-manager.js', 'src/endpoints/image-metadata.js', 'src/endpoints/images.js', 'src/endpoints/moving-ui.js', 'src/endpoints/presets.js', 'src/endpoints/quick-replies.js', 'src/endpoints/secrets.js', 'src/endpoints/sprites.js', 'src/endpoints/stats.js', 'src/endpoints/themes.js', 'src/endpoints/worldinfo.js', 'src/endpoints/vectors.js', 'src/endpoints/extensions.js', 'src/endpoints/backgrounds.js', 'src/endpoints/avatars.js', 'src/endpoints/assets.js', 'src/endpoints/files.js', 'src/endpoints/stable-diffusion.js', 'src/endpoints/thumbnails.js', 'src/plugin-loader.js')
+          foreach ($file in $files) { node --check (Join-Path Sillytavern $file) }
+      - name: Run Host lifecycle and identity acceptance tests
+        shell: pwsh
         env:
-          SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-source-audit/harness.mjs
-
-      - name: Run bounded fake-provider integration harness
+          SILLYTAVERN_DIR: Sillytavern
+          SILLYTAVERN_SOURCE_ROOT: Sillytavern
+          LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS: '1'
+        run: |
+          node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/windows-vss-snapshot.test.mjs src/application/host-session-context.test.js
+          node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
+          node --test experiments/host-adapter-source-audit/harness.mjs
+      - name: Generate pinned patched-source manifest
+        shell: pwsh
         env:
-          SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-runtime-harness/harness.mjs
+          SILLYTAVERN_DIR: Sillytavern
+        run: node host-adapter/prototype/generate-pinned-source-manifest.mjs
+      - name: Upload verified pinned-source manifest
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: host-pinned-source-manifest
+          path: Sillytavern/plugins/logic-engine-extension-gateway/pinned-source-manifest.json
+          if-no-files-found: error
+          retention-days: 14

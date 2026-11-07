@@ -1,11 +1,14 @@
 import { EngineError } from '../core/errors.js';
 
-const validId = (value) => typeof value === 'string' && value === value.trim()
-  && value.length > 0 && value.length <= 200
-  && ![...value].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
+const validId = (value) => {
+  if (typeof value !== 'string' || value !== value.trim()
+    || value.length === 0 || value.length > 200) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 const validReason = (value) => typeof value === 'string' && value.trim().length >= 8
   && value.trim().length <= 500 && ![...value].some((character) => {
     const code = character.charCodeAt(0);

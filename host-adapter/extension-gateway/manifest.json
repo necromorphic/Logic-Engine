@@ -1,0 +1,10 @@
+{
+  "display_name": "Logic Engine Extension Gateway",
+  "loading_order": 1,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "author": "Logic-Engine",
+  "version": "0.2.0",
+  "homePage": "https://github.com/necromorphic/Logic-Engine"
+}

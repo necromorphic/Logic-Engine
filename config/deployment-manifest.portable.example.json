@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "deployment_id": "logic-engine-portable",
+  "profile": "portable-desktop",
+  "platform_policy": {
+    "supported_platforms": [
+      "windows",
+      "linux"
+    ],
+    "allow_unknown_platform": false
+  },
+  "components": [
+    {
+      "id": "core",
+      "enabled": true,
+      "security_domain": "runtime",
+      "execution_mode": "in-process",
+      "requires_capabilities": [
+        "platform.identity.inspect",
+        "filesystem.path.canonicalize",
+        "filesystem.links.inspect"
+      ]
+    },
+    {
+      "id": "coordinator",
+      "enabled": true,
+      "security_domain": "runtime",
+      "execution_mode": "in-process"
+    },
+    {
+      "id": "host-adapter",
+      "enabled": true,
+      "security_domain": "runtime",
+      "execution_mode": "in-process"
+    },
+    {
+      "id": "world-pack-catalog",
+      "enabled": true,
+      "security_domain": "runtime",
+      "execution_mode": "in-process"
+    },
+    {
+      "id": "backup-manager",
+      "enabled": true,
+      "security_domain": "backup",
+      "execution_mode": "in-process"
+    }
+  ],
+  "resources": [
+    {
+      "id": "core-db",
+      "kind": "database",
+      "classification": "canonical",
+      "owner_domain": "runtime",
+      "path": {
+        "source": "deployment-root-relative",
+        "value": "data/logic-engine.sqlite"
+      },
+      "access": {
+        "read": [
+          "core"
+        ],
+        "create": [
+          "core"
+        ],
+        "append": [
+          "core"
+        ],
+        "replace": [
+          "core"
+        ],
+        "delete": [
+          "core"
+        ],
+        "rename": [
+          "core"
+        ]
+      },
+      "link_policy": "reject-links",
+      "backup_policy": "required"
+    },
+    {
+      "id": "coordinator-db",
+      "kind": "database",
+      "classification": "canonical",
+      "owner_domain": "runtime",
+      "path": {
+        "source": "deployment-root-relative",
+        "value": "data/logic-engine-coordinator.sqlite"
+      },
+      "access": {
+        "read": [
+          "coordinator"
+        ],
+        "create": [
+          "coordinator"
+        ],
+        "append": [
+          "coordinator"
+        ],
+        "replace": [
+          "coordinator"
+        ],
+        "delete": [
+          "coordinator"
+        ],
+        "rename": [
+          "coordinator"
+        ]
+      },
+      "link_policy": "reject-links",
+      "backup_policy": "required"
+    },
+    {
+      "id": "host-version-ledger",
+      "kind": "database",
+      "classification": "canonical",
+      "owner_domain": "runtime",
+      "path": {
+        "source": "deployment-root-relative",
+        "value": "data/logic-engine-host-versions.sqlite"
+      },
+      "access": {
+        "read": [
+          "host-adapter"
+        ],
+        "create": [
+          "host-adapter"
+        ],
+        "append": [
+          "host-adapter"
+        ],
+        "replace": [
+          "host-adapter"
+        ],
+        "delete": [
+          "host-adapter"
+        ],
+        "rename": [
+          "host-adapter"
+        ]
+      },
+      "link_policy": "reject-links",
+      "backup_policy": "required"
+    },
+    {
+      "id": "world-pack-catalog",
+      "kind": "config",
+      "classification": "sensitive",
+      "owner_domain": "runtime",
+      "path": {
+        "source": "deployment-root-relative",
+        "value": "config/world-pack-catalog.json"
+      },
+      "access": {
+        "read": [
+          "world-pack-catalog"
+        ],
+        "create": [],
+        "append": [],
+        "replace": [],
+        "delete": [],
+        "rename": []
+      },
+      "link_policy": "reject-links",
+      "backup_policy": "required"
+    },
+    {
+      "id": "backup-vault",
+      "kind": "backup-vault",
+      "classification": "sensitive",
+      "owner_domain": "backup",
+      "path": {
+        "source": "deployment-root-relative",
+        "value": "backup-vault"
+      },
+      "access": {
+        "read": [
+          "backup-manager"
+        ],
+        "create": [
+          "backup-manager"
+        ],
+        "append": [
+          "backup-manager"
+        ],
+        "replace": [
+          "backup-manager"
+        ],
+        "delete": [
+          "backup-manager"
+        ],
+        "rename": [
+          "backup-manager"
+        ]
+      },
+      "link_policy": "reject-links",
+      "backup_policy": "separate-vault"
+    }
+  ],
+  "secrets": {
+    "provider_preference": [
+      "os-store",
+      "managed-injection",
+      "private-file"
+    ],
+    "allow_environment_fallback": false
+  },
+  "backup": {
+    "vault_resource_id": "backup-vault",
+    "require_independent_freshness_anchor": false,
+    "allow_restore_without_anchor": true
+  }
+}

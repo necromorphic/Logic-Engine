@@ -1,12 +1,23 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
+import { HostLifecycleJournal } from './application/host-lifecycle-journal.js';
+import {
+  parseHostRootIdentityRegistry,
+  resolveAdapterHostRootIdentity,
+  resolveRegisteredHostRootIdentity,
+  resolveAdapterHostLifecycleIdentity,
+  resolveRegisteredHostLifecycleIdentity,
+} from './application/host-root-inventory-identity.js';
 import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from './application/npc-knowledge-authorization.js';
 import { createProcessScopedMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from './application/mechanic-policy-authority.js';
+import { createMemoryNpcProviderAdapter } from './application/memory-npc-provider-adapter.js';
+import { HostAssertionNonceStore } from './application/host-assertion-nonce-store.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -70,7 +81,7 @@ function aliasesSameFile(left, right) {
     const absolute = resolve(value);
     if (existsSync(absolute)) {
       try {
-        const stat = statSync(absolute);
+        const stat = statSync(absolute, { bigint: true });
         return 'inode:' + stat.dev + ':' + stat.ino;
       } catch {}
     }
@@ -121,6 +132,24 @@ if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
 if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
   throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
 }
+const memoryProviderPath = process.env.ENGINE_MEMORY_PROVIDER_DB_PATH;
+const assertionNoncePath = process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH
+  ? resolve(process.env.ENGINE_HOST_ASSERTION_NONCE_DB_PATH)
+  : resolve('./data/logic-engine-host-assertion-nonces.sqlite');
+const coreDatabasePath = store.db.prepare('PRAGMA database_list').all()
+  .find(entry => entry.name === 'main')?.file;
+if (typeof coreDatabasePath !== 'string' || !coreDatabasePath) {
+  throw new Error('Host assertion nonce storage requires a file-backed Core database.');
+}
+if (aliasesSameFile(assertionNoncePath, hostVersionLedgerPath)) {
+  throw new Error('ENGINE_HOST_ASSERTION_NONCE_DB_PATH must be separate from ENGINE_HOST_VERSION_LEDGER_DB_PATH.');
+}
+const hostAssertionNonceStore = new HostAssertionNonceStore({
+  path: assertionNoncePath,
+  coreDatabasePath,
+  coordinatorPath,
+  providerDatabasePath: memoryProviderPath === undefined ? null : resolve(memoryProviderPath),
+});
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
 const hostVersionLedger = new HostVersionDigestLedger({
@@ -128,20 +157,198 @@ const hostVersionLedger = new HostVersionDigestLedger({
   coordinatorPath,
   verifyInventorySnapshot: async () => false,
 });
+let hostRootIdentityRegistry;
+try {
+  hostRootIdentityRegistry = parseHostRootIdentityRegistry(process.env.ENGINE_HOST_ROOT_IDENTITIES || '[]');
+} catch (error) {
+  process.stderr.write((error?.message || 'ENGINE_HOST_ROOT_IDENTITIES is invalid.') + '\\n');
+  process.exit(1);
+}
+let hostRootInventoryJournal = null;
+let resolveHostRootIdentity = null;
+const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
+const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
+const canonicalHostReceiptProof = value => value && typeof value === 'object'
+  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
+  : JSON.stringify(value);
+function verifyHostRootInventoryAttestation({ attestation, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(attestation?.signature ?? '')) return false;
+  const { signature, ...proof } = attestation;
+  const expected = createHmac('sha256', secret)
+    .update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function verifyHostLifecycleReceipt({ event, identity }) {
+  const secret = adapterTokens?.[identity?.adapter_id];
+  if (typeof secret !== 'string' || secret.length < 16
+    || !/^[a-f0-9]{64}$/.test(event?.receipt_signature ?? '')) return false;
+  const proof = {
+    protocol_version: 1,
+    adapter_id: identity.adapter_id,
+    host_installation_id: event.host_installation_id,
+    authenticated_account_id: event.authenticated_account_id,
+    host_session_id: event.host_session_id,
+    conversation_uuid: event.conversation_uuid,
+    event_id: event.event_id,
+    event_type: event.event_type,
+    mutation_id: event.mutation_id,
+    operation: event.operation,
+    mutation_digest: event.mutation_digest,
+    receipt_digest: event.receipt_digest,
+    occurred_at: event.occurred_at,
+  };
+  const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
+  const supplied = Buffer.from(event.receipt_signature, 'hex');
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function bindHostLifecycleAuthority(resolved, { requireComplete = false } = {}) {
+  if (!resolved || resolved.authorized !== true || !hostRootInventoryJournal
+    || typeof hostLifecycleAuthorityId !== 'string' || !hostLifecycleAuthorityId.trim()
+    || !Number.isSafeInteger(hostLifecycleAuthorityGeneration) || hostLifecycleAuthorityGeneration < 1
+    || !resolved.root_id || !resolved.adapter_id) return { authorized: false };
+  let snapshot;
+  try {
+    snapshot = hostRootInventoryJournal.getAuthoritySnapshot({
+      ...resolved,
+      authority_id: hostLifecycleAuthorityId.trim(),
+      generation: hostLifecycleAuthorityGeneration,
+    });
+  } catch { return { authorized: false }; }
+  const authorityStatus = snapshot?.authority_status ?? 'REVIEW_ONLY';
+  if (snapshot?.status !== 'INTEGRITY_OK'
+    || (requireComplete && authorityStatus !== 'AUTHORITATIVE_COMPLETE')
+    || !/^[a-f0-9]{64}$/.test(snapshot.snapshot_fingerprint ?? '')) {
+    return { authorized: false };
+  }
+  return {
+    ...resolved,
+    authority_id: hostLifecycleAuthorityId.trim(),
+    generation: hostLifecycleAuthorityGeneration,
+    authority_status: authorityStatus,
+    snapshot_fingerprint: snapshot.snapshot_fingerprint,
+  };
+}
+if (hostRootIdentityRegistry.length > 0) {
+  for (const record of hostRootIdentityRegistry) {
+    if (!Object.hasOwn(adapterTokens, record.adapter_id)) {
+      throw new Error('ENGINE_HOST_ROOT_IDENTITIES references an adapter that is not configured in ENGINE_ADAPTER_TOKENS.');
+    }
+  }
+  const hostLifecyclePath = process.env.ENGINE_HOST_LIFECYCLE_DB_PATH
+    ? resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH)
+    : resolve('./data/logic-engine-host-lifecycle.sqlite');
+  for (const [name, candidate] of [
+    ['ENGINE_HOST_LIFECYCLE_DB_PATH', hostLifecyclePath],
+    ['ENGINE_HOST_ASSERTION_NONCE_DB_PATH', assertionNoncePath],
+    ['ENGINE_HOST_VERSION_LEDGER_DB_PATH', hostVersionLedgerPath],
+    ['ENGINE_DB_PATH', dbPath],
+    ['LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath],
+  ]) {
+    if (candidate !== ':memory:' && aliasesSameFile(hostLifecyclePath, candidate)) {
+      throw new Error('ENGINE_HOST_LIFECYCLE_DB_PATH must be separate from ' + name + ', including filesystem aliases.');
+    }
+  }
+  mkdirSync(dirname(hostLifecyclePath), { recursive: true });
+  hostRootInventoryJournal = new HostLifecycleJournal({
+    path: hostLifecyclePath,
+    coordinatorPath,
+    // The authenticated adapter route checks the exact adapter/installation/account
+    // tuple; the journal independently rechecks the deployment-owned installation
+    // and account binding before appending any event.
+    resolveIdentity: input => {
+      const resolved = resolveRegisteredHostLifecycleIdentity(hostRootIdentityRegistry, input);
+      return resolved.authorized && typeof hostLifecycleAuthorityId === 'string'
+        && hostLifecycleAuthorityId.trim() && Number.isSafeInteger(hostLifecycleAuthorityGeneration)
+        && hostLifecycleAuthorityGeneration > 0
+        ? { ...resolved, authority_id: hostLifecycleAuthorityId.trim(), generation: hostLifecycleAuthorityGeneration }
+        : { authorized: false };
+    },
+    resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
+    verifyMutationReceipt: verifyHostLifecycleReceipt,
+    verifyRootInventoryAttestation: verifyHostRootInventoryAttestation,
+  });
+  if (typeof hostLifecycleAuthorityId === 'string' && hostLifecycleAuthorityId.trim()
+    && Number.isSafeInteger(hostLifecycleAuthorityGeneration) && hostLifecycleAuthorityGeneration > 0) {
+    hostRootInventoryJournal.setAuthorityGeneration(hostLifecycleAuthorityId.trim(), hostLifecycleAuthorityGeneration);
+  }
+  resolveHostRootIdentity = input => resolveAdapterHostRootIdentity(hostRootIdentityRegistry, input);
+}
+
+const logicEngine = new LogicEngine(store, {
+  trustedInitialKnowledgeSources, worldPackCatalog,
+  npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
+  npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
+});
+const memoryProviderAdapters = [];
+if (memoryProviderPath !== undefined) {
+  let contentFields;
+  try {
+    contentFields = JSON.parse(process.env.ENGINE_MEMORY_NPC_CONTENT_FIELDS || '[]');
+  } catch {
+    throw new Error('ENGINE_MEMORY_NPC_CONTENT_FIELDS must be a JSON array of Core-authorized fields.');
+  }
+  if (!Array.isArray(contentFields) || contentFields.length === 0) {
+    throw new Error('ENGINE_MEMORY_NPC_CONTENT_FIELDS must be a non-empty JSON array when Memory Provider is configured.');
+  }
+  for (const adapterId of Object.keys(adapterTokens)) {
+    const memoryAdapter = createMemoryNpcProviderAdapter({
+      engine: logicEngine,
+      providerPath: resolve(memoryProviderPath),
+      coordinatorPath,
+      adapterId,
+      trustedInitialKnowledgeSources,
+      fieldPolicy: mechanicPolicyAuthority,
+      contentFields,
+    });
+    memoryProviderAdapters.push(memoryAdapter);
+  }
+  const worldIds = store.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
+  for (const memoryAdapter of memoryProviderAdapters) {
+    for (const world of worldIds) await memoryAdapter.prepareWorld(world.world_id);
+  }
+}
 const server = createApiServer({
-  engine: new LogicEngine(store, {
-    trustedInitialKnowledgeSources, worldPackCatalog,
-    npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
-    npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
-  }), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine: logicEngine, token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
+  hostRootInventoryJournal,
+  resolveHostRootIdentity,
+  resolveHostLifecycleIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+  ),
+  resolveHostMemoryIdentity: input => bindHostLifecycleAuthority(
+    resolveAdapterHostLifecycleIdentity(hostRootIdentityRegistry, input),
+    { requireComplete: true },
+  ),
+  hostLifecycleJournal: hostRootInventoryJournal,
   mechanicPolicyAuthority,
+  // The legacy HTTP Host→Consumer retrieval bridge is intentionally not
+  // wired in production. NPC retrieval is available only through the
+  // embedded in-process Gateway composition, which owns the one-shot handoff.
+  hostAssertionNonceStore,
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
   '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
-function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
+function stop() {
+  server.close(() => {
+    try {
+      for (const adapter of memoryProviderAdapters) adapter.close();
+      hostAssertionNonceStore.close();
+    } finally {
+      try { hostRootInventoryJournal?.close(); }
+      finally {
+        try { hostVersionLedger.close(); }
+        finally { store.close(); process.exit(0); }
+      }
+    }
+  });
+}
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

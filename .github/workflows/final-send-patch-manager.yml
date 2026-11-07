@@ -1,0 +1,82 @@
+name: SillyTavern Final-Send Patch Manager
+
+on:
+  push:
+    branches: [integration/host-core-v1]
+    paths:
+      - "index.mjs"
+      - "host-adapter/patches/**"
+      - "host-adapter/patch-manager/**"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/sillytavern-generation-bridge.mjs"
+      - "tests/sillytavern-final-send-adapter.test.js"
+      - "tests/protected-memory-final-send.test.js"
+      - "tests/sillytavern-server-plugin-bootstrap.test.js"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "manifest.json"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
+      - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"
+      - ".github/workflows/final-send-patch-manager.yml"
+      - ".github/workflows/provider-blocker3.yml"
+  pull_request:
+    paths:
+      - "index.mjs"
+      - "host-adapter/patches/**"
+      - "host-adapter/patch-manager/**"
+      - "host-adapter/protected-memory-final-send.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "host-adapter/sillytavern-generation-bridge.mjs"
+      - "tests/sillytavern-final-send-adapter.test.js"
+      - "tests/protected-memory-final-send.test.js"
+      - "tests/sillytavern-server-plugin-bootstrap.test.js"
+      - "scripts/install-logic-engine-extension.mjs"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "manifest.json"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
+      - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"
+      - ".github/workflows/final-send-patch-manager.yml"
+      - ".github/workflows/provider-blocker3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-patch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.13.0"
+      - name: Checkout exact SillyTavern 1.19.0 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        env:
+          # Keep pinned upstream files byte-identical across Windows and Linux.
+          # Patch Manager validates source hashes before it mutates any file.
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: false
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+      - name: Verify pinned source revision
+        shell: bash
+        run: |
+          test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Check server-plugin bootstrap syntax
+        run: node --check index.mjs
+      - name: Test unified Patch Manager and Final-Send contracts against exact Host source
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js host-adapter/patch-manager/manager.test.mjs host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs

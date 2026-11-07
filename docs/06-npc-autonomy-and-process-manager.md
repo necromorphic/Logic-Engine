@@ -72,3 +72,93 @@ The engine should track when a character has a reportable result, whom they can 
 ## 7. Rollback
 
 Every process stage and off-screen event must declare causal inputs and outputs. When an initiating event is rolled back, the Process Manager recalculates affected stage history. It must not automatically delete all later activity, nor preserve progress whose only prerequisite is invalid. See docs/05-causal-rollback-algorithm.md.
+
+## 8. Story constraints and adaptive NPC autonomy
+
+This section defines behavioral intent; it does not introduce runtime APIs, schemas, or implementation claims.
+
+### 8.1 Narrative modes
+
+NPCs use one autonomy system in both authored-story and emergent-story play. The engine adapts the narrative constraints to the active story context; switching modes must not reset an NPC's identity, knowledge, beliefs, relationships, goals, or accumulated experience.
+
+- **Authored plot present:** NPCs retain high autonomy in how they act, plan, communicate, cooperate, deceive, and respond. Mandatory control points constrain the story outcome, not a single prescribed NPC decision or route, unless the author explicitly defines that decision/route as mandatory.
+- **No authored plot to follow:** NPCs use maximum autonomy within world rules and established state. The story emerges from the player's and NPCs' successive actions and their consequences; the engine must not invent a hidden main plot that pulls the world toward predetermined beats.
+- **Author-provided tentative plot:** NPCs may treat it as a possible trajectory, not as an obligation. They may diverge from it when their actions and the world's state support a different development.
+
+The engine, rather than the player, determines when the active narrative constraints should change, based on the presence and status of authored plot constraints and the causal state of the world.
+
+### 8.2 Control-point classes
+
+Distinguish at least these behavioral categories in the authored narrative:
+
+- **Mandatory control point (CT):** must remain an active story obligation by default. NPC activity alone cannot cancel or invalidate it.
+- **Optional control point:** may be changed, skipped, or rendered unnecessary by player or NPC actions when the resulting world state supports that outcome.
+- **Tentative plot beat:** an author-proposed possibility that can guide planning but does not bind the simulation.
+
+A mandatory CT does not require one predetermined path. The engine and NPCs may find another causally plausible route to it. Do not force an implausible action merely to preserve the original route.
+
+### 8.3 Player-triggered divergence and CT review
+
+Only player-initiated intervention can open the exceptional review path for mandatory CTs. An NPC's autonomous activity, by itself, cannot trigger this exception. The player need not explicitly order an NPC to change sides or abandon a plan: the player's actions may create new circumstances (for example, a concealed identity is revealed after a relationship has developed), and the NPC then independently decides how to respond.
+
+Do not review or cancel a mandatory CT merely because an NPC's internal motives, feelings, beliefs, or intentions have changed. Use the following causal sequence:
+
+1. The player's intervention changes the circumstances available to one or more NPCs.
+2. An NPC independently chooses an action in response, based on its character, knowledge, beliefs, obligations, relationships, and goals.
+3. The action's actual consequences are resolved and reflected in the world state.
+4. Only if those consequences materially affect the reachability or meaning of a mandatory CT does the engine initiate an individual review of that CT.
+
+The NPC's choice is not predetermined by the plot constraint. A relationship, revelation, or change of loyalty does not guarantee that the NPC abandons the original plan; the NPC may continue it, conceal a change of intent, partially sabotage it, or choose another response.
+
+### 8.4 Individual review, not blanket cancellation
+
+When player-triggered consequences justify review, assess each affected mandatory CT separately. Do not cancel all CTs because one part of the story diverged.
+
+For each reviewed CT, determine whether:
+- it remains meaningful in the changed world;
+- it is still reachable through a causally plausible alternative route;
+- only the original route has become unavailable;
+- the original event's meaning has changed so substantially that the CT may no longer apply.
+
+A temporary obstacle, an NPC's reluctance, or a currently unknown route is not proof of impossibility. Search for plausible alternatives before concluding that a CT requires revision. Do not silently treat a substitute event as equivalent unless the authored constraints permit that equivalence.
+
+If no plausible route is established and the CT's validity remains unresolved, preserve the unresolved conflict for explicit handling; do not fabricate a guaranteed solution or silently waive the obligation. Preserve already-realized events and their consequences. Reviewing one CT does not automatically alter unrelated CTs.
+
+### 8.5 Autonomy without plot puppeteering
+
+The engine must not secretly rewrite NPC motives, beliefs, or prior actions solely to steer them toward a CT. NPCs choose their responses; the story layer constrains and evaluates outcomes separately. When an NPC's choice conflicts with a mandatory CT, first explore other plausible world-level paths to the CT rather than forcing the NPC to make an out-of-character choice.
+
+A mandatory CT is therefore a constraint on story progression, not a command that every NPC must obey or a license to falsify causal history. The engine must keep the distinction between an NPC's intention, the action they actually take, the action's resolved outcome, and the resulting CT status.
+
+### 8.6 Example: staged death, public grief, and a concealed identity
+
+This is a required capability scenario for design and future acceptance tests, not a claim that the current runtime already implements it.
+
+**Initial state:** The player character stages their own death. Their husband knows privately that they are alive, but publicly performs grief to protect the cover and manage other people's beliefs. Other NPCs do not automatically share his private knowledge. On the following day, the player character appears in his organization as a secretary under a different identity.
+
+The engine should preserve several distinct layers at once:
+
+- **World facts:** the death was staged; the husband privately knows the player character survived; the secretary has appeared under a cover identity.
+- **Publicly established events:** the apparent death and the husband's visible grief occurred and remain part of social history even though the grief was performative.
+- **Per-NPC epistemic state:** what each NPC witnessed, was told, believes, doubts, suspects, or does not know. The husband's private knowledge must not leak to others without an in-world information path.
+- **Social memory and open questions:** the sudden arrival of a secretary, hiring/provenance, timing after the apparent death, the husband's public behavior, and any inconsistencies noticed by observers remain available to influence later decisions.
+
+NPCs should react autonomously according to personality, relationship, role, goals, access to evidence, and risk tolerance. Some may ask the husband who the secretary is, how she was hired so quickly, or how he is coping after his wife's apparent death. Others may notice that his behavior seems inconsistent with his public grief, quietly compare timelines, investigate, discuss suspicions with trusted people, spread rumors, exploit the situation, or dismiss it as ordinary. No single reaction is mandatory for every NPC.
+
+The engine must distinguish **observation → suspicion/hypothesis → corroboration → belief/knowledge**. A resemblance, unusual timing, gesture, voice, or other clue can raise suspicion but must not automatically reveal the cover. NPCs may reach different conclusions from the same evidence; they can be mistaken, deceive others, or revise their beliefs when new evidence arrives. Investigation and rumors must have causal sources and information paths, not omniscient access.
+
+The husband should respond according to his own goals and the public cover, potentially deflecting, lying, providing a plausible explanation, or privately coordinating with the secretary. The engine must not choose or narrate the player character's actions, words, thoughts, or consent on the player's behalf. It may create NPC initiatives and consequences around the player, but must leave the player's response to the player.
+
+Crucially, the prior public grief is not erased by the secretary's arrival, and the new identity is not automatically exposed. The situation should continue to generate social consequences over time: questions can remain unanswered, suspicions can grow or fade, rumors can spread, and NPCs can act on incorrect theories. These outcomes should arise from durable world state, per-character knowledge/beliefs, social memory, autonomous action selection, and persisted consequences—not from relying on the language model to remember the whole sequence from chat history alone.
+
+**Acceptance criteria for a future vertical slice:**
+
+1. Persist the staged-death event, the public grief performance, and the secretary's arrival as distinct events with provenance and chronology.
+2. Demonstrate that the husband knows the truth while selected other NPCs do not, unless a valid information path changes their knowledge.
+3. Given different NPC profiles and evidence, produce differentiated reactions (for example, a direct question, quiet suspicion, an investigation, or no concern) without forcing all NPCs into the same response.
+4. Preserve the difference between fact, observation, suspicion, belief, and confirmed knowledge across a restart/replay.
+5. Make investigations, conversations, and rumors create traceable information flow and potentially change later NPC beliefs/actions.
+6. Do not identify the player character solely because the story requires drama; do not erase public grief or make NPCs forget it without a causal reason.
+7. Keep player-character agency intact: NPCs can initiate and react, but the system does not author the player's side of the interaction.
+
+These criteria are aspirational until implemented and demonstrated in the real runtime. Prompt-only examples or fixture-only callbacks are not proof of production capability.

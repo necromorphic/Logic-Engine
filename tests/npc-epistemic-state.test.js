@@ -199,6 +199,48 @@ test("conflicting admissible evidence remains explicit rather than choosing a wi
   assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, ["evidence-2"]);
 });
 
+test("belief evidence references are canonical regardless of request ordering", () => {
+  let state = emptyState();
+  state = admit(state, {
+    evidence_ref: "evidence-z",
+    acquisition_ref: "acq-z",
+    source_ref: "source-z",
+  }).state;
+  state = admit(state, {
+    evidence_ref: "evidence-a",
+    acquisition_ref: "acq-a",
+    source_ref: "source-a",
+    polarity: "supports_true",
+  }).state;
+  state = admit(state, {
+    evidence_ref: "evidence-m",
+    acquisition_ref: "acq-m",
+    source_ref: "source-m",
+    polarity: "supports_false",
+  }).state;
+
+  const forward = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-canonical-order",
+    evidence_refs: ["evidence-z", "evidence-m", "evidence-a"],
+  });
+  const reverse = apply(forward.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-canonical-order",
+    evidence_refs: ["evidence-a", "evidence-m", "evidence-z"],
+  });
+
+  assert.equal(forward.status, "updated");
+  assert.equal(reverse.status, "unchanged");
+  assert.deepEqual(forward.state.beliefs[0].supporting_evidence_refs, ["evidence-a", "evidence-z"]);
+  assert.deepEqual(forward.state.beliefs[0].conflicting_evidence_refs, ["evidence-m"]);
+  assert.deepEqual(reverse.state.beliefs[0], forward.state.beliefs[0]);
+});
+
 test("invalidating evidence preserves the belief but marks it for review", () => {
   let state = admit(emptyState()).state;
   state = apply(state, {
@@ -961,4 +1003,116 @@ test("insufficient evidence cannot support any directional or unresolved belief"
     });
     assert.equal(result.status, "non_ready", stance);
   }
+});
+
+
+test("invalidation preserves prior belief history without restoring its authority", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-first-confirmed",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-reassess-confidence",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const invalidated = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-source-revoked",
+  });
+  assert.equal(invalidated.status, "updated");
+  assert.equal(invalidated.state.beliefs[0].stance, "suspects_true");
+  assert.equal(invalidated.state.beliefs[0].review_required, true);
+  assert.deepEqual(invalidated.state.beliefs[0].history, [{
+    stance: "believes_true",
+    revision_rule_ref: "rule-first-confirmed",
+    evidence_refs: ["evidence-1"],
+  }]);
+
+  const validated = apply(invalidated.state, { type: "canonical_truth_changed" });
+  assert.equal(validated.status, "unchanged");
+  assert.equal(validated.state.beliefs[0].review_required, true);
+  assert.equal(validated.state.evidence[0].status, "invalidated");
+});
+
+test("replacement evidence can resolve review while retaining invalidated evidence in history", () => {
+  let state = admit(emptyState(), {
+    evidence_ref: "evidence-old",
+    evidence_version: "source-v1",
+    source_ref: "canonical-source",
+    source_version: "source-v1",
+  }).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-old-source",
+    evidence_refs: ["evidence-old"],
+  }).state;
+  state = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-old",
+    evidence_version: "source-v1",
+    invalidation_rule_ref: "rule-source-rollback",
+  }).state;
+
+  const replacement = admit(state, {
+    evidence_ref: "evidence-new",
+    evidence_version: "source-v2",
+    acquisition_ref: "acq-new",
+    source_ref: "canonical-source",
+    source_version: "source-v2",
+    polarity: "supports_false",
+  });
+  assert.equal(replacement.status, "updated");
+
+  const revised = apply(replacement.state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_false",
+    revision_rule_ref: "rule-explicit-reacquisition",
+    evidence_refs: ["evidence-new"],
+  });
+  assert.equal(revised.status, "updated");
+  assert.equal(revised.state.beliefs[0].stance, "believes_false");
+  assert.equal(revised.state.beliefs[0].review_required, false);
+  assert.deepEqual(revised.state.beliefs[0].supporting_evidence_refs, ["evidence-new"]);
+  assert.deepEqual(revised.state.beliefs[0].history, [{
+    stance: "believes_true",
+    revision_rule_ref: "rule-old-source",
+    evidence_refs: ["evidence-old"],
+  }]);
+  assert.equal(revised.state.evidence.find(item => item.ref === "evidence-old").status, "invalidated");
+});
+
+test("replaying an admission cannot reactivate an invalidated evidence identity", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-revoked",
+  }).state;
+
+  const replay = admit(state);
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state.evidence[0].status, "invalidated");
+  assert.equal(replay.state.evidence[0].invalidation_rule_ref, "rule-revoked");
+
+  const conflictingRegrant = admit(state, {
+    source_version: "v2",
+    evidence_version: "v2",
+  });
+  assert.equal(conflictingRegrant.status, "non_ready");
+  assert.equal(conflictingRegrant.reason, "evidence_identity_conflict");
+  assert.equal(state.evidence[0].status, "invalidated");
 });

@@ -1,0 +1,59 @@
+name: NPC Generation Context
+on:
+  pull_request:
+    paths:
+      - "src/application/npc-generation-context*.js"
+      - "src/application/memory-npc-provider-adapter.js"
+      - "src/application/memory-npc-consumer.js"
+      - "src/npc/memory-candidate-eligibility.js"
+      - "host-adapter/npc-generation-content-projection.mjs"
+      - "host-adapter/npc-context-receiver.mjs"
+      - "tests/npc-context-receiver.test.mjs"
+      - "tests/npc-memory-candidate-eligibility.test.js"
+      - "tests/memory-provider-core-integration.test.js"
+      - "tests/npc-generation-context*.test.js"
+      - "tests/memory-npc-consumer.test.js"
+      - "tests/memory-npc-provider-adapter.test.js"
+      - ".github/workflows/npc-generation-context.yml"
+      - ".github/workflows/provider-blocker3.yml"
+  push:
+    branches: [main, 'npc/**', 'integration/host-core-v1']
+    paths:
+      - "src/application/npc-generation-context*.js"
+      - "src/application/memory-npc-provider-adapter.js"
+      - "src/application/memory-npc-consumer.js"
+      - "src/npc/memory-candidate-eligibility.js"
+      - "host-adapter/npc-generation-content-projection.mjs"
+      - "host-adapter/npc-context-receiver.mjs"
+      - "tests/npc-context-receiver.test.mjs"
+      - "tests/npc-memory-candidate-eligibility.test.js"
+      - "tests/memory-provider-core-integration.test.js"
+      - "tests/npc-generation-context*.test.js"
+      - "tests/memory-npc-consumer.test.js"
+      - "tests/memory-npc-provider-adapter.test.js"
+      - ".github/workflows/npc-generation-context.yml"
+      - '.github/workflows/provider-blocker3.yml'
+permissions:
+  contents: read
+jobs:
+  npc-generation-context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+      - name: Run NPC generation-context, Memory consumer and adapter composition tests
+        run: >-
+          node --import ./tests/configure-test-env.js --test
+          tests/npc-generation-context.test.js
+          tests/npc-generation-context-runtime.test.js
+          tests/npc-generation-context-host-bridge.test.js
+          tests/npc-context-receiver.test.mjs
+          tests/npc-memory-candidate-eligibility.test.js
+          tests/memory-provider-core-integration.test.js
+          tests/memory-npc-consumer.test.js
+          tests/memory-npc-provider-adapter.test.js

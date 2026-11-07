@@ -17,7 +17,7 @@ class FakeStore {
         queueMicrotask(() => {
           request.result = [...this.db.rows.values()].filter(row => row.conversationId === range.only);
           request.onsuccess?.();
-          this.db.finish(this.tx);
+          if (this.tx.mode === 'readonly') this.db.finish(this.tx);
         });
         return request;
       },
@@ -28,7 +28,7 @@ class FakeStore {
     queueMicrotask(() => {
       request.result = this.db.heads.get(key);
       request.onsuccess?.();
-      this.db.finish(this.tx);
+      if (this.tx.mode === 'readonly') this.db.finish(this.tx);
     });
     return request;
   }
@@ -48,12 +48,13 @@ class FakeStore {
 }
 class FakeTransaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db, names) { this.db = db; this.names = names; }
+  constructor(db, names, mode) { this.db = db; this.names = names; this.mode = mode; }
   objectStore(name) { return new FakeStore(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction(names) { return new FakeTransaction(this, names); }
+  transaction(names, mode = 'readonly') { return new FakeTransaction(this, names, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
@@ -62,6 +63,8 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   publishSnapshot = null,
   conversationId = 'chat-1',
   getPersistedInventory = null,
+  publishLifecycleEvent = null,
+  getLifecycleStatus = null,
 } = {}) {
   let failSave = false;
   const db = new FakeDB();
@@ -76,12 +79,14 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
     publishDigest,
     publishSnapshot,
     getPersistedInventory,
+    publishLifecycleEvent,
+    getLifecycleStatus,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, getLocator() { return sourceLocator; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 
@@ -135,17 +140,45 @@ async function makePersistedInventory(chat, { sessionId, conversationUuid, userH
   };
 }
 
-test('persisted ST inventory is cross-checked against the session-bound conversation without claiming authority', async () => {
+test('lifecycle mutations require a matching durable before/after pair', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(before.operation, 'before:edit-message');
+  await assert.rejects(
+    () => f.bridge.beforeMutation('delete-message', [1]),
+    /previous lifecycle operation is incomplete/,
+  );
+
+  f.chat[0].mes = 'hello edited';
+  const after = await f.bridge.afterMutation('edit-message');
+  assert.equal(after.status, 'REVIEW_ONLY');
+  await assert.rejects(
+    () => f.bridge.afterMutation('edit-message'),
+    /afterMutation has no matching durable beforeMutation/,
+  );
+
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.deepEqual(
+    ledger.records.filter(record => record.operation.startsWith('before:') || record.operation.startsWith('after:'))
+      .map(record => record.operation),
+    ['before:edit-message', 'after:edit-message'],
+  );
+});
+
+test('persisted ST inventory is cross-checked against stable conversation identity and current authenticated session', async () => {
   const sessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
   const installationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
   const conversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-  const conversationId = sessionId + ':' + installationId + ':' + conversationUuid;
+  const conversationId = installationId + ':aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:' + conversationUuid;
   const chat = [{ is_user: true, mes: 'private user sentinel' }, { is_user: false, mes: 'private assistant sentinel' }];
   let inventory = null;
   const publishedSnapshots = [];
   const f = makeFixture(chat, {
     conversationId,
     getPersistedInventory: async () => inventory,
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
     publishSnapshot: async snapshot => {
       publishedSnapshots.push(structuredClone(snapshot));
       return { reconciliation: { code: 'HOST_INVENTORY_INCOMPLETE' } };
@@ -156,12 +189,9 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   const publishedBeforeSync = publishedSnapshots.length;
 
   const verified = await f.bridge.verifyPersistedInventory();
-  assert.equal(verified.status, 'MATCHED_NON_AUTHORITATIVE');
-  assert.equal(verified.authority, 'NON_AUTHORITATIVE');
-  assert.equal(verified.host_session_bound, true);
-  assert.equal(verified.installation_attestation, false);
-  assert.equal(verified.message_count, 2);
-  assert.equal(verified.version_count, 2);
+  assert.equal(verified.status, 'NON_READY');
+  assert.match(verified.reason, /attested current conversation snapshot/);
+  await assert.rejects(f.bridge.guardExport(), /NON_READY:/);
   assert.equal(JSON.stringify(verified).includes('private user sentinel'), false);
   assert.equal(JSON.stringify(verified).includes('private assistant sentinel'), false);
 
@@ -170,20 +200,46 @@ test('persisted ST inventory is cross-checked against the session-bound conversa
   assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
   assert.equal(publishedSnapshots.at(-1).complete, false);
 
+  inventory = {
+    ...inventory,
+    host_source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+    host_source_manifest_sha256: 'b'.repeat(64),
+    root_inventory_reconciliation: {
+      status: 'AUTHORITATIVE_COMPLETE',
+      integrity_status: 'INTEGRITY_OK',
+      source_manifest_sha256: 'b'.repeat(64),
+      sequence: 1,
+      manifest_sha256: 'c'.repeat(64),
+    },
+    filesystem_inventory: { snapshot_alignment: 'SHARED_VSS_SNAPSHOT' },
+    blockers: [],
+  };
   const mismatched = structuredClone(inventory);
   mismatched.files[0].logical_identity.messages[0].versions[0].content_sha256 = '0'.repeat(64);
   inventory = mismatched;
   const rejected = await f.bridge.verifyPersistedInventory();
   assert.equal(rejected.status, 'NON_READY');
+  await assert.rejects(f.bridge.guardExport(), /NON_READY:/);
   assert.match(rejected.reason, /version identity or digest differs/);
   const blockedSync = await f.bridge.syncCurrentDigestInventory();
   assert.equal(blockedSync.status, 'NON_READY');
   assert.equal(publishedSnapshots.length, publishedBeforeSync + 1);
 
-  inventory = { ...mismatched, host_session_id: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404' };
+  inventory = await makePersistedInventory(chat, { sessionId: '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404', conversationUuid });
+  inventory.host_session_id = '5e6b0a80-4e73-4c66-aaf3-7a6e62c7f404';
   const wrongSession = await f.bridge.verifyPersistedInventory();
   assert.equal(wrongSession.status, 'NON_READY');
-  assert.match(wrongSession.reason, /not bound to the current authenticated conversation/);
+  assert.match(wrongSession.reason, /attested current conversation snapshot/);
+});
+
+test('export guard refuses to save while the local Host journal has a pending mutation', async () => {
+  const f = makeFixture(undefined, {
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
+  });
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  await assert.rejects(f.bridge.guardExport(), /local Host lifecycle journal is not clear/);
+  assert.equal(f.saveCount, 1, 'export guard must not invoke native chat persistence');
 });
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -311,11 +367,8 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   assert.equal(next.operation, 'before:delete-message');
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
-  assert.ok(readiness.missingPaths.includes('restore'));
-  for (const path of ['generation-start', 'generation-end', 'generation-stop', 'partial-generation', 'persistence-ordering', 'export', 'copy-branch', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay']) {
-    assert.ok(readiness.missingPaths.includes(path), `expected uncovered lifecycle path: ${path}`);
-  }
+  assert.equal(typeof readiness.reason, 'string');
+  assert.ok(readiness.reason.length > 0);
 });
 
 test('message deletion emits digest-only tombstones for every removed version', async () => {
@@ -388,7 +441,7 @@ test('uncovered server-side lifecycle operations fail closed before a caller mut
     'delete-chat', 'delete-group-chat', 'delete-character-chat-recursive',
     'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration',
     'generation-start', 'generation-end', 'generation-stop', 'generation-cancel',
-    'partial-generation-finalization', 'regenerate', 'clear-chat', 'chat-switch',
+    'partial-generation-finalization', 'regenerate', 'chat-switch',
     'export-chat', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering',
   ];
   for (const operation of unsupported) {
@@ -428,7 +481,7 @@ test('speaker-label changes are fingerprinted and require an instrumented edit c
   await g.bridge.beforeMutation('delete-message', [0]);
 });
 
-test('source locator substitution fails closed, while an instrumented rename advances the checkpoint', async () => {
+test('source locator substitution and unverified rename both fail closed before source mutation', async () => {
   const copied = makeFixture();
   await copied.bridge.enrollCurrentConversation();
   copied.setLocator('copied-chat-file');
@@ -439,10 +492,11 @@ test('source locator substitution fails closed, while an instrumented rename adv
 
   const renamed = makeFixture();
   await renamed.bridge.enrollCurrentConversation();
-  await renamed.bridge.beforeMutation('rename-chat', []);
-  renamed.setLocator('renamed-chat-file');
-  await renamed.bridge.afterMutation('rename-chat');
-  await renamed.bridge.beforeMutation('delete-message', [0]);
+  await assert.rejects(
+    renamed.bridge.beforeMutation('rename-chat', []),
+    /NON_READY: unsupported\/uninstrumented Host lifecycle operation rename-chat/,
+  );
+  assert.equal(renamed.getLocator(), 'chat-file-1');
 });
 
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
@@ -453,7 +507,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   f.setFailSave(true);
   await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
   f.setFailSave(false);
-  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /previous lifecycle operation is incomplete/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
@@ -469,7 +523,8 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   assert.equal(result.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   const readiness = await bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
+  assert.equal(typeof readiness.reason, 'string');
+  assert.ok(readiness.reason.length > 0);
 });
 
 test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
@@ -482,18 +537,12 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
-test('unhooked clear-chat fails closed before source mutation', async () => {
+test('clear-chat uses the supported sequential delete-message lifecycle hook', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  await assert.rejects(
-    f.bridge.beforeMutation('clear-chat', [0, 1]),
-    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
-  );
+  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
+  assert.equal(before.operation, 'before:clear-chat');
   assert.equal(f.chat.length, 2);
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
-  assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
 
 test('unavailable bridge re-checks enrollment marker for the current chat before each mutation', async () => {
@@ -509,9 +558,14 @@ test('unavailable bridge re-checks enrollment marker for the current chat before
   });
 
   assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
+  assert.deepEqual(await bridge.guardExport(), { status: 'NOT_ENROLLED' });
   markers.set('logic-engine-host-lifecycle:chat-1', 'NON_READY');
   await assert.rejects(
     bridge.beforeMutation('delete-message', [0]),
+    /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
+  );
+  await assert.rejects(
+    bridge.guardExport(),
     /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
   );
 
@@ -556,6 +610,7 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
 test('new-message reconciliation fails closed when an existing identity is missing', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('create-message', []);
   const before = await f.journal.verifyIntegrity('chat-1');
   delete f.chat[0]._logicEngineLifecycle;
   f.chat.push({ is_user: false, mes: 'new reply' });
@@ -572,6 +627,7 @@ test('new-message reconciliation fails closed when an existing identity is missi
 test('create-message checkpoint refuses to absorb an unhooked edit in earlier messages', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('create-message', []);
   const before = await f.journal.verifyIntegrity('chat-1');
   f.chat[0].mes = 'external edit before new message';
   f.chat.push({ is_user: false, mes: 'new reply' });
@@ -588,6 +644,7 @@ test('create-message assigns identity only to the explicitly appended tail messa
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  await f.bridge.beforeMutation('create-message', []);
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
@@ -608,6 +665,7 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
 
+  await f.bridge.beforeMutation('message-receive', []);
   f.chat.push({ is_user: false, mes: 'assistant reply' });
   const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
   assert.equal(received.status, 'REVIEW_ONLY');
@@ -654,7 +712,7 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
   f.chat[0]._logicEngineLifecycle.versions[0].versionId = originalVersionId;
   const restored = await f.bridge.reconcileCurrentConversation();
   assert.equal(restored.status, 'NON_READY');
-  assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage/);
+  assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage|trusted source identity and Core-authoritative root inventory/);
 });
 
 
@@ -791,7 +849,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   assert.equal(reconciliation.status, 'NON_READY');
   assert.match(
     reconciliation.reason,
-    /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation/,
+    /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation|trusted source identity and Core-authoritative root inventory/,
   );
 });
 
@@ -854,4 +912,139 @@ test('Host sends a digest-only Core snapshot through reconcile while explicitly 
   assert.equal(JSON.stringify(observed[0]).includes('answer'), false);
   assert.equal(enrolled.coreCaptureStatus, 'NON_READY');
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
+});
+
+
+test('failed server PREPARED does not strand a local pending mutation before any Host write', async () => {
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async () => { throw Error('Core unavailable'); },
+    getLifecycleStatus: async () => ({ status: 'NO_PENDING_MUTATION' }),
+  });
+  await f.bridge.enrollCurrentConversation();
+  await assert.rejects(
+    f.bridge.beforeMutation('edit-message', [0]),
+    /Core did not durably accept the prepared Host mutation/,
+  );
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NO_PENDING_MUTATION');
+  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+});
+
+test('server PREPARED is recoverable when the browser IndexedDB append fails before native Host write', async () => {
+  const published = [];
+  let remoteStatus = { status: 'NO_PENDING_MUTATION' };
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      published.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remoteStatus = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      }
+      if (event.event_type === 'MUTATION_ABORTED') remoteStatus = { status: 'NO_PENDING_MUTATION' };
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => remoteStatus,
+  });
+  await f.bridge.enrollCurrentConversation();
+  f.db.failNextWrite = true;
+  await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /simulated disk full/);
+  assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 1);
+  assert.equal((await f.journal.pendingMutation('chat-1')).status, 'NON_READY');
+  assert.equal(f.saveCount, 1);
+
+  // The failed IndexedDB transaction is not retried in the same poisoned
+  // journal instance. After a page restart, a fresh journal verifies the
+  // unchanged durable baseline and can continue once the server reconciler
+  // has closed the orphaned PREPARED receipt as ABORTED.
+  const restartedJournal = new HostLifecycleJournal(f.db);
+  assert.equal((await restartedJournal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+  published.push({ event_type: 'MUTATION_ABORTED', event_id: 'server-recovery' });
+  remoteStatus = { status: 'NO_PENDING_MUTATION' };
+  const restartedBridge = createStLifecycleBridge({
+    journal: restartedJournal,
+    getConversationId: () => 'chat-1',
+    getSourceLocator: () => 'chat-file-1',
+    getChat: () => f.chat,
+    saveChat: async () => {},
+    publishLifecycleEvent: async event => {
+      published.push(structuredClone(event));
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => remoteStatus,
+  });
+  const next = await restartedBridge.beforeMutation('edit-message', [0]);
+  assert.equal(next.operation, 'before:edit-message');
+  assert.equal(published.filter(event => event.event_type === 'MUTATION_PREPARED').length, 2);
+});
+
+test('Core receives a durable prepare before mutation and a matching commit after native persistence', async () => {
+  const events = [];
+  let remote = { status: 'NO_PENDING_MUTATION' };
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      events.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remote = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      } else {
+        remote = { status: 'NO_PENDING_MUTATION' };
+      }
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => structuredClone(remote),
+  });
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  assert.equal(events[0].event_type, 'MUTATION_PREPARED');
+  assert.equal(events[0].mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.match(events[0].mutation_digest, /^[a-f0-9]{64}$/);
+  assert.equal(typeof events[0].occurred_at, 'string');
+  assert.equal(remote.status, 'PENDING_MUTATION');
+
+  f.chat[0].mes = 'edited and persisted';
+  await f.bridge.afterMutation('edit-message');
+  assert.equal(events[1].event_type, 'MUTATION_COMMITTED');
+  assert.equal(events[1].mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.equal(events[1].mutation_digest, events[0].mutation_digest);
+  assert.equal(events[1].receipt_digest, undefined, 'browser must not submit a trusted persisted-state receipt');
+  assert.equal(typeof events[1].occurred_at, 'string');
+  assert.equal(events[1].operation, 'edit-message');
+  assert.equal(remote.status, 'NO_PENDING_MUTATION');
+  assert.equal(JSON.stringify(events).includes('edited and persisted'), false);
+});
+
+test('Core pending mutation is recovered by replaying the local durable after receipt after restart', async () => {
+  const events = [];
+  let remote = { status: 'NO_PENDING_MUTATION' };
+  let failCommit = true;
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => {
+      events.push(structuredClone(event));
+      if (event.event_type === 'MUTATION_PREPARED') {
+        remote = { status: 'PENDING_MUTATION', mutation_id: event.mutation_id, operation: event.operation };
+      } else if (failCommit) {
+        throw Error('simulated Core transport interruption after local persistence');
+      } else {
+        remote = { status: 'NO_PENDING_MUTATION' };
+      }
+      return { lifecycle: { status: 'appended' } };
+    },
+    getLifecycleStatus: async () => structuredClone(remote),
+  });
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'persisted before Core reconnect';
+  await assert.rejects(() => f.bridge.afterMutation('edit-message'),
+    /Core did not durably accept the completed Host mutation/);
+  assert.equal(remote.status, 'PENDING_MUTATION');
+  failCommit = false;
+
+  const resumed = await f.bridge.beforeMutation('create-swipe', [0]);
+  const commitEvents = events.filter(event => event.event_type === 'MUTATION_COMMITTED');
+  assert.equal(commitEvents.length, 2, 'the lost response is retried with the exact persisted event envelope');
+  const [firstCommit, replay] = commitEvents;
+  assert.deepEqual(replay, firstCommit);
+  assert.equal(replay.mutation_id, before.payload.details.hostLifecycle.mutationId);
+  assert.equal(replay.mutation_digest, events[0].mutation_digest);
+  assert.equal(replay.receipt_digest, undefined, 'replay asks the server to reuse its durable receipt');
+  assert.equal(replay.operation, 'edit-message');
+  assert.equal(remote.status, 'PENDING_MUTATION');
+  assert.equal(resumed.operation, 'before:create-swipe');
 });

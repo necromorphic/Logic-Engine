@@ -6,6 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
+import { createAuthenticatedHostSessionContext } from '../src/application/host-session-context.js';
 
 const sourceBytes = Buffer.from('approved deployment-owned source');
 const source = {
@@ -16,6 +17,28 @@ const source = {
   authorization_ref: 'rule:author-initial-v1',
   sha256: createHash('sha256').update(sourceBytes).digest('hex'),
 };
+const HOST_SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const HOST_INSTALLATION_ID = '22222222-2222-4222-8222-222222222222';
+const HOST_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const HOST_CONVERSATION_UUID = '44444444-4444-4444-8444-444444444444';
+const HOST_CONVERSATION_ID = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':' + HOST_CONVERSATION_UUID;
+const OTHER_SESSION_ID = '55555555-5555-4555-8555-555555555555';
+const OTHER_SESSION_CONVERSATION = OTHER_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':66666666-6666-4666-8666-666666666666';
+const hostRequest = {
+  user: { profile: { handle: 'alice' } },
+  session: { handle: 'alice', logicEngineSessionId: HOST_SESSION_ID, logicEngineSessionHandle: 'alice' },
+};
+const authenticatedHostRequests = new WeakSet([hostRequest]);
+const isAuthenticatedHostRequest = request => authenticatedHostRequests.has(request);
+const trustedConversationIds = new WeakMap([[hostRequest, HOST_CONVERSATION_ID]]);
+const resolveHostConversationId = request => trustedConversationIds.get(request) ?? null;
+const trustedHostIdentities = new WeakMap([[hostRequest, {
+  host_installation_id: HOST_INSTALLATION_ID,
+  authenticated_account_id: HOST_ACCOUNT_ID,
+}]]);
+const resolveHostIdentity = request => trustedHostIdentities.get(request) ?? null;
+const resolveHostBindings = () => ({ world_id: 'world-a', actor_id: 'npc-a' });
+
 const importedSource = {
   ...source,
   source_kind: 'imported',
@@ -44,7 +67,12 @@ function setup(t) {
   const conversations = new HostConversationWorldBindingService(engine);
   conversations.bind({
     adapterId: 'adapter-st',
-    conversationId: 'session:installation:conversation',
+    conversationId: HOST_CONVERSATION_ID,
+    worldId: 'world-a',
+  });
+  conversations.bind({
+    adapterId: 'adapter-st',
+    conversationId: OTHER_SESSION_CONVERSATION,
     worldId: 'world-a',
   });
   actors.bind('world-a', 'adapter-st', 'npc-a');
@@ -56,7 +84,7 @@ function setup(t) {
   const snapshot = engine.getSnapshot('world-a');
   const scope = {
     world_id: 'world-a',
-    conversation_id: 'session:installation:conversation',
+    conversation_id: HOST_CONVERSATION_ID,
     adapter_id: 'adapter-st',
     actor_id: 'npc-a',
     recipient: 'model',
@@ -64,11 +92,12 @@ function setup(t) {
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
   };
-  return { store, engine, actors, conversations, authorizers, scope };
+  const hostSessionContext = createAuthenticatedHostSessionContext(hostRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity);
+  return { store, engine, actors, conversations, authorizers, scope, hostSessionContext };
 }
 
-test('production NPC read authorization requires configured adapter, active Host conversation binding, and active actor binding', (t) => {
-  const { authorizers, scope } = setup(t);
+test('production NPC query authorization requires a branded authenticated Host session and active bindings', (t) => {
+  const { authorizers, scope, hostSessionContext } = setup(t);
   assert.deepEqual(authorizers.readAuthorizer(scope), {
     status: 'authorized',
     ...scope,
@@ -77,10 +106,93 @@ test('production NPC read authorization requires configured adapter, active Host
   assert.equal(authorizers.readAuthorizer({ ...scope, conversation_id: 'other-session:installation:conversation' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, adapter_id: 'unconfigured-adapter' }), null);
   assert.equal(authorizers.readAuthorizer({ ...scope, actor_id: 'other-actor' }), null);
-});
 
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), true);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope), false);
+
+  // SillyTavern 1.19.0 no-account mode may populate request.user from
+  // DEFAULT_USER without setting session.handle. The Host-bound session handle
+  // remains signed and must match the middleware-provided profile handle.
+  const defaultUserRequest = {
+    user: { profile: { handle: 'alice' } },
+    session: {
+      logicEngineSessionId: HOST_SESSION_ID,
+      logicEngineSessionHandle: 'alice',
+    },
+  };
+  authenticatedHostRequests.add(defaultUserRequest);
+  trustedConversationIds.set(defaultUserRequest, HOST_CONVERSATION_ID);
+  trustedHostIdentities.set(defaultUserRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: HOST_ACCOUNT_ID });
+  const defaultUserContext = createAuthenticatedHostSessionContext(
+    defaultUserRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+  );
+  assert.ok(defaultUserContext);
+  const rotatedSessionRequest = {
+    user: hostRequest.user,
+    session: { ...hostRequest.session, logicEngineSessionId: '99999999-9999-4999-8999-999999999999' },
+  };
+  authenticatedHostRequests.add(rotatedSessionRequest);
+  trustedConversationIds.set(rotatedSessionRequest, HOST_CONVERSATION_ID);
+  trustedHostIdentities.set(rotatedSessionRequest, {
+    host_installation_id: HOST_INSTALLATION_ID,
+    authenticated_account_id: HOST_ACCOUNT_ID,
+  });
+  assert.equal(createAuthenticatedHostSessionContext(
+    rotatedSessionRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest,
+    resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+  ), null);
+  const otherConversation = HOST_SESSION_ID + ':' + HOST_INSTALLATION_ID + ':77777777-7777-4777-8777-777777777777';
+  const otherConversationRequest = {
+    user: hostRequest.user,
+    session: hostRequest.session,
+  };
+  authenticatedHostRequests.add(otherConversationRequest);
+  trustedConversationIds.set(otherConversationRequest, otherConversation);
+  trustedHostIdentities.set(otherConversationRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: HOST_ACCOUNT_ID });
+  const contextForOtherConversation = createAuthenticatedHostSessionContext(
+    otherConversationRequest, otherConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+  );
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, contextForOtherConversation), false);
+  const otherSessionId = OTHER_SESSION_ID;
+  const otherSessionConversation = OTHER_SESSION_CONVERSATION;
+  const otherSessionRequest = {
+    user: { profile: { handle: 'bob' } },
+    session: { handle: 'bob', logicEngineSessionId: otherSessionId, logicEngineSessionHandle: 'bob' },
+  };
+  authenticatedHostRequests.add(otherSessionRequest);
+  trustedConversationIds.set(otherSessionRequest, otherSessionConversation);
+  trustedHostIdentities.set(otherSessionRequest, { host_installation_id: HOST_INSTALLATION_ID, authenticated_account_id: '88888888-8888-4888-8888-888888888888' });
+  const otherSessionContext = createAuthenticatedHostSessionContext(
+    otherSessionRequest, otherSessionConversation, isAuthenticatedHostRequest, resolveHostConversationId, resolveHostBindings, resolveHostIdentity,
+  );
+  assert.notEqual(otherSessionContext, null);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: otherSessionConversation,
+  }, otherSessionContext), true);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: otherSessionConversation,
+  }, hostSessionContext), false);
+  assert.equal(createAuthenticatedHostSessionContext(
+    otherSessionRequest, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId,
+  ), null);
+  assert.equal(createAuthenticatedHostSessionContext(
+    { ...hostRequest }, HOST_CONVERSATION_ID, isAuthenticatedHostRequest, resolveHostConversationId,
+  ), null);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, conversation_id: '44444444-4444-4444-8444-444444444444:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+  }, hostSessionContext), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, adapter_id: 'unconfigured-adapter',
+  }, hostSessionContext), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, purpose: 'npc_decision',
+  }, hostSessionContext), false);
+  assert.equal(authorizers.memoryQueryAuthorizer({
+    ...scope, recipient: 'player',
+  }, hostSessionContext), false);
+});
 test('per-acquisition visibility requires exact trusted source provenance and the same live Host/actor bindings', (t) => {
-  const { authorizers, scope, conversations } = setup(t);
+  const { authorizers, scope, conversations, hostSessionContext } = setup(t);
   const acquisition = {
     ...scope,
     acquisition_id: 'acquisition-a',
@@ -134,6 +246,7 @@ test('per-acquisition visibility requires exact trusted source provenance and th
     reason: 'test revoke binding',
   });
   assert.equal(authorizers.readAuthorizer(scope), null);
+  assert.equal(authorizers.memoryQueryAuthorizer(scope, hostSessionContext), false);
   assert.equal(authorizers.visibilityAuthorizer(acquisition).status, 'denied');
 });
 

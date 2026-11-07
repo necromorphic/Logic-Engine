@@ -364,3 +364,80 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('authority restarts fail-closed with pending enrollment and permits explicit finalize recovery', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const first = new AcceptedHeadAuthority({ path, installationId: 'pending-enrollment-installation' });
+  const pending = first.enroll({
+    domain: 'core',
+    operationId: 'core-enroll-pending',
+    operationDigest: digestA,
+    expectedHead: 0,
+  });
+  assert.deepEqual(pending, {
+    domain: 'core', head: 1, operation_id: 'core-enroll-pending',
+    replayed: false, status: 'pending',
+  });
+  first.close();
+
+  const reopened = new AcceptedHeadAuthority({ path, installationId: 'pending-enrollment-installation' });
+  try {
+    assert.deepEqual(reopened.getHeads(), { core: 1, provider: 0 });
+    assert.deepEqual(reopened.getEnrollmentStatus(), { core: false, provider: false });
+    assert.deepEqual(reopened.getPendingDomains(), { core: true, provider: false });
+    assert.deepEqual(reopened.getPendingOperations().core, {
+      operation_id: 'core-enroll-pending',
+      head: 1,
+      operation_digest: digestA,
+      operation_kind: 'enroll',
+    });
+    assert.deepEqual(reopened.finalize({
+      domain: 'core',
+      operationId: 'core-enroll-pending',
+      operationDigest: digestA,
+    }), {
+      domain: 'core', head: 1, operation_id: 'core-enroll-pending',
+      replayed: false, status: 'committed',
+    });
+    assert.deepEqual(reopened.getEnrollmentStatus(), { core: true, provider: false });
+    assert.deepEqual(reopened.getPendingDomains(), { core: false, provider: false });
+  } finally {
+    reopened.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('authority rejects an un-enrolled head backed by a pending mutation instead of a pending enrollment', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const authority = new AcceptedHeadAuthority({ path, installationId: 'pending-mutation-installation' });
+  authority.close();
+
+  const db = new DatabaseSync(path);
+  try {
+    db.exec("UPDATE authority_domain_heads SET head=1 WHERE domain='core'");
+    db.prepare(`
+      INSERT INTO authority_operations(
+        operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at
+      ) VALUES(?,?,?,?,?,?,?)
+    `).run(
+      'corrupt-pending-mutation',
+      'core',
+      1,
+      digestA,
+      'mutation',
+      'pending',
+      new Date().toISOString(),
+    );
+  } finally {
+    db.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'pending-mutation-installation' }),
+    /ACCEPTED_HEAD_STATE_INVALID/,
+  );
+  rmSync(dir, { recursive: true, force: true });
+});

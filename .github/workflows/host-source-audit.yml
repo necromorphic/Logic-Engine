@@ -4,17 +4,27 @@ on:
   pull_request:
     paths:
       - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - "host-adapter/extension-gateway/**"
+      - "src/application/host-session-context.js"
+      - "src/application/host-session-context.test.js"
       - ".github/workflows/host-source-audit.yml"
+      - ".github/workflows/provider-blocker3.yml"
   push:
     branches:
       - main
       - "host/**"
     paths:
       - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - "host-adapter/extension-gateway/**"
       - ".github/workflows/host-source-audit.yml"
 
 permissions:
   contents: read
+
+# Keep active exact-head source audit running across newer integration commits.
+concurrency:
+  group: host-source-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   pinned-source-audit:

@@ -1,0 +1,213 @@
+# Issue #839 — production secure SQLite VFS closure contract
+
+**Status:** implementation contract; not production approval  
+**Related:** Issue #770; Draft PR #839  
+**Scope:** all protected SQLite database roles on Linux and Windows, plus the independent ST-VectorService `better-sqlite3` engine.
+
+## 1. Security invariant
+
+For every main database, WAL, SHM, rollback journal, temporary database/journal and other SQLite-created file that can affect a protected role, SQLite must operate on the exact OS file object opened and identity-checked by the secure backend. No protected operation may fall back to a pathname-based parent VFS call.
+
+A process-local registry is not trust. Registration must be based on a separately protected persistent manifest and a pinned parent directory chain. Missing, malformed, stale, unsupported or inconsistent identity data means fail closed before SQLite schema writes or listeners start.
+
+### Internal SQLite sidecar deletion paths found in source audit
+
+SQLite 3.47.2's platform VFSes have internal sidecar-deletion paths that bypass the public VFS `xDelete` callback:
+- Windows `winShmPurge() → winDelete() → DeleteFileW`.
+- POSIX `unixShmUnmap() → osUnlink() → unlink`.
+
+The probe now intercepts both low-level delete syscalls in addition to its VFS `xDelete` callback. The Windows wrapper opens the exact child relative to the retained parent HANDLE, checks the recorded file identity, and deletes through `SetFileInformationByHandle`. The POSIX wrapper routes the internal `unlink` request through the same registered-role/sidecar checks in `probe_xDelete`. Non-broker deletion uses atomic `renameat2(RENAME_NOREPLACE)` into a protected quarantine, fsyncs the directory transition, validates the moved object's identity through a nonblocking handle, and unlinks only after the identity matches. Broker-bound sidecar deletion uses the service-owned quarantine implementation. A WAL-to-DELETE integration test exercises both internal cleanup paths on Windows and Linux.
+
+This closes the identified **callback bypass** in the feasibility probe. For broker-bound roles, runtime main-file `xDelete` remains fail-closed; main-file create/delete/rename are privileged offline `ManifestStore` operations with durable lifecycle intent, identity checks, quarantine/no-replace behavior, and startup reconciliation. The application UID cannot mutate the broker-owned protected directory directly.
+
+### Windows manifest lifecycle guard
+
+The current Windows manifest reader is not a lifecycle coordinator. It can validate the enrolled main-file, parent-directory and sidecar identities, but it cannot durably transition an active sidecar through deleting/retired states or reconcile an interrupted delete after restart. The VFS therefore rejects `xDelete` and the low-level `DeleteFileW` path for every manifest-bound role file (main, WAL, SHM and rollback journal). This is intentionally stricter than handle-relative deletion for non-manifest test roles: deleting a sidecar handle while leaving an active persistent manifest record would create a stale identity and an unsafe restart/recreate ambiguity.
+
+Production Windows closure still requires a service-owned lifecycle coordinator that serializes open/create/delete/rename, commits durable intent before namespace mutation, validates the exact opened handle, and reconciles every interrupted transition before the application starts. Until that exists, manifest-bound Windows databases must not be treated as production-ready.
+
+A broker-side transaction state machine now exists in `native/secure-vfs-probe/windows-manifest-lifecycle.js`. It defines durable-intent ordering for WAL/SHM/rollback-journal create and delete, generation advancement, exact-handle identity checks, and restart reconciliation. A create intent is committed before `CREATE_NEW`; the opened handle is flushed and its identity is committed as the next active generation. A delete intent records the active identity before the broker deletes through that verified handle; only after the parent directory is flushed is the sidecar generation retired. Recovery is idempotent across crashes before namespace mutation, after create/delete, after manifest replacement, and before intent cleanup. It refuses generation gaps, identity replacement, orphan adoption, and a retired sidecar name that reappears.
+
+This code is deliberately an orchestration layer, **not yet the Windows broker service**. Its `store` adapter must provide an exclusive cross-process service lock, atomic durable manifest replacement, durable intent writes/removal, and directory flushes. Its `namespace` adapter must be implemented by the privileged service using retained NTFS directory handles, handle-relative open/create, opened-handle file IDs, and delete-by-verified-handle. No path-taking adapter is accepted by the coordinator. The existing VFS still rejects manifest-bound deletes until those production adapters are installed and exercised by Windows service integration tests. The coordinator unit tests use fake adapters and therefore prove transaction ordering/state recovery, not OS isolation or crash durability.
+
+## 2. POSIX deletion: why a direct VFS fix is not available
+
+Linux/POSIX exposes name-based `unlinkat(dirfd, name)`, not a standard unlink-by-open-file-descriptor primitive. The current `fstatat(dirfd,name) → unlinkat(dirfd,name)` sequence therefore has a replacement window. Repeating the stat, opening the child first, using `openat2`, or moving the name into a quarantine directory does not by itself make the final unlink target object-bound when an attacker can mutate that directory.
+
+The production design for the threat model that includes an untrusted Logic-Engine process identity is a **separate namespace broker**:
+
+1. A dedicated broker OS identity owns the protected database directories and the trusted manifest. The application identity has no create/rename/unlink permission on those directories.
+2. The application VFS connects over an authenticated local IPC endpoint. On Linux, the broker verifies peer credentials (`SO_PEERCRED`) and accepts only the configured application identity and role allowlist.
+3. The broker serializes namespace mutations and resolves every name from retained directory descriptors. Linux opens use `openat2` with restrictive resolution flags where available, with a reviewed component-by-component `openat` fallback only on explicitly supported filesystems.
+4. For `xOpen`, the broker opens/creates the child, validates `fstat` identity against the manifest, persists the ownership transition, and passes the same open file description to the VFS using `SCM_RIGHTS`. The VFS performs SQLite byte I/O and file locks on that received descriptor; it does not reopen the path.
+5. For `xDelete`, only the broker can mutate the directory. It serializes the operation, opens the named child without following links, validates the opened identity and role ownership, then unlinks the name while no untrusted principal can replace it. It fsyncs the parent directory before acknowledging success.
+6. Create, rename, sidecar, temporary-file, hot-journal and recovery namespace operations must use the same broker. A broker used only for `xDelete` is insufficient if the application can still mutate the directory directly.
+
+The Linux broker prototype now implements broker-first main-file enrollment, privileged offline main-file disable/rename/delete, authenticated role-based main/sidecar descriptor opens, sidecar create/open-or-create, access checks, and sidecar deletion through service-owned quarantine. Main-file rename/delete transitions are persisted before namespace mutation and reconciled on startup; rename uses `renameat2(RENAME_NOREPLACE)`, deletion uses identity-checked quarantine, and deleted roles retain terminal manifest tombstones. Enrollment never adopts an existing path: it commits a pending intent, creates the file as broker identity, captures the opened-file identity, and promotes only after restart-safe verification. The app-facing protocol exports file descriptors only and rejects parent-directory descriptor requests. The strict Linux VFS now obtains role/path/socket from trusted Host process configuration, pins the expected broker UID into the role record at enrollment (later environment mutation cannot retarget broker authorization), and rejects caller-controlled SQL enrollment/rebinding or test-only namespace mutation UDFs. Before broker IPC it also opens the complete logical-alias parent chain without following symlinks, requires every component to be root- or broker-owned and non-group/world-writable, verifies the application identity cannot write but can traverse each directory, and rejects an existing alias entry. The obsolete SQL broker-rebinding API was removed entirely. Protected syscall hooks cannot be reset or retrieved through the probe VFS. Regression coverage includes cross-process flock contention, real process crash/restart at main-file quarantine, cross-UID direct-path denial, peer-UID spoof rejection, and callback/syscall bypass tests.
+
+This is still not production closure: full VFS callback/file-method ownership, independent SQLite locking/SHM semantics, temporary/super-journal/subjournal support (currently fail-closed), deployment-owned trusted Host configuration, Windows broker parity, and independent Security review remain open. Do not represent the prototype as production-approved until those gates are closed.
+
+## 3. Windows: required all-file handle-relative backend
+
+The current probe's `CreateFileW` interception covers registered main DB names and recognized `-wal`, `-shm`, and `-journal` names. This is not yet proof for every SQLite-created file or every VFS callback. A source audit of SQLite 3.47.2's Windows VFS found an additional bypass: `winShmPurge()` calls internal `winDelete()` directly for the SHM file, bypassing the registered VFS `xDelete` callback. The probe now also intercepts the Windows VFS `DeleteFileW` system-call hook and routes that internal deletion through the same parent-HANDLE-relative identity check. The Windows test explicitly switches a WAL database back to DELETE mode and asserts that this internal DeleteFileW hook is exercised. This closes that identified Windows sidecar-delete bypass in the probe; it does not establish full production VFS coverage. The exact archived ST-VectorService Windows x64 `better-sqlite3@13.0.3` prebuild now passes CI: the VFS extension is loaded into its own SQLite engine, main/journal/WAL/SHM operations run through the pinned parent HANDLE, WAL reader/writer snapshots remain isolated, and a different valid SQLite file substituted at the registered pathname is rejected by file-identity mismatch. The test also confirms sidecar deletion is routed through the handle-relative hook.
+
+The Windows probe now has a manifest-bound enrollment API: the JS adapter validates the Windows manifest envelope and role/sidecar lifecycle records, while the native registration callback compares the database and final-parent identities from opened handles and seeds active/retired sidecar identities. Active sidecars are checked with handle-relative opens; retired sidecars must be absent. Manifest-bound roles reject unmanifested sidecars and force existing sidecars to open with `FILE_OPEN`, not create-if-missing. This is a fail-closed enrollment slice, not complete lifecycle support: it cannot yet durably create/activate a new sidecar generation, and therefore a role with a missing active sidecar or a new unmanifested sidecar cannot continue until an authorized manifest update path exists. The current parent HANDLE is still acquired by the application process from an absolute path; the probe test does not establish a separate-identity Windows namespace boundary. Production must obtain capabilities from a privileged Windows broker/service (or broker each open/delete operation), which must own the protected directory and persistent manifest. That broker and its restart/recovery protocol are not implemented yet.
+
+The production Windows backend must own the protected `sqlite3_file` object and use a retained parent-directory HANDLE plus `NtCreateFile(OBJECT_ATTRIBUTES.RootDirectory)` for every protected child. It must cover:
+
+- main DB, WAL, SHM and rollback journal;
+- master/super-journal and temporary database/journal files, or explicitly reject those modes before they can affect a protected role;
+- `xAccess`, `xDelete`, `xFullPathname`, `xOpen` and all file-control paths that can reopen/rename/delete;
+- all applicable `sqlite3_io_methods`, including byte I/O, truncation, sync, file size, locking, reserved-lock checks and WAL shared-memory mapping/locking/barriers/unmap.
+
+The backend must not pass protected names to a parent VFS implementation unless a source audit proves that the parent file object uses only the already-validated handle and cannot re-enter path-based open/delete. Unknown flags, unsupported file types, reparse points, unsupported filesystems and unusable FILE_ID_INFO values fail closed.
+
+## 4. Persistent role manifest and enrollment
+
+Schema: `schemas/sqlite-role-manifest.schema.json`.
+
+The manifest is outside the DB directory and protected by the broker identity (preferred) or the explicitly declared dedicated service identity. POSIX device/inode/mount IDs and Windows volume serial/full 128-bit file IDs are serialized as strings to avoid integer precision loss. The JSON Schema enforces the record shape and platform-specific identity encoding; runtime validation must additionally enforce unique role names and physical identities, equal parent-component/parent-identity chain lengths, monotonic generation, sidecar uniqueness, and valid lifecycle transitions. JSON Schema validation alone is not an enrollment or trust decision.
+
+Enrollment is a privileged provisioning operation, not an automatic consequence of opening a configured path. The POSIX prototype implements broker-first enrollment through a pending manifest intent and broker-created main file; the strict VFS role binding is supplied by trusted Host process configuration, not SQL arguments. It must:
+- open the trusted root and every parent component without following symlinks/reparse points;
+- record the identity of each directory component and the database object from the returned handles;
+- reject hardlink aliases across roles and unusable/zero/unstable identities;
+- persist the role record atomically before the role is enabled;
+- make the manifest generation monotonic and reject rollback or stale generations.
+
+Sidecar transitions are durable:
+- **creating:** child has been securely created and identified; persist before exposing it to SQLite;
+- **active:** SQLite may use it;
+- **deleting:** persist intent before unlink;
+- **retired:** persist completion after unlink and parent-directory fsync.
+
+If the process crashes between creation and manifest persistence, an unregistered sidecar is detected at restart and the role enters `recovery-required`; it is not silently adopted. If it crashes after `deleting` is persisted, recovery verifies the recorded identity and completes or reconciles deletion. A mismatched object is never auto-deleted or adopted.
+
+Manifest writes use a same-directory temporary file, restrictive permissions/ACL, flush of file contents, atomic replacement, and flush of the metadata directory where supported. The broker/service must serialize writers and validate generation on every update.
+
+The Windows JS enrollment adapter now validates the complete manifest envelope and rejects unknown/missing fields, incomplete filesystem trust policy, malformed identities, duplicate physical identities across database files and active sidecars, and file identities that alias the metadata root or a parent directory. Shared parent directories across roles are allowed, while repeated identities within one parent chain are rejected. Enrollment also requires a normalized absolute drive-letter path whose complete parent-component chain and basename match the selected role record; relative, UNC/device, dot-component, and mismatched paths fail before native enrollment. Retired sidecar identities remain historical and are excluded because Windows may reuse file IDs after deletion. Sidecar generations newer than the manifest generation are rejected. Regression tests cover malformed envelope/policy and path-chain mismatches. These checks reduce malformed-manifest ambiguity but do not authenticate the manifest file or provide durable lifecycle writes.
+
+The current Windows probe now refuses `xDelete` for a manifest-bound main database. This is intentional fail-closed behavior: until a durable `deleting`/`retired` main-role transition is implemented in the manifest authority, deleting the file while retaining an active role record would make restart reconciliation unsafe. Sidecar deletion remains identity-checked in the native handle-relative path, but its lifecycle update is not yet durably committed to the Windows manifest.
+
+## 5. Restart, WAL and crash recovery protocol
+
+Startup order:
+
+1. Start the broker/secure backend under its dedicated identity; validate the metadata root and manifest ACL/ownership.
+2. Parse and schema-validate the complete manifest; reject duplicate role IDs, duplicate file identities, platform mismatch and generation rollback.
+3. Reopen each trusted directory chain handle-relatively and compare every directory identity with the manifest.
+4. Open each main DB handle-relatively and compare its identity. Do not open SQLite yet.
+5. Reconcile WAL/SHM/journal identities and lifecycle states. Unexpected or mismatched sidecars block that role and require explicit recovery.
+6. Register the complete secure VFS before any protected `DatabaseSync` or `better-sqlite3` constructor runs.
+7. Open the DB through that VFS. SQLite performs normal hot-journal/WAL recovery through the same secured file and lock methods.
+8. Only after successful recovery and integrity checks may the component perform schema writes or start listeners.
+
+The backend must preserve SQLite locking semantics across processes, not just threads. WAL tests must cover shared-memory mapping and locks, concurrent readers/writers, checkpoint/restart, abrupt process termination at each durable sidecar transition, hot-journal rollback, WAL replay, disk-full and I/O-error handling. `synchronous=NORMAL` and checkpoint-on-shutdown do not replace crash tests. The current feasibility tests characterize cross-process `BEGIN IMMEDIATE` contention and kill writers after forcing uncommitted WAL frames to disk, then verify reopen, rollback of uncommitted rows and `PRAGMA integrity_check`. The broker-bound integration now also starts a second OS process while the first holds `BEGIN IMMEDIATE`; the contender must receive `SQLITE_BUSY` through broker-returned main/SHM descriptors. It separately exercises abrupt process crash/reopen through the authenticated descriptor broker. These tests still exercise the parent VFS locking/WAL/SHM implementation; they do not prove independent locking semantics or complete persistent-manifest recovery. The Windows abrupt-process-exit test likewise validates SQLite recovery with process-local re-enrollment, not persistent Windows role-manifest recovery. Startup recovery now finishes a quarantined sidecar deletion only when the quarantined handle identity uniquely matches a manifest record in `deleting` state. It retires absent interrupted sidecars and durably marks live-name transitional sidecars `recovery-required`; unknown or mismatched quarantine entries remain retained and block startup. It does not auto-delete or promote live-name entries.
+
+## 6. ST-VectorService / better-sqlite3 separate audit
+
+The supplied ST-VectorService archive pins `better-sqlite3@13.0.3`, a separate native SQLite engine from Node's `node:sqlite`. The exact archived prebuilds are:
+
+| Platform | SHA-256 | Runtime evidence |
+|---|---|---|
+| Linux x64 | `6fd4292c6c5f352436cd85c9e1cb286978efa43c20ae350973f83414ced9991d` | SQLite 3.53.4; source ID checked in CI |
+| Windows x64 | `e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a` | SQLite 3.53.4; exact prebuild smoke-tested in CI |
+
+The package uses Node-API 10, so the runtime floor for this dependency is Node 22.14.0. Its archived build configuration sets `SQLITE_USE_URI=0`; URI `vfs=` selection is not a valid integration route. The binding's `Database::JS_new` calls `sqlite3_open_v2(..., vfs=NULL)`, selecting that SQLite engine's default VFS. Loading an extension after a file-backed database has opened is too late.
+
+The verified no-fork bootstrap sequence is:
+
+1. Construct `new Database(':memory:')` using the exact better-sqlite3 binding.
+2. Load the secure VFS extension into that connection using its explicit entrypoint. The extension registers the VFS as the default in this SQLite engine, installs its auto-extension callback, and remains loaded with `SQLITE_OK_LOAD_PERMANENTLY`.
+3. Close the bootstrap connection.
+4. Open a separate in-memory registrar connection and enroll/validate the logical database role before any protected file-backed connection is constructed.
+5. Construct `new Database(DB_PATH)` normally. Its `vfs=NULL` open now selects the registered default VFS.
+
+This is not the Node `node:sqlite` VFS registration; the extension must be loaded into the exact SQLite instance embedded in better-sqlite3. The C++ constructor patch and named-URI route were removed. CI downloads the exact 13.0.3 package, verifies the archived prebuild fingerprint, builds the VFS extension against the package's bundled SQLite headers, and exercises the stock binding without modifying its native constructor.
+
+Current exact-prebuild CI evidence:
+- **Linux x64:** default VFS registration, main DB/rollback-journal/WAL/SHM I/O, broker protocol, distinct broker/app UIDs, broker-returned descriptors, WAL reader/writer snapshots, sidecar deletion, abrupt app exit with uncommitted WAL frames, broker restart/manifest reconciliation, WAL recovery and integrity check all pass.
+- **Windows x64:** default VFS registration in the stock archived prebuild; handle-relative main DB, rollback-journal, WAL and SHM operations; WAL reader/writer snapshot isolation; handle-relative sidecar deletion; and fail-closed rejection of a different valid SQLite file substituted at the registered DB pathname all pass.
+
+The Windows result is still a probe-level proof, not production approval. The application process currently obtains the pinned parent HANDLE from a path during enrollment; a production Windows broker/service must own the protected namespace and manifest authority, pass only the required file capabilities or broker each operation, and persist sidecar lifecycle transitions across restart. The exact-prebuild Windows test now also attempts to rename the enrolled parent directory while its HANDLE is pinned. If the OS permits the rename, the old pathname is populated with a decoy and the VFS must continue reading/writing the original directory object through the retained HANDLE; a replacement inside that pinned directory is rejected by file identity. If the OS denies the rename, the test verifies the original path remains intact and still exercises child replacement rejection. The test also kills a separate writer process with uncommitted WAL frames and verifies a fresh process recovers committed rows, discards uncommitted rows, passes integrity_check, checkpoints WAL and returns to DELETE mode. These are probe-level proofs of handle-relative anchoring and SQLite WAL crash recovery; they do not prove durable manifest recovery, service restart reconciliation, or a distinct-identity Windows broker boundary. The current VFS also rejects unsupported temporary/super-journal file classes rather than silently delegating them; the production backend must support these securely or document and enforce the compatible SQLite operating modes.
+
+The archived `server.js` itself does **not** perform this bootstrap: it imports `better-sqlite3` at line 4 and constructs `new Database(DB_PATH)` at line 261 without loading the extension or enrolling a role. Therefore the supplied service, as archived, opens `vectors.sqlite` through the embedded engine's ordinary default VFS and is not protected by this PR. The PR's exact-prebuild tests prove that the binding can be bootstrapped externally; they do not mean the supplied service has been integrated. The service also logs the configured API key's SHA-256 fingerprint at startup and logs the received bearer token's length and SHA-256 fingerprint on every authenticated request (`server.js` near the top-level diagnostics and `requireBearer`). These secret-derived diagnostics are unnecessary and should be removed from the service before deployment; they are not part of SQLite VFS coverage.
+
+The ST-VectorService archive opens `vectors.sqlite` at `server.js:261`, after deriving `STORAGE_DIR` from `ST_VECTOR_ROOT`. The production host integration must load the production extension and validate role enrollment before that constructor. Use a pre-created logical alias path in an app-searchable but app-non-writable directory; do not expose the broker-owned physical database path. The service's existing `STORAGE_DIR` remains unchanged for JSON index files. A minimal app configuration is:
+
+```js
+const DB_PATH = process.env.ST_VECTOR_DB_PATH
+    ? path.resolve(process.env.ST_VECTOR_DB_PATH)
+    : path.join(STORAGE_DIR, 'vectors.sqlite');
+```
+
+The alias directory must be provisioned before service startup. The manifest/broker maps the alias to the protected role. Do not ship the current probe extension as a production library. Until the Windows broker, durable manifest lifecycle, all SQLite file classes, restart/recovery, and independent Security review are complete, ST-VectorService production activation remains unauthorized.
+ 
+## 7. Acceptance matrix
+
+| Gate | Required evidence |
+|---|---|
+| POSIX xDelete | Broker-exclusive namespace mutation; adversarial replacement race test |
+| Windows all-file opens | Custom secure VFS file objects; every SQLite file class anchored |
+| Persistent manifest | Schema validation, protected storage, atomic update and anti-rollback |
+| Restart/recovery | Crash injection at each manifest/sidecar transition; fail-closed reconciliation |
+| Locking/WAL | Multi-process lock matrix, WAL SHM, checkpoint, hot-journal and crash replay |
+| ST-VectorService | Independent better-sqlite3 binary/VFS audit and integration tests |
+| Security review | Independent reviewer signs exact commit after all platform CI is green |
+
+Until every row is evidenced on the exact reviewed HEAD, this PR remains Draft and no production database role may be activated.
+
+
+## 8. ST-VectorService host-hardening audit note (2026-11-01)
+
+The supplied ST-VectorService archive was inspected for deployment-security issues. The audit identified credential-derived diagnostics in `server.js` (configured API-key SHA-256 fingerprint at startup, and received bearer-token length/fingerprint during authentication) and a Node-API compatibility requirement for the archived `better-sqlite3@13.0.3` binary.
+
+A local, unapplied hardening edit was previously dry-run/applied to extracted archive copies for syntax and package-metadata checks. **No reproducible host-hardening patch file is tracked in this PR**, and the supplied `server.js`, package metadata and vectorization/indexing behavior have not been changed by this branch. Do not treat that local check as an available deployment artifact or as evidence that the installed ST-VectorService has been hardened.
+
+If a host-hardening patch is later added, it must remain separate from the vectorization/indexing patch and must not alter embedding requests, model selection, chunking, index formats, vector storage contents or retrieval behavior. It should remove credential-derived diagnostics and declare/enforce the Node-API runtime requirement. VFS bootstrap and role enrollment remain separate production gates and must not be implemented by shipping the current probe extension.
+
+### 2026-11-01 Windows manifest identity-history validation
+
+Implementation commit: `a84c23274d88e0938ea5a3aa13732227fb979327`. Regression-test commit: `fa2fabd3b119d278e61e2c4fb9788d300a294a29`.
+
+The Windows manifest validator previously reserved physical identities only for active sidecars. Retired sidecar records are still part of the persistent identity history and may remain present specifically because another hardlink can survive deletion of the original name. Allowing a retired identity to alias a database or another role's retired sidecar makes reconciliation ambiguous and can confuse a still-linked object with identity reuse.
+
+The validator now reserves every sidecar identity, active or retired, against the metadata root, every registered parent directory, every database identity and every other sidecar record. Added regressions cover retired-sidecar/database aliasing and cross-role retired-sidecar collisions. This is a fail-closed schema-validation improvement; it does not implement persistent Windows storage, an anti-rollback anchor, a service-owned broker, or restart reconciliation.
+
+Exact-head CI was triggered for the test commit. Production Windows manifest/broker lifecycle, full production-owned SQLite file methods, temporary/super-journal/subjournal support and independent Security review remain open.
+
+
+### 2026-11-01 Windows manifest parent-chain verification
+
+Implementation commits: `12574b805ecca0b645cb01451c36e158dddae293`, `f5b2da5cfe8684c91f4fbd794599f5b8dcc0d820`. Regression tests: `dc5273c57bf4b587bba6b4cd20fb6e898458e6b7`, `d6e23ce183b0b3cf7aa2066dc149b9bc0d9197a5`.
+
+The Windows manifest enrollment path previously compared the final parent directory identity but did not compare the recorded identities for the metadata root and intermediate parent directories against opened directory handles. Added a Windows-only native validation entrypoint that resolves each supplied directory through the handle-relative directory walk, rejects reparse points, and compares the opened directory's volume/file identity with the manifest record. The JS enrollment path now validates the metadata root and each manifest-owned parent component before database-role registration. Tests assert the exact root/parent paths and identities passed to native validation and verify that a mismatch stops enrollment before the DB registration call.
+
+This closes the missing per-directory identity comparison in the current probe's registration sequence. The validations are separate native calls; they are not an atomic service-owned namespace transaction. They do not replace the still-required privileged Windows broker/service, protected durable manifest, anti-rollback anchor, atomic lifecycle transitions or restart recovery. Do not treat this as production authorization.
+
+
+The isolated Windows bootstrap test models its temporary database's immediate parent as the metadata root, so its relative parent-component and parent-identity arrays are correctly empty. The manifest validator now supports this valid root-equals-parent case and uses the metadata-root identity as the final parent identity for native role registration. The earlier Windows run failed because that fixture described the same directory twice using inconsistent root-relative semantics; the fixture was corrected. The native DLL compilation passed in that run, but the corrected exact-head Windows integration result is still pending.
+
+### 2026-11-01 POSIX quarantine mismatch recovery and Windows empty-chain correction
+
+Implementation commits:
+- POSIX mismatch restoration: `633296e01a5788b4c80738ecc4d12983a2bfcb0d`.
+- Windows empty parent-suffix handling: `927cb79c83c16c729b4e5492e7072f1dcce1a8f6`, `67649bb5c7ed061d9223b0b85f6f2c3545b524a8`.
+
+Regression coverage:
+- `tests/better-sqlite3-vfs-integration.test.js` injects a replacement inode at the rollback-journal delete boundary using the exact packaged better-sqlite3 SQLite engine. The test verifies that the replacement survives at both hardlink names, the mismatched object is not unlinked, the quarantine directory has no orphan after successful restoration, and the failed SQLite commit is isolated from the ordinary WAL integration case.
+- `tests/security-vfs-extension-bootstrap.test.js` now asserts the same restoration contract for POSIX xDelete instead of expecting the replacement to remain hidden in quarantine.
+- `tests/windows-role-manifest.test.js` covers a valid Windows manifest whose metadata root is exactly the database parent and whose relative parent-component chain is empty.
+
+The POSIX fallback now attempts a no-replace rename from quarantine back to the original name after a moved-entry identity mismatch. It never unlinks that mismatched object. If another process has already recreated the original name, restoration does not overwrite it and the mismatched object remains quarantined for recovery. This fallback is not a substitute for the broker's durable manifest-backed lifecycle; strict Linux protected-role operations continue to use the separate-UID broker path.
+
+The Windows validator now treats an empty parent-component suffix as an empty suffix (rather than JavaScript's `slice(-0)`, which returns the entire array) and resolves the metadata root to the actual database parent in the root-equals-parent case.
+
+Exact-head verification on `d82131ae830b894113a6d10d82c842ec1866527d`:
+- POSIX namespace broker workflow: success.
+- SQLite VFS extension bootstrap: Linux and Windows success, including Windows native DLL build, handle-relative anchor test, manifest schema and bootstrap enrollment.
+- better-sqlite3 default VFS integration: Linux and Windows success against the exact archived `better-sqlite3@13.0.3` prebuilds.
+- Runtime workflow: full `npm test` and both Linux/Windows VFS registration probes success.
+
+These results validate the specific regression and current prototype harness. They do not close the production release gates: durable Windows broker/manifest authority and restart reconciliation, complete production-owned SQLite file/locking/SHM methods, full temporary/super-journal/subjournal policy, clean-host deployment verification, ST-VectorService production bootstrap and independent Security review remain open. PR #839 remains Draft and production activation remains unauthorized.
+

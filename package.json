@@ -11,9 +11,19 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --import ./tests/configure-test-env.js --test",
-    "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs"
+    "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs",
+    "install:extension": "node scripts/install-logic-engine-extension.mjs",
+    "host:install:st": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-sillytavern-host-plugin.ps1",
+    "host:patch:preflight": "node scripts/sillytavern-patch-manager.mjs preflight",
+    "host:patch:install": "node scripts/sillytavern-patch-manager.mjs install",
+    "host:patch:verify": "node scripts/sillytavern-patch-manager.mjs verify",
+    "host:patch:repair": "node scripts/sillytavern-patch-manager.mjs repair",
+    "host:patch:update": "node scripts/sillytavern-patch-manager.mjs update",
+    "host:patch:uninstall": "node scripts/sillytavern-patch-manager.mjs uninstall",
+    "deployment:verify": "node scripts/deployment/verify.mjs",
+    "host:install:bundle": "node scripts/install-sillytavern-host-patch-bundle.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1"
   }

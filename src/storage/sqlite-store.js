@@ -83,21 +83,26 @@ const timeTrigger = (row, includePayload = true) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
-const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
+const relationshipRef = (subjectId, targetId, dimension = null) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId) + (dimension === null ? '' : '/' + encodeURIComponent(dimension));
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
   const pair = value.slice('relationship:'.length).split('/');
-  if (pair.length !== 2) return null;
+  if (pair.length !== 2 && pair.length !== 3) return null;
   try {
     const subjectId = decodeURIComponent(pair[0]);
     const targetId = decodeURIComponent(pair[1]);
-    return subjectId && targetId ? { subjectId, targetId } : null;
+    const dimension = pair.length === 3 ? decodeURIComponent(pair[2]) : null;
+    return subjectId && targetId && (dimension === null || dimension) ? { subjectId, targetId, dimension } : null;
   } catch { return null; }
 };
-const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' || e.kind === 'npc.belief.transition' ? [] : [e.kind === 'relationship.transition'
-  ? relationshipRef(e.subject_id, e.target_id)
-  : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id]);
+const refs = (effects) => effects.flatMap((e) => {
+  if (e.kind === 'knowledge.acquire' || e.kind === 'npc.belief.transition') return [];
+  if (e.kind === 'relationship.transition') {
+    return Object.keys(e.patch || {}).map((dimension) => relationshipRef(e.subject_id, e.target_id, dimension));
+  }
+  return [e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
+    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id];
+});
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -221,7 +226,9 @@ function inventoryCursorDigest(key, value) {
 }
 
 export class SQLiteStore {
-  constructor(path = ':memory:') {
+  constructor(path = ':memory:', { readOnly = false } = {}) {
+    if (typeof readOnly !== 'boolean') throw new TypeError('SQLiteStore readOnly must be boolean');
+    this.readOnly = readOnly;
     this.inventoryCursorKey = randomBytes(32);
     const corePath = path === ':memory:' ? ':memory:' : resolve(path);
     const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
@@ -233,8 +240,20 @@ export class SQLiteStore {
     if (corePath !== ':memory:' && coordinatorPath && aliasesSameFile(corePath, coordinatorPath)) {
       throw new Error('Coordinator DB must be separate from the Core DB, including filesystem aliases.');
     }
-    if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
-    if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    if (readOnly) {
+      if (corePath === ':memory:' || !existsSync(corePath) || !coordinatorPath || !existsSync(coordinatorPath)) {
+        throw new Error('CORE_READ_ONLY_REQUIRES_EXISTING_CORE_AND_COORDINATOR_FILES');
+      }
+      const coordinatorCheck = new DatabaseSync(resolve(coordinatorPath), { readOnly: true });
+      try {
+        if (!coordinatorCheck.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='coordinator_lock'").get()) {
+          throw new Error('CORE_COORDINATOR_SCHEMA_UNAVAILABLE');
+        }
+      } finally { coordinatorCheck.close(); }
+    } else {
+      if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
+      if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    }
     this.acceptedHeadConfig = acceptedHeadConfigFromEnv();
     if (this.acceptedHeadConfig && (corePath === ':memory:' || !coordinatorPath)) {
       throw new Error('CORE_ACCEPTED_HEAD_REQUIRES_FILE_BACKED_STORE_AND_COORDINATOR');
@@ -243,7 +262,8 @@ export class SQLiteStore {
     this.coordinatorRelease = null;
     this.coordinatorLeaseDepth = 0;
     try {
-      this.db = new DatabaseSync(corePath);
+      if (readOnly && corePath === ':memory:') throw new Error('CORE_READ_ONLY_REQUIRES_FILE_BACKED_STORE');
+      this.db = readOnly ? new DatabaseSync(corePath, { readOnly: true }) : new DatabaseSync(corePath);
       if (this.coordinatorDb) {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
@@ -360,7 +380,34 @@ export class SQLiteStore {
       );
       `;
 
-      if (!this.acceptedHeadConfig) {
+      if (readOnly) {
+        if (!this.acceptedHeadConfig) throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map(row => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map(match => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some(objectName => !existingObjects.has(objectName))) {
+          throw new Error('CORE_SCHEMA_INCOMPLETE');
+        }
+        const migration = this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get();
+        if (migration?.version !== 17) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
+        const local = this.db.prepare(
+          'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        const status = getAcceptedHeadStatusSync({
+          port: this.acceptedHeadConfig.port,
+          token: this.acceptedHeadConfig.token,
+        });
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+          || !status.enrolled.core || !status.enrolled.provider
+          || status.pending.core || status.pending.provider
+          || status.operations.core || status.operations.provider
+          || status.heads.core !== local.head || status.heads.provider < 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        }
+      } else {
+        if (!this.acceptedHeadConfig) {
         const hasHeadTable = this.db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
         if (hasHeadTable && this.db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
           throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
@@ -381,6 +428,8 @@ export class SQLiteStore {
         this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
       this.migrate();
+
+      }
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
         this.coordinatorRelease = null;
@@ -832,6 +881,7 @@ export class SQLiteStore {
   }
 
   tx(fn) {
+    if (this.readOnly) throw new Error('CORE_STORE_READ_ONLY');
     requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
       const savepoint = 'logic_engine_nested_' + this.txDepth;
@@ -2596,26 +2646,33 @@ export class SQLiteStore {
           if (previous === undefined || event.commit_sequence < previous) affectedAt.set(ref, event.commit_sequence);
         }
       };
-      const projectionChanged = (ref, event) => {
+      // Reads and predicates are evaluated at the event's historical
+      // pre-commit cursor. A writer is different: an independent later write
+      // may restore the same canonical projection after an earlier event is
+      // retracted. Compare the post-event projection so such a restoring write
+      // survives, while partial updates that depended on removed state do not.
+      const projectionChanged = (ref, event, afterEvent = false) => {
         if (!affectedAt.has(ref) || affectedAt.get(ref) >= event.commit_sequence) return false;
+        const cursor = event.commit_sequence + (afterEvent ? 1 : 0);
         if (ref.startsWith('entity:')) {
           const entityId = ref.slice('entity:'.length);
-          const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
-          const after = this.entityProjectionAtCursor(id, event.commit_sequence, invalid).get(entityId);
+          const before = this.entityProjectionAtCursor(id, cursor).get(entityId);
+          const after = this.entityProjectionAtCursor(id, cursor, invalid).get(entityId);
           return !isDeepStrictEqual(before, after);
         }
         if (ref.startsWith('fact:')) {
           const factId = ref.slice('fact:'.length);
-          const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
-          const after = this.factProjectionAtCursor(id, event.commit_sequence, invalid).get(factId);
+          const before = this.factProjectionAtCursor(id, cursor).get(factId);
+          const after = this.factProjectionAtCursor(id, cursor, invalid).get(factId);
           return !sameFactProjection(before, after);
         }
         if (ref.startsWith('relationship:')) {
           const pair = parseRelationshipRef(ref);
           if (!pair) return false;
-          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence);
-          const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, invalid);
-          return !isDeepStrictEqual(before, after);
+          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, cursor);
+          const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, cursor, invalid);
+          if (pair.dimension === null) return !isDeepStrictEqual(before, after);
+          return !isDeepStrictEqual(before[pair.dimension], after[pair.dimension]);
         }
         return false;
       };
@@ -2627,6 +2684,20 @@ export class SQLiteStore {
           if (event.caused_by.some((value) => invalid.has(value))
             || event.depends_on.some((value) => invalid.has(value) || projectionChanged(value, event))
             || event.read_set.some((value) => projectionChanged(value, event))
+            // A writer is affected only if the projection after applying it
+            // changes under rollback. This preserves independent full restatements
+            // while invalidating partial writes that depended on removed state.
+            || refs(event.effects.filter((effect) => effect.kind !== 'fact.set'))
+              .some((value) => projectionChanged(value, event, true))
+            // A typed relationship transition is validated against the prior
+            // directed-pair state. If an earlier transition on that pair is
+            // retracted, a later transition cannot be replayed as independent
+            // merely because its final value would overwrite the same dimension.
+            || event.effects.some((effect) => effect.kind === 'relationship.transition'
+              && Object.keys(effect.patch || {}).some((dimension) => {
+                const ref = relationshipRef(effect.subject_id, effect.target_id, dimension);
+                return affectedAt.has(ref) && affectedAt.get(ref) < event.commit_sequence;
+              }))
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') {
@@ -2638,6 +2709,13 @@ export class SQLiteStore {
                 return projectionChanged('fact:' + link.target_id, event);
               }
               if (link.relation === 'REQUIRES') {
+                const beforeEntities = this.entityProjectionAtCursor(id, event.commit_sequence);
+                const beforeFacts = this.factProjectionAtCursor(id, event.commit_sequence);
+                // A legacy REQUIRES reader whose historical predicate is already
+                // unknown cannot be safely invalidated as though it were false.
+                // Preserve it for the review gate below, which compares the
+                // original unknown projection with the rollback projection.
+                if (predicateResult(beforeEntities, link.predicate, beforeFacts) === 'unknown') return false;
                 const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
                 const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
                 return predicateResult(entities, link.predicate, facts) === 'false';
@@ -2659,15 +2737,30 @@ export class SQLiteStore {
         .flatMap((event) => (event.causal_links ?? [])
           .filter((link) => link.relation === 'REQUIRES')
           .flatMap((link) => {
+            const beforeEntities = this.entityProjectionAtCursor(id, event.commit_sequence);
+            const beforeFacts = this.factProjectionAtCursor(id, event.commit_sequence);
+            if (predicateResult(beforeEntities, link.predicate, beforeFacts) !== 'unknown') return [];
             const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
             const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
-            if (predicateResult(entities, link.predicate, facts) !== 'unknown') return [];
             const targetRef = ['fact_value', 'fact_absent'].includes(link.predicate?.kind)
               ? 'fact:' + link.predicate.fact_id
               : ['entity_exists', 'entity_absent', 'entity_attribute'].includes(link.predicate?.kind)
                 ? 'entity:' + link.predicate.entity_id
                 : null;
-            if (!targetRef || !projectionChanged(targetRef, event)) return [];
+            if (!targetRef || !affectedAt.has(targetRef)
+              || affectedAt.get(targetRef) >= event.commit_sequence) return [];
+            // Review is required only when rollback changes the projection
+            // supporting the unknown predicate. Removing one duplicate source
+            // must not force review when the same unknown projection remains.
+            if (targetRef.startsWith('fact:')) {
+              const factId = targetRef.slice('fact:'.length);
+              const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
+              if (sameFactProjection(before, facts.get(factId))) return [];
+            } else if (targetRef.startsWith('entity:')) {
+              const entityId = targetRef.slice('entity:'.length);
+              const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
+              if (isDeepStrictEqual(before, entities.get(entityId))) return [];
+            }
             return [{
               event_id: event.event_id,
               reason_code: 'historical_predicate_unknown',

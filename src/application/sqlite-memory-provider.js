@@ -6,7 +6,7 @@ import { advanceAcceptedHeadSync, finalizeAcceptedHeadSync, getAcceptedHeadStatu
 import { hashRequest } from '../core/request-hash.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
-import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
+import { beginCoordinatorLock, isCoordinatorLease, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
@@ -68,7 +68,9 @@ const isPlainDataRecord = (value) => {
   // must be rejected even when the caller supplied a null-prototype record.
   if (!hasSafeObjectPrototype()) return false;
   if (prototype !== Object.prototype && prototype !== null) return false;
-  for (const key of Reflect.ownKeys(value)) {
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     if (typeof key !== 'string') return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
@@ -80,16 +82,33 @@ const isPlainDataArray = (value) => {
     || Object.getPrototypeOf(Array.prototype) !== Object.prototype
     || Object.hasOwn(Array.prototype, 'toJSON')) return false;
   const keys = Reflect.ownKeys(value);
-  if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+  if (keys.length !== value.length + 1) return false;
+  let hasLength = false;
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex += 1) {
+    if (keys[keyIndex] === 'length') hasLength = true;
+  }
+  if (!hasLength) return false;
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
   }
   return true;
 };
-const copyDataRecord = (value) => Object.fromEntries(
-  Reflect.ownKeys(value).map((key) => [key, Object.getOwnPropertyDescriptor(value, key).value]),
-);
+const copyDataRecord = (value) => {
+  const keys = Reflect.ownKeys(value);
+  const snapshot = {};
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    Object.defineProperty(snapshot, key, {
+      value: descriptor.value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return snapshot;
+};
 const snapshotProviderRecord = (value) => {
   if (!isPlainDataRecord(value)) return null;
   const snapshot = copyDataRecord(value);
@@ -102,8 +121,11 @@ const snapshotProviderRecord = (value) => {
   const lineage = snapshot.lineage[0];
   const lineageKeys = Reflect.ownKeys(lineage);
   const allowedLineageKeys = new Set(['source_kind', 'entity_id', 'source_version']);
-  if (lineageKeys.length !== allowedLineageKeys.size
-    || lineageKeys.some((key) => typeof key !== 'string' || !allowedLineageKeys.has(key))) return null;
+  if (lineageKeys.length !== allowedLineageKeys.size) return null;
+  for (let index = 0; index < lineageKeys.length; index += 1) {
+    const key = lineageKeys[index];
+    if (typeof key !== 'string' || !allowedLineageKeys.has(key)) return null;
+  }
   if (typeof lineage.source_kind !== 'string' || typeof lineage.entity_id !== 'string'
     || typeof lineage.source_version !== 'string') return null;
   snapshot.lineage = [{
@@ -113,9 +135,14 @@ const snapshotProviderRecord = (value) => {
   }];
   return snapshot;
 };
-const validId = (value) => typeof value === 'string' && value === value.trim()
-  && value.length > 0 && value.length <= 200
-  && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
+const validId = (value) => {
+  if (typeof value !== 'string' || value !== value.trim() || value.length === 0 || value.length > 200) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 const validSnapshotPart = (value) => (typeof value === 'number' && Number.isFinite(value))
   || (typeof value === 'string' && value.trim().length > 0);
 const snapshotOf = (value) => isPlainDataRecord(value)
@@ -186,10 +213,12 @@ export class SQLiteMemoryProvider {
   #reconcileGeneration;
   #transactionDepth;
   #coordinatorDepth;
+  #authorizationReadLeaseDepth;
   #stateGeneration;
   #queryAuthorizationGeneration;
   #recordAuthorizationGeneration;
   #acceptedHeadConfig;
+  #observerOnly;
 
   constructor(options = {}) {
     if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
@@ -200,9 +229,13 @@ export class SQLiteMemoryProvider {
       validateSourceVersion,
       validateInventory,
       authorizeRawRead = null,
+      observerOnly = false,
     } = options;
     // Reject non-string paths before Node path helpers can coerce caller-owned
     // objects and execute their Symbol.toPrimitive/valueOf hooks.
+    if (typeof observerOnly !== 'boolean') throw new TypeError('observerOnly must be a boolean');
+    if (observerOnly && path === ':memory:') throw new Error('PROVIDER_OBSERVER_REQUIRES_FILE_BACKED_STORE');
+    this.#observerOnly = observerOnly;
     if (typeof path !== 'string' || path.length === 0) {
       throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
     }
@@ -239,6 +272,7 @@ export class SQLiteMemoryProvider {
     this.#reconcileGeneration = new Map();
     this.#transactionDepth = 0;
     this.#coordinatorDepth = 0;
+    this.#authorizationReadLeaseDepth = 0;
     this.#stateGeneration = new Map();
     this.#queryAuthorizationGeneration = new Map();
     this.#recordAuthorizationGeneration = new Map();
@@ -249,7 +283,9 @@ export class SQLiteMemoryProvider {
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path);
+      this.#db = observerOnly
+        ? new DatabaseSync(path, { readOnly: true })
+        : new DatabaseSync(path);
       const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
@@ -277,6 +313,7 @@ export class SQLiteMemoryProvider {
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
         record_ref TEXT NOT NULL, record_version TEXT NOT NULL,
         allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+        authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1),
         PRIMARY KEY(world_id, subject_id, purpose, record_ref, record_version)
       );
       CREATE TABLE IF NOT EXISTS memory_index_state (
@@ -333,7 +370,7 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
         }
       }
-      if (this.#acceptedHeadConfig) {
+      if (observerOnly || this.#acceptedHeadConfig) {
         const existingObjects = new Set(this.#db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         ).all().map((row) => row.object_name));
@@ -343,20 +380,33 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
         }
       }
-      this.#db.exec(schemaSql);
-      if (!this.#acceptedHeadConfig) {
+      if (!observerOnly) this.#db.exec(schemaSql);
+      if (!observerOnly && !this.#acceptedHeadConfig) {
         this.#db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       }
+      const recordGrantColumns = this.#db.prepare('PRAGMA table_info(memory_record_grants)').all();
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
-      // Readiness is process-local evidence; restart requires full reconciliation.
-      this.#db.prepare(`
-        UPDATE memory_index_state
-        SET index_health='stale', source_reconciliation='stale',
-            snapshot_revision=NULL, snapshot_sequence=NULL,
-            failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
-        WHERE index_health='ready' AND source_reconciliation='current'
-      `).run(new Date().toISOString());
+      if (observerOnly) {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')
+          || !stateColumns.some((column) => column.name === 'failure_code')) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+      } else {
+        if (!recordGrantColumns.some((column) => column.name === 'authorization_generation')) {
+          this.#db.exec('ALTER TABLE memory_record_grants ADD COLUMN authorization_generation INTEGER NOT NULL DEFAULT 1 CHECK(authorization_generation>=1)');
+        }
+        if (!stateColumns.some((column) => column.name === 'failure_code')) {
+          this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+        }
+        // Writable Provider instances invalidate process-local readiness on restart.
+        this.#db.prepare(`
+          UPDATE memory_index_state
+          SET index_health='stale', source_reconciliation='stale',
+              snapshot_revision=NULL, snapshot_sequence=NULL,
+              failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED', updated_at=?
+          WHERE index_health='ready' AND source_reconciliation='current'
+        `).run(new Date().toISOString());
+      }
       if (this.#acceptedHeadConfig) {
         let status = getAcceptedHeadStatusSync({ port: this.#acceptedHeadConfig.port, token: this.#acceptedHeadConfig.token });
         const local = this.#db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
@@ -365,6 +415,7 @@ export class SQLiteMemoryProvider {
         }
         const pending = status.operations.provider;
         if (pending) {
+          if (observerOnly) throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
           if (local.head !== pending.head || local.last_operation_id !== pending.operation_id
             || local.last_operation_digest !== pending.operation_digest) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
@@ -402,6 +453,9 @@ export class SQLiteMemoryProvider {
   }
 
   #withCoordinatorLock(work) {
+    if (this.#authorizationReadLeaseDepth > 0) {
+      throw new Error('PROVIDER_READ_LEASE_MUTATION_FORBIDDEN');
+    }
     if (this.#coordinatorDepth > 0) return work();
     const release = this.#acquireCoordinatorLock();
     this.#coordinatorDepth += 1;
@@ -435,6 +489,7 @@ export class SQLiteMemoryProvider {
   }
 
   #withImmediateTransaction(work) {
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
@@ -750,6 +805,7 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    if (this.#observerOnly) throw new Error('PROVIDER_OBSERVER_READ_ONLY');
     this.#withSerializedWrite(() => {
       this.#db.prepare(`INSERT INTO memory_index_state
         (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
@@ -804,9 +860,14 @@ export class SQLiteMemoryProvider {
       throw new TypeError('Invalid record grant');
     }
     this.#withSerializedWrite(() => {
-      this.#db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+      this.#db.prepare(`INSERT INTO memory_record_grants
+        (world_id,subject_id,purpose,record_ref,record_version,allowed,authorization_generation)
+        VALUES(?,?,?,?,?,?,1)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
-        DO UPDATE SET allowed=excluded.allowed`)
+        DO UPDATE SET allowed=excluded.allowed,
+          authorization_generation=CASE WHEN memory_record_grants.allowed<>excluded.allowed
+            THEN memory_record_grants.authorization_generation+1
+            ELSE memory_record_grants.authorization_generation END`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
@@ -815,6 +876,66 @@ export class SQLiteMemoryProvider {
 
   revokeRecord(scope, recordRef, recordVersion) {
     this.#grantRecord(scope, recordRef, recordVersion, false);
+  }
+
+  /**
+   * Serialize the final Core disclosure decision with every Provider mutation
+   * and every Host session revocation using the shared Coordinator. The
+   * callback is deliberately synchronous: no authorization lease may cross an
+   * await boundary. This is the final read-side fence, not a write API.
+   */
+  withAuthorizedReadLease(scope, candidates, callback) {
+    if (!isPlainDataRecord(scope) || !Array.isArray(candidates) || isProxy(candidates)
+      || candidates.length > 50 || !isPlainDataArray(candidates)
+      || typeof callback !== 'function' || isProxy(callback)) {
+      throw new TypeError('Invalid Provider authorized-read lease input');
+    }
+    if (Object.getPrototypeOf(callback) === Object.getPrototypeOf(async function () {})) {
+      throw new TypeError('Provider authorized-read callback must be synchronous');
+    }
+    scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
+    if (!validId(scope.world_id) || !validId(scope.subject_id) || !validId(scope.purpose)
+      || candidates.length > 50) throw new TypeError('Invalid Provider authorized-read scope');
+    // Do not dispatch through caller-reachable Array.prototype methods at
+    // this security boundary. A polluted global prototype must not replace
+    // the candidate-copy operation after the array itself has been validated.
+    const stableCandidates = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      if (!isPlainDataRecord(candidate)
+        || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || !Number.isSafeInteger(candidate.authorization_generation)
+        || candidate.authorization_generation < 1) {
+        throw new TypeError('Invalid Provider authorized-read candidate');
+      }
+      stableCandidates[index] = {
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+      };
+    }
+    return this.#withCoordinatorLock(() => {
+      this.#assertAcceptedHeadCurrent();
+      if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+      for (let index = 0; index < stableCandidates.length; index += 1) {
+        const candidate = stableCandidates[index];
+        this.checkCandidateGrant({
+          ...scope,
+          ...candidate,
+        });
+      }
+      this.#authorizationReadLeaseDepth += 1;
+      try {
+        const result = callback();
+        if (result !== null && (typeof result === 'object' || typeof result === 'function')
+          && typeof result.then === 'function') {
+          throw new TypeError('Provider authorized-read callback must be synchronous');
+        }
+        return result;
+      } finally {
+        this.#authorizationReadLeaseDepth -= 1;
+      }
+    });
   }
 
   authorizeQuery(scope) {
@@ -838,24 +959,39 @@ export class SQLiteMemoryProvider {
       world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
       record_ref: input.record_ref, record_version: input.record_version,
       source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+      source_version: input.source_version,
+      authorization_generation: input.authorization_generation,
     };
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
     const requestDataVersion = this.#dataVersion();
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
-      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
+      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)
+      || (input.authorization_generation !== undefined
+        && (!Number.isSafeInteger(input.authorization_generation) || input.authorization_generation < 1))) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const grant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const grant = this.#db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    if (grant?.allowed !== 1) return false;
+    if (!grant || grant.allowed !== 1) {
+      if (input.authorization_generation !== undefined) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+      return false;
+    }
+    if (input.authorization_generation === undefined) {
+      // Legacy direct Provider callers begin a fresh authorization here. The
+      // Core consumer always supplies the generation captured by retrieval.
+      input.authorization_generation = grant.authorization_generation;
+    } else if (grant.authorization_generation !== input.authorization_generation) {
+      throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    }
     const row = this.#db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
-      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id
+      || (input.source_version !== undefined && row.source_version !== input.source_version)) return false;
     let lineage;
     try { lineage = decode(row.lineage_json); } catch {
       throw new Error('MEMORY_LINEAGE_INVALID');
@@ -907,14 +1043,14 @@ export class SQLiteMemoryProvider {
     return this.#withImmediateTransaction(() => {
     this.#assertAcceptedHeadCurrent();
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const currentGrant = this.#db.prepare(`SELECT allowed,authorization_generation FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    if (currentGrant?.allowed !== 1) {
-      // A grant that disappears while source validation is awaited is a
-      // mid-request revocation, not an ordinary pre-existing per-record denial.
-      // Keep the consumer from turning a revoked last candidate into ready-empty.
+    if (!currentGrant || currentGrant.allowed !== 1) {
       throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    }
+    if (currentGrant.authorization_generation !== input.authorization_generation) {
+      throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
     // If a grant was revoked and re-granted during the await, the final Boolean
     // alone loses that lifecycle transition. Fail this in-flight authorization;
@@ -936,6 +1072,20 @@ export class SQLiteMemoryProvider {
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     return true;
       });
+  }
+
+  checkCandidateGrant(input) {
+    this.#assertAcceptedHeadCurrent();
+    if (!isPlainDataRecord(input)) return false;
+    const { world_id, subject_id, purpose, record_ref, record_version, authorization_generation } = input;
+    if (!validId(world_id) || !validId(subject_id) || !validId(purpose)
+      || !validId(record_ref) || !validId(record_version)
+      || !Number.isSafeInteger(authorization_generation) || authorization_generation < 1) return false;
+    const grant = this.#db.prepare('SELECT allowed,authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?')
+      .get(world_id, subject_id, purpose, record_ref, record_version);
+    if (!grant || grant.allowed !== 1) throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    if (grant.authorization_generation !== authorization_generation) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    return true;
   }
 
   putRecord(record) {
@@ -1307,7 +1457,7 @@ export class SQLiteMemoryProvider {
           || String(current.commit_sequence) !== lockedState.snapshot_sequence) throw new Error('MEMORY_SNAPSHOT_STALE');
         if ((this.#stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
-        const rows = this.#db.prepare(`SELECT r.* FROM memory_records r
+        const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
           JOIN memory_index_entries i USING(world_id,record_ref,record_version)
           JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
             AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
@@ -1337,7 +1487,8 @@ export class SQLiteMemoryProvider {
 
         const candidates = rows.slice(0, 50).map((row) => ({
           record: { ref: row.record_ref, version: row.record_version },
-          source: { kind: row.source_kind, entity_id: row.source_entity_id },
+          authorization_generation: row.authorization_generation,
+          source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
           producer: { kind: row.producer_kind },
@@ -1347,13 +1498,19 @@ export class SQLiteMemoryProvider {
           freshness: { status: 'current' },
           snapshot: current,
         }));
+        const resultScope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
+        const providerEvidenceCursor = Object.freeze({
+          data_version: this.#dataVersion(),
+          candidate_digest: hashRequest({ scope: resultScope, snapshot: current, candidates }),
+        });
         return {
           completeness: rows.length > 50 ? 'partial' : 'complete',
           index_health: lockedState.index_health,
           source_reconciliation: lockedState.source_reconciliation,
-          scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
+          scope: resultScope,
           snapshot: current,
           candidates,
+          provider_evidence_cursor: providerEvidenceCursor,
         };
 
       });
@@ -1364,6 +1521,136 @@ export class SQLiteMemoryProvider {
       throw error;
     }
     return lockedResult;
+  }
+
+  /**
+   * Synchronous read-only Provider proof for the Gateway. The caller must hold
+   * the shared Coordinator lease; this method never acquires a nested lease.
+   * The Provider cursor binds the complete indexed candidate projection at the
+   * time of NPC retrieval, so any subsequent Provider write fails closed.
+   */
+  readDispatchEvidenceSync({ worldId, actorId, purpose, sources, candidates, providerEvidenceCursor, coordinatorLease }) {
+    if (!isCoordinatorLease(coordinatorLease, this.#coordinatorDb)) {
+      throw new Error('PROVIDER_COORDINATOR_LEASE_REQUIRED');
+    }
+    if (!this.#observerOnly) throw new Error('PROVIDER_DISPATCH_READER_REQUIRES_OBSERVER_MODE');
+    if (!validId(worldId) || !validId(actorId) || !validId(purpose)
+      || !Array.isArray(sources) || !Array.isArray(candidates)
+      || !providerEvidenceCursor || typeof providerEvidenceCursor !== 'object'
+      || !Number.isSafeInteger(providerEvidenceCursor.data_version)
+      || typeof providerEvidenceCursor.candidate_digest !== 'string'
+      || !/^[a-f0-9]{64}$/.test(providerEvidenceCursor.candidate_digest)) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_INVALID');
+    }
+
+    this.#assertAcceptedHeadCurrent();
+    const scope = this.#scope({ world_id: worldId, subject_id: actorId, purpose });
+    // Capture this observer connection's own counter only to detect writes
+    // during the synchronous evidence read. It cannot be compared with the
+    // retrieval connection's PRAGMA data_version value.
+    const dataVersionBefore = this.#dataVersion();
+    const indexState = this.#db.prepare(`
+      SELECT index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code
+      FROM memory_index_state WHERE world_id=?
+    `).get(worldId);
+    // Snapshot columns are persisted as TEXT to avoid SQLite integer coercion.
+    // Convert their canonical decimal representation back to safe integers
+    // before validating or hashing the same snapshot returned by retrieval.
+    const snapshotRevision = Number(indexState?.snapshot_revision);
+    const snapshotSequence = Number(indexState?.snapshot_sequence);
+    if (!indexState || indexState.index_health !== 'ready'
+      || indexState.source_reconciliation !== 'current'
+      || !/^(0|[1-9][0-9]*)$/.test(String(indexState.snapshot_revision))
+      || !/^(0|[1-9][0-9]*)$/.test(String(indexState.snapshot_sequence))
+      || !Number.isSafeInteger(snapshotRevision)
+      || !Number.isSafeInteger(snapshotSequence)
+      || indexState.failure_code !== null) {
+      throw new Error('PROVIDER_DISPATCH_INDEX_NOT_READY');
+    }
+    const queryGrant = this.#db.prepare(`
+      SELECT allowed FROM memory_query_grants
+      WHERE world_id=? AND subject_id=? AND purpose=?
+    `).get(worldId, actorId, purpose);
+    if (!queryGrant || queryGrant.allowed !== 1) throw new Error('PROVIDER_DISPATCH_QUERY_GRANT_DENIED');
+
+    const snapshot = Object.freeze({
+      world_revision: snapshotRevision,
+      commit_sequence: snapshotSequence,
+    });
+    const rows = this.#db.prepare(`SELECT r.*,g.authorization_generation FROM memory_records r
+      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+      JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
+        AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
+      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
+      ORDER BY r.record_ref,r.record_version LIMIT 51`)
+      .all(actorId, purpose, worldId, actorId, purpose);
+    if (rows.length > 50) throw new Error('PROVIDER_DISPATCH_CANDIDATE_SET_PARTIAL');
+
+    const rawCandidates = rows.map(row => ({
+      record: { ref: row.record_ref, version: row.record_version },
+      authorization_generation: row.authorization_generation,
+      source: { kind: row.source_kind, entity_id: row.source_entity_id, source_version: row.source_version },
+      world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+      content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
+      producer: { kind: row.producer_kind },
+      lifecycle: { content_disposition: row.content_disposition,
+        source_reconciliation: indexState.source_reconciliation,
+        evidence_assessment: row.evidence_assessment, index_health: indexState.index_health },
+      freshness: { status: 'current' },
+      snapshot,
+    }));
+    const currentCursor = {
+      data_version: this.#dataVersion(),
+      candidate_digest: hashRequest({ scope, snapshot, candidates: rawCandidates }),
+    };
+    // SQLite PRAGMA data_version is relative to a connection: two connections
+    // can report different counters for the same unchanged database. Retrieval
+    // and Final-Send intentionally use separate Provider connections, so compare
+    // the canonical scoped evidence digest instead. The Coordinator lease makes
+    // this read atomic against mutations; the digest detects changes since the
+    // retrieval snapshot, including candidate/grant/index projection changes.
+    if (currentCursor.candidate_digest !== providerEvidenceCursor.candidate_digest) {
+      throw new Error('PROVIDER_DISPATCH_EVIDENCE_CHANGED');
+    }
+
+    const rawByIdentity = new Map(rawCandidates.map(candidate => [
+      JSON.stringify([candidate.record.ref, candidate.record.version]), candidate,
+    ]));
+    for (const candidate of candidates) {
+      const raw = rawByIdentity.get(JSON.stringify([candidate.record_ref, candidate.record_version]));
+      if (!raw
+        || raw.authorization_generation !== candidate.authorization_generation
+        || raw.source.kind !== candidate.source_kind
+        || raw.source.entity_id !== candidate.source_entity_id
+        || raw.source.source_version !== candidate.source_version
+        || raw.epistemic_kind !== candidate.epistemic_kind
+        || raw.lifecycle.evidence_assessment !== candidate.evidence_assessment) {
+        throw new Error('PROVIDER_DISPATCH_CANDIDATE_NOT_CURRENT');
+      }
+    }
+    const localHead = this.#db.prepare(
+      'SELECT head FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!localHead || !Number.isSafeInteger(localHead.head)) {
+      throw new Error('PROVIDER_DISPATCH_ACCEPTED_HEAD_UNAVAILABLE');
+    }
+    const derivedSources = [...new Map(candidates.map(candidate => [
+      JSON.stringify([candidate.source_kind, candidate.source_entity_id, candidate.source_version]),
+      { source_kind: candidate.source_kind, entity_id: candidate.source_entity_id, source_version: candidate.source_version },
+    ])).values()].sort((a, b) =>
+      JSON.stringify([a.source_kind, a.entity_id, a.source_version])
+        .localeCompare(JSON.stringify([b.source_kind, b.entity_id, b.source_version])));
+    return Object.freeze({
+      world_id: worldId,
+      actor_id: actorId,
+      purpose,
+      granted: true,
+      readiness: 'READY',
+      head: localHead.head,
+      sources: Object.freeze(derivedSources.map(source => Object.freeze(source))),
+      candidates: Object.freeze(candidates),
+      provider_evidence_cursor: Object.freeze(currentCursor),
+    });
   }
 }
 

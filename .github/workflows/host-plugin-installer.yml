@@ -1,0 +1,71 @@
+name: SillyTavern Host Plugin Installer
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/install-sillytavern-host-plugin.ps1'
+      - 'scripts/sillytavern-patch-manager.mjs'
+      - 'host-adapter/patches/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/host-plugin-installer.yml'
+  push:
+    branches:
+      - integration/host-core-v1
+    paths:
+      - 'scripts/install-sillytavern-host-plugin.ps1'
+      - 'scripts/sillytavern-patch-manager.mjs'
+      - 'host-adapter/patches/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/host-plugin-installer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Checkout pinned SillyTavern source
+        shell: pwsh
+        run: |
+          $stRoot = Join-Path $env:RUNNER_TEMP 'SillyTavern'
+          git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git $stRoot
+          git -C $stRoot checkout 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          "ST_ROOT=$stRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install plugin copy and managed patch
+        shell: pwsh
+        run: |
+          ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
+      - name: Verify installed plugin and patch
+        shell: pwsh
+        run: |
+          $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
+          if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
+          node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
+          if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
+      - name: Verify installer refuses an existing plugin directory without mutation
+        shell: pwsh
+        run: |
+          $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
+          $gatewayRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine-extension-gateway'
+          $backupRoot = Join-Path $env:ST_ROOT '.logic-engine-plugin-backups'
+          if (-not (Test-Path (Join-Path $gatewayRoot 'index.mjs'))) { throw 'GATEWAY_PLUGIN_ENTRYPOINT_MISSING_BEFORE_REFUSAL_TEST' }
+          $backupCountBefore = if (Test-Path $backupRoot) { @(Get-ChildItem -LiteralPath $backupRoot -Directory).Count } else { 0 }
+          try {
+            ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
+            throw 'INSTALLER_OVERWROTE_EXISTING_PLUGIN'
+          } catch {
+            if ($_.Exception.Message -notlike '*PLUGIN_PATH_ALREADY_EXISTS*') { throw }
+          }
+          if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_REMOVED_AFTER_REFUSAL' }
+          if (-not (Test-Path (Join-Path $gatewayRoot 'index.mjs'))) { throw 'GATEWAY_PLUGIN_REMOVED_AFTER_REFUSAL' }
+          $backupCountAfter = if (Test-Path $backupRoot) { @(Get-ChildItem -LiteralPath $backupRoot -Directory).Count } else { 0 }
+          if ($backupCountAfter -ne $backupCountBefore) { throw 'INSTALLER_MUTATED_BACKUP_STATE_ON_REFUSAL' }
+          node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
+          if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED_AFTER_REFUSAL' }

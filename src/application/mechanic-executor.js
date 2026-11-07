@@ -5,13 +5,14 @@ import { translateMechanicEffectIntents } from '../core/mechanic-effect-translat
 import { collectConditionDependencies } from '../core/rules.js';
 import { attestMechanicEvaluation } from './mechanic-evaluation-attestation.js';
 import { isMechanicPolicyAuthoritySnapshot } from './mechanic-policy-authority.js';
+import { types as utilTypes } from 'node:util';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function isCanonicalJsonValue(value, active = new WeakSet()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
-  if (typeof value !== 'object' || active.has(value)) return false;
+  if (typeof value !== 'object' || utilTypes.isProxy(value) || active.has(value)) return false;
   active.add(value);
   let valid = true;
   if (Array.isArray(value)) {
@@ -71,7 +72,7 @@ const unknown = (reasonCode, reason, identity = null) => ({
   effect_provenance: [],
 });
 
-function snapshotIdentity(worldId, snapshot, instance, templateEntry) {
+function snapshotIdentity(worldId, snapshot, instance, templateEntry, activeMechanicSet = []) {
   return {
     world_id: worldId,
     world_revision: snapshot.world_revision,
@@ -80,6 +81,7 @@ function snapshotIdentity(worldId, snapshot, instance, templateEntry) {
     template_id: instance.template_id,
     template_version: instance.template_version,
     template_hash: templateEntry.template_hash,
+    active_mechanic_set: activeMechanicSet,
   };
 }
 
@@ -106,7 +108,9 @@ export class MechanicExecutor {
       || typeof actionId !== 'string' || !actionId.trim()) {
       throw new EngineError('INVALID_MECHANIC_EVALUATION_REQUEST', 'worldId, instanceId, and actionId are required.');
     }
-    if (!object(input)) throw new EngineError('INVALID_MECHANIC_ACTION_INPUT', 'Action input must be an object.');
+    if (!object(input) || !isCanonicalJsonValue(input)) {
+      throw new EngineError('INVALID_MECHANIC_ACTION_INPUT', 'Action input must be a plain canonical JSON object.');
+    }
 
     const snapshot = deepFreezeSnapshot(this.engine.getSnapshot(worldId, { includeMechanicEvaluationState: true }));
     const state = snapshot.mechanic_evaluation_snapshot;
@@ -120,9 +124,44 @@ export class MechanicExecutor {
       return unknown('PINNED_TEMPLATE_NOT_FOUND', 'The exact pinned template is absent from the evaluation snapshot.');
     }
     const template = templateEntry.template;
-    const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
+    const activeMechanicInstances = state.instances
+      .filter((candidate) => candidate.status === 'enabled' || candidate.status === 'needs_review')
+      .sort((a, b) => a.instance_id.localeCompare(b.instance_id));
+    const activeMechanicSet = [];
+    for (const candidate of activeMechanicInstances) {
+      const entry = state.templates.find(({ template: candidateTemplate }) =>
+        candidateTemplate.template_id === candidate.template_id
+        && candidateTemplate.version === candidate.template_version);
+      if (!entry) {
+        return unknown('ACTIVE_MECHANIC_TEMPLATE_NOT_FOUND',
+          'An enabled or review-required mechanic references a missing pinned template.');
+      }
+      activeMechanicSet.push({
+        instance_id: candidate.instance_id,
+        status: candidate.status,
+        template_id: candidate.template_id,
+        template_version: candidate.template_version,
+        template_hash: entry.template_hash,
+      });
+    }
+    const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry, activeMechanicSet);
     const action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
+    const instanceParameters = instance.parameters;
+    const instanceState = instance.state;
+    if (!object(instanceParameters) || Object.keys(instanceParameters).length > 0
+      || !object(instanceState) || Object.keys(instanceState).length > 0) {
+      return unknown('UNSUPPORTED_INSTANCE_PARAMETERS_OR_STATE',
+        'This executor slice does not bind or interpret instance parameters or mutable instance state.', identity);
+    }
+    if (activeMechanicSet.length > 1) {
+      return unknown('UNSUPPORTED_MULTIPLE_ACTIVE_MECHANICS',
+        'This executor slice requires a single enabled/review-required mechanic because cross-mechanic interaction and conflict completeness is not implemented.', identity);
+    }
+    if (template.unknown_policy !== 'mark_unknown') {
+      return unknown('UNSUPPORTED_UNKNOWN_POLICY',
+        'This executor slice supports only unknown_policy=mark_unknown.', identity);
+    }
 
     // Read the current projection only for internal dependency/target checks.
     // It is not returned to callers or passed to the context provider. Its cursor
@@ -312,9 +351,12 @@ export class MechanicExecutor {
     const existingEntities = new Set(entityById.keys());
     const existingFacts = new Map(targetFacts.map((fact) => [fact.fact_id, fact]));
     const createdEntities = new Set();
+    const createdEntityEffectIndex = new Map();
+    const entityStatusAfterEffects = new Map();
     const writtenEntityIds = new Set();
     const writtenFactIds = new Set();
-    for (const effect of translated.effects) {
+    for (let effectIndex = 0; effectIndex < translated.effects.length; effectIndex += 1) {
+      const effect = translated.effects[effectIndex];
       if (effect.kind === 'entity.create' || effect.kind === 'entity.update') {
         if (writtenEntityIds.has(effect.entity_id)) {
           return unknown('MECHANIC_EFFECT_WRITE_CONFLICT', 'Core event semantics allow at most one entity effect per entity in a proposal.', identity);
@@ -332,35 +374,72 @@ export class MechanicExecutor {
           return unknown('MECHANIC_EFFECT_TARGET_ALREADY_EXISTS', 'A create_entity target already exists in the snapshot or earlier in this effect batch.', identity);
         }
         createdEntities.add(effect.entity_id);
+        createdEntityEffectIndex.set(effect.entity_id, effectIndex);
+        entityStatusAfterEffects.set(effect.entity_id, effect.status ?? 'active');
       } else if (effect.kind === 'entity.update') {
         const target = entityById.get(effect.entity_id);
         if (!target || target.status === 'destroyed') {
           return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must be an existing, non-destroyed entity in the same-world snapshot.', identity);
         }
-      } else if (effect.kind === 'fact.set' && effect.subject_ref !== undefined && effect.subject_ref !== null) {
-        const subject = entityById.get(effect.subject_ref);
-        if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
-          return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
+        entityStatusAfterEffects.set(effect.entity_id, effect.status ?? target.status);
+      } else if (effect.kind === 'fact.set') {
+        const existingFact = existingFacts.get(effect.fact_id);
+        if (existingFact
+          && ((existingFact.subject_ref ?? null) !== (effect.subject_ref ?? null)
+            || existingFact.predicate !== effect.predicate)) {
+          return unknown('MECHANIC_EFFECT_FACT_IDENTITY_MISMATCH',
+            'An existing fact ID cannot be reused with a different subject or predicate.', identity);
+        }
+        if (effect.subject_ref !== undefined && effect.subject_ref !== null) {
+          const subject = entityById.get(effect.subject_ref);
+          const effectiveStatus = entityStatusAfterEffects.has(effect.subject_ref)
+            ? entityStatusAfterEffects.get(effect.subject_ref)
+            : subject?.status;
+          if (effectiveStatus === undefined || effectiveStatus === 'destroyed') {
+            return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND',
+              'An assert_fact subject_ref must identify a non-destroyed entity at the point the fact effect is applied.', identity);
+          }
         }
       }
     }
 
-    const effectTargetDependencies = translated.effects.flatMap((effect) => {
-      if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
-      if (effect.kind === 'entity.update') return [{ kind: 'entity_exists', target_id: effect.entity_id }];
+    const effectTargetDependencies = translated.effects.flatMap((effect, effectIndex) => {
+      const provenance = translated.effect_provenance[effectIndex];
+      const attachEffectProvenance = (dependencies) => dependencies.map((dependency) => ({
+        ...dependency,
+        effect_index: effectIndex,
+        effect_id: provenance.effect_id,
+      }));
+      if (effect.kind === 'entity.create') {
+        return attachEffectProvenance([{ kind: 'entity_absence', target_id: effect.entity_id }]);
+      }
+      if (effect.kind === 'entity.update') {
+        return attachEffectProvenance([{ kind: 'entity_exists', target_id: effect.entity_id }]);
+      }
       if (effect.kind === 'fact.set') {
+        const existingFact = existingFacts.get(effect.fact_id);
         const dependencies = [{
-          kind: existingFacts.has(effect.fact_id) ? 'fact_exists' : 'fact_absence',
+          kind: existingFact ? 'fact_exists' : 'fact_absence',
           target_id: effect.fact_id,
         }];
-        if (effect.subject_ref) dependencies.push({
-          kind: createdEntities.has(effect.subject_ref) ? 'entity_created_in_action' : 'entity_exists',
-          target_id: effect.subject_ref,
+        if (existingFact) dependencies.push({
+          kind: 'fact_identity',
+          target_id: effect.fact_id,
+          subject_ref: existingFact.subject_ref ?? null,
+          predicate: existingFact.predicate,
         });
-        return dependencies;
+        if (effect.subject_ref) dependencies.push(createdEntities.has(effect.subject_ref)
+          ? {
+            kind: 'entity_created_in_action',
+            target_id: effect.subject_ref,
+            source_effect_index: createdEntityEffectIndex.get(effect.subject_ref),
+          }
+          : { kind: 'entity_exists', target_id: effect.subject_ref });
+        return attachEffectProvenance(dependencies);
       }
       return [];
-    }).sort((a, b) => a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
+    }).sort((a, b) => a.effect_index - b.effect_index
+      || a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
 
     for (const effect of translated.effects) {
       if (effect.kind === 'entity.create') {
@@ -396,6 +475,25 @@ export class MechanicExecutor {
       effect_target_dependencies_complete: true,
       causal_read_set_complete_for_supported_slice: true,
       mechanic_dependencies_complete: true,
+      active_mechanic_set_pinned: true,
+      active_mechanic_set_scope: 'enabled_and_needs_review_instances',
+      supported_active_mechanic_set: 'single_enabled_instance_only',
+      supported_instance_data: 'empty_parameters_and_state_only',
+      supported_action_input: 'empty_object_only',
+      supported_unknown_policy: 'mark_unknown',
+      unsupported_sources: [
+        'non_empty_instance_parameters',
+        'non_empty_instance_state',
+        'non_empty_action_input',
+        'non_mark_unknown_policy',
+        'registered_module_inputs_and_reads',
+        'required_capabilities',
+        'participant_selection_and_constraints',
+        'interaction_conditions',
+        'automatic_conflict_resolution',
+        'multiple_active_mechanics_and_cross_mechanic_conflicts',
+        'fact_or_time_condition_projections',
+      ],
       unresolved_sources: [],
       assumptions: ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes'],
     };

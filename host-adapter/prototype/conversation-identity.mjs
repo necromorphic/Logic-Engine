@@ -16,6 +16,8 @@ const validUuid = value => typeof value === 'string' && UUID.test(value);
 export async function resolveStableHostConversationIdentity({
   locator,
   hostSessionId,
+  hostInstallationId,
+  authenticatedAccountId,
   metadata,
   storage,
   saveMetadata,
@@ -35,18 +37,31 @@ export async function resolveStableHostConversationIdentity({
   if (typeof saveMetadata !== 'function') throw TypeError('saveMetadata is required');
   if (typeof cryptoProvider?.randomUUID !== 'function') throw Error('NON_READY: crypto.randomUUID unavailable');
   if (!validUuid(hostSessionId)) return { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' };
+  if (!validUuid(hostInstallationId)) return { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' };
+  if (!validUuid(authenticatedAccountId)) return { status: 'NON_READY', reason: 'HOST_AUTHENTICATED_ACCOUNT_ID_UNAVAILABLE' };
 
-  let installationId = storage.getItem(INSTALLATION_KEY);
-  if (installationId !== null && !validUuid(installationId)) {
-    throw Error('NON_READY: malformed Host installation identity');
+  // Installation identity is server-owned. localStorage is only a consistency
+  // cache and must never mint or override the authenticated server identity.
+  const cachedInstallationId = storage.getItem(INSTALLATION_KEY);
+  if (cachedInstallationId !== null && !validUuid(cachedInstallationId)) {
+    throw Error('NON_READY: malformed cached Host installation identity');
   }
-  if (!installationId) {
-    installationId = cryptoProvider.randomUUID();
-    storage.setItem(INSTALLATION_KEY, installationId);
-    if (storage.getItem(INSTALLATION_KEY) !== installationId) {
-      throw Error('NON_READY: Host installation identity save failed');
+  if (cachedInstallationId && cachedInstallationId !== hostInstallationId) {
+    if (hostLocatorHasEnrollment(locator, storage)) {
+      throw Error('NON_READY: enrolled Host installation identity migration required');
+    }
+    storage.setItem(INSTALLATION_KEY, hostInstallationId);
+    if (storage.getItem(INSTALLATION_KEY) !== hostInstallationId) {
+      throw Error('NON_READY: Host installation identity cache update failed');
+    }
+  } else if (!cachedInstallationId) {
+    storage.setItem(INSTALLATION_KEY, hostInstallationId);
+    if (storage.getItem(INSTALLATION_KEY) !== hostInstallationId) {
+      throw Error('NON_READY: Host installation identity cache save failed');
     }
   }
+  const installationId = hostInstallationId;
+  const accountId = authenticatedAccountId;
 
   const existing = metadata.logic_engine_conversation_id;
   const legacyMarker = MARKER_PREFIX + locator;
@@ -56,12 +71,12 @@ export async function resolveStableHostConversationIdentity({
   if (existing !== undefined && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
-  if (mappedId && (!validUuid(existing) || mappedId !== hostSessionId + ':' + installationId + ':' + existing)) {
+  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + accountId + ':' + existing)) {
     throw Error('NON_READY: Host locator metadata is missing or inconsistent');
   }
 
   if (validUuid(existing)) {
-    const resolvedId = hostSessionId + ':' + installationId + ':' + existing;
+    const resolvedId = installationId + ':' + accountId + ':' + existing;
     const activeMarker = MARKER_PREFIX + resolvedId;
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
@@ -70,7 +85,7 @@ export async function resolveStableHostConversationIdentity({
       const key = storage.key(i);
       if (typeof key !== 'string') continue;
       const value = storage.getItem(key);
-      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + existing) && key !== activeMarker) {
+      if (key.startsWith(MARKER_PREFIX) && key.endsWith(':' + accountId + ':' + existing) && key !== activeMarker) {
         throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
       }
       if (key.startsWith(MARKER_PREFIX) && typeof value === 'string'
@@ -114,7 +129,7 @@ export async function resolveStableHostConversationIdentity({
   }
   return {
     status: 'READY_FOR_REVIEW',
-    conversationId: hostSessionId + ':' + installationId + ':' + conversationUuid,
+    conversationId: installationId + ':' + accountId + ':' + conversationUuid,
     hostSessionId,
     installationId,
     conversationUuid,
@@ -147,7 +162,7 @@ export function hasAnyHostEnrollment(storage) {
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
   sessionIdentityKey: 'logicEngineSessionId',
-  conversationIdFormat: 'hostSessionId:installationId:conversationUuid',
+  conversationIdFormat: 'installationId:accountId:conversationUuid',
   markerPrefix: MARKER_PREFIX,
   identityMetadataKey: 'logic_engine_conversation_id',
   locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',

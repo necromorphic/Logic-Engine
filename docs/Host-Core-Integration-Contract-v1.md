@@ -2,12 +2,31 @@
 
 **Contract:** Host ↔ Core authenticated Memory retrieval  
 **Version:** 1.0.0  
-**Status:** CONTRACT DEFINED; Host and Core technical-owner ACKs are being refreshed against the exact current candidate heads; Host, Core foundation, and Core HTTP exact-head Runtime CI passed; contract-document CI is triggered by this revision; independent maintainer reviews and branch integration remain pending  
-**Candidate heads verified (2 Nov 2026):** Host PR #850 `3b33f52231f9af98496a1fff07fddda99f6015a0`; Core Lane B PR #846 `832abf337530e9421f53eaed85760cb4a7f07313`; Core HTTP PR #867 `15e4d4fed9bec27a97311fe7bd8386bcde9e5368`  
+**Status:** STAGING INTEGRATION VERIFIED; Host → Core HTTP → MemoryNpcConsumer → file-backed SQLite Provider → Result Envelope passes the integrated end-to-end test and exact staging-head CI; independent maintainer review and live SillyTavern deployment acceptance remain separate gates  
+**Integrated source snapshots (2 Nov 2026):** Host #850 `e30e0c5b3a512d66954e3a32263a2333062fca9d`; Core Lane B #846 with Core HTTP #867 `f4d03a33db6f1c7b1c6345bccb6006909d3f1ae6`; single staging PR #870 targets `main` from `integration/host-core-v1`  
 **Scope:** identity hand-off, Core World/Actor resolution, authenticated Memory Provider retrieval, result/error/revoke semantics.  
-**Not in scope:** branch merging, Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
+**Not in scope:** Security Gateway changes, Final-Send, production enablement, Lane A, Provider schema migration.
 
-This document is the interface contract and implementation ledger. The two private routes are present in stacked Core HTTP #867 and Host #850; the shared context-resolution route block and Memory retrieval request/result boundary are aligned across both candidates. The updated Core HTTP #867 exact-head Runtime CI passed (run `41342230341`). The updated Host #850 exact-head full repository Runtime suite passed in the Memory Provider blocker workflow (run `41342762936`); the separate Host PR composite Runtime workflow remains in progress (run `41342763063`). Core Lane B #846 previously passed its exact-head Runtime CI (run `41317936997`). The contract document's own CI will rerun after this ledger update. Memory → NPC remains fail-closed until deployment Provider configuration/data authorization and existing release gates are satisfied.
+This document is the interface contract and implementation ledger. The integrated candidate is tracked as the single draft staging PR #870. Host owns SillyTavern request/session authentication and server-derived installation/account/conversation identity. Core owns canonical World/Actor resolution, signed assertion verification, durable replay protection, disclosure authorization and the MemoryNpcConsumer boundary. The two Core HTTP route blocks and result-envelope validator are each present once in staging and match the Core candidate; the Provider startup composition is behaviorally identical, with Host lifecycle composition retained.
+
+The end-to-end test `tests/host-core-sqlite-e2e.test.js` now instantiates the installed `createSillyTavernHostAdapter`, passes a server-populated ST request through its authentication middleware/WeakMap gate, and invokes the installed Gateway dispatch proxy. Core HTTP calls the adapter-pinned `MemoryNpcConsumer` backed by a real file-backed SQLite Provider. It verifies the authorized result and that revoke removes disclosure. The inventory enumerator and root-proof are explicit test fixtures; live ST deployment acceptance remains separate.
+
+Negative coverage on this staging tree includes HMAC tampering, expired/future timestamps, durable nonce replay across restart and concurrent requests, Host session/account identity mismatch, ambiguous/absent World/Actor bindings, query/record revoke races, stale canonical source/index, partial Provider retrieval, and incomplete Host inventory fail-closed behavior. Exact staging-head CI for source HEAD `a6c638cb620e2b44487700ad1362bc61aa7760b3` passed: Runtime `41404455844` (Linux and Windows suite jobs), Memory Provider blocker `41404455845` (full Runtime 1551 tests: 1530 passed, 0 failed, 21 skipped; Provider acceptance 132 passed), Host Gateway candidate `41404455857`, Gateway static validation `41404455852`, Gateway pinned-source audit `41404455843`, pinned ST Host source audit `41404455886`, and browser IndexedDB restart `41404455872`. The staging branch remains non-production: Memory retrieval is fail-closed when Provider configuration, explicit field allowlist, grants, or current canonical source lineage are absent.
+
+## 0.1 Final-Send integration amendment — 3 Nov 2026
+
+This amendment supersedes the browser-dispatch prototype described in the earlier staging sections wherever it conflicts with the unified Final-Send integration:
+
+- The browser Extension no longer uses generate_interceptor and does not call a browser-facing /dispatch route. It attaches only conversation/request locator metadata to SillyTavern's awaited native generation-data events.
+- The public Host server plugin has no Memory dispatch route. Its public routes remain limited to authenticated session, identity, inventory, lifecycle and version-ledger operations.
+- The actual native Express generation request is the input to the server-side Host Adapter. The Host Adapter validates the conversation locator against the complete Host inventory, authenticates the current ST session, carries the root inventory head, and resolves Core World/Actor + NPC Memory on that same request.
+- The NPC Context Receiver validates the Core Result Envelope and exact source lineage. Its output is passed only to the managed Final-Send adapter; Memory content is never returned to the browser.
+- The Final-Send serializer inserts admitted content into the exact provider request body and strips Host-only locator fields before transport.
+- The Gateway contract now requires readHostEvidence under the shared Coordinator lease. Host tuple and root inventory head are bound into the request digest and must be revalidated before durable DISPATCH_STARTED.
+
+The current integration branch composes the Host request resolver, NPC Context Receiver and body serializer, but its server plugin deliberately uses a non-transport Gateway stub. Production remains NON_READY until synchronous Core, Provider and Host evidence readers are supplied under the shared Coordinator and exact-head acceptance passes.
+
+The old browser-dispatch route is not an approved ingress and must not be restored. The only protected model egress is the pinned native Final-Send Hook.
 
 ## 1. Binding decisions and ownership
 
@@ -143,6 +162,37 @@ Core implementation rules:
 This endpoint is distinct from the existing admin bind/rebind and adapter resolve operations under `/v1/host-conversation-bindings`; it does not replace or weaken them.
 
 ## 5. Core Memory retrieval API
+
+### 3.4 Durable logout and session-rotation revocation — P0
+
+A 30-second assertion lifetime is only an admission bound. It is not a substitute for logout/session-rotation revocation. Host MUST send a server-to-server revocation event before destroying or rotating the SillyTavern session.
+
+#### `POST /v1/host/session/revoke`
+
+The route requires the configured adapter credentials (`x-adapter-id`, `x-adapter-token`) and an exact signed body:
+
+```json
+{
+  "protocol_version": 1,
+  "host_installation_id": "<uuid>",
+  "authenticated_account_id": "<uuid>",
+  "host_session_id": "<uuid>",
+  "issued_at": 0,
+  "nonce": "<uuid>",
+  "reason": "logout",
+  "signature": "<64 lowercase hex characters>"
+}
+```
+
+Allowed reasons: `logout` and `session_rotation`. The signature is HMAC-SHA256 under the adapter secret over UTF-8 `JSON.stringify([...])` in this exact order:
+
+`protocol_version, adapter_id, host_installation_id, authenticated_account_id, host_session_id, issued_at, nonce, reason`.
+
+Events older than 30 seconds or more than 5 seconds in the future are rejected. Revocation is scoped to the exact `adapter_id + host_installation_id + authenticated_account_id + host_session_id` tuple. The event nonce and revocation row are committed atomically to the durable assertion SQLite database. Duplicate event nonce returns 409; invalid signature returns 401; durable storage failure returns 503. No request body field can select or override the adapter identity.
+
+Core checks this durable revocation status both when admitting an assertion and again after the asynchronous Consumer/Provider read completes. If a session is revoked while retrieval is in progress, Core MUST discard the result and return `401 HOST_SESSION_REVOKED`; it must never return a ready Result Envelope. Revocation survives Core restart. The existing Result Envelope and Provider contract are unchanged.
+
+Host integration requirement: invoke this route from the server-side logout and session-rotation lifecycle hooks before invalidating the old session. On transport failure, Host MUST fail closed for Memory retrieval and MUST NOT issue new assertions for the old session. Client-side logout signals are not an acceptable substitute.
 
 ### `POST /v1/host/memory-npc/retrieve`
 
@@ -524,3 +574,60 @@ The Host-only `src/api/server.js` composition must be preserved; do not replace 
 - No branch was rebased, merged, or otherwise integrated. No Security Gateway, Final-Send, or production enablement work was performed.
 
 **Current decision: WIRE CONTRACT AND CURRENT HOST/CORE CANDIDATE IMPLEMENTATIONS ARE TECHNICALLY ALIGNED. DOCUMENT CI AND THE TWO SIDED TECHNICAL-OWNER ACK RECORDS ARE THE REMAINING CONTRACT-TRACKING ACTIONS. Independent maintainer reviews and branch integration are separate gates, not prerequisites in the original contract-only task.**
+
+## 14. P0 security integration update — 3 Nov 2026
+
+The current Core follow-up branch adds a server-to-server signed `POST /v1/host/session/revoke` contract and a durable revocation table in the dedicated Host assertion SQLite database. The event nonce and revocation row are committed atomically. The Memory retrieval route now requires the deployment-provided `resolveHostMemoryIdentity` authority to approve the exact adapter, installation, account, session, and conversation UUID tuple, including a valid root digest and an `AUTHORITATIVE_COMPLETE` Root Inventory snapshot. A correctly signed HMAC assertion alone is not sufficient to authorize a root identity. The first signed Root Inventory attestation may bind lifecycle sequence `0` only to the all-zero genesis head; any other sequence-zero head is rejected. This establishes root authority for a fresh account without inventing a lifecycle event.
+
+The assertion capability rechecks durable session revocation while the asynchronous Consumer/Provider operation is active and again after it returns. Core also re-resolves Root Inventory authority after the asynchronous read and requires the final `root_id`, `authority_id`, `generation`, and `snapshot_fingerprint` to match the exact snapshot admitted before the read. A revoked or changed authority discards the result (`401 HOST_ROOT_IDENTITY_UNAUTHORIZED` for revocation; `409 HOST_ROOT_IDENTITY_BINDING_CHANGED` for a changed authorized snapshot); an authority read failure maps to 503. Restart does not clear the session revocation. The Result Envelope and Provider interface remain unchanged. Tests cover invalid signatures, duplicate revocation nonce, logout during a suspended retrieval, session-rotation revocation, unauthorized Root Inventory identity, and revocation persistence after reopening the SQLite file.
+
+The pinned SillyTavern integration now revokes the old tuple before each server-side session invalidation path: native `/logout`, authenticated-account switching in `/login`, single-user auto-login, trusted-header SSO, Basic Auth account switching, and account-version invalidation in `setUserDataMiddleware`. A revocation timeout, rejection, or unavailable identity store returns 503 before SillyTavern clears or changes the old session. After a successful account-switch revocation, the old Host session ID and account handle are cleared so the next Host session request creates a new capability. The revocation client permits plaintext HTTP only for loopback Core endpoints; non-loopback Core endpoints require HTTPS because both bearer and adapter credentials are sent. Redirect responses are rejected so credentials cannot be forwarded to another origin.
+
+**Completeness gate:** `INTEGRITY_OK` is not sufficient to authorize Memory disclosure. The authority resolver must also return `authority_status: AUTHORITATIVE_COMPLETE`; Core checks this both when admitting the read and after the Consumer/Provider operation. `BASELINED_REVIEW_ONLY`, `NON_READY`, `REVIEW_ONLY`, missing status, or a status read failure all fail closed. A valid hash chain proves journal integrity, not complete Host source coverage. Until Host's completeness attestation is installed and the Root Inventory authority snapshot reports `AUTHORITATIVE_COMPLETE`, production Memory → NPC retrieval remains unavailable. The durable nonce database is also required to be a distinct file from Core, Coordinator, and Memory Provider storage, including filesystem aliases.
+
+**Resolver separation:** `resolveHostLifecycleIdentity` remains integrity-checked but may return a `REVIEW_ONLY` snapshot so Host can continue appending the lifecycle evidence required by its completeness attestation. `resolveHostMemoryIdentity` is a separate, stricter Core composition callback and must return only `AUTHORITATIVE_COMPLETE`. Do not apply the completeness gate to lifecycle-event ingestion; doing so would prevent the evidence needed to reach completeness from being recorded.
+
+**Host-side implementation ported in Host #874:** the pinned SillyTavern 1.19.0 patch now calls the signed Core revocation endpoint before native logout clears the session. The server-side Host session handler also revokes the exact old installation/account/session tuple before issuing a replacement session ID. Both paths fail closed and preserve the old session when Core revocation is unavailable. Dedicated tests cover HMAC tuple construction, logout, session rotation, and failure ordering. Exact pinned-source patch application and Runtime CI are still required before this acceptance gate can be marked complete.
+
+
+**Root Inventory attestation producer — Host PR #874 update:** Host now builds a pinned-source manifest from the exact SillyTavern commit plus all three reviewed patch layers (lifecycle hooks, unenrolled-chat fix, root-mutation guards). The generator reconstructs the expected patched tree in a temporary Git worktree and compares every covered installed ST/browser/Gateway source file byte-for-byte before emitting the manifest. The manifest binds the pinned commit, patch-bundle Git blob identities, Host handler blob identity, coverage ID, and SHA-256 digests of the covered files. CI publishes the manifest only after the Windows acceptance and source-route audit pass.
+
+The runtime verifier rejects missing/malformed manifests, unsafe path components, symlinks, path escapes, or any file digest mismatch. For a shared Windows VSS snapshot, Host sends a server-side HMAC-signed `POST /v1/host-root-inventory/attest` proof containing the exact Core-returned inventory sequence, manifest digest, root journal head, delta digest, lifecycle sequence/head, source-manifest digest, pinned patch/handler identities, VSS snapshot digest/alignment, nonce, and issue time. Core validates the registered adapter/installation/account/root tuple, signature, all expected inventory/lifecycle heads, source identity fields, nonce replay, and expiry before returning `AUTHORITATIVE_COMPLETE`. Host includes the verified source-manifest digest as an observation hint; if it changes while the account-root manifest is unchanged, Core appends a no-op root event so the new attestation is append-only rather than conflicting with the prior immutable row.
+
+**Current acceptance status:** implementation is present in Host PR #874, but the final Windows workflow result, generated artifact, and installation on the actual SillyTavern deployment are still pending. Do not treat this update as production acceptance.
+
+
+## Deployment-pinned SillyTavern source identity — Host P0 follow-up
+
+The Core deployment registry `ENGINE_HOST_ROOT_IDENTITIES` now requires an additional exact field on every Host installation/account/root record:
+
+```json
+{
+  "adapter_id": "st-host-adapter",
+  "host_installation_id": "11111111-1111-4111-8111-111111111111",
+  "authenticated_account_id": "22222222-2222-4222-8222-222222222222",
+  "root_id": "<64-character deployment root digest>",
+  "source_manifest_sha256": "<64-character digest from pinned-source-manifest.json>"
+}
+```
+
+Core compares the attestation's `source_manifest_sha256` with this deployment-owned value when accepting the signed proof and again when reconstructing the authority snapshot. A valid HMAC and a self-consistent manifest are not sufficient if the manifest digest differs from the Core registry pin. Changing the SillyTavern source, Host patches, Gateway package, or extension allowlist requires a reviewed manifest regeneration and an explicit Core registry update. Until then the root remains REVIEW_ONLY / NON_READY.
+
+The Host runtime source verifier also requires the authenticated account's local extension directory to be empty and rejects any server plugin or global third-party browser extension in the executable extension roots other than the attested Logic Engine Gateway. The pinned server plugin loader rejects unreviewed server plugins before import and disables plugin auto-update while Host authority is configured; the extension discovery route hides local third-party extensions and exposes only the attested Gateway from the global third-party directory. This prevents an unreviewed extension from adding mutation routes outside the pinned built-in route coverage.
+
+
+**Core resolver contract clarification:** the deployment-owned root resolver must return the exact authenticated `adapter_id`, installation/account/root tuple, and pinned `source_manifest_sha256`. The API boundary checks the adapter binding; the journal independently resolves the same root identity. A resolver that omits or changes any field is unauthorized. `INTEGRITY_OK` describes the append-only journal/hash-chain state only; it never upgrades a review-only inventory to authority. Only the separate signed completeness attestation can produce `AUTHORITATIVE_COMPLETE`, and only that state may authorize Memory reads.
+
+
+## 3 Nov 2026 — Core final Provider authorization lease
+
+The final Memory disclosure fence now executes under the same file-backed Coordinator used by Core, Provider and the durable Host assertion/revocation ledger. The Provider exposes `withAuthorizedReadLease(scope, candidates, callback)` as a synchronous, read-only authorization boundary:
+
+- It validates and snapshots the exact World/Actor/purpose scope and record identities/generations before acquiring the lease.
+- While holding the shared Coordinator, it rechecks the current query grant and every candidate record grant/generation.
+- The callback must be synchronous; Promise/thenable results are rejected so no lease can cross an `await`.
+- The Core consumer performs its final branded Host-session liveness check, exact Core query/binding authorization and immutable Result Envelope construction inside that callback.
+- Provider grant mutations, Core binding mutations and durable Host session revocations that participate in this Coordinator cannot interleave with the final disclosure decision. The Host assertion runner still performs its post-callback expiry/revocation check before the HTTP response is sent.
+- Both truly-empty and filtered-empty ready results use the same lease. A missing lease implementation, stale grant, revoked session, changed binding, or Coordinator failure returns NON_READY.
+
+This lease closes the previous gap between the last asynchronous candidate checks and construction of a ready Memory envelope. It does not replace the separate Final-Send Gateway lease and sole-egress checks; the model transport remains independently gated.

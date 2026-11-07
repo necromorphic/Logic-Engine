@@ -1,31 +1,64 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { types as utilTypes } from 'node:util';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 
-export function createDispatchRequestSignature(secret, request) {
-  if (typeof secret !== 'string' || secret.length < 32
-    || !request || typeof request !== 'object'
-    || typeof request.body !== 'string' || typeof request.stream !== 'boolean') {
+function snapshotSignatureInput(request) {
+  const keys = [
+    'requestId', 'route', 'senderRoute', 'model', 'stream', 'body',
+    'worldId', 'actorId', 'purpose', 'sources', 'candidates', 'hostContext',
+  ];
+  if (!request || typeof request !== 'object' || Array.isArray(request) || utilTypes.isProxy(request)) {
     throw new TypeError('Invalid signed dispatch request.');
   }
-  const sources = normalizeSources(request.sources);
-  const candidates = normalizeCandidates(request.candidates);
+  try {
+    const prototype = Object.getPrototypeOf(request);
+    if (prototype !== Object.prototype && prototype !== null) throw new TypeError('Invalid signed dispatch request.');
+    const snapshot = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const descriptor = Object.getOwnPropertyDescriptor(request, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new TypeError('Invalid signed dispatch request.');
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+}
+
+export function createDispatchRequestSignature(secret, request) {
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+  const input = snapshotSignatureInput(request);
+  if (!arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, input.senderRoute)
+    || typeof input.body !== 'string' || typeof input.stream !== 'boolean') {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+  const sources = normalizeSources(input.sources);
+  const candidates = normalizeCandidates(input.candidates);
+  const hostContext = normalizeHostContext(input.hostContext);
   assertSourcesMatchCandidates(sources, candidates);
-  const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
+  const bodyDigest = createHash('sha256').update(input.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
-    request_id: request.requestId,
-    route: request.route,
-    model: request.model,
-    stream: request.stream,
+    request_id: input.requestId,
+    route: input.route,
+    sender_route: input.senderRoute,
+    model: input.model,
+    stream: input.stream,
     body_digest: bodyDigest,
-    world_id: request.worldId,
-    actor_id: request.actorId,
-    purpose: request.purpose,
+    world_id: input.worldId,
+    actor_id: input.actorId,
+    purpose: input.purpose,
     sources,
     candidates,
+    host_context: hostContext,
   });
   return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
 }
@@ -43,28 +76,122 @@ export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'host-selected-chat-generation',
 ]);
 
-const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function () {}).constructor;
+// One authoritative registry for every protected SillyTavern chat-completion
+// sender family audited against the pinned 1.19.0 release.
+export const PROTECTED_MEMORY_SENDER_ROUTES = Object.freeze([
+  'claude', 'google-ai-studio', 'vertex-ai', 'ai21', 'mistral', 'cohere',
+  'deepseek', 'xai', 'aimlapi', 'electronhub', 'chutes', 'minimax',
+  'azure-openai', 'openai', 'openrouter', 'custom', 'perplexity', 'groq',
+  'fireworks', 'nanogpt', 'pollinations', 'moonshot', 'zai', 'siliconflow',
+  'workers-ai', 'cometapi', 'text-completions', 'kobold', 'novelai-text', 'horde-text',
+]);
 
-const validText = (value, max = 200) => typeof value === 'string'
-  && value === value.trim()
-  && value.length > 0
-  && value.length <= max
-  && ![...value].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
+const SENDER_ROUTE_CHECK_SQL = PROTECTED_MEMORY_SENDER_ROUTES.map(route => "'" + route + "'").join(',');
+
+const intrinsicFunctionToString = Function.prototype.toString;
+const intrinsicReflectApply = Reflect.apply;
+const intrinsicGetPrototypeOf = Object.getPrototypeOf;
+const intrinsicStringEndsWith = String.prototype.endsWith;
+const intrinsicStringTrimStart = String.prototype.trimStart;
+const intrinsicRegExpTest = RegExp.prototype.test;
+const asyncGeneratorFunctionSource = /^(?:async\s+function\s*\*|async\s*\*)/;
+const isProxy = utilTypes.isProxy;
+const isAsyncFunction = utilTypes.isAsyncFunction;
+const isGeneratorFunction = utilTypes.isGeneratorFunction;
+const abortSignalPrototype = typeof AbortSignal === 'function' ? AbortSignal.prototype : null;
+const abortSignalAbortedGetter = abortSignalPrototype
+  ? Object.getOwnPropertyDescriptor(abortSignalPrototype, 'aborted')?.get
+  : null;
+
+function assertDispatchNotAborted(signal) {
+  if (signal === undefined || signal === null) return;
+  if (typeof signal !== 'object' || isProxy(signal)
+    || !abortSignalPrototype || typeof abortSignalAbortedGetter !== 'function') {
+    throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  }
+  let aborted;
+  try {
+    if (intrinsicGetPrototypeOf(signal) !== abortSignalPrototype) {
+      throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+    }
+    aborted = intrinsicReflectApply(abortSignalAbortedGetter, signal, []);
+  } catch {
+    throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+  }
+  if (aborted === true) throw new Error('MEMORY_DISPATCH_CANCELLED_BEFORE_START');
+  if (aborted !== false) throw new Error('MEMORY_DISPATCH_ABORT_SIGNAL_INVALID');
+}
+
+function isSynchronousCallable(callback) {
+  if (typeof callback !== 'function' || isProxy(callback)
+    || isAsyncFunction(callback) || isGeneratorFunction(callback)) return false;
+  try {
+    // Bound functions stringify as native code. Their target kind (sync/async)
+    // is intentionally opaque, so reject them rather than invoke an untrusted
+    // callback to discover whether it returns a Promise. Use captured intrinsics
+    // so a caller cannot poison the check after this module is initialized.
+    const source = intrinsicReflectApply(intrinsicFunctionToString, callback, []);
+    const normalized = intrinsicReflectApply(intrinsicStringTrimStart, source, []);
+    if (intrinsicReflectApply(intrinsicRegExpTest, asyncGeneratorFunctionSource, [normalized])) return false;
+    return !intrinsicReflectApply(intrinsicStringEndsWith, source, ['{ [native code] }']);
+  } catch {
+    return false;
+  }
+}
+
+const intrinsicGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const isNativeError = utilTypes.isNativeError;
+
+function isDispatchContractError(error) {
+  if (!isNativeError(error)) return false;
+  let descriptor;
+  try {
+    descriptor = intrinsicReflectApply(intrinsicGetOwnPropertyDescriptor, Object, [error, 'message']);
+  } catch {
+    return false;
+  }
+  if (!descriptor || !Object.hasOwn(descriptor, 'value') || typeof descriptor.value !== 'string') return false;
+  const message = descriptor.value;
+  return message === 'MEMORY_DISPATCH_DUPLICATE_ID'
+    || message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
+    || message === 'MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED';
+}
+
+function arrayContains(values, expected) {
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === expected) return true;
+  }
+  return false;
+}
+
+function ownKeyContains(keys, expected) {
+  for (let index = 0; index < keys.length; index += 1) {
+    if (keys[index] === expected) return true;
+  }
+  return false;
+}
+
+const validText = (value, max = 200) => {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max
+    || value !== value.trim()) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 
 function canonicalPath(path) {
   const absolute = resolve(path);
   let candidate = absolute;
-  const suffix = [];
+  let suffix = '';
   while (!existsSync(candidate)) {
     const parent = dirname(candidate);
     if (parent === candidate) throw new TypeError('Cannot resolve dispatch storage path.');
-    suffix.unshift(candidate.slice(parent.length).replace(/^[/\\\\]+/, ''));
+    suffix = candidate.slice(parent.length) + suffix;
     candidate = parent;
   }
-  return resolve(realpathSync(candidate), ...suffix);
+  return resolve(realpathSync(candidate) + suffix);
 }
 
 export function openReadOnlySqliteDatabase(path) {
@@ -91,30 +218,293 @@ function sameFile(left, right) {
   return statA.dev === statB.dev && statA.ino === statB.ino;
 }
 
-function normalizeSources(sources) {
-  if (!Array.isArray(sources) || sources.length === 0 || sources.length > 256) {
+function normalizeHostContext(value) {
+  const keys = [
+    'adapter_id', 'core_conversation_id', 'world_id', 'actor_id', 'actor_type',
+    'host_installation_id', 'authenticated_account_id', 'host_session_id',
+    'host_conversation_id', 'conversation_uuid', 'root_id',
+    'root_inventory_sequence', 'root_manifest_sha256',
+  ];
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
   }
-  const normalized = sources.map((source) => {
-    if (!source || typeof source !== 'object' || Array.isArray(source)
-      || Object.keys(source).some((key) => !['source_kind', 'source_entity_id', 'source_version'].includes(key))
-      || source.source_kind !== 'canonical_entity'
+  let ownKeys;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    // Final-Send creates null-prototype snapshots to eliminate inherited
+    // properties. Accept that trusted data-record shape alongside plain
+    // records; arrays, proxies, accessors and custom prototypes remain denied.
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    ownKeys = Reflect.ownKeys(value);
+  } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  for (let index = 0; index < ownKeys.length; index += 1) {
+    if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+  }
+  const snapshot = {};
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    snapshot[key] = descriptor.value;
+  }
+  const uuid = item => typeof item === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(item);
+  if (!validText(snapshot.adapter_id) || !validText(snapshot.world_id) || !validText(snapshot.actor_id)
+    || !validText(snapshot.actor_type) || !uuid(snapshot.host_installation_id)
+    || !uuid(snapshot.authenticated_account_id) || !uuid(snapshot.host_session_id)
+    || !uuid(snapshot.conversation_uuid) || !validText(snapshot.core_conversation_id)
+    || !validText(snapshot.host_conversation_id)
+    || snapshot.core_conversation_id !== snapshot.host_session_id + ':' + snapshot.host_installation_id + ':' + snapshot.conversation_uuid
+    || snapshot.host_conversation_id !== snapshot.host_installation_id + ':' + snapshot.authenticated_account_id + ':' + snapshot.conversation_uuid
+    || !/^[a-f0-9]{64}$/.test(snapshot.root_id ?? '')
+    || !Number.isSafeInteger(snapshot.root_inventory_sequence) || snapshot.root_inventory_sequence < 1
+    || !/^[a-f0-9]{64}$/.test(snapshot.root_manifest_sha256 ?? '')) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze(snapshot);
+}
+
+function cloneLaneAData(value, seen = new Set(), depth = 0, budget = { nodes: 0 }) {
+  if (depth > 32 || ++budget.nodes > 20_000) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || seen.has(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) throw new Error('MEMORY_DISPATCH_NOT_READY');
+      const keys = Reflect.ownKeys(value);
+      if (keys.length !== value.length + 1 || !ownKeyContains(keys, 'length')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const copy = new Array(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        copy[index] = cloneLaneAData(descriptor.value, seen, depth + 1, budget);
+      }
+      return copy;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const keys = Reflect.ownKeys(value);
+    const copy = {};
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string') throw new Error('MEMORY_DISPATCH_NOT_READY');
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      Object.defineProperty(copy, key, {
+        value: cloneLaneAData(descriptor.value, seen, depth + 1, budget),
+        enumerable: true, writable: true, configurable: true,
+      });
+    }
+    return copy;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function freezeLaneAData(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    freezeLaneAData(value[key]);
+  }
+  return Object.freeze(value);
+}
+
+function normalizeLaneA(value) {
+  // Lane A is part of the complete Core-issued NPC context. Missing Lane A is
+  // not equivalent to a verified empty lane and must never be defaulted away.
+  const keys = ['lane', 'purpose', 'authorization_ref', 'visibility_authorization_ref', 'items'];
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  let ownKeys;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    // Final-Send creates null-prototype snapshots to eliminate inherited
+    // properties. Accept that safe data-record shape alongside plain records;
+    // arrays, proxies, accessors and custom prototypes remain denied.
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    ownKeys = Reflect.ownKeys(value);
+  } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  for (let index = 0; index < ownKeys.length; index += 1) {
+    if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+  }
+  for (let index = 0; index < keys.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, keys[index]);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (value.lane !== 'A' || value.purpose !== 'npc_turn_context'
+    || !validText(value.authorization_ref, 200)
+    || !validText(value.visibility_authorization_ref, 200)
+    || !Array.isArray(value.items) || value.items.length > 200) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  // Clone every nested item using property descriptors. JSON.stringify on an
+  // untrusted nested object can execute getters or Proxy traps before signing.
+  let copied;
+  try { copied = cloneLaneAData(value); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  let serialized;
+  try { serialized = JSON.stringify(copied); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (typeof serialized !== 'string' || serialized.length > 2_000_000
+    || copied.items.length > 200) throw new Error('MEMORY_DISPATCH_NOT_READY');
+  return freezeLaneAData(copied);
+}
+
+function normalizeProviderEvidenceCursor(value) {
+  let cursor;
+  try { cursor = readStrictRecord(value, ['data_version', 'candidate_digest']); }
+  catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (!Number.isSafeInteger(cursor.data_version) || cursor.data_version < 0
+    || typeof cursor.candidate_digest !== 'string' || !/^[a-f0-9]{64}$/.test(cursor.candidate_digest)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze({ data_version: cursor.data_version, candidate_digest: cursor.candidate_digest });
+}
+
+function assertSameProviderEvidenceCursor(current, expected) {
+  const normalized = normalizeProviderEvidenceCursor(current);
+  if (normalized.data_version !== expected.data_version
+    || normalized.candidate_digest !== expected.candidate_digest) {
+    throw new Error('MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED');
+  }
+}
+
+function readDispatchInput(value) {
+  const required = [
+    'requestId', 'generationId', 'replayIdentity', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
+    'actorId', 'purpose', 'sources', 'candidates', 'providerEvidenceCursor',
+    'laneA', 'hostContext', 'transport',
+  ];
+  const optional = ['revalidateLaneA', 'forwardResponse', 'hostTransformsStream', 'signal'];
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const keys = Reflect.ownKeys(value);
+    for (let index = 0; index < required.length; index += 1) {
+      if (!ownKeyContains(keys, required[index])) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const snapshot = Object.create(null);
+    for (let index = 0; index < required.length + optional.length; index += 1) {
+      const key = index < required.length ? required[index] : optional[index - required.length];
+      if (!ownKeyContains(keys, key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      snapshot[key] = descriptor.value;
+    }
+    return snapshot;
+  } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+}
+
+function readStrictArray(value, maxLength) {
+  if (!Array.isArray(value) || utilTypes.isProxy(value) || value.length > maxLength) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  let keys;
+  try { keys = Reflect.ownKeys(value); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (keys.length !== value.length + 1 || !ownKeyContains(keys, 'length')) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const items = new Array(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    let descriptor;
+    try { descriptor = Object.getOwnPropertyDescriptor(value, String(index)); }
+    catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    items[index] = descriptor.value;
+  }
+  return items;
+}
+
+function readStrictRecord(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || utilTypes.isProxy(value)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    for (let index = 0; index < ownKeys.length; index += 1) {
+      if (typeof ownKeys[index] !== 'string' || !arrayContains(keys, ownKeys[index])) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+    }
+    const record = Object.create(null);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      record[key] = descriptor.value;
+    }
+    return record;
+  } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+}
+
+function insertionSort(items, compare) {
+  for (let index = 1; index < items.length; index += 1) {
+    const current = items[index];
+    let position = index;
+    while (position > 0 && compare(items[position - 1], current) > 0) {
+      items[position] = items[position - 1];
+      position -= 1;
+    }
+    items[position] = current;
+  }
+  return items;
+}
+
+function normalizeSources(sources) {
+  const input = readStrictArray(sources, 256);
+  const normalized = new Array(input.length);
+  for (let index = 0; index < input.length; index += 1) {
+    const source = readStrictRecord(input[index], ['source_kind', 'source_entity_id', 'source_version']);
+    if (source.source_kind !== 'canonical_entity'
       || !validText(source.source_entity_id, 200)
       || !validText(source.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    return Object.freeze({
+    normalized[index] = Object.freeze({
       source_kind: source.source_kind,
       source_entity_id: source.source_entity_id,
       source_version: source.source_version,
     });
-  });
-  const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
-  normalized.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
-    || compareCodeUnits(a.source_version, b.source_version));
-  for (let i = 1; i < normalized.length; i += 1) {
-    if (normalized[i - 1].source_entity_id === normalized[i].source_entity_id
-      && normalized[i - 1].source_version === normalized[i].source_version) {
+  }
+  insertionSort(normalized, (a, b) => (a.source_entity_id < b.source_entity_id ? -1
+    : a.source_entity_id > b.source_entity_id ? 1 : 0)
+    || (a.source_version < b.source_version ? -1 : a.source_version > b.source_version ? 1 : 0));
+  for (let index = 1; index < normalized.length; index += 1) {
+    if (normalized[index - 1].source_entity_id === normalized[index].source_entity_id
+      && normalized[index - 1].source_version === normalized[index].source_version) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
@@ -123,33 +513,35 @@ function normalizeSources(sources) {
 
 
 function normalizeCandidates(candidates) {
-  if (!Array.isArray(candidates) || candidates.length === 0 || candidates.length > 50) {
-    throw new Error('MEMORY_DISPATCH_NOT_READY');
-  }
-  const normalized = candidates.map((candidate) => {
-    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
-      || Object.keys(candidate).some((key) => !['record_ref', 'record_version', 'source_kind', 'source_entity_id', 'source_version'].includes(key))
-      || !validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
+  const input = readStrictArray(candidates, 50);
+  const normalized = new Array(input.length);
+  for (let index = 0; index < input.length; index += 1) {
+    const candidate = readStrictRecord(input[index], [
+      'record_ref', 'record_version', 'authorization_generation',
+      'source_kind', 'source_entity_id', 'source_version',
+    ]);
+    if (!validText(candidate.record_ref, 200) || !validText(candidate.record_version, 200)
+      || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
       || candidate.source_kind !== 'canonical_entity'
       || !validText(candidate.source_entity_id, 200) || !validText(candidate.source_version, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    return Object.freeze({
+    normalized[index] = Object.freeze({
       record_ref: candidate.record_ref,
       record_version: candidate.record_version,
+      authorization_generation: candidate.authorization_generation,
       source_kind: candidate.source_kind,
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
     });
-  });
-  const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-  normalized.sort((a, b) => compare(a.record_ref, b.record_ref)
-    || compare(a.record_version, b.record_version)
-    || compare(a.source_entity_id, b.source_entity_id)
-    || compare(a.source_version, b.source_version));
-  for (let i = 1; i < normalized.length; i += 1) {
-    if (normalized[i - 1].record_ref === normalized[i].record_ref
-      && normalized[i - 1].record_version === normalized[i].record_version) {
+  }
+  insertionSort(normalized, (a, b) => (a.record_ref < b.record_ref ? -1 : a.record_ref > b.record_ref ? 1 : 0)
+    || (a.record_version < b.record_version ? -1 : a.record_version > b.record_version ? 1 : 0)
+    || (a.source_entity_id < b.source_entity_id ? -1 : a.source_entity_id > b.source_entity_id ? 1 : 0)
+    || (a.source_version < b.source_version ? -1 : a.source_version > b.source_version ? 1 : 0));
+  for (let index = 1; index < normalized.length; index += 1) {
+    if (normalized[index - 1].record_ref === normalized[index].record_ref
+      && normalized[index - 1].record_version === normalized[index].record_version) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
   }
@@ -165,15 +557,16 @@ function assertSameCandidates(actual, expected) {
 function assertSourcesMatchCandidates(sources, candidates) {
   const derived = [];
   const seen = new Set();
-  for (const candidate of candidates) {
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
     const key = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
     if (seen.has(key)) continue;
     seen.add(key);
-    derived.push({
+    derived[derived.length] = {
       source_kind: candidate.source_kind,
       source_entity_id: candidate.source_entity_id,
       source_version: candidate.source_version,
-    });
+    };
   }
   if (JSON.stringify(normalizeSources(derived)) !== JSON.stringify(sources)) {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -195,13 +588,41 @@ function assertSyncResult(value) {
   return value;
 }
 
+function normalizePolicyAuthority(value) {
+  let authority;
+  try { authority = readStrictRecord(value, ['authority_id', 'generation', 'fingerprint']); }
+  catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (!validText(authority.authority_id, 200)
+    || !Number.isSafeInteger(authority.generation) || authority.generation < 1
+    || typeof authority.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(authority.fingerprint)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return Object.freeze({
+    authority_id: authority.authority_id,
+    generation: authority.generation,
+    fingerprint: authority.fingerprint,
+  });
+}
+
+function assertSamePolicyAuthority(actual, expected) {
+  let normalized;
+  try { normalized = normalizePolicyAuthority(actual); } catch {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  return normalized;
+}
+
 /**
  * Sole-dispatch primitive for requests carrying protected Memory.
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
- * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * their databases read-only and validate the exact current source/grant state,
+ * including the complete policy authority tuple. One logical protected generation
+ * route is shared by the explicit 30-identity sender registry (26 Chat Completions
+ * identities plus four additional text-generation handlers). There is no fallback reader or transport.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -211,7 +632,7 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    sendUpstream,
+    readHostEvidence,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -219,9 +640,8 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function'
-      || sendUpstream instanceof ASYNC_FUNCTION_PROTOTYPE) {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a non-async transport-start function.');
+      || typeof readHostEvidence !== 'function') {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -233,22 +653,27 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.sendUpstream = sendUpstream;
+    this.readHostEvidence = readHostEvidence;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
+    this.pendingReleases = new Map();
     let release = () => {};
     let startupError = null;
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
       const existed = existsSync(this.ledgerPath);
       this.db = new DatabaseSync(this.ledgerPath);
+      // Make the dispatch-start commit explicitly durable; do not rely on
+      // SQLite build defaults for the no-upstream-retry security boundary.
+      this.db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
       if (!existed) {
         this.db.exec(`
           CREATE TABLE dispatch_ledger (
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
             route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+            sender_route TEXT NOT NULL CHECK(sender_route IN (${SENDER_ROUTE_CHECK_SQL})),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
@@ -258,6 +683,9 @@ export class MemoryDispatchGateway {
             candidates_json TEXT NOT NULL,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+            policy_authority_id TEXT NOT NULL,
+            policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+            policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
             status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
             outcome_code INTEGER,
             started_at TEXT NOT NULL,
@@ -270,20 +698,72 @@ export class MemoryDispatchGateway {
             WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
         `);
       } else {
-        const objects = new Set(this.db.prepare(
+        const objectRows = this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
-        ).all().map((row) => row.object_name));
+        ).all();
+        const objects = new Set();
+        for (let index = 0; index < objectRows.length; index += 1) objects.add(objectRows[index].object_name);
         if (!objects.has('table:dispatch_ledger') || !objects.has('index:dispatch_ledger_status_started')
           || !objects.has('index:dispatch_ledger_unresolved_digest')) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
-        const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
+        const columnRows = this.db.prepare('PRAGMA table_info(dispatch_ledger)').all();
+        const columns = new Set();
+        for (let index = 0; index < columnRows.length; index += 1) columns.add(columnRows[index].name);
         const required = [
-          'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
-          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
+          'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
+          'policy_fingerprint', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
-        if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        for (let index = 0; index < required.length; index += 1) {
+          if (!columns.has(required[index])) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        }
+        const tableSql = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+        ).get()?.sql ?? '';
+        if (PROTECTED_MEMORY_SENDER_ROUTES.some(route => tableSql.indexOf("'" + route + "'") === -1)) {
+          // Expand the exact sender CHECK constraint without discarding durable
+          // dispatch history. Migration is serialized by the shared Coordinator.
+          this.db.exec(`
+            BEGIN IMMEDIATE;
+            DROP INDEX IF EXISTS dispatch_ledger_status_started;
+            DROP INDEX IF EXISTS dispatch_ledger_unresolved_digest;
+            ALTER TABLE dispatch_ledger RENAME TO dispatch_ledger_legacy;
+            CREATE TABLE dispatch_ledger (
+              request_id TEXT PRIMARY KEY,
+              request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
+              route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
+              sender_route TEXT NOT NULL CHECK(sender_route IN (${SENDER_ROUTE_CHECK_SQL})),
+              model TEXT NOT NULL,
+              stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+              world_id TEXT NOT NULL,
+              actor_id TEXT NOT NULL,
+              purpose TEXT NOT NULL,
+              sources_json TEXT NOT NULL,
+              candidates_json TEXT NOT NULL,
+              core_head INTEGER NOT NULL CHECK(core_head > 0),
+              provider_head INTEGER NOT NULL CHECK(provider_head > 0),
+              policy_authority_id TEXT NOT NULL,
+              policy_generation INTEGER NOT NULL CHECK(policy_generation > 0),
+              policy_fingerprint TEXT NOT NULL CHECK(length(policy_fingerprint)=64),
+              status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
+              outcome_code INTEGER,
+              started_at TEXT NOT NULL,
+              finished_at TEXT
+            );
+            INSERT INTO dispatch_ledger SELECT
+              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+              policy_fingerprint,status,outcome_code,started_at,finished_at
+            FROM dispatch_ledger_legacy;
+            DROP TABLE dispatch_ledger_legacy;
+            CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
+            CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+              ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
+            COMMIT;
+          `);
+        }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
@@ -303,30 +783,61 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
-    if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
-      || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
+  async dispatchProtectedRequest(input) {
+    const {
+      requestId, generationId, replayIdentity, route, senderRoute, model, stream, body, worldId, actorId, purpose,
+      sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
+      transport, forwardResponse, hostTransformsStream = false, signal,
+    } = readDispatchInput(input);
+    if (!validText(requestId, 200) || !validText(generationId, 200)
+      || typeof replayIdentity !== 'string' || !/^[a-f0-9]{64}$/.test(replayIdentity)
+      || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
+      || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, senderRoute)
+      || typeof model !== 'string' || model.length > 128 || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+){0,3}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
-      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
+      || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)
+      || typeof hostTransformsStream !== 'boolean'
+      || stream && !hostTransformsStream && typeof forwardResponse !== 'function') {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
+    // A cancelled generation must not create DISPATCH_STARTED or open a provider connection.
+    assertDispatchNotAborted(signal);
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
+    const providerCursorSnapshot = normalizeProviderEvidenceCursor(providerEvidenceCursor);
+    const laneASnapshot = normalizeLaneA(laneA);
+    if (sourceSet.length === 0 && candidateSet.length === 0 && laneASnapshot.items.length === 0) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    if (laneASnapshot.items.length > 0
+      && !isSynchronousCallable(revalidateLaneA)) {
+      throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_REQUIRED');
+    }
+    const hostContextSnapshot = normalizeHostContext(hostContext);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
+    // Replay identity is derived from the original Host prompt before
+    // provider transforms. It is stable across provider/model/body serialization
+    // changes and is scoped to the authenticated conversation and Core actor.
     const requestDigest = createHash('sha256').update(JSON.stringify({
-      route,
-      model,
-      stream,
-      body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
+      replay_identity: replayIdentity,
       world_id: worldId,
       actor_id: actorId,
       purpose,
-      sources: sourceSet,
-      candidates: candidateSet,
+      // Root inventory revisions are revalidated for authorization, but are
+      // not idempotency identity: an unrelated file change must not reopen an
+      // UNKNOWN generation for replay.
+      host_scope: {
+        adapter_id: hostContextSnapshot.adapter_id,
+        host_installation_id: hostContextSnapshot.host_installation_id,
+        authenticated_account_id: hostContextSnapshot.authenticated_account_id,
+        host_conversation_id: hostContextSnapshot.host_conversation_id,
+        conversation_uuid: hostContextSnapshot.conversation_uuid,
+      },
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
+    let policyAuthority;
     let release = null;
     let upstreamPromise = null;
     let upstreamStartError = null;
@@ -343,10 +854,17 @@ export class MemoryDispatchGateway {
       }
 
       const core = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        worldId, actorId, purpose, sources: sourceSet, laneA: laneASnapshot,
+        hostContext: hostContextSnapshot,
+        coordinatorLease: release,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
         worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
+        providerEvidenceCursor: providerCursorSnapshot, coordinatorLease: release,
+      }));
+      const host = assertSyncResult(this.readHostEvidence({
+        hostContext: hostContextSnapshot, worldId, actorId, purpose,
+        coordinatorLease: release,
       }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
@@ -359,11 +877,35 @@ export class MemoryDispatchGateway {
         || !Number.isSafeInteger(provider.head) || provider.head !== authority.heads.provider) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
+      if (host.status !== 'READY' || host.adapter_id !== hostContextSnapshot.adapter_id
+        || host.core_conversation_id !== hostContextSnapshot.core_conversation_id
+        || host.world_id !== worldId || host.actor_id !== actorId
+        || host.root_id !== hostContextSnapshot.root_id
+        || host.root_inventory_sequence !== hostContextSnapshot.root_inventory_sequence
+        || host.root_manifest_sha256 !== hostContextSnapshot.root_manifest_sha256) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
       assertSameSources(core.sources, sourceSet);
       assertSameSources(provider.sources, sourceSet);
       assertSameCandidates(provider.candidates, candidateSet);
+      assertSameProviderEvidenceCursor(provider.provider_evidence_cursor, providerCursorSnapshot);
+      policyAuthority = normalizePolicyAuthority(core.policy_authority);
+      if (laneASnapshot.items.length > 0) {
+        const laneAResult = revalidateLaneA(release);
+        if (!laneAResult || laneAResult.status !== 'ready' || typeof laneAResult.then === 'function') {
+          throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
+        }
+      }
       coreHead = core.head;
       providerHead = provider.head;
+
+      // The Host must pass a dormant request-scoped transport capability
+      // directly in-process. It is never accepted through the JSON Gateway
+      // endpoint and is never serialized. The Host creates it from its trusted
+      // provider endpoint, credentials, headers and final serialized body.
+      if (!isSynchronousCallable(transport)) {
+        throw new Error('MEMORY_DISPATCH_TRANSPORT_CAPABILITY_INVALID');
+      }
 
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -379,13 +921,14 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
-            core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+            request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
           route,
+          senderRoute,
           model,
           stream ? 1 : 0,
           worldId,
@@ -395,27 +938,25 @@ export class MemoryDispatchGateway {
           JSON.stringify(candidateSet),
           coreHead,
           providerHead,
+          policyAuthority.authority_id,
+          policyAuthority.generation,
+          policyAuthority.fingerprint,
           new Date().toISOString(),
         );
         this.db.exec('COMMIT');
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
-        if (String(error?.message || '').includes('UNIQUE constraint failed')) {
+        if (String(error?.message || '').indexOf('UNIQUE constraint failed') !== -1) {
           throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
         }
         throw error;
       }
-      // Invoke the transport's synchronous start function before releasing the
-      // shared coordinator. AsyncFunction callbacks are rejected at construction:
-      // an `async` callback can defer the actual network handoff behind `await`.
-      // A non-async callback must initiate the final outbound request synchronously
-      // and return a Promise for the eventual response.
-      // This makes the durable DISPATCH_STARTED row and actual transport handoff
-      // one ordered boundary relative to Provider revocation/source invalidation.
+      // The dormant capability is invoked exactly once, synchronously after
+      // durable DISPATCH_STARTED and before releasing the shared coordinator.
+      // It must initiate the final outbound request immediately and return the
+      // response Promise; network I/O itself is awaited only after lock release.
       try {
-        upstreamPromise = this.sendUpstream({
-          route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
-        });
+        upstreamPromise = transport();
         if (!upstreamPromise || typeof upstreamPromise.then !== 'function') {
           throw new Error('MEMORY_DISPATCH_TRANSPORT_START_INVALID');
         }
@@ -423,9 +964,12 @@ export class MemoryDispatchGateway {
         upstreamStartError = error;
       }
     } catch (error) {
-      if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
-      throw new Error('MEMORY_DISPATCH_NOT_READY');
+      // Preserve only known fail-closed contract decisions. Do not trust an
+      // arbitrary thrown message merely because it uses the MEMORY_DISPATCH_
+      // prefix: that could leak caller-controlled diagnostics across the Host
+      // boundary. Unknown failures remain the generic NOT_READY result.
+      if (isDispatchContractError(error)) throw error;
+      throw new Error('MEMORY_DISPATCH_NOT_READY', { cause: error });
     } finally {
       try { release?.(); } catch {}
     }
@@ -445,13 +989,150 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
-    const outcomeCode = Number.isInteger(response?.status) ? response.status : null;
+    // FINAL RESPONSE REVALIDATION: after upstream completion, establish a
+    // request-scoped release capability. The actual Host writes are separately
+    // revalidated under the same Coordinator before every chunk/end operation.
+    let finalRelease = null;
+    let finalResponseAllowed = false;
+    const releaseContext = {
+      requestId, route, senderRoute, model, stream, worldId, actorId, purpose,
+      sources: sourceSet, candidates: candidateSet, providerEvidenceCursor: providerCursorSnapshot,
+      laneA: laneASnapshot, revalidateLaneA, hostContext: hostContextSnapshot, signal,
+      coreHead, providerHead, policyAuthority,
+    };
     try {
-      this.#recordOutcome(requestId, 'COMPLETED', outcomeCode);
+      finalRelease = beginCoordinatorLock(this.coordinatorDb);
+      this.#revalidateReleaseContext(releaseContext, finalRelease);
+      this.pendingReleases.set(requestId, releaseContext);
+      finalResponseAllowed = true;
     } catch {
-      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+    } finally {
+      try { finalRelease?.(); } catch { finalResponseAllowed = false; }
+    }
+    if (!finalResponseAllowed) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+
+    if (stream && !hostTransformsStream) {
+      // Native ST forwarding writes each chunk through the patched response
+      // writer. Each write/end obtains a short Coordinator lease and rechecks
+      // current Core/Provider authorization. No lease spans network I/O.
+      try {
+        const streamForwardPromise = forwardResponse(response);
+        if (!streamForwardPromise || typeof streamForwardPromise.then !== 'function') {
+          throw new Error('MEMORY_DISPATCH_STREAM_FORWARD_START_INVALID');
+        }
+        await streamForwardPromise;
+        if (this.pendingReleases.has(requestId)) {
+          throw new Error('MEMORY_DISPATCH_STREAM_ENDED_WITHOUT_HOST_RELEASE');
+        }
+      } catch {
+        if (this.pendingReleases.has(requestId)) {
+          const outcomeRelease = beginCoordinatorLock(this.coordinatorDb);
+          try {
+            this.#recordOutcome(requestId, 'UNKNOWN', null);
+            this.pendingReleases.delete(requestId);
+          } finally {
+            outcomeRelease();
+          }
+        }
+        throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+      }
     }
     return response;
+  }
+
+  #revalidateReleaseContext(context, coordinatorLease) {
+    // Cancellation remains authoritative after upstream completion and before
+    // every response write/end. A disconnected Host must never release bytes.
+    assertDispatchNotAborted(context.signal);
+    const currentAuthority = getAcceptedHeadStatusSync({
+      port: this.authorityPort,
+      token: this.readToken,
+    });
+    if (currentAuthority.pending.core || currentAuthority.pending.provider
+      || !currentAuthority.enrolled.core || !currentAuthority.enrolled.provider
+      || currentAuthority.heads.core !== context.coreHead
+      || currentAuthority.heads.provider !== context.providerHead) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+    const currentCore = assertSyncResult(this.readCoreEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
+      sources: context.sources, laneA: context.laneA, hostContext: context.hostContext, coordinatorLease,
+    }));
+    const currentProvider = assertSyncResult(this.readProviderEvidence({
+      worldId: context.worldId, actorId: context.actorId, purpose: context.purpose,
+      sources: context.sources, candidates: context.candidates,
+      providerEvidenceCursor: context.providerEvidenceCursor, coordinatorLease,
+    }));
+    if (currentCore.world_id !== context.worldId || currentCore.actor_id !== context.actorId
+      || currentCore.readiness !== 'READY' || currentCore.inventory_status !== 'READY'
+      || currentCore.head !== context.coreHead
+      || currentProvider.world_id !== context.worldId || currentProvider.actor_id !== context.actorId
+      || currentProvider.purpose !== context.purpose || currentProvider.granted !== true
+      || currentProvider.readiness !== 'READY' || currentProvider.head !== context.providerHead) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+    assertSameSources(currentCore.sources, context.sources);
+    assertSameSources(currentProvider.sources, context.sources);
+    assertSameCandidates(currentProvider.candidates, context.candidates);
+    assertSameProviderEvidenceCursor(currentProvider.provider_evidence_cursor, context.providerEvidenceCursor);
+    assertSamePolicyAuthority(currentCore.policy_authority, context.policyAuthority);
+    if (context.laneA.items.length > 0) {
+      const laneAResult = context.revalidateLaneA(coordinatorLease);
+      if (!laneAResult || laneAResult.status !== 'ready'
+        || typeof laneAResult.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_LANE_A_REVALIDATION_DENIED');
+      }
+    }
+    const currentHost = assertSyncResult(this.readHostEvidence({
+      hostContext: context.hostContext,
+      worldId: context.worldId,
+      actorId: context.actorId,
+      purpose: context.purpose, coordinatorLease,
+    }));
+    if (currentHost.status !== 'READY'
+      || currentHost.adapter_id !== context.hostContext.adapter_id
+      || currentHost.core_conversation_id !== context.hostContext.core_conversation_id
+      || currentHost.world_id !== context.worldId || currentHost.actor_id !== context.actorId
+      || currentHost.root_id !== context.hostContext.root_id
+      || currentHost.root_inventory_sequence !== context.hostContext.root_inventory_sequence
+      || currentHost.root_manifest_sha256 !== context.hostContext.root_manifest_sha256) {
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
+    }
+  }
+
+  /** Revalidate and perform one synchronous Host write under the shared lease. */
+  authorizeResponseWrite(requestId, write, { final = false } = {}) {
+    if (!validText(requestId, 200) || !isSynchronousCallable(write)) {
+      throw new TypeError('Invalid protected response release capability.');
+    }
+    const context = this.pendingReleases.get(requestId);
+    if (!context) throw new Error('MEMORY_DISPATCH_RELEASE_NOT_PENDING');
+    let release;
+    try {
+      release = beginCoordinatorLock(this.coordinatorDb);
+      this.#revalidateReleaseContext(context, release);
+      const result = write();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_RELEASE_MUST_BE_SYNCHRONOUS');
+      }
+      if (final) {
+        this.#recordOutcome(requestId, 'COMPLETED', null);
+        this.pendingReleases.delete(requestId);
+      }
+      return result;
+    } catch (error) {
+      try {
+        if (this.pendingReleases.has(requestId)) this.#recordOutcome(requestId, 'UNKNOWN', null);
+      } catch {}
+      this.pendingReleases.delete(requestId);
+      throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED', { cause: error });
+    } finally {
+      try { release?.(); } catch {}
+    }
   }
 
   #recordOutcome(requestId, status, outcomeCode) {

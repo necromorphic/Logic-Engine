@@ -1,0 +1,59 @@
+diff --git a/public/script.js b/public/script.js
+--- a/public/script.js
++++ b/public/script.js
+@@ -1742,14 +1742,47 @@
+                 }
+                 return payload.lifecycle;
+             },
+-        })).catch(async error => {
+-            if (hasAnyHostEnrollment(localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
+-            return createUnavailableStLifecycleBridge({
+-                getConversationId: getLogicEngineConversationId,
+-                storage: localStorage,
+-                error,
+-            });
+-        });
++        })).catch(async error => {
++            if (hostLocatorHasEnrollment(getCurrentChatId(), localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
++            return createUnavailableStLifecycleBridge({
++                getConversationId: getLogicEngineConversationId,
++                storage: localStorage,
++                error,
++            });
++        }).then(bridge => {
++            const skippedUnenrolledMutations = new Map();
++            const markSkipped = operation => {
++                skippedUnenrolledMutations.set(operation, (skippedUnenrolledMutations.get(operation) ?? 0) + 1);
++            };
++
++            const consumeSkipped = operation => {
++                const count = skippedUnenrolledMutations.get(operation) ?? 0;
++                if (!count) return false;
++                if (count === 1) skippedUnenrolledMutations.delete(operation);
++                else skippedUnenrolledMutations.set(operation, count - 1);
++                return true;
++            };
++
++            return Object.freeze({
++                ...bridge,
++                beforeMutation: async (operation, ...args) => {
++                    if (!hostLocatorHasEnrollment(getCurrentChatId(), localStorage)) {
++                        markSkipped(operation);
++                        return { status: 'NOT_ENROLLED' };
++                    }
++                    return bridge.beforeMutation(operation, ...args);
++                },
++                afterMutation: async (operation, ...args) => {
++                    if (consumeSkipped(operation)) return { status: 'NOT_ENROLLED' };
++                    if (!hostLocatorHasEnrollment(getCurrentChatId(), localStorage)) return { status: 'NOT_ENROLLED' };
++                    return bridge.afterMutation(operation, ...args);
++                },
++                guardExport: async (...args) => {
++                    if (!hostLocatorHasEnrollment(getCurrentChatId(), localStorage)) return { status: 'NOT_ENROLLED' };
++                    return bridge.guardExport(...args);
++                },
++            });
++        });
+     }
+     return logicEngineLifecycleBridgePromise;
+ }
