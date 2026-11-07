@@ -15,6 +15,8 @@ test('Final-Send accepts shared Host files only through the pinned Host source a
   assert.match(source, /hostManifest\?\.files\?\.find\(entry => entry\?\.path === relativePath\)/);
   assert.match(source, /sha256\(await readFile\(target\)\) === pinnedFile\.sha256/);
   assert.match(source, /actual !== after && !trustedLegacyOverlay && !\(await this\.verifyHostOverlay\(relativePath\)\)/);
+  assert.match(source, /generate-pinned-source-manifest\\.mjs/);
+  assert.match(source, /SILLYTAVERN_DIR: this\\.stRoot/);
 });
 
 test('Final-Send keeps fail-closed behavior when Host overlay attestation is unavailable', () => {
