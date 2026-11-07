@@ -1,8 +1,13 @@
 import { createHash } from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const canonicalTextHash = bytes => {
+  if (!isUtf8(bytes)) throw new Error('LEGACY_HOST_SOURCE_ENCODING_INVALID');
+  return sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8'));
+};
 const canonical = value => Array.isArray(value)
   ? '[' + value.map(canonical).join(',') + ']'
   : value && typeof value === 'object'
@@ -75,11 +80,17 @@ export async function verifyLegacyHostBundle({
         if (stat.isSymbolicLink()) return { verified: false, files: new Map() };
       }
       const stat = await lstat(candidate);
-      if (!stat.isFile() || stat.isSymbolicLink()
-        || sha256(await readFile(candidate)) !== entry.sha256) {
+      if (!stat.isFile() || stat.isSymbolicLink()) {
         return { verified: false, files: new Map() };
       }
-      verifiedFiles.set(entry.path, entry.sha256);
+      const bytes = await readFile(candidate);
+      // The signed deployment manifest authenticates exact installed bytes.
+      // Patch Manager hashes source text canonically (LF), so retain the
+      // canonical hash only after the raw-byte manifest proof has succeeded.
+      if (sha256(bytes) !== entry.sha256) {
+        return { verified: false, files: new Map() };
+      }
+      verifiedFiles.set(entry.path, canonicalTextHash(bytes));
     }
     if (!verifiedFiles.has('src/plugin-loader.js')) {
       return { verified: false, files: new Map() };
