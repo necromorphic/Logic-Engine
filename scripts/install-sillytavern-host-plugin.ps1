@@ -62,9 +62,29 @@ if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathTyp
 if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PLUGIN_PIN_PREFLIGHT_FAILED' }
 
 $backupName = 'logic-engine-plugin-backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + ([guid]::NewGuid().ToString('N').Substring(0, 8))
-$backupRoot = Join-Path $pluginRoot $backupName
+# Backups must stay outside SillyTavern's plugins directory: the pinned Host
+# inventory intentionally rejects every unrecognized server-plugin directory.
+$backupStorageRoot = Join-Path $stRoot '.logic-engine-plugin-backups'
+if (Test-Path -LiteralPath $backupStorageRoot) {
+    $backupStorageInfo = Get-Item -LiteralPath $backupStorageRoot -Force
+    if (-not $backupStorageInfo.PSIsContainer -or ($backupStorageInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        Stop-WithCode 'PLUGIN_BACKUP_STORAGE_UNSAFE'
+    }
+}
 $hadPlugin = Test-Path -LiteralPath $pluginPath
 $hadGateway = Test-Path -LiteralPath $gatewayPluginPath
+$legacyBackupDirs = @(Get-ChildItem -LiteralPath $pluginRoot -Directory -Filter 'logic-engine-plugin-backup-*' -ErrorAction SilentlyContinue)
+if ($hadPlugin -or $hadGateway -or $legacyBackupDirs.Count -gt 0) {
+    New-Item -ItemType Directory -Path $backupStorageRoot -Force | Out-Null
+    foreach ($legacyBackup in $legacyBackupDirs) {
+        if ($legacyBackup.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Stop-WithCode 'LEGACY_PLUGIN_BACKUP_REPARSE_POINT_DENIED'
+        }
+        $legacyDestination = Join-Path $backupStorageRoot ($legacyBackup.Name + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        Move-Item -LiteralPath $legacyBackup.FullName -Destination $legacyDestination
+    }
+}
+$backupRoot = Join-Path $backupStorageRoot $backupName
 if ($hadPlugin -or $hadGateway) {
     New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
     if ($hadPlugin) { Move-Item -LiteralPath $pluginPath -Destination (Join-Path $backupRoot 'logic-engine') }
