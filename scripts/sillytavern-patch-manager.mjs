@@ -499,6 +499,36 @@ export class SillyTavernPatchManager {
       await this.normalizePatchTargetsForApply();
       this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
       await this.restorePatchTargetLineEndings();
+
+      // The Host source manifest initially describes the Host-only overlay.
+      // Final-Send also changes shared ST files, so that manifest must be
+      // regenerated from the independently reconstructed combined tree before
+      // verifying the installed state. The generator accepts only the exact
+      // pinned Host commit plus the complete pinned Final-Send patch state.
+      const hostAttestationPath = resolve(
+        this.stRoot,
+        'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
+      );
+      if (await exists(hostAttestationPath)) {
+        await assertRegularFile(
+          this.stRoot,
+          'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
+        );
+        await assertRegularFile(
+          this.stRoot,
+          'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
+        );
+        const generatorPath = await assertRegularFile(
+          this.extensionRoot,
+          'host-adapter/prototype/generate-pinned-source-manifest.mjs',
+        );
+        execFileSync(process.execPath, [generatorPath], {
+          cwd: this.extensionRoot,
+          env: { ...process.env, SILLYTAVERN_DIR: this.stRoot },
+          stdio: 'pipe',
+          windowsHide: true,
+        });
+      }
       await this.verifyInstalled();
       const installed = {
         manifestId: this.manifest.id,
