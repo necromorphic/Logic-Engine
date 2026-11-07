@@ -148,7 +148,9 @@ test('stock better-sqlite3 uses the registered default VFS in its own engine', {
     db.close();
   }
 
-  const reopened = new Database(filename, { readonly: true, fileMustExist: true });
+  // WAL-mode read-only SQLite connections cannot create a missing -shm file after the last writer closes.
+  // Reopen read-write so this test measures VFS routing rather than SQLite's read-only WAL restriction.
+  const reopened = new Database(filename);
   try {
     assert.deepEqual(reopened.prepare('SELECT value FROM vfs_probe').pluck().all(), ['same-engine']);
     assert.equal(reopened.pragma('integrity_check', { simple: true }), 'ok');
