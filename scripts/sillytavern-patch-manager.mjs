@@ -138,7 +138,7 @@ function canonicalTextHash(bytes) {
 }
 
 export class SillyTavernPatchManager {
-  constructor({ extensionRoot, stRoot, manifestPath = DEFAULT_MANIFEST, patchPath = DEFAULT_PATCH, runGitImpl = runGit }) {
+  constructor({ extensionRoot, stRoot, manifestPath = DEFAULT_MANIFEST, patchPath = DEFAULT_PATCH, runGitImpl = runGit, trustedHostOverlayFiles = new Map() }) {
     if (typeof extensionRoot !== 'string' || typeof stRoot !== 'string' || !isAbsolute(resolve(stRoot))) {
       throw new TypeError('Patch Manager requires extensionRoot and an absolute SillyTavern root.');
     }
@@ -147,6 +147,11 @@ export class SillyTavernPatchManager {
     this.manifestPath = resolve(manifestPath);
     this.patchPath = resolve(patchPath);
     this.runGit = runGitImpl;
+    // Exact file hashes from a separately verified legacy Host bundle may explain
+    // shared-file overlays before the new Gateway attestation is installed.
+    this.trustedHostOverlayFiles = trustedHostOverlayFiles instanceof Map
+      ? new Map(trustedHostOverlayFiles)
+      : new Map();
     // Keep transaction state and byte-exact backups outside the removable Extension tree.
     this.managerDir = resolve(this.stRootInput, 'data', 'logic-engine', 'final-send-patch');
     this.statePath = resolve(this.managerDir, 'state.json');
@@ -310,7 +315,8 @@ export class SillyTavernPatchManager {
     for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
       const after = typeof expected === 'string' ? expected : expected.after;
       const actual = await this.hashAt(relativePath);
-      if (actual !== after && !(await this.verifyHostOverlay(relativePath))) {
+      const trustedLegacyOverlay = this.trustedHostOverlayFiles.get(relativePath) === actual;
+      if (actual !== after && !trustedLegacyOverlay && !(await this.verifyHostOverlay(relativePath))) {
         throw new Error('PATCH_VERIFY_FAILED: ' + relativePath);
       }
     }
