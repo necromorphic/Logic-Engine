@@ -500,20 +500,6 @@ export class SillyTavernPatchManager {
       this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
       await this.restorePatchTargetLineEndings();
 
-      // Capture the exact transaction-owned result before any later verification
-      // step can fail. With Host Bundle already installed, these hashes represent
-      // the combined Host + Final-Send output, not the Final-Send-only manifest.
-      // Recovery may restore this transaction only while every file still matches
-      // this exact post-apply snapshot; concurrent user edits remain fail-closed.
-      journal.sourceFilesAfter = Object.fromEntries(await Promise.all(
-        Object.keys(this.manifest.sourceFiles).map(async (relativePath) => [
-          relativePath,
-          await this.hashAt(relativePath),
-        ]),
-      ));
-      journal.phase = 'PATCH_APPLIED';
-      await this.writeJournal(journal);
-
       // The Host source manifest initially describes the Host-only overlay.
       // Final-Send also changes shared ST files, so that manifest must be
       // regenerated from the independently reconstructed combined tree before
