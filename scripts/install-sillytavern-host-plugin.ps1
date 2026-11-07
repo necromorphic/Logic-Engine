@@ -77,6 +77,19 @@ try {
     Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
     Copy-FilteredTree $gatewaySource $gatewayPluginPath
     Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
+    
+    # The Gateway source folder does not contain a deployment manifest. Rebuild
+    # it from the exact installed ST tree and the independently reconstructed
+    # pinned Host patches before Final-Send preflight. This also verifies that
+    # the copied root plugin and every managed ST source file agree.
+    $previousStDirectory = $env:SILLYTAVERN_DIR
+    try {
+        $env:SILLYTAVERN_DIR = $stRoot
+        & node 'host-adapter/prototype/generate-pinned-source-manifest.mjs'
+        if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_SOURCE_MANIFEST_GENERATION_FAILED' }
+    } finally {
+        $env:SILLYTAVERN_DIR = $previousStDirectory
+    }
 } catch {
     if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
     if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
