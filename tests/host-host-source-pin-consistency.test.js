@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import {
   PINNED_PATCH_BUNDLE_SHA256,
   PINNED_HOST_HANDLER_GIT_BLOB_SHA,
 } from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
+import { tmpdir } from 'node:os';
+import { verifyLegacyHostBundle } from '../scripts/verify-legacy-host-bundle.mjs';
 
 const read = relative => readFileSync(resolve(process.cwd(), relative));
 const gitBlobSha = bytes => createHash('sha1')
@@ -42,4 +44,55 @@ test('Legacy Host overlay verification compares canonical LF hashes on every pla
     'installer must compare the canonical hash returned by verifyLegacyHostBundle');
   assert.equal(installer.includes('previousHostFileHash === sha256(targetBytes)'), false,
     'raw CRLF bytes must not be compared with the canonical LF hash');
+});
+
+test('Legacy Host bundle accepts the exact reviewed overlay when Windows materializes CRLF', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'legacy-host-bundle-crlf-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const gateway = join(root, 'plugins', 'logic-engine-extension-gateway');
+  const sourceDirectory = join(root, 'src');
+  const lifecycleDirectory = join(root, 'public', 'scripts', 'logic-engine-lifecycle');
+  mkdirSync(gateway, { recursive: true });
+  mkdirSync(sourceDirectory, { recursive: true });
+  mkdirSync(lifecycleDirectory, { recursive: true });
+
+  const pluginLoader = Buffer.from('export const pinnedHost = true;\\n', 'utf8');
+  const overlayPath = 'public/scripts/logic-engine-lifecycle/conversation-identity.mjs';
+  const overlayLf = 'export const lifecycleIdentity = true;\\n';
+  const overlayCrLf = overlayLf.replace(/\\n/g, '\\r\\n');
+  writeFileSync(join(sourceDirectory, 'plugin-loader.js'), pluginLoader);
+  writeFileSync(join(root, overlayPath), overlayCrLf);
+
+  const patchBlobSha = 'a'.repeat(64);
+  const proof = {
+    pinned_host_commit: 'pinned-test-commit',
+    patch_blob_sha: patchBlobSha,
+    files: [
+      { path: 'src/plugin-loader.js', sha256: createHash('sha256').update(pluginLoader).digest('hex') },
+      { path: overlayPath, sha256: createHash('sha256').update(Buffer.alloc(0)).digest('hex') },
+    ],
+  };
+  const manifestSha256 = createHash('sha256').update(JSON.stringify(proof, Object.keys(proof).sort())).digest('hex');
+  const canonicalProof = '{' + Object.keys(proof).sort().map(key => JSON.stringify(key) + ':' + JSON.stringify(proof[key])).join(',') + '}';
+  const trustedManifestSha256 = createHash('sha256').update(canonicalProof, 'utf8').digest('hex');
+  writeFileSync(join(gateway, 'pinned-source-manifest.json'), JSON.stringify({
+    ...proof,
+    manifest_sha256: trustedManifestSha256,
+  }));
+
+  const expectedOverlayHash = createHash('sha256')
+    .update(Buffer.from(overlayLf, 'utf8'))
+    .digest('hex');
+  const result = await verifyLegacyHostBundle({
+    installRoot: root,
+    expectedPredecessors: [{
+      commit: 'pinned-test-commit',
+      patchBlobSha,
+      manifestSha256: trustedManifestSha256,
+    }],
+    expectedOverlayFiles: new Map([[overlayPath, expectedOverlayHash]]),
+  });
+  assert.equal(result.verified, true,
+    'the exact canonical Host overlay must remain trusted when Windows changes only line endings');
+  assert.equal(result.files.get(overlayPath), expectedOverlayHash);
 });
