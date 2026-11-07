@@ -73,7 +73,6 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
     '/purge': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/settings.js': Object.freeze({
-    '/save': 'hostUnsupportedMutationGuard',
     '/make-snapshot': 'hostUnsupportedMutationGuard',
     '/restore-snapshot': 'hostBulkMutationGuard',
   }),
@@ -102,7 +101,6 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
     '/importUUID': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/image-metadata.js': Object.freeze({
-    '/all': 'hostUnsupportedMutationGuard',
     '/folders/create': 'hostUnsupportedMutationGuard',
     '/folders/set-thumbnails': 'hostUnsupportedMutationGuard',
     '/folders/update': 'hostUnsupportedMutationGuard',
@@ -205,7 +203,7 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
   }),
 });
 
-// 91 routes use route middleware. /logout is a separately guarded handler-level mutation.
+// 89 routes use route middleware. /logout is a separately guarded handler-level mutation.
 // It remains part of the authoritative total because session revocation is a protected mutation.
 export const PINNED_ST_SPECIAL_MUTATION_ROUTES = Object.freeze({
   'src/endpoints/users-private.js': Object.freeze({
