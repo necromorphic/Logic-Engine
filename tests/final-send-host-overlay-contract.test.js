@@ -14,7 +14,7 @@ test('Final-Send accepts shared Host files only through the pinned Host source a
   assert.match(source, /identity\?\.status !== 'CURRENT_IDENTITIES_VERIFIED'/);
   assert.match(source, /hostManifest\?\.files\?\.find\(entry => entry\?\.path === relativePath\)/);
   assert.match(source, /sha256\(await readFile\(target\)\) === pinnedFile\.sha256/);
-  assert.match(source, /actual !== after && !\(await this\.verifyHostOverlay\(relativePath\)\)/);
+  assert.match(source, /actual !== after && !trustedLegacyOverlay && !\(await this\.verifyHostOverlay\(relativePath\)\)/);
 });
 
 test('Final-Send keeps fail-closed behavior when Host overlay attestation is unavailable', () => {
@@ -35,5 +35,5 @@ test('Host Bundle accepts only an exact reproduced Host overlay on reinstall', (
 test('Host Bundle installs and pins the updated Patch Manager in the Core plugin', () => {
   assert.match(installer, /plugins\/logic-engine\/scripts\/sillytavern-patch-manager\.mjs/);
   assert.match(installer, /Update this[\s\S]*single managed file transactionally/);
-  assert.match(attestation, /'scripts\/sillytavern-patch-manager\.mjs': '84ae3706cd2ba882dbe16539ac3407e9781dae58'/);
+  assert.match(attestation, /'scripts\/sillytavern-patch-manager\.mjs': '1448afb20901a323dd8902a3639eae745f03b5c3'/);
 });
