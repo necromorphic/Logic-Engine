@@ -147,14 +147,52 @@ try {
     }
   }
 
-  // Verify the exact predecessor Host overlay before inspecting Final-Send.
-  // Its pinned manifest is the only additional proof accepted for shared files
-  // while the new Gateway attestation has not yet been installed.
+  // Reconstruct the reviewed Host-only overlay from the immutable upstream
+  // checkout. This is an independent expected-output tree: it does not use
+  // installed files or the predecessor manifest as source material.
+  const overlayStagingRoot = path.join(tempRoot, 'HostOverlay');
+  runGit(stagingRoot, ['worktree', 'add', '--detach', overlayStagingRoot, PINNED_HOST_COMMIT]);
+  runGit(overlayStagingRoot, ['config', 'core.autocrlf', 'false']);
+  runGit(overlayStagingRoot, ['config', 'core.eol', 'lf']);
+  const hostPatches = [
+    ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch', true],
+    ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch', false],
+    ['host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch', true],
+  ];
+  for (const [relativePatch, zeroContext] of hostPatches) {
+    const patchPath = path.join(repoRoot, relativePatch);
+    const patchArgs = ['-c', 'core.autocrlf=false', 'apply', '--ignore-space-change', '--ignore-whitespace'];
+    if (zeroContext) patchArgs.push('--unidiff-zero');
+    patchArgs.push(patchPath);
+    runGit(overlayStagingRoot, [...patchArgs.slice(0, -1), '--check', patchPath]);
+    runGit(overlayStagingRoot, patchArgs);
+  }
+  const expectedOverlayFiles = new Map();
+  for (const relativePath of SOURCE_FILE_PATHS) {
+    const expectedPath = path.join(overlayStagingRoot, relativePath);
+    if (await exists(expectedPath)) {
+      expectedOverlayFiles.set(relativePath, sha256(await readFile(expectedPath)));
+    }
+  }
+
+  // Accept only explicitly pinned predecessor manifests. A file changed by a
+  // later Host patch is trusted only when it equals the independently rebuilt
+  // output above; arbitrary local edits remain a hard failure.
   const previousHostBundle = await verifyLegacyHostBundle({
     installRoot: stRoot,
-    expectedCommit: PINNED_HOST_COMMIT,
-    expectedPatchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
-    expectedManifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
+    expectedPredecessors: [
+      {
+        commit: PINNED_HOST_COMMIT,
+        patchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
+        manifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
+      },
+      {
+        commit: PINNED_HOST_COMMIT,
+        patchBlobSha: 'dd491fec699cf4a21b32480c2780b79d79a7665302e97624cbcfc8381aa64deb',
+        manifestSha256: '5d5490a939a13f94b83b4a407f09d61a18aeefe67e73b65b7e8200d3a0aa736b',
+      },
+    ],
+    expectedOverlayFiles,
   });
   // Final-Send remains independently verified. The legacy overlay exception
   // is limited to exact file hashes covered by the verified predecessor manifest.
