@@ -16,6 +16,8 @@ on:
       - integration/host-core-v1
     paths:
       - 'scripts/install-sillytavern-host-plugin.ps1'
+      - 'scripts/Start-LogicEngine-PR870-Test.ps1'
+      - 'tests/windows-host-deployment-launcher.test.js'
       - 'scripts/sillytavern-patch-manager.mjs'
       - 'host-adapter/patches/**'
       - 'package.json'
