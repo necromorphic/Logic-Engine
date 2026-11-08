@@ -243,7 +243,6 @@ if (hostRootIdentityRegistry.length > 0) {
     ? resolve(process.env.ENGINE_HOST_LIFECYCLE_DB_PATH)
     : resolve('./data/logic-engine-host-lifecycle.sqlite');
   for (const [name, candidate] of [
-    ['ENGINE_HOST_LIFECYCLE_DB_PATH', hostLifecyclePath],
     ['ENGINE_HOST_ASSERTION_NONCE_DB_PATH', assertionNoncePath],
     ['ENGINE_HOST_VERSION_LEDGER_DB_PATH', hostVersionLedgerPath],
     ['ENGINE_DB_PATH', dbPath],
