@@ -154,6 +154,7 @@ try {
   runGit(stagingRoot, ['worktree', 'add', '--detach', overlayStagingRoot, PINNED_HOST_COMMIT]);
   runGit(overlayStagingRoot, ['config', 'core.autocrlf', 'false']);
   runGit(overlayStagingRoot, ['config', 'core.eol', 'lf']);
+  // The active bundle contains only lifecycle hooks and root mutation observers; the old delta patch is retired.
   const hostPatches = [
     ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch', true],
 
