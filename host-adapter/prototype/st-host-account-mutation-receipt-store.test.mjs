@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { HostAccountMutationReceiptStore } from '../extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs';
+import { HostAccountMutationReceiptStore, createHostAccountMutationMiddleware } from '../extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const uuid = () => randomUUID();
@@ -124,5 +124,70 @@ test('keeps crash recovery locked when operation-specific transition validation 
     const result = await rejecting.recover(s, { directories: f.directories });
     assert.equal(result.status, 'RECOVERY_REQUIRED');
     assert.equal(await f.store.hasPending(s), true);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('native route middleware prepares before next and commits only after a successful response', async () => {
+  const f = await fixture();
+  const s = scope();
+  const callbacks = {};
+  const response = {
+    statusCode: 200,
+    writableFinished: false,
+    set() { return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    once(name, callback) { callbacks[name] = callback; return this; },
+  };
+  const middleware = createHostAccountMutationMiddleware({
+    store: f.store,
+    resolveMutation: async () => ({
+      scope: s,
+      directories: f.directories,
+      allowedPaths: ['characters/a.png'],
+    }),
+  });
+  let nextCalls = 0;
+  try {
+    await middleware({
+      method: 'POST',
+      originalUrl: '/api/characters/edit',
+      session: { logicEngineSessionId: s.host_session_id, logicEngineSessionHandle: 'alice' },
+      user: { profile: { handle: 'alice' }, directories: f.directories },
+    }, response, () => { nextCalls++; });
+    assert.equal(nextCalls, 1);
+    assert.equal(await f.store.hasPending(s), true, 'PREPARED must exist before the native handler runs');
+    f.state.set('characters/a.png', hash('after'));
+    response.writableFinished = true;
+    await callbacks.finish();
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('native route middleware refuses a mismatched session before invoking the native handler', async () => {
+  const f = await fixture();
+  const s = scope();
+  const response = {
+    statusCode: null,
+    set() { return this; },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  const middleware = createHostAccountMutationMiddleware({
+    store: f.store,
+    resolveMutation: async () => ({ scope: s, directories: f.directories, allowedPaths: ['characters/a.png'] }),
+  });
+  let nextCalls = 0;
+  try {
+    await middleware({
+      method: 'POST',
+      originalUrl: '/api/characters/edit',
+      session: { logicEngineSessionId: uuid(), logicEngineSessionHandle: 'alice' },
+      user: { profile: { handle: 'alice' }, directories: f.directories },
+    }, response, () => { nextCalls++; });
+    assert.equal(nextCalls, 0);
+    assert.equal(response.statusCode, 503);
+    assert.equal(response.body.code, 'HOST_ACCOUNT_MUTATION_SCOPE_UNAVAILABLE');
+    assert.equal(await f.store.hasPending(s), false);
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
