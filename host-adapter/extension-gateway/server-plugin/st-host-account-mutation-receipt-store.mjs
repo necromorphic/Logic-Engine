@@ -215,6 +215,8 @@ export class HostAccountMutationReceiptStore {
         host_installation_id: scope.host_installation_id,
         authenticated_account_id: scope.authenticated_account_id,
         mutation_id: scope.mutation_id,
+        owner_pid: process.pid,
+        process_started_at_ms: Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)),
       }), 'utf8');
       await lock.sync();
     } catch (error) {
@@ -401,6 +403,48 @@ export class HostAccountMutationReceiptStore {
     } catch {
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TRANSITION_UNVERIFIED' };
     }
+  }
+
+  async recoverPending({ host_installation_id, authenticated_account_id }, { directories } = {}) {
+    if (!UUID.test(host_installation_id ?? '') || !UUID.test(authenticated_account_id ?? '')) {
+      throw new TypeError('HOST_ACCOUNT_MUTATION_IDENTITY_INVALID');
+    }
+    await this.#ensureDirectory();
+    const lockKey = digest(canonical({ host_installation_id, authenticated_account_id }));
+    const lockPath = path.join(this.directory, lockKey + '.account.lock');
+    let lock;
+    try { lock = await this.#read(lockPath); }
+    catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_LOCK_INVALID' }; }
+    if (!lock) {
+      return await this.hasPending({ host_installation_id, authenticated_account_id })
+        ? { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_ORPHANED_PREPARE' }
+        : { status: 'NO_PENDING_MUTATION' };
+    }
+    if (!Number.isSafeInteger(lock.owner_pid) || lock.owner_pid < 1
+      || !Number.isSafeInteger(lock.process_started_at_ms) || lock.process_started_at_ms < 0) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_INVALID' };
+    }
+    try {
+      process.kill(lock.owner_pid, 0);
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_STILL_ACTIVE' };
+    } catch (error) {
+      if (error?.code !== 'ESRCH') {
+        return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_STATUS_UNKNOWN' };
+      }
+    }
+    const names = await fs.readdir(this.directory);
+    const matches = [];
+    for (const name of names.filter(item => item.endsWith('.prepared.json'))) {
+      const record = await this.#read(path.join(this.directory, name));
+      if (record?.host_installation_id === host_installation_id
+        && record?.authenticated_account_id === authenticated_account_id
+        && record?.lock_token === lock.lock_token) matches.push(record);
+    }
+    if (matches.length !== 1) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_NOT_UNIQUE' };
+    }
+    try { return await this.recover(matches[0], { directories }); }
+    catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_RECOVERY_FAILED' }; }
   }
 
   async hasPending({ host_installation_id, authenticated_account_id }) {
