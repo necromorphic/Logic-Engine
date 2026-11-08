@@ -502,7 +502,7 @@ test('additional account-root and source mutation routes are fail-closed under H
   ];
   for (const [file, route] of requirements) {
     const source = mutationSources[file];
-    const escaped = route.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+    const escaped = route;
     const expression = new RegExp("router\\.post\\(['\\\"]" + escaped + "['\\\"]\\s*,\\s*hostUnsupportedMutationGuard\\s*,");
     assert.match(source, expression, file + ' ' + route + ' must be fail-closed');
   }
@@ -511,7 +511,7 @@ test('additional account-root and source mutation routes are fail-closed under H
     ['src/endpoints/stats.js', '/update'],
   ]) {
     const source = mutationSources[file];
-    const escaped = route.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+    const escaped = route;
     const expression = new RegExp("router\\.post\\(['\\\"]" + escaped + "['\\\"]\\s*,\\s*hostBulkMutationGuard\\s*,");
     assert.match(source, expression, file + ' ' + route + ' must use an operation-specific receipt guard');
   }
