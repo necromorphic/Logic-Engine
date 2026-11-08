@@ -517,10 +517,11 @@ async function enumeratePinnedSillyTavernChatFilesInternal({
     await addFile('group-chat', chatId, path.join(groupChatRoot.absolute, entry.name),
       groupChatRoot.absolute, MAX_CHAT_FILE_BYTES);
   }
-  for (const chatId of referencedGroupChats) {
-    if (!groupChatNames.has(chatId)) fail('SOURCE_GROUP_CHAT_MISSING');
-  }
-
+  // SillyTavern's native /api/chats/group/delete removes only the group-chat
+  // JSONL file and deliberately leaves the group metadata reference intact.
+  // Treat that reference as a tombstone, not as a broken inventory: absent
+  // chat content is never read or admitted, while the current metadata remains
+  // part of the observed source set.
   // Re-list every directory and re-stat every file after the complete scan.
   for (const directory of directoriesSeen) {
     const current = await fs.readdir(directory.absolute, { withFileTypes: true }).catch(() => null);
