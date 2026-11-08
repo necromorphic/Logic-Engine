@@ -41,22 +41,6 @@ const ROUTE_BY_HOST_ROUTE = Object.freeze({
 
 const UNREGISTERED_SENDER_ROUTE = 'unregistered';
 
-function assertAuthenticatedHostRequest(request) {
-  const handle = request?.user?.profile?.handle;
-  const session = request?.session;
-  if (!session || typeof handle !== 'string' || !handle.trim()
-    || (session.handle !== undefined && session.handle !== handle)) {
-    throw new Error('LOGIC_ENGINE_HOST_SESSION_NOT_AUTHENTICATED');
-  }
-  const body = request.body;
-  if (body && typeof body === 'object' && (
-    Object.hasOwn(body, 'logic_engine_memory')
-    || Object.hasOwn(body, 'logic_engine_protected_context')
-    || Object.hasOwn(body, 'memory_dispatch')
-  )) {
-    throw new Error('LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER');
-  }
-}
 
 function resolveHostRoute(request) {
   const rawPath = typeof request?.originalUrl === 'string'
@@ -206,7 +190,6 @@ export function createSillyTavernFinalSendAdapter({
 
       const preparedCandidate = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
-      const requestHostRoute = resolveHostRoute(args.request);
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
       // A missing or mismatched Host capability disables only Memory enrichment.
       // It must not disable the native provider request.
