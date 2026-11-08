@@ -63,7 +63,9 @@ Invoke-Native "git" @("ls-remote", "--exit-code", "https://github.com/SillyTaver
 # The production installer deliberately rejects unrelated server/browser extensions.
 $pluginRoot = Join-Path $SourceSt "plugins"
 if (Test-Path -LiteralPath $pluginRoot -PathType Container) {
-    $existingPlugins = @(Get-ChildItem -LiteralPath $pluginRoot -Force)
+    $existingPlugins = @(Get-ChildItem -LiteralPath $pluginRoot -Force | Where-Object {
+        $_.Name -notin @(".gitkeep", "package.json")
+    })
     if ($existingPlugins.Count -gt 0) {
         Stop-WithCode "SILLYTAVERN_SOURCE_HAS_EXISTING_SERVER_PLUGINS_USE_CLEAN_RELEASE"
     }
