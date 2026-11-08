@@ -449,8 +449,9 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     userMessage('ST_HARNESS_RAW_CHAT_SENTINEL'),
   ];
   const initialAssistant = assistantMessage();
-  const createReceiptScope = await beginLifecycleMutation('create-message');
+  let createReceiptScope;
   const create = await observe(async () => {
+    createReceiptScope = await beginLifecycleMutation('create-message');
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
     }, { 'x-harness-operation': 'create' });
