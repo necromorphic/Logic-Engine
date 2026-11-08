@@ -618,6 +618,19 @@ export function createHostBulkMutationGuard({
     const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
       && request.session.logicEngineSessionId.length > 0;
     if (!hostConfigured && !hostSessionActive) return next();
+    // Explicit local-only acceptance escape hatch. This is intentionally NOT
+    // a production mutation protocol: it lets an operator exercise ST UI,
+    // Gateway and Final-Send while operation-specific receipts are unfinished.
+    // It is restricted to loopback TCP clients and is visibly marked on every
+    // accepted response. Never enable it on a network-facing deployment.
+    const acceptanceMode = process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE === 'LOCAL_LOOPBACK_ONLY';
+    const remoteAddress = request?.socket?.remoteAddress ?? request?.connection?.remoteAddress ?? '';
+    const loopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1'
+      || remoteAddress === '::ffff:127.0.0.1';
+    if (acceptanceMode && loopback && hostSessionActive) {
+      response.set('X-Logic-Engine-Host-Acceptance', 'LOCAL_NON_AUTHORITATIVE');
+      return next();
+    }
     if (isInitialAssistantBootstrapCreate(request, response)) return next();
     const route = typeof request?.originalUrl === 'string'
       ? request.originalUrl.split('?', 1)[0]
