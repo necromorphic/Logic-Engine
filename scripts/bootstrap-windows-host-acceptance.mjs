@@ -24,7 +24,21 @@ if (typeof userHandle !== 'string' || !userHandle.trim() || userHandle !== userH
 const userRoot = path.resolve(dataRoot, userHandle);
 const extensionsRoot = path.resolve(userRoot, 'extensions');
 await mkdir(dataRoot, { recursive: true });
-await mkdir(extensionsRoot, { recursive: true });
+
+// Provision the complete directory layout from the exact pinned SillyTavern
+// checkout. Host lifecycle intentionally rejects a partially populated existing
+// user root, so creating only chats/groups/extensions is not a valid bootstrap.
+const { USER_DIRECTORY_TEMPLATE } = await import(
+  new URL(`file:///${path.resolve(stRoot, 'src/constants.js').replaceAll('\\\\', '/')}`).href
+);
+for (const relativeDirectory of Object.values(USER_DIRECTORY_TEMPLATE)) {
+  const directory = path.resolve(userRoot, relativeDirectory);
+  const relative = path.relative(userRoot, directory);
+  if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+    throw new Error('HOST_ACCEPTANCE_USER_DIRECTORY_PATH_ESCAPE');
+  }
+  await mkdir(directory, { recursive: true });
+}
 
 const identityStore = new HostIdentityStore({ directory: identityDirectory });
 await identityStore.assertOutsideRoot(dataRoot);
