@@ -882,121 +882,57 @@ const lifecycleSavePermit = {
   mutation_digest: 'a'.repeat(64),
 };
 
-test('character-card edits are blocked while Host authority is active', () => {
-  let enumerateCalls = 0;
+test('character-card edits always reach the native SillyTavern handler', () => {
   let nextCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
-    enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
+    enumerate: async () => { throw new Error('must not be used to gate native mutation'); },
   });
   const request = {
-    method: 'POST',
-    baseUrl: '/api/characters',
-    path: '/edit',
+    method: 'POST', baseUrl: '/api/characters', path: '/edit',
     user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
     session: { handle: 'alice', logicEngineSessionId: '33333333-3333-4333-8333-333333333333' },
   };
   const response = makeResponse();
   guard(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
-  assert.equal(enumerateCalls, 0);
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
 
-test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
+test('enrolled chat saves do not require a Host PREPARED permit', async () => {
   const root = join(tmpdir(), 'st-host-save-guard');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const enumerate = async () => ({
-    filesystem: { status: 'complete' },
-    source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-      kind: 'character-chat',
-      locator: 'Harness Character/chat-one.jsonl',
-      logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-    }] },
-  });
-  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate });
-  const denied = makeResponse();
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('inventory must not gate native save'); } });
+  const response = makeResponse();
   let nextCalls = 0;
-  await guard(lifecycleSaveRequest(directories), denied, () => { nextCalls++; });
-  assert.equal(denied.statusCode, 409);
-  assert.equal(denied.body.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED');
-  assert.equal(nextCalls, 0);
-
-  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
-  const allowed = makeResponse();
-  await guard(request, allowed, () => { nextCalls++; });
-  assert.equal(allowed.statusCode, null);
-  assert.equal(nextCalls, 1);
-  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
-
-  const replay = makeResponse();
-  await guard(request, replay, () => { nextCalls++; });
-  assert.equal(replay.statusCode, 409);
+  await guard(lifecycleSaveRequest(directories), response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
 });
 
-test('group save resolves the extensionless group-chat inventory locator', async () => {
+test('group saves always reach the native SillyTavern handler', async () => {
   const root = join(tmpdir(), 'st-host-group-save-guard');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const guard = createHostLifecycleSaveGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-        kind: 'group-chat', locator: 'group-one',
-        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-      }] },
-    }),
-  });
-  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
-  request.path = '/group/save';
-  request.body = { id: 'group-one', chat: [{ chat_metadata: { logic_engine_conversation_id: lifecycleSavePermit.conversation_uuid } }] };
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('inventory must not gate native save'); } });
+  const response = makeResponse();
+  let nextCalls = 0;
+  await guard(lifecycleSaveRequest(directories), response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
+});
+
+test('chat save payload and session mismatches do not block native SillyTavern saves', async () => {
+  const root = join(tmpdir(), 'st-host-save-guard-scope');
+  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('inventory must not gate native save'); } });
+  const request = lifecycleSaveRequest(directories);
+  request.body.chat[0].chat_metadata.logic_engine_conversation_id = '77777777-7777-4777-8777-777777777777';
   const response = makeResponse();
   let nextCalls = 0;
   await guard(request, response, () => { nextCalls++; });
   assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
-  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
-  assert.equal(request.logicEngineLifecycleSaveAuthorized, true);
-  assert.equal(request.logicEngineLifecycleOperation, lifecycleSavePermit.operation);
 });
-
-test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
-  const root = join(tmpdir(), 'st-host-save-guard-scope');
-  const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const guard = createHostLifecycleSaveGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-        kind: 'character-chat', locator: 'Harness Character/chat-one.jsonl',
-        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-      }] },
-    }),
-  });
-  const mismatchedPayload = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
-  mismatchedPayload.body.chat[0].chat_metadata.logic_engine_conversation_id = '77777777-7777-4777-8777-777777777777';
-  const payloadResponse = makeResponse();
-  let payloadNextCalls = 0;
-  await guard(mismatchedPayload, payloadResponse, () => { payloadNextCalls++; });
-  assert.equal(payloadResponse.statusCode, 409);
-  assert.equal(payloadResponse.body.code, 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH');
-  assert.equal(payloadNextCalls, 0);
-
-  for (const permit of [
-    { ...lifecycleSavePermit, conversation_uuid: '77777777-7777-4777-8777-777777777777' },
-    { ...lifecycleSavePermit, host_session_id: '88888888-8888-4888-8888-888888888888' },
-  ]) {
-    const response = makeResponse();
-    let nextCalls = 0;
-    await guard(lifecycleSaveRequest(directories, permit), response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 409);
-    assert.equal(nextCalls, 0);
-  }
-});
-
-
 
 const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
 const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
