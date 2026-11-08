@@ -56,7 +56,8 @@ test('relative ST account directories are resolved against the server working di
   }), null, 'the authenticated user extension directory must remain inside the inventoried account root');
 });
 
-test('server bulk mutation guard blocks unreceipted mutations for an active Host session', () => {
+
+test('server bulk mutation guard always delegates native SillyTavern operations', () => {
   let nextCalls = 0;
   let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
@@ -64,70 +65,28 @@ test('server bulk mutation guard blocks unreceipted mutations for an active Host
     enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
   const response = makeResponse();
-  guard({
-    method: 'POST',
-    session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111' },
-  }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
+  guard({ method: 'POST', session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111' } },
+    response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
   assert.equal(enumerateCalls, 0);
 });
 
-test('one-time Assistant bootstrap is allowed only after the character multipart parser populated the request', t => {
-  const previousIdentityDir = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-  const root = mkdtempSync(join(tmpdir(), 'host-assistant-bootstrap-'));
-  const directories = {
-    root,
-    characters: join(root, 'characters'),
-    chats: join(root, 'chats'),
-  };
-  const identityDirectory = join(root, '..', 'host-assistant-identity-' + Math.random().toString(16).slice(2));
-  mkdirSync(directories.characters, { recursive: true });
-  mkdirSync(directories.chats, { recursive: true });
-  mkdirSync(identityDirectory, { recursive: true });
-  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = identityDirectory;
-  t.after(() => {
-    if (previousIdentityDir === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previousIdentityDir;
-    rmSync(root, { recursive: true, force: true });
-    rmSync(identityDirectory, { recursive: true, force: true });
-  });
-
+test('native Assistant bootstrap is not gated by Host inventory or multipart parsing', () => {
   const guard = createHostBulkMutationGuard({ pinnedHostCommit: pinned });
-  const response = makeResponse();
-  const request = {
-    method: 'POST',
-    originalUrl: '/api/characters/create',
-    // The endpoint is mounted under /api in this server composition; the
-    // original URL is the only reliable full route identifier here.
-    baseUrl: '/api',
-    path: '/characters/create',
-    session: {
-      logicEngineSessionId: '33333333-3333-4333-8333-333333333333',
-      logicEngineSessionHandle: 'default-user',
-    },
-    user: {
-      profile: { handle: 'default-user' },
-      directories,
-    },
-    // These fields are populated by getFileNameValidationFunction('file_name').
-    body: { file_name: 'default_Assistant', ch_name: 'Assistant' },
-  };
-  let nextCalls = 0;
-  guard(request, response, () => { nextCalls += 1; });
-  assert.equal(nextCalls, 1, 'the parsed built-in Assistant request must pass the one-time bootstrap gate');
-  assert.equal(response.statusCode, null);
-
-  const deniedResponse = makeResponse();
-  let deniedNextCalls = 0;
-  guard({ ...request, body: undefined }, deniedResponse, () => { deniedNextCalls += 1; });
-  assert.equal(deniedNextCalls, 0, 'a request observed before multipart parsing must remain blocked');
-  assert.equal(deniedResponse.statusCode, 503);
-  assert.equal(deniedResponse.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  for (const request of [
+    { method: 'POST', originalUrl: '/api/characters/create', body: { file_name: 'default_Assistant' } },
+    { method: 'POST', originalUrl: '/api/characters/create', body: undefined },
+  ]) {
+    const response = makeResponse();
+    let nextCalls = 0;
+    guard(request, response, () => { nextCalls++; });
+    assert.equal(response.statusCode, null);
+    assert.equal(nextCalls, 1);
+  }
 });
 
-test('server bulk mutation guard does not let an empty pre-mutation scan authorize a write', () => {
+test('server bulk mutation guard does not scan or block native writes', () => {
   let nextCalls = 0;
   let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
@@ -135,16 +94,12 @@ test('server bulk mutation guard does not let an empty pre-mutation scan authori
     enumerate: async () => { enumerateCalls++; return { filesystem: { status: 'complete' }, source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [] } }; },
   });
   const response = makeResponse();
-  guard({
-    method: 'POST',
-    session: { logicEngineSessionId: '22222222-2222-4222-8222-222222222222' },
-  }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
+  guard({ method: 'POST', session: { logicEngineSessionId: '22222222-2222-4222-8222-222222222222' } },
+    response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
   assert.equal(enumerateCalls, 0);
 });
-
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
@@ -915,127 +870,62 @@ const lifecycleSavePermit = {
   mutation_digest: 'a'.repeat(64),
 };
 
-test('character-card edits are blocked while Host authority is active', () => {
+
+test('character-card edits always reach the native SillyTavern handler', () => {
   let enumerateCalls = 0;
   let nextCalls = 0;
   const guard = createHostBulkMutationGuard({
     pinnedHostCommit: pinned,
     enumerate: async () => { enumerateCalls++; throw new Error('must not scan to authorize'); },
   });
-  const request = {
-    method: 'POST',
-    baseUrl: '/api/characters',
-    path: '/edit',
+  const response = makeResponse();
+  guard({
+    method: 'POST', baseUrl: '/api/characters', path: '/edit',
     user: { profile: { handle: 'alice' }, directories: absoluteTestDirectories },
     session: { handle: 'alice', logicEngineSessionId: '33333333-3333-4333-8333-333333333333' },
-  };
-  const response = makeResponse();
-  guard(request, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
+  }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
   assert.equal(enumerateCalls, 0);
 });
 
-test('enrolled chat save API requires a matching server PREPARED permit and consumes it once', async () => {
+test('enrolled chat saves always reach the native SillyTavern handler without a Host permit', async () => {
   const root = join(tmpdir(), 'st-host-save-guard');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const enumerate = async () => ({
-    filesystem: { status: 'complete' },
-    source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-      kind: 'character-chat',
-      locator: 'Harness Character/chat-one.jsonl',
-      logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-    }] },
-  });
-  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate });
-  const denied = makeResponse();
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('must not scan to authorize'); } });
+  const response = makeResponse();
   let nextCalls = 0;
-  await guard(lifecycleSaveRequest(directories), denied, () => { nextCalls++; });
-  assert.equal(denied.statusCode, 409);
-  assert.equal(denied.body.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED');
-  assert.equal(nextCalls, 0);
-
-  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
-  const allowed = makeResponse();
-  await guard(request, allowed, () => { nextCalls++; });
-  assert.equal(allowed.statusCode, null);
-  assert.equal(nextCalls, 1);
-  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
-
-  const replay = makeResponse();
-  await guard(request, replay, () => { nextCalls++; });
-  assert.equal(replay.statusCode, 409);
+  await guard(lifecycleSaveRequest(directories), response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
 });
 
-test('group save resolves the extensionless group-chat inventory locator', async () => {
+test('group saves always reach the native SillyTavern handler', async () => {
   const root = join(tmpdir(), 'st-host-group-save-guard');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const guard = createHostLifecycleSaveGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-        kind: 'group-chat', locator: 'group-one',
-        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-      }] },
-    }),
-  });
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('must not scan to authorize'); } });
   const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
   request.path = '/group/save';
-  request.body = { id: 'group-one', chat: [{ chat_metadata: { logic_engine_conversation_id: lifecycleSavePermit.conversation_uuid } }] };
+  request.body = { id: 'group-one', chat: [] };
   const response = makeResponse();
   let nextCalls = 0;
   await guard(request, response, () => { nextCalls++; });
   assert.equal(response.statusCode, null);
   assert.equal(nextCalls, 1);
-  assert.equal(request.session.logicEngineHostPreparedMutation, undefined);
-  assert.equal(request.logicEngineLifecycleSaveAuthorized, true);
-  assert.equal(request.logicEngineLifecycleOperation, lifecycleSavePermit.operation);
 });
 
-test('enrolled chat save API rejects permits scoped to another conversation or session', async () => {
+test('chat saves are not blocked by mismatched optional Host mutation metadata', async () => {
   const root = join(tmpdir(), 'st-host-save-guard-scope');
   const directories = { root, chats: join(root, 'chats'), groups: join(root, 'groups'), groupChats: join(root, 'groupChats'), extensions: join(root, 'extensions') };
-  const guard = createHostLifecycleSaveGuard({
-    pinnedHostCommit: pinned,
-    enumerate: async () => ({
-      filesystem: { status: 'complete' },
-      source: { status: 'DOUBLE_SCAN_CANDIDATE', files: [{
-        kind: 'character-chat', locator: 'Harness Character/chat-one.jsonl',
-        logical_identity: { conversation_uuid: lifecycleSavePermit.conversation_uuid },
-      }] },
-    }),
-  });
-  const mismatchedPayload = lifecycleSaveRequest(directories, { ...lifecycleSavePermit });
-  mismatchedPayload.body.chat[0].chat_metadata.logic_engine_conversation_id = '77777777-7777-4777-8777-777777777777';
-  const payloadResponse = makeResponse();
-  let payloadNextCalls = 0;
-  await guard(mismatchedPayload, payloadResponse, () => { payloadNextCalls++; });
-  assert.equal(payloadResponse.statusCode, 409);
-  assert.equal(payloadResponse.body.code, 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH');
-  assert.equal(payloadNextCalls, 0);
-
-  for (const permit of [
-    { ...lifecycleSavePermit, conversation_uuid: '77777777-7777-4777-8777-777777777777' },
-    { ...lifecycleSavePermit, host_session_id: '88888888-8888-4888-8888-888888888888' },
-  ]) {
-    const response = makeResponse();
-    let nextCalls = 0;
-    await guard(lifecycleSaveRequest(directories, permit), response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 409);
-    assert.equal(nextCalls, 0);
-  }
+  const guard = createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate: async () => { throw new Error('must not scan to authorize'); } });
+  const request = lifecycleSaveRequest(directories, { ...lifecycleSavePermit, host_session_id: '88888888-8888-4888-8888-888888888888' });
+  request.body.chat[0].chat_metadata.logic_engine_conversation_id = '77777777-7777-4777-8777-777777777777';
+  const response = makeResponse();
+  let nextCalls = 0;
+  await guard(request, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
-
-
-
-const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
-const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
-const defaultUserInstallationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
-const defaultUserAccountId = '6e6b0a80-4e73-4c66-aaf3-7a6e62c7f406';
-
 test('default-user mode creates and reuses a Host session identity without session.handle', () => {
   const handler = createHostSessionHandler({ createId: () => defaultUserSessionId });
   const session = {};
@@ -1254,42 +1144,24 @@ test('startup group migration fails closed when full inventory cannot be proven'
   }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE/);
 });
 
-test('unsupported mutation guard blocks account-root and source mutations while Host authority is configured', () => {
-  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-  process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
-  try {
-    let nextCalls = 0;
-    const response = makeResponse();
-    createHostUnsupportedMutationGuard()({ method: 'POST', session: {} }, response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
-    assert.equal(nextCalls, 0);
-    assert.equal(response.headers['cache-control'], 'no-store, private');
-    assert.equal(response.headers.vary, 'Cookie');
-  } finally {
-    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-    else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
-  }
+
+test('unsupported mutation guard delegates native account and source operations', () => {
+  let nextCalls = 0;
+  const response = makeResponse();
+  createHostUnsupportedMutationGuard()({ method: 'POST', session: {} }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
 
-test('unsupported mutation guard blocks a Host-capability session even if deployment config disappears', () => {
-  const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-  delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-  try {
-    let nextCalls = 0;
-    const response = makeResponse();
-    createHostUnsupportedMutationGuard()({
-      method: 'POST',
-      session: { logicEngineSessionId: 'host-session-id' },
-    }, response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
-    assert.equal(nextCalls, 0);
-  } finally {
-    if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
-  }
+test('unsupported mutation guard delegates native operations for Host-capability sessions', () => {
+  let nextCalls = 0;
+  const response = makeResponse();
+  createHostUnsupportedMutationGuard()({
+    method: 'POST', session: { logicEngineSessionId: 'host-session-id' },
+  }, response, () => { nextCalls++; });
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
-
 test('unsupported mutation guard leaves ordinary SillyTavern requests unchanged without Host authority', () => {
   const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
