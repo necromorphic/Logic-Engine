@@ -357,7 +357,15 @@ export class HostAccountMutationReceiptStore {
     const terminal = await this.#read(paths.terminal);
     if (terminal) {
       if (!['COMMITTED', 'ABORTED'].includes(terminal.status)
-        || !terminal.receipt
+        || !terminal.receipt || terminal.receipt.status !== terminal.status
+        || terminal.receipt.host_installation_id !== scope.host_installation_id
+        || terminal.receipt.authenticated_account_id !== scope.authenticated_account_id
+        || terminal.receipt.host_session_id !== scope.host_session_id
+        || terminal.receipt.mutation_id !== scope.mutation_id
+        || terminal.receipt.event_id !== scope.event_id
+        || terminal.receipt.operation !== scope.operation
+        || terminal.receipt.route !== scope.route
+        || terminal.receipt.mutation_digest !== scope.mutation_digest
         || terminal.receipt_digest !== digest(canonical(terminal.receipt))) {
         return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TERMINAL_INVALID' };
       }
@@ -415,7 +423,7 @@ export class HostAccountMutationReceiptStore {
         && record?.authenticated_account_id === authenticated_account_id) {
         const terminal = await this.#read(path.join(this.directory, name.replace(/\.prepared\.json$/, '.terminal.json')));
         if (!terminal || !['COMMITTED', 'ABORTED'].includes(terminal.status)
-          || !terminal.receipt
+          || !terminal.receipt || terminal.receipt.status !== terminal.status
           || terminal.receipt_digest !== digest(canonical(terminal.receipt))
           || terminal.receipt.host_installation_id !== host_installation_id
           || terminal.receipt.authenticated_account_id !== authenticated_account_id) return true;
