@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 const test = nodeTest;
+const defaultUserSessionId = '2e6b0a80-4e73-4c66-aaf3-7a6e62c7f401';
+const defaultUserConversationUuid = '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
+const defaultUserInstallationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402';
+const defaultUserAccountId = '6e6b0a80-4e73-4c66-aaf3-7a6e62c7f406';
 
 import { assertHostStartupMigrationAllowed, createHostBulkMutationGuard, createHostIdentityHandler, createHostInventoryHandler, createHostLifecycleSaveGuard, CORE_ATTESTED_SOURCE_BLOCKERS, createHostUnsupportedMutationGuard, createHostRequestAuthenticationGate, createHostSessionHandler, resolveHostDataDirectories } from '../../extension-gateway/server-plugin/st-host-inventory-handler.mjs';
 import { PINNED_PATCH_BUNDLE_SHA256, PINNED_HOST_HANDLER_GIT_BLOB_SHA } from '../../extension-gateway/server-plugin/st-source-attestation.mjs';
