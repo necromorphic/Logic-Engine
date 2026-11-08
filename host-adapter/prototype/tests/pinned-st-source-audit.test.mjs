@@ -187,40 +187,46 @@ test('pinned ST mutation routes are observed without suppressing native operatio
             `ComfyUI workflow mutation /${route} must preserve native behavior with an optional Host observer`);
     }
     const usersSource = read('src/users.js');
-    assert.ok(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'),
-        'legacy public user data must not be moved outside the attested root while Host is active');
-    assert.ok(usersSource.includes('HOST_LIFECYCLE_USER_DIRECTORY_MISSING'),
-        'Host must not create missing account directories after root authority is enabled');
-    assert.ok(usersSource.includes('Skipping system prompt migration while Host authority is active.'),
-        'system-prompt migration must not mutate account-root files while Host is active');
+    assert.equal(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'), false,
+        'legacy user-data migration must retain native SillyTavern behavior');
+    assert.equal(usersSource.includes('HOST_LIFECYCLE_USER_DIRECTORY_MISSING'), false,
+        'Host authority must not prevent native account-directory creation');
+    assert.equal(usersSource.includes('Skipping system prompt migration while Host authority is active.'), false,
+        'system-prompt migration must remain native');
     assert.ok(usersSource.includes('delete session.logicEngineSessionId;'),
-        'revoked Host session identifiers must be cleared after account-version invalidation');
+        'stale Host session identifiers must be cleared after account-version invalidation');
     assert.ok(usersSource.includes('delete session.logicEngineSessionHandle;'),
-        'revoked Host account binding must be cleared after account-version invalidation');
+        'stale Host account binding must be cleared after account-version invalidation');
     const serverMain = read('src/server-main.js');
-    assert.ok(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'),
-        'startup account-root migration gate must be installed');
-    assert.ok(serverMain.includes('Skipping account-root startup mutations while Host authority is active.'),
-        'startup account-root migrations must be skipped while Host authority is active');
+    assert.equal(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'), false,
+        'Host identity must not gate account-root startup migrations');
+    assert.ok(serverMain.includes('await checkForNewContent(directories);'));
+    assert.ok(serverMain.includes('await settingsInit();'));
     const privateUsers = read('src/endpoints/users-private.js');
     assert.ok(privateUsers.includes('HOST_USER_ROOT_RESET_UNSUPPORTED'),
-        'full user-root reset must remain explicitly fail-closed');
-    assert.ok(privateUsers.includes('revokeHostSessionBeforeLogout(request)'),
-        'native ST logout must revoke the old Core session before clearing the session');
+        'the optional Host observer remains attached to root reset');
+    assert.ok(privateUsers.includes('revokeHostSessionBeforeLogout(request)'));
     assert.ok(privateUsers.indexOf('revokeHostSessionBeforeLogout(request)')
         < privateUsers.indexOf('request.session.handle = null;'),
-        'Core revocation must complete before ST clears the old session');
+        'revocation is attempted before local session release');
+    assert.ok(privateUsers.includes('Logic Engine session revocation unavailable; continuing native logout.'));
+    assert.equal(privateUsers.includes('return response.status(503).json({ error: \'Host session revocation unavailable; session was not logged out.\' });'), false);
     const groups = read('src/endpoints/groups.js');
     assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
-        'startup group metadata migration must be gated by full Host inventory');
+        'group migration may observe Host state but the helper always permits native migration');
+    const gatewayHandler = read('plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs');
+    assert.ok(gatewayHandler.includes('export async function assertHostStartupMigrationAllowed() {\\n  return true;'),
+        'Host inventory must not veto native startup group migration');
     const adminUsers = read('src/endpoints/users-admin.js');
     assert.ok(adminUsers.includes("const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });"),
-        'account deletion must use its explicit fail-closed guard');
+        'account deletion may retain an advisory Host observer');
     for (const route of ['disable', 'enable', 'promote', 'demote', 'create', 'delete']) {
         const expectedGuard = route === 'delete' ? 'hostAccountDeleteGuard' : 'hostUnsupportedMutationGuard';
         assert.ok(adminUsers.includes(`router.post('/${route}', requireAdminMiddleware, ${expectedGuard}`),
-            `administrative account mutation /${route} must be fail-closed while Host authority is active`);
+            `administrative account mutation /${route} retains optional Host observation`);
     }
+    assert.ok(gatewayHandler.includes('return function hostUnsupportedMutationGuard(_request, _response, next)'));
+    assert.ok(gatewayHandler.includes('return next();'));
 });
 
 
