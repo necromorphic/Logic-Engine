@@ -838,6 +838,9 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
      if (!request.body || !request.body.id) {
          return response.sendStatus(400);
      }
+@@ -38 +38 @@
+-const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
++const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
 diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 --- a/src/endpoints/characters.js
 +++ b/src/endpoints/characters.js
@@ -878,7 +881,11 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body) {
          console.warn('Error: no response body detected');
          response.status(400).send('Error: no response body detected');
-@@ -1139,7 +1142,7 @@
+@@ -1125,1 +1128,2 @@
+-            await writeCharacterData(avatarPath, char, targetFile, request);
++            const saved = await writeCharacterData(avatarPath, char, targetFile, request);
++            if (!saved) return response.sendStatus(500);
+@@ -1140,7 +1144,7 @@
      }
  });
  
