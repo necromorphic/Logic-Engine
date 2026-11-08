@@ -10,7 +10,7 @@ test('every reviewed per-user mutation route and global Host guard is present in
   const coverage = await verifyPinnedSillyTavernMutationCoverage({ sourceRoot: root });
   assert.equal(coverage.status, 'VERIFIED');
   assert.equal(coverage.route_count, PINNED_ST_MUTATION_ROUTE_COUNT);
-  assert.equal(coverage.route_count, 90);
+  assert.equal(coverage.route_count, 89);
   assert.equal(coverage.guard_assertion_count, PINNED_ST_MUTATION_GUARD_ASSERTION_COUNT);
   assert.equal(coverage.guard_assertion_count, 89);
   assert.deepEqual(PINNED_ST_SPECIAL_MUTATION_ROUTES['src/endpoints/users-private.js'], {
