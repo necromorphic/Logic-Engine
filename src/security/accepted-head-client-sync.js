@@ -16,7 +16,15 @@ function invoke(input, timeoutMs) {
     env: { PATH: process.env.PATH || '', SystemRoot: process.env.SystemRoot || '', WINDIR: process.env.WINDIR || '' },
   });
   if (result.error || result.status !== 0) {
-    throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
+    // Keep the public failure code stable while preserving the OS/process
+    // reason needed to diagnose platform-specific IPC failures in CI.
+    const reason = result.error?.code
+      || (result.signal ? 'signal:' + result.signal : 'exit:' + String(result.status));
+    const stderr = typeof result.stderr === 'string'
+      ? result.stderr.trim().replace(/[\\r\\n]+/g, ' ').slice(0, 240)
+      : '';
+    throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE (' + reason
+      + (stderr ? '; stderr=' + stderr : '') + ')');
   }
   try {
     return JSON.parse(result.stdout);
