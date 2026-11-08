@@ -825,14 +825,35 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
     const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
 
-    // Ordinary SillyTavern chats are not Host-enrolled and must remain writable
-    // even when VSS is unavailable. Inspect only the exact target: if it is
-    // absent or its stable first JSONL record has no Host conversation identity,
-    // the lifecycle receipt guard does not apply. Any enrolled or ambiguous
-    // target still goes through the full shared VSS inventory below.
-    if (submittedConversationUuid === undefined || submittedConversationUuid === null) {
-      const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
-      if (targetEnrollment === 'missing' || targetEnrollment === 'unenrolled') return next();
+    // Inspect only the exact target before requiring a full VSS inventory.
+    // Ordinary chats without Host identity remain writable. A new Host chat
+    // must carry a durable create-message PREPARED permit from the lifecycle
+    // journal before its first file is created.
+    const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
+    const preparedPermit = session.logicEngineHostPreparedMutation;
+    const validCreatePermit = !isGroup
+      && submittedConversationUuid !== undefined && submittedConversationUuid !== null
+      && preparedPermit?.protocol_version === 1
+      && preparedPermit.host_session_id === session.logicEngineSessionId
+      && preparedPermit.conversation_uuid === submittedConversationUuid
+      && preparedPermit.operation === 'create-message'
+      && HOST_SESSION_UUID.test(preparedPermit.mutation_id ?? '')
+      && HOST_SESSION_UUID.test(preparedPermit.event_id ?? '')
+      && /^[a-f0-9]{64}$/.test(preparedPermit.mutation_digest ?? '');
+    if (targetEnrollment === 'missing' || targetEnrollment === 'unenrolled') {
+      if (submittedConversationUuid === undefined || submittedConversationUuid === null) return next();
+      if (targetEnrollment === 'missing' && validCreatePermit) {
+        delete session.logicEngineHostPreparedMutation;
+        request.logicEngineLifecycleSaveAuthorized = true;
+        request.logicEngineLifecycleOperation = preparedPermit.operation;
+        return next();
+      }
+      return response.status(409).json({
+        status: 'NON_READY',
+        code: targetEnrollment === 'missing'
+          ? 'HOST_LIFECYCLE_CREATE_PREPARED_REQUIRED'
+          : 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED',
+      });
     }
 
     let inventory;
