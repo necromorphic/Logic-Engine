@@ -128,7 +128,6 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
     '/restore': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/quick-replies.js': Object.freeze({
-    '/save': 'hostUnsupportedMutationGuard',
     '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/secrets.js': Object.freeze({
