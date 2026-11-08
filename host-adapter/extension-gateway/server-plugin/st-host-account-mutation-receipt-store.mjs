@@ -523,88 +523,16 @@ export class HostAccountMutationReceiptStore {
  * inputs from the pinned route's validated target. A route without such an
  * adapter remains blocked by the existing bulk-mutation guard.
  */
-export function createHostAccountMutationMiddleware({ store, resolveMutation } = {}) {
-  if (!store || typeof store.prepare !== 'function' || typeof store.commit !== 'function'
-    || typeof store.abort !== 'function' || typeof resolveMutation !== 'function') {
-    throw new TypeError('Host account mutation middleware requires a receipt store and trusted route resolver.');
-  }
-
-  return async function hostAccountMutationMiddleware(request, response, next) {
-    response.set?.('Cache-Control', 'no-store, private');
-    response.set?.('Vary', 'Cookie');
-    const route = typeof request?.originalUrl === 'string'
-      ? request.originalUrl.split('?', 1)[0]
-      : typeof request?.baseUrl === 'string' && typeof request?.path === 'string'
-        ? request.baseUrl + request.path : '';
-    if (request?.method !== 'POST' || !OPERATIONS.has(request.method + ' ' + route)) {
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_ROUTE_UNSUPPORTED' });
-    }
-    const sessionId = request?.session?.logicEngineSessionId;
-    const userHandle = request?.user?.profile?.handle;
-    if (!UUID.test(sessionId ?? '') || typeof userHandle !== 'string' || !userHandle.trim()
-      || (request.session.logicEngineSessionHandle !== undefined
-        && request.session.logicEngineSessionHandle !== userHandle)
-      || (request.session.handle !== undefined && request.session.handle !== userHandle)) {
-      return response.status(403).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_AUTHENTICATION_UNAVAILABLE' });
-    }
-
-    let operation;
-    try { operation = await resolveMutation({ request, route, userHandle }); }
-    catch {
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_RESOLVER_FAILED' });
-    }
-    if (!operation || operation.scope?.host_session_id !== sessionId
-      || operation.scope?.method !== request.method || operation.scope?.route !== route
-      || !operation.directories || !path.isAbsolute(operation.directories.root)
-      || !path.isAbsolute(request.user?.directories?.root ?? '')
-      || path.resolve(operation.directories.root) !== path.resolve(request.user.directories.root)
-      || !Array.isArray(operation.allowedPaths) || operation.allowedPaths.length === 0) {
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_SCOPE_UNAVAILABLE' });
-    }
-
-    let prepared;
-    try {
-      prepared = await store.prepare(operation.scope, {
-        directories: operation.directories,
-        allowedPaths: operation.allowedPaths,
-      });
-    } catch {
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_PREPARE_FAILED' });
-    }
-
-    let finalized = false;
-    const finalize = async () => {
-      if (finalized) return;
-      finalized = true;
-      // A connection close before response finish is ambiguous. Keep PREPARED
-      // and its account lock for explicit recovery; never infer a rollback.
-      if (response.writableFinished !== true && response.finished !== true) return;
-      try {
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          await store.commit(operation.scope, {
-            directories: operation.directories,
-            lock_token: prepared.lock_token,
-          });
-        } else {
-          await store.abort(operation.scope, {
-            directories: operation.directories,
-            lock_token: prepared.lock_token,
-          });
-        }
-      } catch {
-        // The durable PREPARED record and account lock intentionally remain.
-        // Final-Send must consult store.hasPending() and stay NON_READY.
-      }
-    };
-    response.once?.('finish', finalize);
-    response.once?.('close', () => {
-      if (response.writableFinished === true || response.finished === true) return finalize();
-    });
-    try { return next(); }
-    catch (error) {
-      // Do not clear PREPARED here: the native handler may have partially
-      // written before throwing. Recovery must inspect the persisted root.
-      throw error;
-    }
+/**
+ * Native SillyTavern account mutations are owned by SillyTavern. This
+ * compatibility middleware must never turn Host identity, receipt storage,
+ * inventory enumeration or Core readiness into a precondition for those
+ * operations. Protected Memory independently validates current Host
+ * inventory/session authority; when that evidence is unavailable, Memory is
+ * omitted while the native ST operation and provider output continue.
+ */
+export function createHostAccountMutationMiddleware() {
+  return function hostAccountMutationMiddleware(_request, _response, next) {
+    return next();
   };
 }
