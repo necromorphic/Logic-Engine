@@ -261,7 +261,7 @@ test('native logout continues when optional Host revocation is unavailable', { s
         'revocation failure must be recorded as advisory telemetry');
 });
 
-test('account switching and version invalidation revoke the old Host capability before session mutation', { skip: !root }, () => {
+test('account switching and version invalidation clear stale Host capability without blocking native session mutation', { skip: !root }, () => {
     const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
     const users = read('src/users.js');
     const invalidationCall = users.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
