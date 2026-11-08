@@ -54,7 +54,7 @@ test('relative ST account directories are resolved against the server working di
   }), null, 'the authenticated user extension directory must remain inside the inventoried account root');
 });
 
-test('server bulk mutation guard blocks unreceipted mutations for an active Host session', () => {
+test('server bulk mutation guard always delegates native SillyTavern operations', () => {
   let nextCalls = 0;
   let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
@@ -66,13 +66,12 @@ test('server bulk mutation guard blocks unreceipted mutations for an active Host
     method: 'POST',
     session: { logicEngineSessionId: '11111111-1111-4111-8111-111111111111' },
   }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
   assert.equal(enumerateCalls, 0);
 });
 
-test('server bulk mutation guard does not let an empty pre-mutation scan authorize a write', () => {
+test('server bulk mutation guard does not require an inventory scan before native writes', () => {
   let nextCalls = 0;
   let enumerateCalls = 0;
   const guard = createHostBulkMutationGuard({
@@ -84,40 +83,29 @@ test('server bulk mutation guard does not let an empty pre-mutation scan authori
     method: 'POST',
     session: { logicEngineSessionId: '22222222-2222-4222-8222-222222222222' },
   }, response, () => { nextCalls++; });
-  assert.equal(response.statusCode, 503);
-  assert.equal(response.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.equal(nextCalls, 0);
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
   assert.equal(enumerateCalls, 0);
 });
 
-test('explicit local acceptance mode permits loopback UI testing without granting network clients a mutation bypass', () => {
+test('native mutation pass-through does not depend on loopback or acceptance environment flags', () => {
   const previous = process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE;
-  process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = 'LOCAL_LOOPBACK_ONLY';
+  delete process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE;
   try {
     const guard = createHostBulkMutationGuard({ pinnedHostCommit: pinned });
     const session = { logicEngineSessionId: '33333333-3333-4333-8333-333333333333' };
-    let loopbackNext = 0;
-    const loopbackResponse = makeResponse();
-    guard({
-      method: 'POST',
-      originalUrl: '/api/characters/create',
-      session,
-      socket: { remoteAddress: '127.0.0.1' },
-    }, loopbackResponse, () => { loopbackNext++; });
-    assert.equal(loopbackNext, 1);
-    assert.equal(loopbackResponse.headers['x-logic-engine-host-acceptance'], 'LOCAL_NON_AUTHORITATIVE');
-
-    let remoteNext = 0;
-    const remoteResponse = makeResponse();
-    guard({
-      method: 'POST',
-      originalUrl: '/api/characters/create',
-      session,
-      socket: { remoteAddress: '192.0.2.10' },
-    }, remoteResponse, () => { remoteNext++; });
-    assert.equal(remoteNext, 0);
-    assert.equal(remoteResponse.statusCode, 503);
-    assert.equal(remoteResponse.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+    for (const address of ['127.0.0.1', '192.0.2.10']) {
+      let nextCalls = 0;
+      const response = makeResponse();
+      guard({
+        method: 'POST',
+        originalUrl: '/api/characters/create',
+        session,
+        socket: { remoteAddress: address },
+      }, response, () => { nextCalls++; });
+      assert.equal(nextCalls, 1);
+      assert.equal(response.statusCode, null);
+    }
   } finally {
     if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE;
     else process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = previous;
@@ -1233,25 +1221,22 @@ test('startup group migration fails closed when full inventory cannot be proven'
   }), /HOST_LIFECYCLE_STARTUP_MIGRATION_INVENTORY_UNAVAILABLE/);
 });
 
-test('unsupported mutation guard blocks account-root and source mutations while Host authority is configured', () => {
+test('unsupported mutation guard delegates account-root and source mutations to SillyTavern', () => {
   const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = '/tmp/host-identity';
   try {
     let nextCalls = 0;
     const response = makeResponse();
     createHostUnsupportedMutationGuard()({ method: 'POST', session: {} }, response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
-    assert.equal(nextCalls, 0);
-    assert.equal(response.headers['cache-control'], 'no-store, private');
-    assert.equal(response.headers.vary, 'Cookie');
+    assert.equal(response.statusCode, null);
+    assert.equal(nextCalls, 1);
   } finally {
     if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
     else process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
   }
 });
 
-test('unsupported mutation guard blocks a Host-capability session even if deployment config disappears', () => {
+test('unsupported mutation guard delegates even when a Host session exists without deployment configuration', () => {
   const previous = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   delete process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
   try {
@@ -1261,9 +1246,8 @@ test('unsupported mutation guard blocks a Host-capability session even if deploy
       method: 'POST',
       session: { logicEngineSessionId: 'host-session-id' },
     }, response, () => { nextCalls++; });
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'HOST_MUTATION_ROUTE_UNSUPPORTED');
-    assert.equal(nextCalls, 0);
+    assert.equal(response.statusCode, null);
+    assert.equal(nextCalls, 1);
   } finally {
     if (previous !== undefined) process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR = previous;
   }
