@@ -40,12 +40,12 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/SillyTavern"
-          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-          git -C "$root" apply --check --ignore-space-change --ignore-whitespace host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch
-          git -C "$root" apply --ignore-space-change --ignore-whitespace host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch
-          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch
-          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch
+          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C "$root" apply --check --ignore-space-change --ignore-whitespace "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch"
+          git -C "$root" apply --ignore-space-change --ignore-whitespace "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch"
+          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
+          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
 
       - name: Check Host runtime syntax
         run: |
