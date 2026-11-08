@@ -177,14 +177,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const sourceLocator = getSourceLocator();
     const chat = getChat();
     if (!conversationId || !sourceLocator || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
-    const assertEnrollmentSourceUnchanged = () => {
-      if (getConversationId() !== conversationId || getSourceLocator() !== sourceLocator || getChat() !== chat) {
+    const assertEnrollmentSourceUnchanged = async () => {
+      if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator || getChat() !== chat) {
         throw Error('NON_READY: Host conversation changed during enrollment');
       }
     };
-    assertEnrollmentSourceUnchanged();
+    await assertEnrollmentSourceUnchanged();
     const fingerprint = await currentFingerprint(chat);
-    assertEnrollmentSourceUnchanged();
+    await assertEnrollmentSourceUnchanged();
     const descriptors = chat.map(message => ({
       role: roleOf(message),
       versions: rawVersions(message),
@@ -193,11 +193,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
     // journal.enroll is an asynchronous durable write. Revalidate both stable
     // identity and the actual chat object before touching native message metadata.
-    assertEnrollmentSourceUnchanged();
+    await assertEnrollmentSourceUnchanged();
     if (await currentFingerprint(chat) !== fingerprint) {
       throw Error('NON_READY: Host chat content changed during enrollment');
     }
-    assertEnrollmentSourceUnchanged();
+    await assertEnrollmentSourceUnchanged();
     try {
       for (let i = 0; i < chat.length; i++) {
         const identity = result.mapping[i];
@@ -209,16 +209,16 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
       // saveChatConditional persists the currently selected ST chat. Check the
       // captured source immediately before invoking it and again after completion.
-      assertEnrollmentSourceUnchanged();
+      await assertEnrollmentSourceUnchanged();
       await saveChat();
-      assertEnrollmentSourceUnchanged();
+      await assertEnrollmentSourceUnchanged();
     } catch (error) {
       // The durable baseline now exists but native metadata may not. Subsequent
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
-    assertEnrollmentSourceUnchanged();
+    await assertEnrollmentSourceUnchanged();
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
