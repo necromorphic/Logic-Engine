@@ -141,13 +141,11 @@ jobs:
             'src/endpoints/stable-diffusion.js',
             'src/endpoints/stats.js',
             'src/endpoints/themes.js',
-            'src/endpoints/thumbnails.js',
             'src/endpoints/users-admin.js',
             'src/endpoints/users-private.js',
             'src/endpoints/users-public.js',
             'src/endpoints/vectors.js',
             'src/endpoints/worldinfo.js',
-            'src/plugin-loader.js',
             'src/server-main.js',
             'src/users.js'
           )
