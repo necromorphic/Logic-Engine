@@ -360,6 +360,7 @@ export class HostAccountMutationReceiptStore {
     if (!prepared || prepared.status !== 'PREPARED'
       || prepared.mutation_digest !== scope.mutation_digest
       || prepared.operation !== scope.operation || prepared.route !== scope.route
+      || prepared.target_path !== scope.target_path || prepared.event_id !== scope.event_id
       || prepared.host_installation_id !== scope.host_installation_id
       || prepared.authenticated_account_id !== scope.authenticated_account_id
       || prepared.host_session_id !== scope.host_session_id) {
@@ -384,11 +385,17 @@ export class HostAccountMutationReceiptStore {
       // before the account lock is removed. Release only the lock belonging
       // to this exact prepared mutation; never remove another request's lock.
       const terminalLock = await this.#read(paths.lock);
-      if (terminalLock?.lock_token === prepared.lock_token) await fs.unlink(paths.lock);
+      if (terminalLock?.lock_token === prepared.lock_token
+        && terminalLock.host_installation_id === scope.host_installation_id
+        && terminalLock.authenticated_account_id === scope.authenticated_account_id
+        && terminalLock.mutation_id === scope.mutation_id) await fs.unlink(paths.lock);
       return { status: terminal.status, receipt_digest: terminal.receipt_digest };
     }
     const lock = await this.#read(paths.lock);
-    if (!lock || lock.lock_token !== prepared.lock_token) {
+    if (!lock || lock.lock_token !== prepared.lock_token
+      || lock.host_installation_id !== scope.host_installation_id
+      || lock.authenticated_account_id !== scope.authenticated_account_id
+      || lock.mutation_id !== scope.mutation_id) {
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_LOCK_INVALID' };
     }
     let after;
