@@ -851,10 +851,10 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
  // With 100 MB limit it would take roughly 3000 characters to reach this limit
  const memoryCacheCapacity = getConfigValue('performance.memoryCacheCapacity', '100mb');
  const memoryCache = new MemoryLimitedMap(memoryCacheCapacity);
-@@ -38 +38 @@
+@@ -38 +41 @@
 -const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
 +const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-@@ -1021,7 +1024,7 @@
+@@ -1021,7 +1025,7 @@
  
  export const router = express.Router();
  
@@ -863,7 +863,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          if (!request.body) return response.sendStatus(400);
  
-@@ -1050,7 +1053,7 @@
+@@ -1050,7 +1054,7 @@
      }
  });
  
@@ -872,7 +872,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body.avatar_url || !request.body.new_name) {
          return response.sendStatus(400);
      }
-@@ -1098,7 +1101,7 @@
+@@ -1098,7 +1102,7 @@
      }
  });
  
@@ -881,11 +881,11 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body) {
          console.warn('Error: no response body detected');
          response.status(400).send('Error: no response body detected');
-@@ -1123,1 +1123,2 @@
+@@ -1123,1 +1127,2 @@
 -            await writeCharacterData(avatarPath, char, targetFile, request);
 +            const saved = await writeCharacterData(avatarPath, char, targetFile, request);
 +            if (!saved) return response.sendStatus(500);
-@@ -1139,7 +1143,7 @@
+@@ -1139,7 +1144,7 @@
      }
  });
  
@@ -894,7 +894,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          if (!request.file) {
              return response.status(400).send('Error: no file uploaded');
-@@ -1190,7 +1193,7 @@
+@@ -1190,7 +1195,7 @@
   * @param {Object} response - The HTTP response object.
   * @returns {void}
   */
@@ -903,7 +903,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      console.debug(request.body);
      if (!request.body) {
          console.warn('Error: no response body detected');
-@@ -1325,7 +1328,7 @@
+@@ -1325,7 +1330,7 @@
   * @param {import("express").Response} response - The HTTP response object
   * @returns {void}
   */
@@ -912,7 +912,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          // ── Bulk mode: avatars array is present ──────────────────
          if (Array.isArray(request.body.avatars)) {
-@@ -1413,7 +1416,7 @@
+@@ -1413,7 +1418,7 @@
      }
  });
  
@@ -921,7 +921,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body || !request.body.avatar_url) {
          return response.sendStatus(400);
      }
-@@ -1557,7 +1560,7 @@
+@@ -1557,7 +1562,7 @@
          : undefined;
  }
  
@@ -930,7 +930,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body || !request.file) return response.sendStatus(400);
  
      const uploadPath = path.join(request.file.destination, request.file.filename);
-@@ -1598,7 +1601,7 @@
+@@ -1598,7 +1603,7 @@
      }
  });
  
