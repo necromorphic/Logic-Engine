@@ -1034,12 +1034,16 @@ diff --git a/src/users.js b/src/users.js
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -122,8 +123,11 @@
+@@ -122,8 +123,12 @@
      const directoriesList = userHandles.map(handle => getUserDirectories(handle));
      for (const userDirectories of directoriesList) {
++        // A missing user root identifies a genuinely new account. Permit the
++        // initial directory bootstrap, but keep fail-closed behavior for an
++        // existing user root with missing child directories.
++        const userRootExists = fs.existsSync(userDirectories.root);
          for (const dir of Object.values(userDirectories)) {
              if (!fs.existsSync(dir)) {
-+                if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
++                if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && userRootExists) {
 +                    throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING');
 +                }
                  fs.mkdirSync(dir, { recursive: true });
