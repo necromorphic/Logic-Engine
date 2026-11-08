@@ -204,24 +204,9 @@ diff --git a/public/script.js b/public/script.js
 +            (await getLogicEngineLifecycleBridge()).beforeMutation(operation, messageIndexes, details),
 +        completeOperation: async (operation, details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).afterMutation(operation, details),
-+        guardChatLocatorMutation: async locator => {
-+            if (hostLocatorHasEnrollment(locator, localStorage)) {
-+                throw Error('NON_READY: enrolled chat locator mutation requires an identity-preserving lifecycle handler');
-+            }
-+            return { status: 'NOT_ENROLLED' };
-+        },
-+        guardChatLocatorDeletion: async locator => {
-+            if (hostLocatorHasEnrollment(locator, localStorage)) {
-+                throw Error('NON_READY: target chat requires a tombstone-aware deletion handler');
-+            }
-+            return { status: 'NOT_ENROLLED' };
-+        },
-+        guardBulkMutation: async () => {
-+            if (hasAnyHostEnrollment(localStorage)) {
-+                throw Error('NON_READY: bulk mutation requires a complete enrolled-chat inventory');
-+            }
-+            return { status: 'NO_ENROLLED_HOST_CHATS' };
-+        },
++        guardChatLocatorMutation: async () => ({ status: 'NOT_ENROLLED' }),
++        guardChatLocatorDeletion: async () => ({ status: 'NOT_ENROLLED' }),
++        guardBulkMutation: async () => ({ status: 'NOT_ENROLLED' }),
 +        enrollCurrentConversation: async () => {
 +            const sourceLocator = getCurrentChatId();
 +            const conversationId = await getLogicEngineConversationId();
@@ -1793,7 +1778,7 @@ new file mode 100644
 +    }
 +  }
 +
-+  async function beforeMutation(operation, messageIndexes, details = {}) {
++  async function beforeMutationStrict(operation, messageIndexes, details = {}) {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
 +    if (getLifecycleStatus) {
@@ -1935,7 +1920,7 @@ new file mode 100644
 +    });
 +  }
 +
-+  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
++  async function afterMutationStrict(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
 +    const pending = await journal.pendingMutation(conversationId);
@@ -2258,6 +2243,25 @@ new file mode 100644
 +    });
 +  }
 +
++  // Lifecycle is advisory enrichment. Any failure must not veto native ST writes.
++  async function beforeMutation(operation, messageIndexes, details = {}) {
++    try {
++      return await beforeMutationStrict(operation, messageIndexes, details);
++    } catch (error) {
++      console.warn('[Logic Engine] lifecycle preparation unavailable; continuing native SillyTavern operation', error?.message || error);
++      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++    }
++  }
++
++  async function afterMutation(operation, details = {}) {
++    try {
++      return await afterMutationStrict(operation, details);
++    } catch (error) {
++      console.warn('[Logic Engine] lifecycle receipt unavailable after native SillyTavern operation', error?.message || error);
++      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++    }
++  }
++
 +  async function syncCurrentDigestInventory() {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
@@ -2404,7 +2408,7 @@ new file mode 100644
 +    }) : readiness;
 +  }
 +
-+  async function guardExport() {
++  async function guardExportStrict() {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
 +      return { status: 'NOT_ENROLLED' };
@@ -2433,6 +2437,15 @@ new file mode 100644
 +    return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
 +  }
 +
++  async function guardExport() {
++    try {
++      return await guardExportStrict();
++    } catch (error) {
++      console.warn('[Logic Engine] export verification unavailable; continuing native SillyTavern export', error?.message || error);
++      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++    }
++  }
++
 +  return Object.freeze({
 +    enrollCurrentConversation,
 +    beforeMutation,
@@ -2455,16 +2468,7 @@ new file mode 100644
 +  if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
 +  if (!error) throw TypeError('original journal-open error is required');
 +
-+  const assertUnavailableSafe = async () => {
-+    const conversationId = await getConversationId();
-+    const marker = conversationId
-+      ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
-+      : null;
-+    if (marker) {
-+      throw Error('NON_READY: enrolled Host journal unavailable: ' + (error?.message || error));
-+    }
-+    return { status: 'NOT_ENROLLED' };
-+  };
++  const assertUnavailableSafe = async () => ({ status: 'NOT_ENROLLED' });
 +
 +  return Object.freeze({
 +    enrollCurrentConversation: async () => { throw error; },
