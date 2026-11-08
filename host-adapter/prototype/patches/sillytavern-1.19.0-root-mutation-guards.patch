@@ -130,13 +130,17 @@ diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
 @@ -452 +454 @@
 -router.post('/recreate', async function (request, response) {
 +router.post('/recreate', hostUnsupportedMutationGuard, async function (request, response) {
-@@ -465 +467 @@
+@@ -465,5 +467,8 @@
 -router.post('/update', function (request, response) {
 +router.post('/update', hostBulkMutationGuard, async function (request, response) {
+     if (!request.body) return response.sendStatus(400);
+     setCharStats(request.user.profile.handle, request.body);
 +    const handle = request.user.profile.handle;
 +    const statsFilePath = path.join(request.user.directories.root, STATS_FILE);
 +    await writeFileAtomic(statsFilePath, JSON.stringify(STATS.get(handle)));
 +    TIMESTAMPS.set(handle, Date.now());
+     return response.sendStatus(200);
+ });
 diff --git a/src/endpoints/themes.js b/src/endpoints/themes.js
 --- a/src/endpoints/themes.js
 +++ b/src/endpoints/themes.js
