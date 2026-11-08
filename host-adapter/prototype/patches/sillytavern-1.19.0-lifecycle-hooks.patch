@@ -1544,10 +1544,9 @@ new file mode 100644
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
-index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,947 @@
+@@ -0,0 +1,950 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1741,7 +1740,8 @@ index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 +      activeVersionIndex: activeIndex(message),
 +    }));
 +    const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
-+    // Revalidate after the durable journal write and before touching native chat metadata.
++    // journal.enroll is an asynchronous durable write. Revalidate both stable
++    // identity and the actual chat object before touching native message metadata.
 +    await assertEnrollmentSourceUnchanged();
 +    if (await currentFingerprint(chat) !== fingerprint) {
 +      throw Error('NON_READY: Host chat content changed during enrollment');
@@ -1756,6 +1756,8 @@ index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 +          activeVersionIndex: identity.activeVersionIndex,
 +        };
 +      }
++      // saveChatConditional persists the currently selected ST chat. Check the
++      // captured source immediately before invoking it and again after completion.
 +      await assertEnrollmentSourceUnchanged();
 +      await saveChat();
 +      await assertEnrollmentSourceUnchanged();
