@@ -214,7 +214,7 @@ test('pinned ST mutation routes are observed without suppressing native operatio
     const groups = read('src/endpoints/groups.js');
     assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
         'group migration may observe Host state but the helper always permits native migration');
-    const gatewayHandler = fs.readFileSync(resolve(here, '../st-host-inventory-handler.mjs'), 'utf8');
+    const gatewayHandler = fs.readFileSync(new URL('../../extension-gateway/server-plugin/st-host-inventory-handler.mjs', import.meta.url), 'utf8');
     assert.ok(gatewayHandler.includes('export async function assertHostStartupMigrationAllowed() {'));
     assert.ok(gatewayHandler.includes('return true;'),
         'Host inventory must not veto native startup group migration');

@@ -30,8 +30,7 @@ const rootMutationPatch = await readFile(rootMutationPatchPath);
 const handlerSource = await readFile(path.join(repoRoot, 'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'));
 const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
-const patchBlobSha = sha256(Buffer.from(
-));
+const patchBlobSha = sha256(Buffer.from([lifecycleBlobSha, rootMutationBlobSha].join('\n'), 'utf8'));
 const handlerBlobSha = gitBlobSha(handlerSource);
 
 // The Host Bundle installer may receive a SillyTavern tree where the separate
