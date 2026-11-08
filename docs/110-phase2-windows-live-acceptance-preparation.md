@@ -8,18 +8,18 @@
 
 ## 0. One-command isolated installation smoke test
 
-Use an extracted, clean SillyTavern 1.19.0 release directory as the source. Do not point this runner at the daily profile or a directory containing third-party server/browser extensions.
+The runner downloads and checks out the exact pinned SillyTavern 1.19.0 source commit itself, then creates a disposable test copy. It does not read an extracted local SillyTavern directory or the daily profile.
 
 From the Logic-Engine checkout, run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-LogicEngine-PR870-Test.ps1 -SillyTavernRoot "C:\Path\To\Clean\SillyTavern-1.19.0"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-LogicEngine-PR870-Test.ps1 -CandidateCommit "<exact-40-character-PR-870-SHA>"
 ```
 
 The runner:
 
 - checks Node.js, Git, npm registry and GitHub access before copying anything;
-- resolves the current `integration/host-core-v1` commit and records its exact SHA;
+- checks out the supplied exact Logic Engine candidate SHA (do not use a moving branch name for acceptance);
 - copies the clean SillyTavern release into a disposable directory under `%TEMP%`;
 - installs SillyTavern dependencies with its committed lockfile;
 - calls the same `install-sillytavern-host-plugin.ps1` installer used for deployment;
