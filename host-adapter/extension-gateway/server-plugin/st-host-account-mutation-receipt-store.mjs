@@ -442,6 +442,29 @@ export class HostAccountMutationReceiptStore {
       || !Number.isSafeInteger(lock.process_started_at_ms) || lock.process_started_at_ms < 0) {
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_INVALID' };
     }
+
+    const names = await fs.readdir(this.directory);
+    const matches = [];
+    for (const name of names.filter(item => item.endsWith('.prepared.json'))) {
+      const record = await this.#read(path.join(this.directory, name));
+      if (record?.host_installation_id === host_installation_id
+        && record?.authenticated_account_id === authenticated_account_id
+        && record?.mutation_id === lock.mutation_id
+        && record?.lock_token === lock.lock_token) matches.push(record);
+    }
+    if (matches.length !== 1) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_NOT_UNIQUE' };
+    }
+
+    // A durable terminal record proves the native handler already completed.
+    // It is safe to remove its matching lock even while the server process lives.
+    const paths = this.#paths(matches[0]);
+    const terminal = await this.#read(paths.terminal);
+    if (terminal) {
+      try { return await this.recover(matches[0], { directories }); }
+      catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TERMINAL_RECOVERY_FAILED' }; }
+    }
+
     try {
       process.kill(lock.owner_pid, 0);
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_STILL_ACTIVE' };
@@ -449,17 +472,6 @@ export class HostAccountMutationReceiptStore {
       if (error?.code !== 'ESRCH') {
         return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_STATUS_UNKNOWN' };
       }
-    }
-    const names = await fs.readdir(this.directory);
-    const matches = [];
-    for (const name of names.filter(item => item.endsWith('.prepared.json'))) {
-      const record = await this.#read(path.join(this.directory, name));
-      if (record?.host_installation_id === host_installation_id
-        && record?.authenticated_account_id === authenticated_account_id
-        && record?.lock_token === lock.lock_token) matches.push(record);
-    }
-    if (matches.length !== 1) {
-      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_NOT_UNIQUE' };
     }
     try { return await this.recover(matches[0], { directories }); }
     catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_RECOVERY_FAILED' }; }
