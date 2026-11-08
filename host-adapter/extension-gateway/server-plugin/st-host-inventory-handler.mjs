@@ -813,7 +813,6 @@ export function createHostRequestAuthenticationGate({ resolveConversationId } = 
     },
   });
 }
-, 'i');
 
 export const CORE_ATTESTED_SOURCE_BLOCKERS = Object.freeze([
   'NO_PRE_ENROLLMENT_DELETED_HISTORY',
