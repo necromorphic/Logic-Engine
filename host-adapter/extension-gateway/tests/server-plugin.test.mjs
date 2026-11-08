@@ -90,6 +90,40 @@ test('server bulk mutation guard does not let an empty pre-mutation scan authori
   assert.equal(enumerateCalls, 0);
 });
 
+test('explicit local acceptance mode permits loopback UI testing without granting network clients a mutation bypass', () => {
+  const previous = process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE;
+  process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = 'LOCAL_LOOPBACK_ONLY';
+  try {
+    const guard = createHostBulkMutationGuard({ pinnedHostCommit: pinned });
+    const session = { logicEngineSessionId: '33333333-3333-4333-8333-333333333333' };
+    let loopbackNext = 0;
+    const loopbackResponse = makeResponse();
+    guard({
+      method: 'POST',
+      originalUrl: '/api/characters/create',
+      session,
+      socket: { remoteAddress: '127.0.0.1' },
+    }, loopbackResponse, () => { loopbackNext++; });
+    assert.equal(loopbackNext, 1);
+    assert.equal(loopbackResponse.headers['x-logic-engine-host-acceptance'], 'LOCAL_NON_AUTHORITATIVE');
+
+    let remoteNext = 0;
+    const remoteResponse = makeResponse();
+    guard({
+      method: 'POST',
+      originalUrl: '/api/characters/create',
+      session,
+      socket: { remoteAddress: '192.0.2.10' },
+    }, remoteResponse, () => { remoteNext++; });
+    assert.equal(remoteNext, 0);
+    assert.equal(remoteResponse.statusCode, 503);
+    assert.equal(remoteResponse.body.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+  } finally {
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE;
+    else process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = previous;
+  }
+});
+
 test('host inventory route rejects unauthenticated and incomplete user sessions', async () => {
   let calls = 0;
   const handler = createHostInventoryHandler({
