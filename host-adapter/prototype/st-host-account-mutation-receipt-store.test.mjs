@@ -128,69 +128,37 @@ test('keeps crash recovery locked when operation-specific transition validation 
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
 
-test('native route middleware prepares before next and commits only after a successful response', async () => {
+test('native route middleware delegates immediately without requiring Host receipts', async () => {
   const f = await fixture();
-  const s = scope();
-  const callbacks = {};
-  const response = {
-    statusCode: 200,
-    writableFinished: false,
-    set() { return this; },
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-    once(name, callback) { callbacks[name] = callback; return this; },
-  };
-  const middleware = createHostAccountMutationMiddleware({
-    store: f.store,
-    resolveMutation: async () => ({
-      scope: s,
-      directories: f.directories,
-      allowedPaths: ['characters/a.png'],
-    }),
-  });
+  const middleware = createHostAccountMutationMiddleware();
   let nextCalls = 0;
   try {
-    await middleware({
+    const result = middleware({
       method: 'POST',
-      originalUrl: '/api/characters/edit',
-      session: { logicEngineSessionId: s.host_session_id, logicEngineSessionHandle: 'alice' },
-      user: { profile: { handle: 'alice' }, directories: f.directories },
-    }, response, () => { nextCalls++; });
+      originalUrl: '/api/quick-replies/save',
+      session: {},
+      user: {},
+    }, {}, () => { nextCalls++; return 'native-handler'; });
+    assert.equal(result, 'native-handler');
     assert.equal(nextCalls, 1);
-    assert.equal(await f.store.hasPending(s), true, 'PREPARED must exist before the native handler runs');
-    f.state.set('characters/a.png', hash('after'));
-    response.writableFinished = true;
-    await callbacks.finish();
-    assert.equal(await f.store.hasPending(s), false);
-  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+    assert.equal(await f.store.hasPending(scope()), false);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+    await rm(f.storeDir, { recursive: true, force: true });
+  }
 });
 
-test('native route middleware refuses a mismatched session before invoking the native handler', async () => {
-  const f = await fixture();
-  const s = scope();
-  const response = {
-    statusCode: null,
-    set() { return this; },
-    status(code) { this.statusCode = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
-  const middleware = createHostAccountMutationMiddleware({
-    store: f.store,
-    resolveMutation: async () => ({ scope: s, directories: f.directories, allowedPaths: ['characters/a.png'] }),
-  });
+test('native route middleware delegates even when Host identity and receipt services are unavailable', () => {
+  const middleware = createHostAccountMutationMiddleware();
   let nextCalls = 0;
-  try {
-    await middleware({
-      method: 'POST',
-      originalUrl: '/api/characters/edit',
-      session: { logicEngineSessionId: uuid(), logicEngineSessionHandle: 'alice' },
-      user: { profile: { handle: 'alice' }, directories: f.directories },
-    }, response, () => { nextCalls++; });
-    assert.equal(nextCalls, 0);
-    assert.equal(response.statusCode, 503);
-    assert.equal(response.body.code, 'HOST_ACCOUNT_MUTATION_SCOPE_UNAVAILABLE');
-    assert.equal(await f.store.hasPending(s), false);
-  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+  const result = middleware({
+    method: 'POST',
+    originalUrl: '/api/characters/create',
+    session: null,
+    user: null,
+  }, {}, () => { nextCalls++; return 'native-create'; });
+  assert.equal(result, 'native-create');
+  assert.equal(nextCalls, 1);
 });
 
 test('treats an idempotent successful save as a verified no-change terminal receipt', async () => {
