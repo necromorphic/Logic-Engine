@@ -308,21 +308,26 @@ export class HostAccountMutationReceiptStore {
     validateScope(scope);
     const paths = this.#paths(scope);
     const prepared = await this.#read(paths.prepared);
-    const lock = await this.#read(paths.lock);
-    if (!prepared || prepared.status !== 'PREPARED' || !lock
+    if (!prepared || prepared.status !== 'PREPARED'
       || prepared.mutation_digest !== scope.mutation_digest
       || prepared.operation !== scope.operation || prepared.route !== scope.route
-      || prepared.host_session_id !== scope.host_session_id
-      || lock.lock_token !== prepared.lock_token) {
-      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_OR_LOCK_INVALID' };
+      || prepared.host_installation_id !== scope.host_installation_id
+      || prepared.authenticated_account_id !== scope.authenticated_account_id
+      || prepared.host_session_id !== scope.host_session_id) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_INVALID' };
     }
     const terminal = await this.#read(paths.terminal);
     if (terminal) {
       if (!['COMMITTED', 'ABORTED'].includes(terminal.status)
+        || !terminal.receipt
         || terminal.receipt_digest !== digest(canonical(terminal.receipt))) {
         return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TERMINAL_INVALID' };
       }
       return { status: terminal.status, receipt_digest: terminal.receipt_digest };
+    }
+    const lock = await this.#read(paths.lock);
+    if (!lock || lock.lock_token !== prepared.lock_token) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_LOCK_INVALID' };
     }
     let after;
     try { after = await this.#snapshot(directories, scope); }
