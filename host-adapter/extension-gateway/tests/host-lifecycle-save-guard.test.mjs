@@ -89,7 +89,7 @@ test('ordinary un-enrolled new and existing chats save without requiring VSS inv
   assert.equal(inventoryCalls, 0);
 });
 
-test('an enrolled target still requires full inventory and rejects a payload with its identity removed', async t => {
+test('an enrolled chat save proceeds through SillyTavern without Host inventory authorization', async t => {
   const directories = await setupDirectories(t);
   const target = join(directories.chats, 'Assistant', 'new-chat.jsonl');
   await writeFile(target, JSON.stringify({
@@ -102,26 +102,15 @@ test('an enrolled target still requires full inventory and rejects a payload wit
     pinnedHostCommit: PINNED_HOST_COMMIT,
     enumerate: async () => {
       inventoryCalls++;
-      return {
-        filesystem: { status: 'complete' },
-        source: {
-          status: 'DOUBLE_SCAN_CANDIDATE',
-          files: [{
-            kind: 'character-chat',
-            locator: 'Assistant/new-chat.jsonl',
-            logical_identity: { conversation_uuid: ENROLLED_CONVERSATION_ID },
-          }],
-        },
-      };
+      throw new Error('Host inventory must not block a native chat save');
     },
   });
 
   const response = responseRecorder();
   await guard(saveRequest(directories), response, () => { nextCalls++; });
-  assert.equal(inventoryCalls, 1);
-  assert.equal(response.statusCode, 409);
-  assert.equal(response.payload.code, 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH');
-  assert.equal(nextCalls, 0);
+  assert.equal(inventoryCalls, 0);
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
 
 test('a new Host chat file can be created without scanning or mutating existing history', async t => {
