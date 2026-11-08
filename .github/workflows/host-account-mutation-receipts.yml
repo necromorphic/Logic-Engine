@@ -15,7 +15,11 @@ permissions:
 
 jobs:
   host-account-mutation-receipts:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out Logic Engine
         uses: actions/checkout@v4
