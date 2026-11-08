@@ -1213,8 +1213,8 @@ test('all Host mutation middleware preserve native SillyTavern operations when H
     await guard({
       method: 'POST',
       originalUrl: '/api/characters/create',
-      session: { logicEngineSessionId: defaultUserSessionId },
-      user: { profile: { handle: 'default-user' }, directories: {} },
+      session: {},
+      user: {},
     }, response, () => { nextCalls += 1; });
     assert.equal(response.statusCode, null);
   }
