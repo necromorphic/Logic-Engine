@@ -606,25 +606,6 @@ diff --git a/src/server-main.js b/src/server-main.js
  app.use(bodyParser.json({ limit: '500mb' }));
  app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
  
-@@ -301,13 +307,13 @@
-     const directories = await getUserDirectoriesList();
-     await migrateGroupChatsMetadataFormat(directories);
--    await checkForNewContent(directories);
--    await diskCache.verify(directories);
--    migrateFlatSecrets(directories);
-+    await checkForNewContent(directories);
-+    await diskCache.verify(directories);
-+    migrateFlatSecrets(directories);
-     cleanUploads();
-     migrateAccessLog();
- 
--    await settingsInit();
--    await statsInit();
-+    await settingsInit();
-+    await statsInit();
- 
-     const pluginsDirectory = path.join(serverDirectory, 'plugins');
-     const cleanupPlugins = await loadPlugins(app, pluginsDirectory);
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
 +++ b/src/endpoints/backends/chat-completions.js
@@ -991,9 +972,6 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
  const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
  const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
-@@ -206,1 +211,1 @@
--router.post('/save', function (request, response) {
-+router.post('/save', function (request, response) {
 @@ -340,1 +345,1 @@
 -router.post('/make-snapshot', async (request, response) => {
 +router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
@@ -2635,6 +2613,3 @@ new file mode 100644
 diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 --- a/src/plugin-loader.js
 +++ b/src/plugin-loader.js
-@@ -62,1 +66,1 @@
--        await updatePlugins(pluginsPath);
-+        await updatePlugins(pluginsPath);
