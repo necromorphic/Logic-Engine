@@ -12,8 +12,7 @@ import {
 } from './st-mutation-route-contract.mjs';
 
 const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
-  + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '
+const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 export const CORE_ATTESTED_SOURCE_BLOCKERS = Object.freeze([
   'NO_PRE_ENROLLMENT_DELETED_HISTORY',
   'NO_COMPLETE_MESSAGE_OR_SWIPE_REVISION_HISTORY',
