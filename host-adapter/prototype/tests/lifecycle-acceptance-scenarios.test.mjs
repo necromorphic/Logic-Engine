@@ -280,6 +280,7 @@ test('pinned patch routes account and settings mutations through non-blocking Ho
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const rootMutationPatch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8');
+  const handler = await readFile(resolve(here, '../st-host-inventory-handler.mjs'), 'utf8');
   const reviewedPatches = patch + '\\n' + rootMutationPatch;
   for (const required of [
     "+router.post('/delete', hostBulkMutationGuard, async (req, res) => {",
@@ -293,9 +294,10 @@ test('pinned patch routes account and settings mutations through non-blocking Ho
     "comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
     "comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name')",
   ]) assert.ok(reviewedPatches.includes(required), `missing optional Host observer on ${required}`);
-  assert.ok(patch.includes("export function createHostUnsupportedMutationGuard"));
-  assert.ok(patch.includes("return function hostUnsupportedMutationGuard(_request, _response, next)"));
-  assert.ok(patch.includes("return function hostBulkMutationGuard(_request, _response, next)"));
+  assert.ok(handler.includes("export function createHostUnsupportedMutationGuard"));
+  assert.ok(handler.includes("return function hostUnsupportedMutationGuard(_request, _response, next)"));
+  assert.ok(handler.includes("return function hostBulkMutationGuard(_request, _response, next)"));
+  assert.ok(handler.includes("return function hostLifecycleSaveGuard(_request, _response, next)"));
   assert.equal(reviewedPatches.includes('/api/logic-engine'), false,
     'additional observers must not add a separate public Host API route');
 });
