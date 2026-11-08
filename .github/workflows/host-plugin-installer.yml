@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'scripts/install-sillytavern-host-plugin.ps1'
+      - 'scripts/Start-LogicEngine-PR870-Test.ps1'
+      - 'tests/windows-host-deployment-launcher.test.js'
       - 'scripts/sillytavern-patch-manager.mjs'
       - 'host-adapter/patches/**'
       - 'package.json'
@@ -31,6 +33,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
+      - name: Parse isolated deployment launcher with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-Content -LiteralPath './scripts/Start-LogicEngine-PR870-Test.ps1' -Raw
+          [void][scriptblock]::Create($source)
+          Write-Output 'Windows PowerShell 5.1 launcher syntax is valid.'
       - name: Checkout pinned SillyTavern source
         shell: pwsh
         run: |
