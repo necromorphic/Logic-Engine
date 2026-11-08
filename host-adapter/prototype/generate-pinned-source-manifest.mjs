@@ -24,17 +24,13 @@ const gitBlobSha = bytes => createHash('sha1')
   .update(bytes).digest('hex');
 
 const lifecyclePatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
-const unenrolledFixPatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch');
 const rootMutationPatchPath = path.join(repoRoot, 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch');
 const lifecyclePatch = await readFile(lifecyclePatchPath);
-const unenrolledFixPatch = await readFile(unenrolledFixPatchPath);
 const rootMutationPatch = await readFile(rootMutationPatchPath);
 const handlerSource = await readFile(path.join(repoRoot, 'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'));
 const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
-const unenrolledFixBlobSha = gitBlobSha(unenrolledFixPatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
 const patchBlobSha = sha256(Buffer.from(
-  lifecycleBlobSha + '\n' + unenrolledFixBlobSha + '\n' + rootMutationBlobSha, 'utf8',
 ));
 const handlerBlobSha = gitBlobSha(handlerSource);
 
@@ -144,7 +140,6 @@ try {
   }
   for (const [patchPath, allowZeroContext] of [
     [lifecyclePatchPath, true],
-    [unenrolledFixPatchPath, false],
     [rootMutationPatchPath, true],
   ]) {
     const args = [
