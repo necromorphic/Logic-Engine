@@ -112,7 +112,7 @@ const identifiedMessage = ({ name = 'Harness User', isUser = true, mes, messageI
   _logicEngineLifecycle: identity(messageId, versionId, mes),
 });
 
-test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, group deletion, bulk import and restore fail closed', {
+test('pinned ST 1.19.0 native chat mutations continue while Host inventory records changes', {
   skip: process.platform !== 'win32' || !runPinnedSTHarness,
   timeout: 600_000,
 }, async t => {
@@ -628,32 +628,35 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     avatar_url: 'Harness Character.png', file: 'chat-one.jsonl', format: 'jsonl',
     exportfilename: 'chat-one.jsonl', is_group: false,
   });
-  assert.equal(exportResult.status, 503);
-  assert.equal(exportResult.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED',
-    'chat export must fail closed while enrolled histories lack authoritative reconciliation');
+  assert.equal(exportResult.status, 200, JSON.stringify(exportResult));
 
-  const blockedDeleteChat = await observe(async () => {
+  const deletedChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
       avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
     });
-    assert.equal(response.status, 503, JSON.stringify(response));
-    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-    assert.equal((await readFile(chatPath, 'utf8')).length > 0, true,
-      'direct chat deletion API must leave the enrolled file untouched');
+    assert.equal(response.status, 200, JSON.stringify(response));
+    await assert.rejects(readFile(chatPath, 'utf8'), { code: 'ENOENT' });
     return response;
-  }, 'unchanged');
+  }, 'removed');
+
+  const recreatedChat = await observe(async () => {
+    const response = await post('/api/chats/save', {
+      avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
+    }, { 'x-harness-operation': 'recreate-after-delete' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    return response;
+  }, 'added');
 
   const renamedPath = join(directories.chats, 'Harness Character', 'chat-renamed.jsonl');
   const rename = await observe(async () => {
     const response = await post('/api/chats/rename', {
       avatar_url: 'Harness Character.png', original_file: 'chat-one.jsonl', renamed_file: 'chat-renamed.jsonl',
     });
-    assert.equal(response.status, 503);
-    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-    assert.equal((await readFile(join(directories.chats, 'Harness Character', 'chat-one.jsonl'), 'utf8')).length > 0, true);
-    await assert.rejects(readFile(renamedPath, 'utf8'), { code: 'ENOENT' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.ok((await readFile(renamedPath, 'utf8')).length > 0);
+    await assert.rejects(readFile(chatPath, 'utf8'), { code: 'ENOENT' });
     return response;
-  }, 'unchanged');
+  }, ['added', 'removed']);
 
   const importUpload = 'import-chat.jsonl';
   await writeFile(join(uploads, importUpload), JSON.stringify(identifiedHeader(
@@ -663,21 +666,15 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     messageId: '22222222-2222-4222-8222-222222222222',
     versionId: '33333333-3333-4333-8333-333333333333',
   })) + '\n');
-  const chatFilesBeforeImport = (await readdir(join(directories.chats, 'Harness Character'))).sort();
-  const journalEventsBeforeImport = journal.db.prepare(
-    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
-  ).get().count;
-  const imported = await post('/api/chats/import', {
-    file_type: 'jsonl', avatar_url: 'Harness Character.png',
-    user_name: 'Harness User', character_name: 'Harness Character',
-  }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
-  assert.equal(imported.status, 503, JSON.stringify(imported));
-  assert.equal(imported.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeImport,
-    'blocked bulk import must not create or alter chat files');
-  assert.equal(journal.db.prepare(
-    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
-  ).get().count, journalEventsBeforeImport, 'blocked import must not append a filesystem event');
+  const imported = await observe(async () => {
+    const response = await post('/api/chats/import', {
+      file_type: 'jsonl', avatar_url: 'Harness Character.png',
+      user_name: 'Harness User', character_name: 'Harness Character',
+    }, { 'x-harness-upload': importUpload, 'x-harness-operation': 'import' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    return response;
+  }, ['added', 'modified']);
+  assert.ok(imported.result.counts.added > 0 || imported.result.counts.modified > 0);
 
   const backupName = 'chat_harness_restore.jsonl';
   await writeFile(join(directories.backups, backupName), JSON.stringify(identifiedHeader(
@@ -691,21 +688,15 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   assert.equal(restoreDownload.status, 200);
   const restoreUpload = 'restore-chat.jsonl';
   await writeFile(join(uploads, restoreUpload), restoreDownload.result);
-  const chatFilesBeforeRestore = (await readdir(join(directories.chats, 'Harness Character'))).sort();
-  const journalEventsBeforeRestore = journal.db.prepare(
-    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
-  ).get().count;
-  const restored = await post('/api/chats/import', {
-    file_type: 'jsonl', avatar_url: 'Harness Character.png',
-    user_name: 'Harness User', character_name: 'Harness Character',
-  }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
-  assert.equal(restored.status, 503, JSON.stringify(restored));
-  assert.equal(restored.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-  assert.deepEqual((await readdir(join(directories.chats, 'Harness Character'))).sort(), chatFilesBeforeRestore,
-    'blocked backup restore must not create or alter chat files');
-  assert.equal(journal.db.prepare(
-    'SELECT COUNT(*) AS count FROM host_root_inventory_events'
-  ).get().count, journalEventsBeforeRestore, 'blocked restore must not append a filesystem event');
+  const restored = await observe(async () => {
+    const response = await post('/api/chats/import', {
+      file_type: 'jsonl', avatar_url: 'Harness Character.png',
+      user_name: 'Harness User', character_name: 'Harness Character',
+    }, { 'x-harness-upload': restoreUpload, 'x-harness-operation': 'restore' });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    return response;
+  }, ['added', 'modified']);
+  assert.ok(restored.result.counts.added > 0 || restored.result.counts.modified > 0);
 
   const groupUpload = 'group-chat.jsonl';
   await writeFile(join(uploads, groupUpload), JSON.stringify(identifiedHeader(
@@ -716,11 +707,11 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     messageId: '66666666-6666-4666-8666-666666666666',
     versionId: '77777777-7777-4777-8777-777777777777',
   })) + '\n');
-  const groupMetadataPath = join(directories.groups, 'group-harness.json');
   const groupImport = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
-  assert.equal(groupImport.status, 503, JSON.stringify(groupImport));
-  assert.equal(groupImport.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED',
-    'group import must fail closed while lifecycle-identified chats exist');
+  assert.notEqual(groupImport.status, 503, JSON.stringify(groupImport));
+  assert.notEqual(groupImport.result?.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+
+  const groupMetadataPath = join(directories.groups, 'group-harness.json');
   const groupChatPath = join(directories.groupChats, 'group-harness.jsonl');
   const groupSeed = await observe(async () => {
     await writeFile(groupChatPath, JSON.stringify(identifiedHeader(
@@ -736,8 +727,6 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.jsonl')));
   assert.ok(groupSeed.result.delta.added.some(entry => entry.path.endsWith('group-harness.json')));
 
-  // SillyTavern runs this metadata migration during startup, outside an HTTP
-  // request. It must not rewrite enrolled chat files without a lifecycle receipt.
   const legacyGroupMetadata = {
     id: 'group-harness',
     chats: ['group-harness'],
@@ -749,17 +738,14 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     await writeFile(groupMetadataPath, JSON.stringify(legacyGroupMetadata));
     return { status: 'SEEDED_LEGACY_GROUP_METADATA' };
   }, 'modified');
-  assert.ok(legacyMetadataWrite.result.delta.modified.some(entry => entry.path.endsWith('group-harness.json')),
-    'the legacy metadata rewrite must be recorded before testing startup migration');
-  const groupMetadataBeforeMigration = await readFile(groupMetadataPath, 'utf8');
-  const groupChatBeforeMigration = await readFile(groupChatPath, 'utf8');
-  await migrateGroupChatsMetadataFormat([directories]);
-  assert.equal(await readFile(groupMetadataPath, 'utf8'), groupMetadataBeforeMigration,
-    'startup migration must not rewrite enrolled group metadata');
-  assert.equal(await readFile(groupChatPath, 'utf8'), groupChatBeforeMigration,
-    'startup migration must not rewrite enrolled group chat JSONL');
-  await assert.rejects(stat(join(directories.backups, '_group_metadata_update')), { code: 'ENOENT' },
-    'blocked startup migration must not create a backup directory or partially write');
+  assert.ok(legacyMetadataWrite.result.delta.modified.some(entry => entry.path.endsWith('group-harness.json')));
+
+  const migration = await observe(async () => {
+    await migrateGroupChatsMetadataFormat([directories]);
+    return { status: 'NATIVE_GROUP_METADATA_MIGRATION_COMPLETED' };
+  }, ['modified', 'added', 'removed']);
+  assert.ok(migration.result.counts.modified > 0 || migration.result.counts.added > 0
+    || migration.result.counts.removed > 0, JSON.stringify(migration.result.counts));
 
   const groupSave = await observe(async () => {
     const response = await post('/api/chats/group/save', {
@@ -769,23 +755,16 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
         identifiedMessage({ name: 'Harness Group', isUser: false, mes: 'group reply', messageId: '14141414-1414-4414-8414-141414141414', versionId: '15151515-1515-4515-8515-151515151515' }),
       ], force: true,
     }, { 'x-harness-operation': 'group-save' });
-    assert.equal(response.status, 409, JSON.stringify(response.result));
-    assert.equal(response.result.code, 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED', JSON.stringify(response.result));
-    assert.equal((await readFile(groupChatPath, 'utf8')).includes('existing group chat'), true);
-    const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
-    assert.deepEqual(metadata.chats, ['group-harness']);
+    assert.equal(response.status, 200, JSON.stringify(response.result));
+    assert.ok((await readFile(groupChatPath, 'utf8')).includes('group save'));
     return response;
-  }, 'unchanged');
+  }, ['modified', 'replaced']);
 
   const groupDelete = await observe(async () => {
     const response = await post('/api/chats/group/delete', { id: 'group-harness' });
-    assert.equal(response.status, 503);
-    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-    const metadata = JSON.parse(await readFile(groupMetadataPath, 'utf8'));
-    assert.ok(metadata.chats.includes('group-harness'));
-    assert.equal((await readFile(groupChatPath, 'utf8')).length > 0, true);
+    assert.equal(response.status, 200, JSON.stringify(response.result));
     return response;
-  }, 'unchanged');
+  }, ['removed', 'modified']);
 
   const sessionIdentity = await get('/api/plugins/logic-engine-extension-gateway/session');
   assert.equal(sessionIdentity.status, 200);
@@ -813,40 +792,39 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
 
   assert.ok(inventory.result.blockers.includes('NO_DURABLE_FULL_ROOT_BASELINE'));
   assert.ok(inventory.result.blockers.includes('NO_FULL_ROOT_PER_FILE_DIFF'));
-  assert.equal(inventory.result.files.length, 1);
-  assert.equal(inventory.result.files[0].logical_identity.conversation_uuid,
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+  assert.ok(inventory.result.files.length >= 1, JSON.stringify(inventory.result.files));
+  assert.ok(inventory.result.files.some(file => file.logical_identity.conversation_uuid ===
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), JSON.stringify(inventory.result.files));
 
-  const deleteChat = await observe(async () => {
+  const deleteRenamedChat = await observe(async () => {
     const response = await post('/api/chats/delete', {
-      avatar_url: 'Harness Character.png', chatfile: 'chat-one.jsonl',
+      avatar_url: 'Harness Character.png', chatfile: 'chat-renamed.jsonl',
     });
-    assert.equal(response.status, 503);
-    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
-    assert.equal((await readFile(chatPath, 'utf8')).length > 0, true);
+    assert.equal(response.status, 200, JSON.stringify(response.result));
+    await assert.rejects(readFile(renamedPath, 'utf8'), { code: 'ENOENT' });
     return response;
-  }, 'unchanged');
+  }, 'removed');
 
   for (const [route, body] of [
     ['/api/groups/create', {}],
     ['/api/groups/edit', {}],
     ['/api/groups/delete', {}],
     ['/api/characters/delete', {}],
-    ['/api/backups/chat/delete', { name: backupName }],
+    ['/api/backups/chat/delete', {}],
     ['/api/data-maid/delete', {}],
     ['/api/settings/restore-snapshot', { name: 'settings-backup.json' }],
     ['/api/users-private/reset-settings', {}],
   ]) {
     const response = await post(route, body);
-    assert.equal(response.status, 503, `${route}: ${JSON.stringify(response.result)}`);
-    assert.equal(response.result.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
+    assert.notEqual(response.status, 503, `${route} must reach native SillyTavern: ${JSON.stringify(response.result)}`);
+    assert.notEqual(response.result?.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
   }
 
   const rootReset = await post('/api/users-private/reset-step2', { code: 'unused' });
-  assert.equal(rootReset.status, 503);
-  assert.equal(rootReset.result.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
+  assert.notEqual(rootReset.status, 503);
+  assert.notEqual(rootReset.result?.code, 'HOST_USER_ROOT_RESET_UNSUPPORTED');
 
   const accountDelete = await post('/api/users-admin/delete', { handle: 'other-account', purge: true });
-  assert.equal(accountDelete.status, 503);
-  assert.equal(accountDelete.result.code, 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED');
+  assert.notEqual(accountDelete.status, 503);
+  assert.notEqual(accountDelete.result?.code, 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED');
 });
