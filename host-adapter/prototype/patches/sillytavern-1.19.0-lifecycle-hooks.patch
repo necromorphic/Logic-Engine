@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,207 @@
+@@ -1583,6 +1593,227 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -260,7 +260,7 @@ diff --git a/public/script.js b/public/script.js
  export async function clearChat({ clearData = false } = {}) {
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604,1 +1815,18 @@
+@@ -1604,1 +1835,18 @@
 -    if (clearData) chat.length = 0;
 +    if (clearData) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -280,7 +280,7 @@ diff --git a/public/script.js b/public/script.js
 +        }
 +    }
 +
-@@ -1605,8 +1833,14 @@
+@@ -1605,8 +1853,14 @@
  }
  
  export async function deleteLastMessage() {
@@ -295,7 +295,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1676,6 +1910,8 @@
+@@ -1676,6 +1930,8 @@
  
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
@@ -304,7 +304,7 @@ diff --git a/public/script.js b/public/script.js
  
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
-@@ -1689,6 +1925,8 @@
+@@ -1689,6 +1945,8 @@
      const startIndex = firstMessageId <= minId ? firstMessageId : null;
      updateViewMessageIds(startIndex);
      saveChatDebounced();
@@ -313,7 +313,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
-@@ -5904,9 +6142,13 @@
+@@ -5904,9 +6162,13 @@
  
      chat_metadata.tainted = true;
  
@@ -327,7 +327,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, insertAt);
          await reloadCurrentChat();
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, insertAt);
-@@ -5914,6 +6156,7 @@
+@@ -5914,6 +6176,7 @@
          chat.push(message);
          await saveChatConditional();
          const chat_id = (chat.length - 1);
@@ -335,7 +335,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, chat_id);
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
-@@ -6653,6 +6896,15 @@
+@@ -6653,6 +6916,15 @@
          type = 'normal';
      }
  
@@ -351,7 +351,7 @@ diff --git a/public/script.js b/public/script.js
      if (chat.length && (!lastMessage.extra || typeof lastMessage.extra !== 'object')) {
          lastMessage.extra = {};
      }
-@@ -6825,6 +7077,9 @@
+@@ -6825,6 +7097,9 @@
          item.swipe_info.push(...swipeInfoArray);
      }
  
@@ -361,7 +361,7 @@ diff --git a/public/script.js b/public/script.js
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
  }
-@@ -8400,6 +8655,8 @@
+@@ -8400,6 +8675,8 @@
          return;
      }
  
@@ -370,7 +370,7 @@ diff --git a/public/script.js b/public/script.js
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
      await eventSource.emit(event_types.MESSAGE_EDITED, this_edit_mes_id);
-@@ -8431,6 +8688,7 @@
+@@ -8431,6 +8708,7 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
@@ -378,7 +378,7 @@ diff --git a/public/script.js b/public/script.js
      showSwipeButtons();
  }
  
-@@ -9364,6 +9622,8 @@
+@@ -9364,6 +9642,8 @@
          return;
      }
  
@@ -387,7 +387,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9401,6 +9661,7 @@
+@@ -9401,6 +9681,7 @@
      }
  
      await saveChatConditional();
@@ -395,7 +395,7 @@ diff --git a/public/script.js b/public/script.js
  
      return newSwipeId;
  }
-@@ -9446,6 +9707,8 @@
+@@ -9446,6 +9727,8 @@
   * @returns {Promise<string[]>} List of imported file names.
   */
  export async function importCharacterChat(formData, { refresh = true } = {}) {
@@ -404,7 +404,7 @@ diff --git a/public/script.js b/public/script.js
      const fetchResult = await fetch('/api/chats/import', {
          method: 'POST',
          body: formData,
-@@ -10095,6 +10358,11 @@
+@@ -10095,6 +10378,11 @@
              saveChatDebounced();
          }
  
@@ -416,7 +416,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,6 +10372,14 @@
+@@ -10104,6 +10392,14 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -431,7 +431,7 @@ diff --git a/public/script.js b/public/script.js
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
              //Transition to the new chat.
-@@ -10729,13 +11005,32 @@
+@@ -10729,13 +11025,32 @@
   * @param {string} newName New name for the chat (no JSONL extension)
   */
  export async function renameChat(oldFileName, newName) {
@@ -471,7 +471,7 @@ diff --git a/public/script.js b/public/script.js
  }
  
  /**
-@@ -10826,6 +11121,8 @@
+@@ -10826,6 +11141,8 @@
   * @return {Promise<boolean>} - A promise that resolves when the character is successfully deleted
   */
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
@@ -480,7 +480,7 @@ diff --git a/public/script.js b/public/script.js
      if (!Array.isArray(characterKey)) {
          characterKey = [characterKey];
      }
-@@ -11501,6 +11798,7 @@
+@@ -11501,6 +11818,7 @@
      $(document).on('click', '.exportChatButton, .exportRawChatButton', async function (e) {
          e.stopPropagation();
          const format = $(this).data('format') || 'txt';
@@ -1506,7 +1506,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,948 @@
+@@ -0,0 +1,952 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
