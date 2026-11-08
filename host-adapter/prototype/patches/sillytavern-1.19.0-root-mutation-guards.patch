@@ -130,7 +130,7 @@ diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
 @@ -452 +454 @@
 -router.post('/recreate', async function (request, response) {
 +router.post('/recreate', hostUnsupportedMutationGuard, async function (request, response) {
-@@ -465,5 +467,8 @@
+@@ -465,5 +467,9 @@
 -router.post('/update', function (request, response) {
 +router.post('/update', hostBulkMutationGuard, async function (request, response) {
      if (!request.body) return response.sendStatus(400);
