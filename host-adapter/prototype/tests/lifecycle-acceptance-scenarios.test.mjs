@@ -249,7 +249,10 @@ test('branch creation invokes optional lifecycle observation without blocking na
   assert.ok(branchEntry > branchHook, 'the observer remains at the function entry');
   assert.ok(patch.includes("return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };"),
     'failed lifecycle observation must fall back to native SillyTavern behavior');
-  assert.ok(patch.includes("console.warn('[Logic Engine] lifecycle preparation unavailable; continuing native SillyTavern operation'"));
+  assert.ok(patch.includes('function wrapNativeSafeLifecycleBridge(bridge)'));
+  assert.ok(patch.includes("beforeMutation: (...args) => safe('lifecycle preparation'"));
+  assert.ok(patch.includes("return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };"));
+  assert.ok(patch.includes('continuing native SillyTavern operation.'));
 });
 
 
@@ -271,8 +274,10 @@ test('destructive and import UI entry points keep optional Host observers but ne
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
   ]) assert.ok(patch.includes(call), `optional observer call missing: ${call}`);
-  assert.ok(patch.includes("console.warn('[Logic Engine] lifecycle preparation unavailable; continuing native SillyTavern operation'"));
-  assert.ok(patch.includes("console.warn('[Logic Engine] export verification unavailable; continuing native SillyTavern export'"));
+  assert.ok(patch.includes('function wrapNativeSafeLifecycleBridge(bridge)'));
+  assert.ok(patch.includes("beforeMutation: (...args) => safe('lifecycle preparation'"));
+  assert.ok(patch.includes("guardExport: (...args) => safe('export verification'"));
+  assert.ok(patch.includes('continuing native SillyTavern operation.'));
 });
 
 
