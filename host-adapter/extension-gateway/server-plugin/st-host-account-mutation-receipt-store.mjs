@@ -195,8 +195,10 @@ export class HostAccountMutationReceiptStore {
     }
     const lockToken = randomUUID();
     let lock;
+    let lockCreated = false;
     try {
       lock = await fs.open(paths.lock, 'wx', 0o600);
+      lockCreated = true;
       await lock.writeFile(canonical({
         protocol_version: 1,
         lock_token: lockToken,
@@ -206,6 +208,7 @@ export class HostAccountMutationReceiptStore {
       }), 'utf8');
       await lock.sync();
     } catch (error) {
+      if (lockCreated) await fs.unlink(paths.lock).catch(() => {});
       if (error?.code === 'EEXIST') throw new Error('HOST_ACCOUNT_MUTATION_BUSY_OR_RECOVERY_REQUIRED');
       throw error;
     } finally { await lock?.close().catch(() => {}); }
@@ -229,7 +232,11 @@ export class HostAccountMutationReceiptStore {
       await this.#writeOnce(paths.prepared, record);
       return Object.freeze({ status: 'PREPARED', lock_token: lockToken, mutation_id: scope.mutation_id });
     } catch (error) {
-      // Retain the account lock: uncertainty after lock acquisition is a recovery gate.
+      // No native handler has run yet. If PREPARED was not durably linked,
+      // release the lock; otherwise preserve it for crash recovery.
+      let preparedRecord = undefined;
+      try { preparedRecord = await this.#read(paths.prepared); } catch {}
+      if (preparedRecord === null) await fs.unlink(paths.lock).catch(() => {});
       throw error;
     }
   }
