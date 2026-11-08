@@ -169,56 +169,197 @@ $listener.Start()
 $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
 $listener.Stop()
 
-# This is an installation/native-generation smoke test, not Memory -> NPC acceptance.
-# Host inventory/Core authority stays NON_READY until a separately configured Core is started.
-$environmentNames = @(
-    "LOGIC_ENGINE_MEMORY_NPC_ENABLED",
-    "LOGIC_ENGINE_HOST_ACCEPTANCE_MODE",
+# Prepare a disposable local Core authority for the same Host identity that SillyTavern will use.
+# The local acceptance switch remains explicitly non-authoritative for uncovered mutation routes.
+$CoreData = Join-Path $TempRoot "core-data"
+$dataRoot = Join-Path $TestSt "data"
+$userRoot = Join-Path $dataRoot "default-user"
+$identityDirectory = Join-Path $TempRoot "host-identity"
+$receiptDirectory = Join-Path $TempRoot "host-receipts"
+New-Item -ItemType Directory -Path $CoreData, $userRoot, (Join-Path $userRoot "chats"), (Join-Path $userRoot "groups"), (Join-Path $userRoot "group chats"), (Join-Path $userRoot "extensions"), $identityDirectory, $receiptDirectory -Force | Out-Null
+
+function New-TestSecret {
+    $bytes = New-Object byte[] 48
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+    return [Convert]::ToBase64String($bytes)
+}
+function Get-FreeLoopbackPort {
+    $tcp = New-Object System.Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+    $tcp.Start()
+    try { return ([System.Net.IPEndPoint]$tcp.LocalEndpoint).Port } finally { $tcp.Stop() }
+}
+
+$adapterId = "sillytavern-local-acceptance"
+$apiToken = New-TestSecret
+$adapterToken = New-TestSecret
+$corePort = Get-FreeLoopbackPort
+$stPort = Get-FreeLoopbackPort
+
+$bootstrapScript = Join-Path $LogicRepo "scripts/bootstrap-windows-host-acceptance.mjs"
+if (-not (Test-Path -LiteralPath $bootstrapScript -PathType Leaf)) {
+    Stop-WithCode "HOST_ACCEPTANCE_BOOTSTRAP_NOT_FOUND"
+}
+$bootstrapOutput = & node $bootstrapScript $TestSt $dataRoot $identityDirectory "default-user" $adapterId
+if ($LASTEXITCODE -ne 0) { Stop-WithCode "HOST_ACCEPTANCE_IDENTITY_BOOTSTRAP_FAILED" }
+try {
+    $bootstrap = ($bootstrapOutput -join [Environment]::NewLine) | ConvertFrom-Json
+} catch {
+    Stop-WithCode "HOST_ACCEPTANCE_IDENTITY_BOOTSTRAP_INVALID_JSON"
+}
+if ($bootstrap.status -ne "LOCAL_HOST_ACCEPTANCE_IDENTITY_PREPARED" -or -not $bootstrap.registry) {
+    Stop-WithCode "HOST_ACCEPTANCE_IDENTITY_BOOTSTRAP_NOT_READY"
+}
+$registryJson = ConvertTo-Json -InputObject @($bootstrap.registry) -Depth 8 -Compress
+$adapterTokensJson = ConvertTo-Json -InputObject @{ $adapterId = $adapterToken } -Depth 4 -Compress
+
+$worldPackDirectory = Join-Path $CoreData "world-packs"
+New-Item -ItemType Directory -Path $worldPackDirectory -Force | Out-Null
+$artifactPath = Join-Path $worldPackDirectory "local-acceptance-pack.json"
+$artifactJson = '{"world_pack_id":"local-acceptance-pack","version":"1.0.0"}'
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($artifactPath, $artifactJson, $utf8NoBom)
+$artifactHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$catalogPath = Join-Path $worldPackDirectory "catalog.json"
+$catalog = @{
+    schema_version = 1
+    entries = @(@{
+        world_pack_id = "local-acceptance-pack"
+        version = "1.0.0"
+        artifact_path = "local-acceptance-pack.json"
+        sha256 = $artifactHash
+    })
+}
+$catalogJson = ConvertTo-Json -InputObject $catalog -Depth 8 -Compress
+[System.IO.File]::WriteAllText($catalogPath, $catalogJson, $utf8NoBom)
+
+$coreEnvironmentNames = @(
+    "ENGINE_API_TOKEN",
+    "ENGINE_ADAPTER_TOKENS",
+    "ENGINE_DB_PATH",
+    "LOGIC_ENGINE_COORDINATOR_DB_PATH",
+    "ENGINE_HOST_VERSION_LEDGER_DB_PATH",
+    "ENGINE_HOST_ASSERTION_NONCE_DB_PATH",
+    "ENGINE_HOST_LIFECYCLE_DB_PATH",
+    "ENGINE_HOST_ROOT_IDENTITIES",
+    "ENGINE_HOST_AUTHORITY_ID",
+    "ENGINE_HOST_AUTHORITY_GENERATION",
+    "LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH",
+    "ENGINE_HOST",
+    "ENGINE_PORT",
+    "ENGINE_ALLOW_REMOTE",
+    "ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES",
+    "LOGIC_ENGINE_CORE_URL",
+    "LOGIC_ENGINE_API_TOKEN",
+    "LOGIC_ENGINE_ADAPTER_ID",
+    "LOGIC_ENGINE_ADAPTER_TOKEN",
     "LOGIC_ENGINE_HOST_IDENTITY_DIR",
     "LOGIC_ENGINE_HOST_RECEIPT_DIR",
-    "LOGIC_ENGINE_HOST_BUILD_SHA"
+    "LOGIC_ENGINE_HOST_BUILD_SHA",
+    "LOGIC_ENGINE_MEMORY_NPC_ENABLED",
+    "LOGIC_ENGINE_HOST_ACCEPTANCE_MODE"
 )
 $previousEnvironment = @{}
-foreach ($name in $environmentNames) { $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
-$env:LOGIC_ENGINE_MEMORY_NPC_ENABLED = "false"
-$env:LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = "LOCAL_LOOPBACK_ONLY"
-$env:LOGIC_ENGINE_HOST_IDENTITY_DIR = Join-Path $TempRoot "host-identity"
-$env:LOGIC_ENGINE_HOST_RECEIPT_DIR = Join-Path $TempRoot "host-receipts"
-$env:LOGIC_ENGINE_HOST_BUILD_SHA = $PinnedStCommit
+foreach ($name in $coreEnvironmentNames) {
+    $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+}
 
-$infoLines = @(
-    "TEMPORARY INSTALLATION SMOKE TEST",
-    ("Logic-Engine commit: " + $actualCommit),
-    ("SillyTavern pinned source commit: " + $PinnedStCommit),
-    ("Temporary SillyTavern: " + $TestSt),
-    ("Original SillyTavern source: " + $SourceSt),
-    ("Local-only port: " + $port),
-    "Memory -> NPC: disabled",
-    "ST-VectorService: not required and not used by this test",
-    "Host acceptance mode: LOCAL_LOOPBACK_ONLY (non-authoritative)",
-    "Core API: not started by this smoke test; Root Inventory authority remains NON_READY",
-    "The original SillyTavern source folder was not modified."
-)
-Set-Content -LiteralPath (Join-Path $TempRoot "TEST-INFO.txt") -Value $infoLines -Encoding UTF8
-
+$coreProcess = $null
 try {
+    $env:ENGINE_API_TOKEN = $apiToken
+    $env:ENGINE_ADAPTER_TOKENS = $adapterTokensJson
+    $env:ENGINE_DB_PATH = Join-Path $CoreData "logic-engine.sqlite"
+    $env:LOGIC_ENGINE_COORDINATOR_DB_PATH = Join-Path $CoreData "coordinator.sqlite"
+    $env:ENGINE_HOST_VERSION_LEDGER_DB_PATH = Join-Path $CoreData "host-versions.sqlite"
+    $env:ENGINE_HOST_ASSERTION_NONCE_DB_PATH = Join-Path $CoreData "host-assertion-nonces.sqlite"
+    $env:ENGINE_HOST_LIFECYCLE_DB_PATH = Join-Path $CoreData "host-lifecycle.sqlite"
+    $env:ENGINE_HOST_ROOT_IDENTITIES = $registryJson
+    $env:ENGINE_HOST_AUTHORITY_ID = "local-windows-acceptance"
+    $env:ENGINE_HOST_AUTHORITY_GENERATION = "1"
+    $env:LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH = $catalogPath
+    $env:ENGINE_HOST = "127.0.0.1"
+    $env:ENGINE_PORT = [string]$corePort
+    $env:ENGINE_ALLOW_REMOTE = "false"
+    $env:ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES = "[]"
+
+    $coreStdout = Join-Path $TempRoot "core.stdout.log"
+    $coreStderr = Join-Path $TempRoot "core.stderr.log"
+    $coreProcess = Start-Process -FilePath $nodeCommand.Source -ArgumentList @("src/index.js") -WorkingDirectory $LogicRepo -NoNewWindow -PassThru -RedirectStandardOutput $coreStdout -RedirectStandardError $coreStderr
+
+    $coreReady = $false
+    for ($attempt = 0; $attempt -lt 60; $attempt++) {
+        if ($coreProcess.HasExited) {
+            $detail = if (Test-Path $coreStderr) { (Get-Content -LiteralPath $coreStderr -Raw) } else { "" }
+            throw ("CORE_STARTUP_FAILED: " + $detail)
+        }
+        try {
+            $health = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/health") -TimeoutSec 2
+            if ($health.ok -eq $true -and $health.service -eq "logic-engine") {
+                $coreReady = $true
+                break
+            }
+        } catch {}
+        Start-Sleep -Seconds 1
+    }
+    if (-not $coreReady) {
+        if ($coreProcess -and -not $coreProcess.HasExited) { Stop-Process -Id $coreProcess.Id -Force }
+        throw "CORE_READINESS_TIMEOUT"
+    }
+
+    $env:LOGIC_ENGINE_CORE_URL = "http://127.0.0.1:" + $corePort
+    $env:LOGIC_ENGINE_API_TOKEN = $apiToken
+    $env:LOGIC_ENGINE_ADAPTER_ID = $adapterId
+    $env:LOGIC_ENGINE_ADAPTER_TOKEN = $adapterToken
+    $env:LOGIC_ENGINE_HOST_IDENTITY_DIR = $identityDirectory
+    $env:LOGIC_ENGINE_HOST_RECEIPT_DIR = $receiptDirectory
+    $env:LOGIC_ENGINE_HOST_BUILD_SHA = $PinnedStCommit
+    $env:LOGIC_ENGINE_MEMORY_NPC_ENABLED = "false"
+    $env:LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = "LOCAL_LOOPBACK_ONLY"
+
+    $infoLines = @(
+        "TEMPORARY WINDOWS HOST/CORE ACCEPTANCE",
+        ("Logic-Engine commit: " + $actualCommit),
+        ("SillyTavern pinned source commit: " + $PinnedStCommit),
+        ("Temporary SillyTavern: " + $TestSt),
+        ("Original SillyTavern source: " + $SourceSt),
+        ("SillyTavern loopback port: " + $stPort),
+        ("Core loopback port: " + $corePort),
+        ("Host installation ID: " + $bootstrap.host_installation_id),
+        ("Account ID: " + $bootstrap.authenticated_account_id),
+        ("Root ID: " + $bootstrap.root_id),
+        ("Source manifest SHA-256: " + $bootstrap.source_manifest_sha256),
+        "Memory -> NPC: disabled",
+        "ST-VectorService: not required and not used",
+        "Host acceptance mode: LOCAL_LOOPBACK_ONLY (non-authoritative for uncovered mutation routes)",
+        "Core: started with a disposable SQLite database set and deployment-owned local root registry",
+        "The original SillyTavern source folder was not modified."
+    )
+    Set-Content -LiteralPath (Join-Path $TempRoot "TEST-INFO.txt") -Value $infoLines -Encoding UTF8
+
     Write-Host ""
-    Write-Host ("Starting isolated SillyTavern on 127.0.0.1:" + $port) -ForegroundColor Green
+    Write-Host ("Core ready on 127.0.0.1:" + $corePort) -ForegroundColor Green
+    Write-Host ("Starting isolated SillyTavern on 127.0.0.1:" + $stPort) -ForegroundColor Green
     Write-Host ("Candidate: " + $actualCommit)
-    Write-Host "This checks plugin loading and ordinary native generation only."
-    Write-Host "Do not expose this local acceptance server to LAN, VPN or the internet."
+    Write-Host "Core, Host Gateway, Root Inventory and ordinary generation can now be inspected."
+    Write-Host "Memory -> NPC remains disabled. Local mutation acceptance is non-authoritative."
+    Write-Host "Do not expose either local service to LAN, VPN or the internet."
     Push-Location $TestSt
     try {
-        node "server.js" --port $port
+        node "server.js" --port $stPort
         if ($LASTEXITCODE -ne 0) { Stop-WithCode ("TEMP_ST_SERVER_EXITED_" + $LASTEXITCODE) }
     } finally {
         Pop-Location
     }
 } finally {
-    foreach ($name in $environmentNames) {
+    if ($coreProcess -and -not $coreProcess.HasExited) {
+        Stop-Process -Id $coreProcess.Id -Force
+        Wait-Process -Id $coreProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+    }
+    foreach ($name in $coreEnvironmentNames) {
         [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")
     }
 }
+
 
 Write-Host ""
 Write-Host "Smoke test ended. Preserve the temporary directory and TEST-INFO.txt for diagnostics:"
