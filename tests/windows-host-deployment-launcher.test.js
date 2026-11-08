@@ -42,3 +42,22 @@ test('Windows PR 870 smoke launcher does not claim Core authority or require ST-
   assert.match(source, /ST-VectorService: not required and not used/);
   assert.match(source, /Root Inventory authority remains NON_READY/);
 });
+
+test('Windows production installer checks network tools before creating plugin directories', async () => {
+  const source = await readFile(new URL('../scripts/install-sillytavern-host-plugin.ps1', import.meta.url), 'utf8');
+  const preflightEnd = source.indexOf("$stPackagePath =");
+  const pluginDirectoryCreation = source.indexOf("New-Item -ItemType Directory -Path $pluginRoot");
+  assert.ok(preflightEnd > 0 && pluginDirectoryCreation > preflightEnd,
+    'Node/Git/npm/network checks must complete before the installer creates plugin directories');
+  assert.match(source, /NPM_REGISTRY_UNAVAILABLE/);
+  assert.match(source, /SILLYTAVERN_GITHUB_UNAVAILABLE/);
+});
+
+test('Windows production installer removes only a proven-unpatched partial first install', async () => {
+  const source = await readFile(new URL('../scripts/install-sillytavern-host-plugin.ps1', import.meta.url), 'utf8');
+  assert.match(source, /PLUGIN_DEPENDENCY_INSTALL_FAILED/);
+  assert.match(source, /PATCH_PREFLIGHT_FAILED/);
+  assert.match(source, /PATCH_INSTALL_FAILED/);
+  assert.match(source, /statusOutput[sS]*ConvertFrom-Json[sS]*NOT_INSTALLED/);
+  assert.match(source, /Install state could not be proven clean. Plugin files were preserved for recovery/);
+});
