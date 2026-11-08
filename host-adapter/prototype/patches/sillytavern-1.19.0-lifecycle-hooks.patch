@@ -881,11 +881,11 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body) {
          console.warn('Error: no response body detected');
          response.status(400).send('Error: no response body detected');
-@@ -1125,1 +1128,2 @@
+@@ -1123,1 +1123,2 @@
 -            await writeCharacterData(avatarPath, char, targetFile, request);
 +            const saved = await writeCharacterData(avatarPath, char, targetFile, request);
 +            if (!saved) return response.sendStatus(500);
-@@ -1140,7 +1144,7 @@
+@@ -1139,7 +1143,7 @@
      }
  });
  
