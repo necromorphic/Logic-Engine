@@ -87,9 +87,9 @@ test('every endpoint module with direct filesystem mutation primitives is in the
 });
 
 test('Host inventory observes extensions without changing native SillyTavern plugin loading', async () => {
-  assert.match(pluginLoader, /await updatePlugins\\(pluginsPath\\)/);
-  assert.match(pluginLoader, /await loadFromDirectory\\(app, pluginFilePath, exitHooks\\)/);
-  assert.match(extensionLoader, /fetch\\('\\/api\\/extensions\\/discover'\\)/,
+  assert.ok(pluginLoader.includes('await updatePlugins(pluginsPath)'));
+  assert.ok(pluginLoader.includes('await loadFromDirectory(app, pluginFilePath, exitHooks)'));
+  assert.ok(extensionLoader.includes("fetch('/api/extensions/discover')"),
     'browser extension discovery continues through the native SillyTavern endpoint');
   assert.equal(lifecyclePatch.includes('diff --git a/src/plugin-loader.js '), false,
     'Host must not patch native server plugin discovery');
@@ -100,7 +100,7 @@ test('Host inventory observes extensions without changing native SillyTavern plu
   const unsupportedGuardStart = handler.indexOf('export function createHostUnsupportedMutationGuard(');
   const unsupportedGuardEnd = handler.indexOf('export function createHostBulkMutationGuard(', unsupportedGuardStart);
   assert.ok(unsupportedGuardStart >= 0 && unsupportedGuardEnd > unsupportedGuardStart);
-  assert.match(handler.slice(unsupportedGuardStart, unsupportedGuardEnd), /return next\\(\\);/);
+  assert.ok(handler.slice(unsupportedGuardStart, unsupportedGuardEnd).includes('return next();'));
   const attestation = await readFile(resolve(process.cwd(),
     'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'), 'utf8');
   assert.match(attestation, /HOST_UNREVIEWED_USER_EXTENSION_PRESENT/,
@@ -265,13 +265,13 @@ test('legacy user-data and system-prompt migrations remain native under Host aut
 });
 
 test('startup account-root migrations remain native under Host authority', () => {
-  assert.doesNotMatch(serverMain, /const hostAuthorityConfigured = Boolean\\(process\\.env\\.LOGIC_ENGINE_HOST_IDENTITY_DIR\\)/);
+  assert.equal(serverMain.includes('const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'), false);
   assert.doesNotMatch(serverMain, /Skipping account-root startup mutations/);
-  assert.match(serverMain, /await checkForNewContent\\(directories\\)/);
-  assert.match(serverMain, /await diskCache\\.verify\\(directories\\)/);
-  assert.match(serverMain, /migrateFlatSecrets\\(directories\\)/);
-  assert.match(serverMain, /await settingsInit\\(\\)/);
-  assert.match(serverMain, /await statsInit\\(\\)/);
+  assert.ok(serverMain.includes('await checkForNewContent(directories)'));
+  assert.ok(serverMain.includes('await diskCache.verify(directories)'));
+  assert.ok(serverMain.includes('migrateFlatSecrets(directories)'));
+  assert.ok(serverMain.includes('await settingsInit()'));
+  assert.ok(serverMain.includes('await statsInit()'));
 });
 
 test('account recovery password reset retains its native SillyTavern route', () => {
@@ -287,14 +287,14 @@ test('bulk mutation guards are non-blocking and do not gate native writes on inv
   const end = handler.indexOf('export async function assertHostStartupMigrationAllowed(', start);
   assert.ok(start >= 0 && end > start);
   const guard = handler.slice(start, end);
-  assert.match(guard, /return function hostBulkMutationGuard\\(_request, _response, next\\)/);
-  assert.match(guard, /return next\\(\\);/);
+  assert.ok(guard.includes('return function hostBulkMutationGuard(_request, _response, next)'));
+  assert.ok(guard.includes('return next();'));
   assert.doesNotMatch(guard, /HOST_BULK_MUTATION_UNSUPPORTED/);
   assert.doesNotMatch(guard, /await enumerate/);
   const lifecycleStart = handler.indexOf('export function createHostLifecycleSaveGuard(');
   const lifecycleEnd = handler.indexOf('export function createHostRequestAuthenticationGate(', lifecycleStart);
   assert.ok(lifecycleStart >= 0 && lifecycleEnd > lifecycleStart);
-  assert.match(handler.slice(lifecycleStart, lifecycleEnd), /return next\\(\\);/);
+  assert.ok(handler.slice(lifecycleStart, lifecycleEnd).includes('return next();'));
 });
 
 test('settings save and image metadata listing remain Host-compatible routes', () => {
@@ -320,9 +320,9 @@ test('ComfyUI workflow file mutations retain a non-blocking observer and source 
 test('thumbnail GET retains native SillyTavern thumbnail caching under Host authority', () => {
   const source = mutationSources['src/endpoints/thumbnails.js'];
   assert.doesNotMatch(source, /hostCacheWritesDisabled/);
-  assert.match(source, /pathToCachedFile/);
-  assert.match(source, /fs\\.existsSync\\(pathToCachedFile\\)/);
-  assert.match(source, /writeFileAtomicSync/);
+  assert.ok(source.includes('pathToCachedFile'));
+  assert.ok(source.includes('fs.existsSync(pathToCachedFile)'));
+  assert.ok(source.includes('writeFileAtomicSync'));
 });
 
 test('pinned high-impact mutation implementations retain their write/delete primitives', () => {
