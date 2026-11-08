@@ -23,7 +23,7 @@ function invoke(input, timeoutMs) {
     const reason = result.error?.code
       || (result.signal ? 'signal:' + result.signal : 'exit:' + String(result.status));
     const stderr = typeof result.stderr === 'string'
-      ? result.stderr.trim().replace(/[\\r\\n]+/g, ' ').slice(0, 240)
+      ? result.stderr.trim().replace(/\s+/g, ' ').slice(0, 240)
       : '';
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE (' + reason
       + (stderr ? '; stderr=' + stderr : '') + ')');
