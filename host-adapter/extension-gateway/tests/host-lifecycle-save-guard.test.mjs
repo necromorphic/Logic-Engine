@@ -124,7 +124,7 @@ test('an enrolled target still requires full inventory and rejects a payload wit
   assert.equal(nextCalls, 0);
 });
 
-test('a new chat claiming a Host conversation identity still passes through inventory policy', async t => {
+test('a new Host chat file can be created without scanning or mutating existing history', async t => {
   const directories = await setupDirectories(t);
   let inventoryCalls = 0;
   let nextCalls = 0;
@@ -150,8 +150,7 @@ test('a new chat claiming a Host conversation identity still passes through inve
   await guard(saveRequest(directories, {
     logic_engine_conversation_id: ENROLLED_CONVERSATION_ID,
   }), response, () => { nextCalls++; });
-  assert.equal(inventoryCalls, 1);
-  assert.equal(response.statusCode, 409);
-  assert.equal(response.payload.code, 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED');
-  assert.equal(nextCalls, 0);
+  assert.equal(inventoryCalls, 0);
+  assert.equal(response.statusCode, null);
+  assert.equal(nextCalls, 1);
 });
