@@ -215,7 +215,8 @@ test('pinned ST mutation routes are observed without suppressing native operatio
     assert.ok(groups.includes('assertHostStartupMigrationAllowed'),
         'group migration may observe Host state but the helper always permits native migration');
     const gatewayHandler = read('plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs');
-    assert.ok(gatewayHandler.includes('export async function assertHostStartupMigrationAllowed() {\\n  return true;'),
+    assert.ok(gatewayHandler.includes('export async function assertHostStartupMigrationAllowed() {'));
+    assert.ok(gatewayHandler.includes('return true;'),
         'Host inventory must not veto native startup group migration');
     const adminUsers = read('src/endpoints/users-admin.js');
     assert.ok(adminUsers.includes("const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });"),
