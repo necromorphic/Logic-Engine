@@ -156,7 +156,7 @@ try {
   runGit(overlayStagingRoot, ['config', 'core.eol', 'lf']);
   const hostPatches = [
     ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch', true],
-    ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch', false],
+
     ['host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch', true],
   ];
   for (const [relativePatch, zeroContext] of hostPatches) {
@@ -225,7 +225,7 @@ try {
 
   const patches = [
     ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch', true],
-    ['host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch', false],
+
     ['host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch', true],
   ];
   for (const [relativePatch, zeroContext] of patches) {
