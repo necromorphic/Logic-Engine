@@ -21,28 +21,7 @@ function Invoke-Native([string]$Command, [string[]]$Arguments, [string]$FailureC
 
 Write-Host "=== Logic-Engine isolated Windows deployment smoke test ===" -ForegroundColor Cyan
 
-if ([string]::IsNullOrWhiteSpace($SillyTavernRoot)) {
-    $SillyTavernRoot = Read-Host "Path to the EXTRACTED, CLEAN SillyTavern 1.19.0 release folder"
-}
-if (-not (Test-Path -LiteralPath $SillyTavernRoot -PathType Container)) {
-    Stop-WithCode "SILLYTAVERN_SOURCE_DIRECTORY_NOT_FOUND"
-}
-$SourceSt = (Resolve-Path -LiteralPath $SillyTavernRoot).Path
-$packagePath = Join-Path $SourceSt "package.json"
-if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
-    Stop-WithCode "SILLYTAVERN_PACKAGE_JSON_NOT_FOUND"
-}
-$packageData = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
-if ($packageData.version -ne "1.19.0") {
-    Stop-WithCode ("SILLYTAVERN_VERSION_UNSUPPORTED_" + $packageData.version)
-}
-if (-not (Test-Path -LiteralPath (Join-Path $SourceSt "src/plugin-loader.js") -PathType Leaf)) {
-    Stop-WithCode "SILLYTAVERN_PLUGIN_LOADER_NOT_FOUND"
-}
-if (-not (Test-Path -LiteralPath (Join-Path $SourceSt "package-lock.json") -PathType Leaf)) {
-    Stop-WithCode "SILLYTAVERN_PACKAGE_LOCK_MISSING"
-}
-
+# SillyTavern is provisioned from its exact pinned upstream commit below.
 $nodeCommand = Get-Command "node" -ErrorAction SilentlyContinue
 $gitCommand = Get-Command "git" -ErrorAction SilentlyContinue
 $npmCommand = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
@@ -59,38 +38,11 @@ Invoke-Native $npmCommand.Source @("ping", "--fetch-retries=0", "--fetch-timeout
 Invoke-Native "git" @("ls-remote", "--exit-code", $Repo, "refs/heads/" + $CandidateRef) "LOGIC_ENGINE_GITHUB_UNAVAILABLE"
 Invoke-Native "git" @("ls-remote", "--exit-code", "https://github.com/SillyTavern/SillyTavern.git", "HEAD") "SILLYTAVERN_GITHUB_UNAVAILABLE"
 
-# This runner must start from the clean release archive, not a daily ST profile.
-# The production installer deliberately rejects unrelated server/browser extensions.
-$pluginRoot = Join-Path $SourceSt "plugins"
-if (Test-Path -LiteralPath $pluginRoot -PathType Container) {
-    $existingPlugins = @(Get-ChildItem -LiteralPath $pluginRoot -Force | Where-Object {
-        $_.Name -notin @(".gitkeep", "package.json")
-    })
-    if ($existingPlugins.Count -gt 0) {
-        Stop-WithCode "SILLYTAVERN_SOURCE_HAS_EXISTING_SERVER_PLUGINS_USE_CLEAN_RELEASE"
-    }
-}
-$thirdPartyRoot = Join-Path $SourceSt "public/scripts/extensions/third-party"
-if (Test-Path -LiteralPath $thirdPartyRoot -PathType Container) {
-    $existingExtensions = @(Get-ChildItem -LiteralPath $thirdPartyRoot -Force)
-    $unexpectedExtensions = @($existingExtensions | Where-Object { $_.Name -notin @(".gitkeep", "package.json") })
-    if ($unexpectedExtensions.Count -gt 0) {
-        Stop-WithCode "SILLYTAVERN_SOURCE_HAS_EXISTING_THIRD_PARTY_EXTENSIONS_USE_CLEAN_RELEASE"
-    }
-}
-
-# Refuse a source tree that is currently being modified by a running ST process.
-$nodeProcesses = Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue
-foreach ($processItem in $nodeProcesses) {
-    $commandLine = [string]$processItem.CommandLine
-    if ($commandLine -and $commandLine.IndexOf($SourceSt, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
-        Stop-WithCode "SILLYTAVERN_SOURCE_IS_RUNNING_CLOSE_IT_AND_RETRY"
-    }
-}
-
+# Build both applications in a disposable directory. Do not depend on a manually
+# prepared SillyTavern folder and never read or modify the user's live ST profile.
 New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
-Write-Host ("Source SillyTavern: " + $SourceSt)
 Write-Host ("Isolated test directory: " + $TempRoot)
+Write-Host ("Provisioning pinned SillyTavern commit: " + $PinnedStCommit)
 
 if ([string]::IsNullOrWhiteSpace($CandidateCommit)) {
     Invoke-Native "git" @("clone", "--depth", "1", "--branch", $CandidateRef, "--single-branch", $Repo, $LogicRepo) "LOGIC_ENGINE_CLONE_FAILED"
@@ -107,50 +59,37 @@ if (-not [string]::IsNullOrWhiteSpace($CandidateCommit) -and $actualCommit -ne $
     Stop-WithCode ("WRONG_CANDIDATE_COMMIT_" + $actualCommit)
 }
 
-# Copy application code only. Never copy profile data, user uploads, live config,
-# credentials or local certificates from the supplied SillyTavern installation.
-$templateConfig = Join-Path $SourceSt "default/config.yaml"
+Invoke-Native "git" @("clone", "--no-checkout", "--filter=blob:none", "https://github.com/SillyTavern/SillyTavern.git", $TestSt) "SILLYTAVERN_CLONE_FAILED"
+Invoke-Native "git" @("-C", $TestSt, "fetch", "--depth=1", "origin", $PinnedStCommit) "SILLYTAVERN_PIN_FETCH_FAILED"
+Invoke-Native "git" @("-C", $TestSt, "checkout", "--detach", "FETCH_HEAD") "SILLYTAVERN_PIN_CHECKOUT_FAILED"
+$actualStCommit = (git -C $TestSt rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $actualStCommit -ne $PinnedStCommit) {
+    Stop-WithCode "SILLYTAVERN_PINNED_COMMIT_MISMATCH"
+}
+$packagePath = Join-Path $TestSt "package.json"
+if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+    Stop-WithCode "SILLYTAVERN_PACKAGE_JSON_NOT_FOUND"
+}
+$packageData = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+if ($packageData.version -ne "1.19.0") {
+    Stop-WithCode ("SILLYTAVERN_VERSION_UNSUPPORTED_" + $packageData.version)
+}
+if (-not (Test-Path -LiteralPath (Join-Path $TestSt "src/plugin-loader.js") -PathType Leaf)) {
+    Stop-WithCode "SILLYTAVERN_PLUGIN_LOADER_NOT_FOUND"
+}
+if (-not (Test-Path -LiteralPath (Join-Path $TestSt "package-lock.json") -PathType Leaf)) {
+    Stop-WithCode "SILLYTAVERN_PACKAGE_LOCK_MISSING"
+}
+$templateConfig = Join-Path $TestSt "default/config.yaml"
 if (-not (Test-Path -LiteralPath $templateConfig -PathType Leaf)) {
     Stop-WithCode "SILLYTAVERN_DEFAULT_CONFIG_TEMPLATE_NOT_FOUND"
 }
-$copyArgs = @($SourceSt, $TestSt, "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:1", "/W:1", "/NFL", "/NDL", "/NP")
-$copyArgs += @(
-    "/XD",
-    (Join-Path $SourceSt ".git"),
-    (Join-Path $SourceSt "node_modules"),
-    (Join-Path $SourceSt "coverage"),
-    (Join-Path $SourceSt "logs"),
-    (Join-Path $SourceSt "temp"),
-    (Join-Path $SourceSt "data"),
-    (Join-Path $SourceSt "public/user")
-)
-$copyArgs += @(
-    "/XF",
-    "config.yaml",
-    ".env",
-    ".env.*",
-    ".npmrc",
-    "cookie-secret.txt",
-    "*.pem",
-    "*.key",
-    "*.p12",
-    "*.pfx"
-)
-& robocopy @copyArgs
-$copyCode = $LASTEXITCODE
-if ($copyCode -ge 8) { Stop-WithCode ("SILLYTAVERN_COPY_FAILED_" + $copyCode) }
-
-# Robocopy excludes config.yaml at every depth. Restore only the release template,
-# never the user's live config.yaml, and use it for both ST's default and root config.
-$testDefaultDirectory = Join-Path $TestSt "default"
-New-Item -ItemType Directory -Path $testDefaultDirectory -Force | Out-Null
-Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $testDefaultDirectory "config.yaml") -Force
 Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $TestSt "config.yaml") -Force
 if (Test-Path -LiteralPath (Join-Path $TestSt "data")) {
-    Stop-WithCode "ISOLATION_FAILURE_SOURCE_DATA_WAS_COPIED"
+    Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_DATA"
 }
 if (Test-Path -LiteralPath (Join-Path $TestSt "public/user")) {
-    Stop-WithCode "ISOLATION_FAILURE_SOURCE_USER_UPLOADS_WERE_COPIED"
+    Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_USER_UPLOADS"
 }
 
 # SillyTavern's committed lockfile makes its dependency install reproducible.
@@ -362,7 +301,7 @@ try {
         ("Logic-Engine commit: " + $actualCommit),
         ("SillyTavern pinned source commit: " + $PinnedStCommit),
         ("Temporary SillyTavern: " + $TestSt),
-        ("Original SillyTavern source: " + $SourceSt),
+        ("SillyTavern source commit: " + $actualStCommit),
         ("SillyTavern loopback port: " + $stPort),
         ("Core loopback port: " + $corePort),
         ("Host installation ID: " + $bootstrap.host_installation_id),
