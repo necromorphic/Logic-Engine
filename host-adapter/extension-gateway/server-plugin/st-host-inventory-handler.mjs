@@ -825,34 +825,17 @@ export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInve
     const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
     const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
 
-    // Inspect only the exact target before requiring a full VSS inventory.
-    // Ordinary chats without Host identity remain writable. A new Host chat
-    // must carry a durable create-message PREPARED permit from the lifecycle
-    // journal before its first file is created.
+    // A missing target is a new chat, not a mutation of existing history.
+    // Allow this one-time file creation without a second VSS scan; the next
+    // authoritative root inventory will enroll the new file. Existing
+    // unenrolled files remain writable only when no Host identity is submitted.
     const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
-    const preparedPermit = session.logicEngineHostPreparedMutation;
-    const validCreatePermit = !isGroup
-      && submittedConversationUuid !== undefined && submittedConversationUuid !== null
-      && preparedPermit?.protocol_version === 1
-      && preparedPermit.host_session_id === session.logicEngineSessionId
-      && preparedPermit.conversation_uuid === submittedConversationUuid
-      && preparedPermit.operation === 'create-message'
-      && HOST_SESSION_UUID.test(preparedPermit.mutation_id ?? '')
-      && HOST_SESSION_UUID.test(preparedPermit.event_id ?? '')
-      && /^[a-f0-9]{64}$/.test(preparedPermit.mutation_digest ?? '');
-    if (targetEnrollment === 'missing' || targetEnrollment === 'unenrolled') {
+    if (targetEnrollment === 'missing') return next();
+    if (targetEnrollment === 'unenrolled') {
       if (submittedConversationUuid === undefined || submittedConversationUuid === null) return next();
-      if (targetEnrollment === 'missing' && validCreatePermit) {
-        delete session.logicEngineHostPreparedMutation;
-        request.logicEngineLifecycleSaveAuthorized = true;
-        request.logicEngineLifecycleOperation = preparedPermit.operation;
-        return next();
-      }
       return response.status(409).json({
         status: 'NON_READY',
-        code: targetEnrollment === 'missing'
-          ? 'HOST_LIFECYCLE_CREATE_PREPARED_REQUIRED'
-          : 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED',
+        code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED',
       });
     }
 
