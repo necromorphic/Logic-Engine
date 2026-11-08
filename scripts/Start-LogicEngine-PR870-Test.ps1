@@ -5,7 +5,7 @@ param(
 )
 
 # Isolated Windows deployment smoke test.
-# Uses the real repository installer; never writes to the supplied SillyTavern source.
+# Uses the real repository installer and provisions a disposable, pinned SillyTavern checkout.\n# SillyTavernRoot remains as a legacy ignored parameter; no user installation is read or modified.
 $ErrorActionPreference = "Stop"
 $Repo = "https://github.com/necromorphic/Logic-Engine.git"
 $PinnedStCommit = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
@@ -85,8 +85,16 @@ if (-not (Test-Path -LiteralPath $templateConfig -PathType Leaf)) {
     Stop-WithCode "SILLYTAVERN_DEFAULT_CONFIG_TEMPLATE_NOT_FOUND"
 }
 Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $TestSt "config.yaml") -Force
-if (Test-Path -LiteralPath (Join-Path $TestSt "data")) {
-    Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_DATA"
+# The official release tracks data/.gitkeep as an empty-directory placeholder.
+# Remove only that known placeholder; reject any real profile data in the pinned source.
+$dataDirectory = Join-Path $TestSt "data"
+if (Test-Path -LiteralPath $dataDirectory -PathType Container) {
+    $dataEntries = @(Get-ChildItem -LiteralPath $dataDirectory -Force)
+    $unexpectedData = @($dataEntries | Where-Object { $_.Name -ne ".gitkeep" })
+    if ($unexpectedData.Count -gt 0) {
+        Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_UNEXPECTED_DATA"
+    }
+    Remove-Item -LiteralPath $dataDirectory -Recurse -Force
 }
 if (Test-Path -LiteralPath (Join-Path $TestSt "public/user")) {
     Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_USER_UPLOADS"
