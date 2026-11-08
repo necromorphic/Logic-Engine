@@ -127,13 +127,23 @@ export class HostAccountMutationReceiptStore {
   async #read(filePath) {
     let handle;
     try {
+      const pathBefore = await fs.lstat(filePath, { bigint: true });
+      if (!pathBefore.isFile() || pathBefore.isSymbolicLink()
+        || pathBefore.size > BigInt(MAX_RECORD_BYTES)) {
+        throw new Error('HOST_ACCOUNT_MUTATION_RECORD_INVALID');
+      }
       handle = await fs.open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
       const before = await handle.stat({ bigint: true });
-      if (!before.isFile() || before.size > BigInt(MAX_RECORD_BYTES)) throw new Error('HOST_ACCOUNT_MUTATION_RECORD_INVALID');
+      if (!before.isFile() || before.dev !== pathBefore.dev || before.ino !== pathBefore.ino
+        || before.size > BigInt(MAX_RECORD_BYTES)) throw new Error('HOST_ACCOUNT_MUTATION_RECORD_INVALID');
       const bytes = await handle.readFile();
       const after = await handle.stat({ bigint: true });
-      if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
-        || before.mtimeNs !== after.mtimeNs || BigInt(bytes.length) !== after.size) {
+      const pathAfter = await fs.lstat(filePath, { bigint: true });
+      if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
+        || before.dev !== after.dev || before.ino !== after.ino
+        || after.dev !== pathAfter.dev || after.ino !== pathAfter.ino
+        || before.size !== after.size || before.mtimeNs !== after.mtimeNs
+        || BigInt(bytes.length) !== after.size) {
         throw new Error('HOST_ACCOUNT_MUTATION_RECORD_CHANGED');
       }
       const record = JSON.parse(bytes.toString('utf8'));
