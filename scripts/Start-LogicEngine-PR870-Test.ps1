@@ -105,12 +105,51 @@ if (-not [string]::IsNullOrWhiteSpace($CandidateCommit) -and $actualCommit -ne $
     Stop-WithCode ("WRONG_CANDIDATE_COMMIT_" + $actualCommit)
 }
 
-# Copy the clean release. The source folder remains untouched.
+# Copy application code only. Never copy profile data, user uploads, live config,
+# credentials or local certificates from the supplied SillyTavern installation.
+$templateConfig = Join-Path $SourceSt "default/config.yaml"
+if (-not (Test-Path -LiteralPath $templateConfig -PathType Leaf)) {
+    Stop-WithCode "SILLYTAVERN_DEFAULT_CONFIG_TEMPLATE_NOT_FOUND"
+}
 $copyArgs = @($SourceSt, $TestSt, "/E", "/COPY:DAT", "/DCOPY:DAT", "/R:1", "/W:1", "/NFL", "/NDL", "/NP")
-$copyArgs += @("/XD", (Join-Path $SourceSt ".git"), (Join-Path $SourceSt "node_modules"), (Join-Path $SourceSt "coverage"), (Join-Path $SourceSt "logs"), (Join-Path $SourceSt "temp"))
+$copyArgs += @(
+    "/XD",
+    (Join-Path $SourceSt ".git"),
+    (Join-Path $SourceSt "node_modules"),
+    (Join-Path $SourceSt "coverage"),
+    (Join-Path $SourceSt "logs"),
+    (Join-Path $SourceSt "temp"),
+    (Join-Path $SourceSt "data"),
+    (Join-Path $SourceSt "public/user")
+)
+$copyArgs += @(
+    "/XF",
+    "config.yaml",
+    ".env",
+    ".env.*",
+    ".npmrc",
+    "cookie-secret.txt",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx"
+)
 & robocopy @copyArgs
 $copyCode = $LASTEXITCODE
 if ($copyCode -ge 8) { Stop-WithCode ("SILLYTAVERN_COPY_FAILED_" + $copyCode) }
+
+# Robocopy excludes config.yaml at every depth. Restore only the release template,
+# never the user's live config.yaml, and use it for both ST's default and root config.
+$testDefaultDirectory = Join-Path $TestSt "default"
+New-Item -ItemType Directory -Path $testDefaultDirectory -Force | Out-Null
+Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $testDefaultDirectory "config.yaml") -Force
+Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $TestSt "config.yaml") -Force
+if (Test-Path -LiteralPath (Join-Path $TestSt "data")) {
+    Stop-WithCode "ISOLATION_FAILURE_SOURCE_DATA_WAS_COPIED"
+}
+if (Test-Path -LiteralPath (Join-Path $TestSt "public/user")) {
+    Stop-WithCode "ISOLATION_FAILURE_SOURCE_USER_UPLOADS_WERE_COPIED"
+}
 
 # SillyTavern's committed lockfile makes its dependency install reproducible.
 Push-Location $TestSt
