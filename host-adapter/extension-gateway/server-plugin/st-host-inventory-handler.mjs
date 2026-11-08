@@ -569,7 +569,7 @@ export function createHostBulkMutationGuard({
         if (route === '/api/characters/edit' && method === 'POST') {
           const avatar = request.body?.avatar_url;
           if (request.file || typeof avatar !== 'string'
-            || !/^[A-Za-z0-9 _.-]{1,124}\.png$/i.test(avatar)
+            || !/^[A-Za-z0-9 _.-]{1,124}\.png$/.test(avatar)
             || path.basename(avatar) !== avatar) throw new Error('HOST_CHARACTER_EDIT_TARGET_INVALID');
           operation = 'characters-edit';
           target = path.join(request.user.directories.characters, avatar);
