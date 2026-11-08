@@ -204,28 +204,16 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
-      const prepared = args.request && typeof args.request === 'object'
+      const preparedCandidate = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
       const requestHostRoute = resolveHostRoute(args.request);
-      if (requestHostRoute && !prepared) {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-        }
-        throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_REQUIRED'));
-      }
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
-      if (prepared && (prepared.hostRoute ?? 'chat-completions') !== dispatchHostRoute) {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-        }
-        throw terminalError(new Error('LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH'));
-      }
-      if (prepared && prepared.response !== args.response) {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-        }
-        throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_RESPONSE_CONTEXT_MISMATCH'));
-      }
+      // A missing or mismatched Host capability disables only Memory enrichment.
+      // It must not disable the native provider request.
+      const prepared = preparedCandidate
+        && (preparedCandidate.hostRoute ?? 'chat-completions') === dispatchHostRoute
+        && preparedCandidate.response === args.response
+        ? preparedCandidate : null;
       const execute = () => {
       let protectedMemory = null;
       try {
@@ -280,7 +268,7 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
-        return deny(new Error('MEMORY_DISPATCH_NOT_READY'));
+        return args.transport(args.endpointUrl, args.requestInit);
       }
 
       let transportInvoked = false;
@@ -322,7 +310,11 @@ export function createSillyTavernFinalSendAdapter({
       };
       const coreConversationId = prepared?.hostContext?.coreConversationId;
       if (runWithAuthenticatedHostSession && coreConversationId) {
-        return runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
+        try {
+          return runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
+        } catch {
+          return args.transport(args.endpointUrl, args.requestInit);
+        }
       }
       return execute();
     },
