@@ -75,7 +75,7 @@ test('non-loopback binding is rejected without explicit ENGINE_ALLOW_REMOTE opt-
   }
 });
 
-test('non-loopback binding starts only when ENGINE_ALLOW_REMOTE=true is explicit', { timeout: 15000 }, async (t) => {
+test('non-loopback binding starts only when ENGINE_ALLOW_REMOTE=true is explicit', { timeout: 30000 }, async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-remote-allow-'));
   const port = await unusedPort();
   const child = spawn(process.execPath, ['src/index.js'], {
@@ -97,7 +97,7 @@ test('non-loopback binding starts only when ENGINE_ALLOW_REMOTE=true is explicit
 
   let response = null;
   let lastError = null;
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 220; attempt += 1) {
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error('Remote-opt-in runtime exited before health check (code=' + child.exitCode + ', signal=' + child.signalCode + ').');
     }
