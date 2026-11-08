@@ -78,12 +78,14 @@ function diffInventory(before, after) {
  * is intentionally not attempted.
  */
 export class HostAccountMutationReceiptStore {
-  constructor({ directory, enumerate } = {}) {
-    if (typeof directory !== 'string' || !path.isAbsolute(directory) || typeof enumerate !== 'function') {
-      throw new TypeError('HostAccountMutationReceiptStore requires an absolute protected directory and inventory enumerator.');
+  constructor({ directory, enumerate, verifyTransition } = {}) {
+    if (typeof directory !== 'string' || !path.isAbsolute(directory)
+      || typeof enumerate !== 'function' || typeof verifyTransition !== 'function') {
+      throw new TypeError('HostAccountMutationReceiptStore requires a protected directory, inventory enumerator and operation transition verifier.');
     }
     this.directory = path.resolve(directory);
     this.enumerate = enumerate;
+    this.verifyTransition = verifyTransition;
   }
 
   async #ensureDirectory() {
@@ -240,7 +242,8 @@ export class HostAccountMutationReceiptStore {
     if (!lock || lock.lock_token !== lock_token) throw new Error('HOST_ACCOUNT_MUTATION_LOCK_LOST');
     const after = await this.#snapshot(directories, scope);
     const changes = diffInventory(prepared.before, after);
-    if (changes.length === 0 || changes.some(change => !prepared.allowed_paths.includes(change.path))) {
+    if (changes.length === 0 || changes.some(change => !prepared.allowed_paths.includes(change.path))
+      || await this.verifyTransition({ scope, before: prepared.before, after, changes }) !== true) {
       throw new Error('HOST_ACCOUNT_MUTATION_PERSISTED_STATE_MISMATCH');
     }
     const receipt = {
@@ -299,6 +302,48 @@ export class HostAccountMutationReceiptStore {
     await this.#writeOnce(paths.terminal, terminal);
     await fs.unlink(paths.lock);
     return { status: 'ABORTED', receipt_digest: terminal.receipt_digest };
+  }
+
+  async recover(scope, { directories } = {}) {
+    validateScope(scope);
+    const paths = this.#paths(scope);
+    const prepared = await this.#read(paths.prepared);
+    const lock = await this.#read(paths.lock);
+    if (!prepared || prepared.status !== 'PREPARED' || !lock
+      || prepared.mutation_digest !== scope.mutation_digest
+      || prepared.operation !== scope.operation || prepared.route !== scope.route
+      || prepared.host_session_id !== scope.host_session_id
+      || lock.lock_token !== prepared.lock_token) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PREPARE_OR_LOCK_INVALID' };
+    }
+    const terminal = await this.#read(paths.terminal);
+    if (terminal) {
+      if (!['COMMITTED', 'ABORTED'].includes(terminal.status)
+        || terminal.receipt_digest !== digest(canonical(terminal.receipt))) {
+        return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TERMINAL_INVALID' };
+      }
+      return { status: terminal.status, receipt_digest: terminal.receipt_digest };
+    }
+    let after;
+    try { after = await this.#snapshot(directories, scope); }
+    catch { return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_INVENTORY_UNAVAILABLE' }; }
+    if (canonical(after) === canonical(prepared.before)) {
+      const result = await this.abort(scope, { directories, lock_token: prepared.lock_token });
+      return { status: 'ABORTED', receipt_digest: result.receipt_digest };
+    }
+    const changes = diffInventory(prepared.before, after);
+    if (changes.length === 0 || changes.some(change => !prepared.allowed_paths.includes(change.path))) {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_PERSISTED_STATE_AMBIGUOUS' };
+    }
+    try {
+      if (await this.verifyTransition({ scope, before: prepared.before, after, changes }) !== true) {
+        return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TRANSITION_UNVERIFIED' };
+      }
+      const result = await this.commit(scope, { directories, lock_token: prepared.lock_token });
+      return { status: 'COMMITTED', receipt_digest: result.receipt_digest };
+    } catch {
+      return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TRANSITION_UNVERIFIED' };
+    }
   }
 
   async hasPending({ host_installation_id, authenticated_account_id }) {
