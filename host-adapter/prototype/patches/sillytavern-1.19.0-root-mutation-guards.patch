@@ -285,6 +285,3 @@ diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.
 @@ -534,1 +536,1 @@
 -comfy.post('/rename-workflow', getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
 +comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name'), getFileNameValidationFunction('new_name'), async (request, response) => {
-diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
---- a/src/endpoints/thumbnails.js
-+++ b/src/endpoints/thumbnails.js
