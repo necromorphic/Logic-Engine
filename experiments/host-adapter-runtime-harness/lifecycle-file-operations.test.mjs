@@ -478,7 +478,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     return response;
   }, ['modified', 'replaced']);
   await finishLifecycleMutation(initialReceiveScope);
-  const initialReceivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+  const initialReceivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   assert.equal(initialReceivePersisted[2]._logicEngineLifecycle.messageId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
 
   const sentUser = identifiedMessage({
