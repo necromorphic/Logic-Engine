@@ -874,7 +874,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
  });
  
 -router.post('/edit', validateAvatarUrlMiddleware, async function (request, response) {
-+router.post('/edit', hostBulkMutationGuard, validateAvatarUrlMiddleware, async function (request, response) {
++router.post('/edit', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {
      if (!request.body) {
          console.warn('Error: no response body detected');
          response.status(400).send('Error: no response body detected');
