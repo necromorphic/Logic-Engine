@@ -206,25 +206,49 @@ test('registered protected sender is delegated to the Core Gateway', () => {
 });
 
 
-test('prepare requires an authenticated SillyTavern session before generation', async () => {
-  const adapter = createAdapter({ resolveProtectedMemory: () => null });
-  await assert.rejects(
-    adapter.prepare({ body: {} }, {}),
-    /LOGIC_ENGINE_HOST_SESSION_NOT_AUTHENTICATED/,
-  );
+test('prepare continues native generation when the SillyTavern Host identity is unavailable', async () => {
+  let preparations = 0;
+  const adapter = createAdapter({
+    resolveProtectedMemory: () => null,
+    prepareHostContext: async () => { preparations += 1; throw new Error('Host identity unavailable'); },
+  });
+  const request = { originalUrl: '/api/backends/chat-completions/generate', body: {} };
+  const response = {};
+  await adapter.prepare(request, response);
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(preparations, 1);
+  assert.equal(handoffs, 1);
 });
 
-test('prepare rejects browser-supplied protected Memory markers', async () => {
+test('browser-supplied Memory markers do not create trusted context or block native generation', async () => {
   const adapter = createAdapter({ resolveProtectedMemory: () => null });
   const request = {
     user: { profile: { handle: 'test-user' } },
     session: { handle: 'test-user' },
-    body: { logic_engine_protected_context: { worldId: 'spoofed' } },
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { logic_engine_protected_context: { worldId: 'spoofed' }, chat_completion_source: 'OPENAI' },
   };
-  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_UNTRUSTED_MEMORY_MARKER/);
+  const response = {};
+  await adapter.prepare(request, response);
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
 });
 
-test('pinned generation route cannot dispatch before Host preparation', () => {
+test('pinned generation route uses native transport when Host preparation was skipped', async () => {
   let resolverCalls = 0;
   let transportCalls = 0;
   const adapter = createAdapter({
@@ -234,26 +258,21 @@ test('pinned generation route cannot dispatch before Host preparation', () => {
     originalUrl: '/api/backends/chat-completions/generate',
     body: { chat_completion_source: 'OPENAI', stream: false },
   };
-
-  assert.throws(() => adapter.dispatch({
-    request,
-    response: {},
+  const result = await adapter.dispatch({
+    request, response: {},
     senderRoute: 'openai',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit,
-    stream: false,
+    requestInit, stream: false,
     transport: async () => { transportCalls += 1; return { status: 200 }; },
-  }), /LOGIC_ENGINE_HOST_PREPARATION_REQUIRED/);
-  assert.equal(resolverCalls, 0);
-  assert.equal(transportCalls, 0);
+  });
+  assert.equal(result.status, 200);
+  assert.equal(resolverCalls, 1);
+  assert.equal(transportCalls, 1);
 });
 
-test('dispatch rejects a Host route changed after preparation', async () => {
-  let resolverCalls = 0;
+test('dispatch falls back to native transport when Host route changes after preparation', async () => {
   let transportCalls = 0;
-  const adapter = createAdapter({
-    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
-  });
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({ requestId: 'unexpected' }) });
   const request = {
     originalUrl: '/api/backends/chat-completions/generate',
     user: { profile: { handle: 'test-user' } },
@@ -262,19 +281,13 @@ test('dispatch rejects a Host route changed after preparation', async () => {
   };
   const response = {};
   await adapter.prepare(request, response);
-
-  assert.throws(() => adapter.dispatch({
-    request,
-    response,
-    senderRoute: 'text-completions',
-    hostRoute: 'text-completions',
-    endpointUrl: 'https://provider.example/generate',
-    requestInit,
-    stream: false,
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'text-completions', hostRoute: 'text-completions',
+    endpointUrl: 'https://provider.example/generate', requestInit, stream: false,
     transport: async () => { transportCalls += 1; return { status: 200 }; },
-  }), /LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH/);
-  assert.equal(resolverCalls, 0);
-  assert.equal(transportCalls, 0);
+  });
+  assert.equal(result.status, 200);
+  assert.equal(transportCalls, 1);
 });
 
 test('dispatch cannot change the default route when preparation has no pinned path', async () => {
@@ -303,30 +316,25 @@ test('dispatch cannot change the default route when preparation has no pinned pa
   assert.equal(resolverCalls, 0);
 });
 
-test('dispatch rejects a response object different from the one bound during Host preparation', async () => {
-  let resolverCalls = 0;
-  const adapter = createAdapter({
-    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
-  });
+test('dispatch uses native transport when response differs from optional Host preparation', async () => {
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({ requestId: 'unexpected' }) });
   const request = {
     originalUrl: '/api/backends/chat-completions/generate',
     user: { profile: { handle: 'test-user' } },
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI' },
   };
-  const preparedResponse = {};
-  await adapter.prepare(request, preparedResponse);
-
-  assert.throws(() => adapter.dispatch({
-    request,
-    response: {},
+  await adapter.prepare(request, {});
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response: {},
     senderRoute: 'openai',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit,
-    stream: false,
-    transport: async () => ({ status: 200 }),
-  }), /LOGIC_ENGINE_FINAL_SEND_RESPONSE_CONTEXT_MISMATCH/);
-  assert.equal(resolverCalls, 0);
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
 });
 
 test('trusted asynchronous Host preparation is passed to the synchronous Memory resolver', async () => {
@@ -371,11 +379,10 @@ test('trusted asynchronous Host preparation is passed to the synchronous Memory 
 });
 
 
-test('Host preparation is one-shot for the exact request object', async () => {
+test('repeated Host preparation is harmless and does not block native generation', async () => {
   let preparations = 0;
-  let resolverCalls = 0;
   const adapter = createAdapter({
-    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
+    resolveProtectedMemory: () => null,
     prepareHostContext: async () => { preparations += 1; return { status: 'READY', context: {} }; },
   });
   const request = {
@@ -384,10 +391,19 @@ test('Host preparation is one-shot for the exact request object', async () => {
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI', stream: false },
   };
-  await adapter.prepare(request, {});
-  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  const response = {};
+  await adapter.prepare(request, response);
+  await adapter.prepare(request, response);
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
   assert.equal(preparations, 1);
-  assert.equal(resolverCalls, 0);
+  assert.equal(handoffs, 1);
 });
 
 
@@ -417,7 +433,7 @@ test('concurrent Host preparation calls cannot race the one-shot reservation', a
 });
 
 
-test('failed Host preparation remains terminal and cannot be retried on the same request', async () => {
+test('failed Host preparation remains optional and native generation succeeds', async () => {
   let preparations = 0;
   const adapter = createAdapter({
     resolveProtectedMemory: () => null,
@@ -432,9 +448,19 @@ test('failed Host preparation remains terminal and cannot be retried on the same
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI', stream: false },
   };
-  await assert.rejects(adapter.prepare(request, {}), /inventory unavailable/);
-  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  const response = {};
+  await adapter.prepare(request, response);
+  await adapter.prepare(request, response);
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'openai',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
   assert.equal(preparations, 1);
+  assert.equal(handoffs, 1);
 });
 
 test('Host preparation receives the request AbortSignal and rejects cancellation after its await', async () => {
