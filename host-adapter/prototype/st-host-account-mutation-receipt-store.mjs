@@ -173,8 +173,13 @@ export class HostAccountMutationReceiptStore {
     if (await this.#read(paths.prepared) || await this.#read(paths.terminal)) {
       throw new Error('HOST_ACCOUNT_MUTATION_REPLAY');
     }
-    const root = path.resolve(directories?.root ?? '');
-    if (!path.isAbsolute(directories?.root ?? '') || within(root, this.directory)) {
+    if (!path.isAbsolute(directories?.root ?? '')) {
+      throw new Error('HOST_ACCOUNT_MUTATION_ROOT_INVALID');
+    }
+    const realRoot = await fs.realpath(path.resolve(directories.root));
+    const realStore = await fs.realpath(this.directory);
+    const rootStat = await fs.stat(realRoot);
+    if (!rootStat.isDirectory() || within(realRoot, realStore)) {
       throw new Error('HOST_ACCOUNT_MUTATION_STORE_MUST_BE_OUTSIDE_ROOT');
     }
     const lockToken = randomUUID();
@@ -225,6 +230,9 @@ export class HostAccountMutationReceiptStore {
     const prepared = await this.#read(paths.prepared);
     if (!prepared || prepared.status !== 'PREPARED' || prepared.lock_token !== lock_token
       || prepared.mutation_digest !== scope.mutation_digest || prepared.operation !== scope.operation
+      || prepared.route !== scope.route || prepared.event_id !== scope.event_id
+      || prepared.host_installation_id !== scope.host_installation_id
+      || prepared.authenticated_account_id !== scope.authenticated_account_id
       || prepared.host_session_id !== scope.host_session_id) {
       throw new Error('HOST_ACCOUNT_MUTATION_PREPARE_MISSING_OR_MISMATCHED');
     }
