@@ -6,12 +6,38 @@
 
 **Scope:** verify the Host patch installation, Host authentication/identity, Root Inventory, lifecycle persistence, VSS snapshot, Final-Send registration, and ordinary native generation. Memory → NPC remains disabled.
 
+## 0. One-command isolated installation smoke test
+
+Use an extracted, clean SillyTavern 1.19.0 release directory as the source. Do not point this runner at the daily profile or a directory containing third-party server/browser extensions.
+
+From the Logic-Engine checkout, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Start-LogicEngine-PR870-Test.ps1 -SillyTavernRoot "C:\Path\To\Clean\SillyTavern-1.19.0"
+```
+
+The runner:
+
+- checks Node.js, Git, npm registry and GitHub access before copying anything;
+- resolves the current `integration/host-core-v1` commit and records its exact SHA;
+- copies the clean SillyTavern release into a disposable directory under `%TEMP%`;
+- installs SillyTavern dependencies with its committed lockfile;
+- calls the same `install-sillytavern-host-plugin.ps1` installer used for deployment;
+- verifies the root plugin, Gateway plugin, pinned source manifest and browser extension;
+- starts only the disposable SillyTavern instance on loopback.
+
+It does not modify the source SillyTavern directory. It does not require ST-VectorService and does not connect to it. Memory → NPC is explicitly disabled.
+
+**Scope limitation:** this runner proves the installation path, plugin loading and ordinary native-generation smoke test only. It does not start Core, establish authoritative Root Inventory, or prove the VSS/lifecycle authority chain. Those checks remain the next Phase 2 acceptance stage and must not be reported as passed by this smoke test.
+
+The runner uses `LOCAL_LOOPBACK_ONLY` and is non-authoritative. Do not expose the temporary server to LAN, VPN, reverse proxies or the public internet. Preserve the printed temporary directory and `TEST-INFO.txt` after stopping the server.
+
 ## 1. Preconditions
 
 - The P0 stabilization commit is on integration/host-core-v1.
 - Required GitHub Actions checks are green on that exact commit.
-- The root Logic Engine runtime is already installed at plugins/logic-engine.
-- Its managed Final-Send patch is installed and verified.
+- For the manual procedure below, the root Logic Engine runtime must be installed at plugins/logic-engine.
+- Its managed Final-Send patch must be installed and verified.
 - The target SillyTavern copy is disposable and backed up.
 - Node.js 22.13.0 or newer is installed.
 - No unknown server plugins or third-party browser extensions are present.
