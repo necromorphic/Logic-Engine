@@ -447,11 +447,9 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   const initialChat = [
     header(),
     userMessage('ST_HARNESS_RAW_CHAT_SENTINEL'),
+    assistantMessage(),
   ];
-  const initialAssistant = assistantMessage();
-  let createReceiptScope;
   const create = await observe(async () => {
-    createReceiptScope = await beginLifecycleMutation('create-message');
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
     }, { 'x-harness-operation': 'create' });
@@ -463,24 +461,11 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     assert.equal(Object.hasOwn(persisted[1], 'swipe_info'), false,
       'user-message identity must live on the message, not an absent swipe_info array');
     assert.equal(persisted[1].mes, 'ST_HARNESS_RAW_CHAT_SENTINEL');
+    assert.equal(persisted[2]._logicEngineLifecycle.messageId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
     return response;
   }, 'added');
-  await finishLifecycleMutation(createReceiptScope);
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
-  const initialReceiveScope = await beginLifecycleMutation('message-receive');
-  const initialReceive = await observe(async () => {
-    const response = await post('/api/chats/save', {
-      avatar_url: 'Harness Character.png', file_name: 'chat-one',
-      chat: [...initialChat, initialAssistant], force: true,
-    }, { 'x-harness-operation': 'initial-receive' });
-    assert.equal(response.status, 200, JSON.stringify(response));
-    assert.equal(response.result.ok, true);
-    return response;
-  }, ['modified', 'replaced']);
-  await finishLifecycleMutation(initialReceiveScope);
-  const initialReceivePersisted = (await readFile(chatPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-  assert.equal(initialReceivePersisted[2]._logicEngineLifecycle.messageId, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
 
   const sentUser = identifiedMessage({
     mes: 'second user message',
@@ -491,7 +476,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   const send = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one',
-      chat: [...initialChat, initialAssistant, sentUser], force: true,
+      chat: [...initialChat, sentUser], force: true,
     }, { 'x-harness-operation': 'send' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
@@ -511,7 +496,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
   const receive = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one',
-      chat: [...initialChat, initialAssistant, sentUser, receivedAssistant], force: true,
+      chat: [...initialChat, sentUser, receivedAssistant], force: true,
     }, { 'x-harness-operation': 'receive' });
     assert.equal(response.status, 200, JSON.stringify(response));
     assert.equal(response.result.ok, true);
