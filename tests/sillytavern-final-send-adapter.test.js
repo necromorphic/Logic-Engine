@@ -147,8 +147,11 @@ test('protected route mismatch falls back to native provider transport', async (
   assert.equal(gatewayCalls, 0);
   assert.equal(transportCalls, 1);
   let writes = 0;
-  adapter.authorizeResponseWrite(response, () => { writes += 1; }, true);
-  assert.equal(writes, 1);
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.equal(writes, 0);
 });
 
 test('unknown native sender bypasses Memory Gateway and keeps native provider output', async () => {
@@ -202,7 +205,8 @@ test('protected response stays terminal after final write and cannot be written 
   });
   adapter.authorizeResponseWrite(response, () => writes.push('first'), true);
   assert.deepEqual(writes, ['first']);
-  assert.deepEqual(leases, [], 'native response writes must not wait for a Gateway release lease');
+  assert.deepEqual(leases, [{ requestId: 'req-1', final: true }],
+    'Memory-enriched responses must pass through the Gateway release lease');
   assert.equal(
     adapter.authorizeResponseWrite(response, () => writes.push('duplicate-end'), true),
     undefined,
@@ -215,7 +219,7 @@ test('protected response stays terminal after final write and cannot be written 
   assert.deepEqual(writes, ['first'], 'duplicate end and post-final writes must never invoke the native writer again');
 });
 
-test('Gateway response revalidation failure never blocks the native provider response', async () => {
+test('Gateway response revalidation failure blocks only the Memory-enriched response', async () => {
   const response = {};
   let writes = 0;
   const adapter = createSillyTavernFinalSendAdapter({
@@ -370,7 +374,8 @@ test('authenticated Host session remains active across async provider handoff an
 
   assert.deepEqual(observed, [
     { phase: 'provider', conversationId: 'core-conversation-1' },
-  ], 'native response release must not depend on a Gateway callback');
+    { phase: 'release', conversationId: 'core-conversation-1' },
+  ], 'Memory-enriched response release must remain inside the authenticated Host session');
 });
 
 test('authenticated Host session remains active across async provider handoff and response release', async () => {
@@ -423,5 +428,6 @@ test('authenticated Host session remains active across async provider handoff an
 
   assert.deepEqual(observed, [
     { phase: 'provider', conversationId: 'core-conversation-1' },
-  ], 'native response release must not depend on a Gateway callback');
+    { phase: 'release', conversationId: 'core-conversation-1' },
+  ], 'Memory-enriched response release must remain inside the authenticated Host session');
 });
