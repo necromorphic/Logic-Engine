@@ -83,10 +83,10 @@ diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
 +import { createHostBulkMutationGuard, createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -10 +12 @@
+@@ -10 +13 @@
 -router.post('/save', (request, response) => {
 +router.post('/save', hostBulkMutationGuard, (request, response) => {
-@@ -21 +23 @@
+@@ -21 +24 @@
 -router.post('/delete', (request, response) => {
 +router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
 diff --git a/src/endpoints/secrets.js b/src/endpoints/secrets.js
@@ -129,10 +129,10 @@ diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
 +import { createHostBulkMutationGuard, createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -452 +454 @@
+@@ -452 +455 @@
 -router.post('/recreate', async function (request, response) {
 +router.post('/recreate', hostUnsupportedMutationGuard, async function (request, response) {
-@@ -465,5 +467,9 @@
+@@ -465,5 +468,9 @@
 -router.post('/update', function (request, response) {
 +router.post('/update', hostBulkMutationGuard, async function (request, response) {
      if (!request.body) return response.sendStatus(400);
