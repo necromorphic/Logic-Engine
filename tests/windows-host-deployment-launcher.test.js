@@ -58,6 +58,6 @@ test('Windows production installer removes only a proven-unpatched partial first
   assert.match(source, /PLUGIN_DEPENDENCY_INSTALL_FAILED/);
   assert.match(source, /PATCH_PREFLIGHT_FAILED/);
   assert.match(source, /PATCH_INSTALL_FAILED/);
-  assert.match(source, /statusOutput[sS]*ConvertFrom-Json[sS]*NOT_INSTALLED/);
+  assert.match(source, /statusOutput[\s\S]*ConvertFrom-Json[\s\S]*NOT_INSTALLED/);
   assert.match(source, /Install state could not be proven clean. Plugin files were preserved for recovery/);
 });
