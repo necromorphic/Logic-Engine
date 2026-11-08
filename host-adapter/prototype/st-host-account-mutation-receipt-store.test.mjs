@@ -28,7 +28,7 @@ async function fixture() {
     status: 'complete',
     entries: [...state].map(([filePath, sha256]) => ({ path: filePath, sha256 })),
   });
-  const store = new HostAccountMutationReceiptStore({ directory: storeDir, enumerate });
+  const store = new HostAccountMutationReceiptStore({ directory: storeDir, enumerate, verifyTransition: async () => true });
   return { root, storeDir, store, state, directories: { root } };
 }
 test('commits one allowlisted account-root mutation and clears the account lock', async () => {
@@ -69,7 +69,7 @@ test('serializes concurrent account mutations across store instances', async () 
   const s = scope();
   const second = new HostAccountMutationReceiptStore({ directory: f.storeDir, enumerate: async () => ({
     status: 'complete', entries: [...f.state].map(([filePath, sha256]) => ({ path: filePath, sha256 })),
-  }) });
+  }), verifyTransition: async () => true });
   try {
     await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
     await assert.rejects(second.prepare({ ...scope(), host_installation_id: s.host_installation_id,
@@ -86,5 +86,43 @@ test('rejects replay of a terminal mutation id', async () => {
     f.state.set('characters/a.png', hash('after'));
     await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
     await assert.rejects(f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] }), /BUSY_OR_RECOVERY_REQUIRED|REPLAY/);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers a crash before the native mutation as ABORTED', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('recovers an interrupted mutation only when exact paths and operation verifier agree', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    const result = await f.store.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('keeps crash recovery locked when operation-specific transition validation fails', async () => {
+  const f = await fixture();
+  const s = scope();
+  const rejecting = new HostAccountMutationReceiptStore({
+    directory: f.storeDir,
+    enumerate: async () => ({ status: 'complete', entries: [...f.state].map(([filePath, sha256]) => ({ path: filePath, sha256 })) }),
+    verifyTransition: async () => false,
+  });
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    const result = await rejecting.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'RECOVERY_REQUIRED');
+    assert.equal(await f.store.hasPending(s), true);
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
