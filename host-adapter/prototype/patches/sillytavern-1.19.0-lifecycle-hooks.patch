@@ -108,13 +108,34 @@ diff --git a/public/script.js b/public/script.js
 +    return result.status === 'NON_READY' ? null : result.conversationId;
 +}
 +
++function wrapNativeSafeLifecycleBridge(bridge) {
++    const safe = async (label, callback) => {
++        try {
++            return await callback();
++        } catch (error) {
++            console.warn('Logic Engine ' + label + ' unavailable; continuing native SillyTavern operation.', error?.message || error);
++            return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++        }
++    };
++    return {
++        ...bridge,
++        beforeMutation: (...args) => safe('lifecycle preparation', () => bridge.beforeMutation(...args)),
++        afterMutation: (...args) => safe('lifecycle receipt', () => bridge.afterMutation(...args)),
++        syncCurrentDigestInventory: (...args) => safe('digest sync', () => bridge.syncCurrentDigestInventory(...args)),
++        verifyPersistedInventory: (...args) => safe('inventory verification', () => bridge.verifyPersistedInventory(...args)),
++        reconcileCurrentConversation: (...args) => safe('conversation reconciliation', () => bridge.reconcileCurrentConversation(...args)),
++        guardExport: (...args) => safe('export verification', () => bridge.guardExport(...args)),
++        getCoreCaptureStatus: (...args) => safe('capture status', () => bridge.getCoreCaptureStatus(...args)),
++    };
++}
++
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
 +    if (!logicEngineLifecycleBridgePromise) {
 +        logicEngineLifecycleBridgePromise = getLogicEngineHostIdentity().then(identity => HostLifecycleJournal.open({
 +            hostInstallationId: identity.host_installation_id,
 +            authenticatedAccountId: identity.authenticated_account_id,
-+        })).then(journal => createStLifecycleBridge({
++        })).then(journal => wrapNativeSafeLifecycleBridge(createStLifecycleBridge({
 +            journal,
 +            getConversationId: getLogicEngineConversationId,
 +            getSourceLocator: getCurrentChatId,
@@ -185,7 +206,7 @@ diff --git a/public/script.js b/public/script.js
 +                }
 +                return payload.lifecycle;
 +            },
-+        })).catch(async error => {
++        }))).catch(async error => {
 +            console.warn('Logic Engine lifecycle storage unavailable; continuing native SillyTavern operations.', error?.message || error);
 +            return createUnavailableStLifecycleBridge({
 +                getConversationId: async () => null,
@@ -1504,9 +1525,10 @@ new file mode 100644
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
+index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,952 @@
+@@ -0,0 +1,929 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1756,7 +1778,7 @@ new file mode 100644
 +    }
 +  }
 +
-+  async function beforeMutationStrict(operation, messageIndexes, details = {}) {
++  async function beforeMutation(operation, messageIndexes, details = {}) {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
 +    if (getLifecycleStatus) {
@@ -1898,7 +1920,7 @@ new file mode 100644
 +    });
 +  }
 +
-+  async function afterMutationStrict(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
++  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
 +    const pending = await journal.pendingMutation(conversationId);
@@ -2221,25 +2243,6 @@ new file mode 100644
 +    });
 +  }
 +
-+  // Lifecycle is advisory enrichment. Any failure must not veto native ST writes.
-+  async function beforeMutation(operation, messageIndexes, details = {}) {
-+    try {
-+      return await beforeMutationStrict(operation, messageIndexes, details);
-+    } catch (error) {
-+      console.warn('[Logic Engine] lifecycle preparation unavailable; continuing native SillyTavern operation', error?.message || error);
-+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
-+    }
-+  }
-+
-+  async function afterMutation(operation, details = {}) {
-+    try {
-+      return await afterMutationStrict(operation, details);
-+    } catch (error) {
-+      console.warn('[Logic Engine] lifecycle receipt unavailable after native SillyTavern operation', error?.message || error);
-+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
-+    }
-+  }
-+
 +  async function syncCurrentDigestInventory() {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
@@ -2386,7 +2389,7 @@ new file mode 100644
 +    }) : readiness;
 +  }
 +
-+  async function guardExportStrict() {
++  async function guardExport() {
 +    const conversationId = await getConversationId();
 +    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
 +      return { status: 'NOT_ENROLLED' };
@@ -2415,15 +2418,6 @@ new file mode 100644
 +    return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
 +  }
 +
-+  async function guardExport() {
-+    try {
-+      return await guardExportStrict();
-+    } catch (error) {
-+      console.warn('[Logic Engine] export verification unavailable; continuing native SillyTavern export', error?.message || error);
-+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
-+    }
-+  }
-+
 +  return Object.freeze({
 +    enrollCurrentConversation,
 +    beforeMutation,
@@ -2446,16 +2440,21 @@ new file mode 100644
 +  if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
 +  if (!error) throw TypeError('original journal-open error is required');
 +
-+  const assertUnavailableSafe = async () => ({ status: 'NOT_ENROLLED' });
++  const assertUnavailableSafe = async () => {
++    const conversationId = await getConversationId();
++    const marker = conversationId
++      ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
++      : null;
++    if (marker) {
++      throw Error('NON_READY: enrolled Host journal unavailable: ' + (error?.message || error));
++    }
++    return { status: 'NOT_ENROLLED' };
++  };
 +
 +  return Object.freeze({
 +    enrollCurrentConversation: async () => { throw error; },
 +    beforeMutation: async () => assertUnavailableSafe(),
 +    afterMutation: async () => assertUnavailableSafe(),
-+    syncCurrentDigestInventory: async () => assertUnavailableSafe(),
-+    verifyPersistedInventory: async () => assertUnavailableSafe(),
-+    reconcileCurrentConversation: async () => assertUnavailableSafe(),
-+    getCoreCaptureStatus: async () => assertUnavailableSafe(),
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
