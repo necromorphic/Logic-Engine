@@ -1,8 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { lstat, open } from 'node:fs/promises';
 import { closeSync, lstatSync, openSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
+import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { HostAccountMutationReceiptStore, createHostAccountMutationMiddleware, verifySingleTargetMutationTransition } from './st-host-account-mutation-receipt-store.mjs';
 import {
   PINNED_ST_MUTATION_COVERAGE_SHA256,
   PINNED_ST_MUTATION_ROUTE_COUNT,
@@ -525,7 +527,92 @@ export function createHostBulkMutationGuard({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
-  return function hostBulkMutationGuard(request, response, next) {
+  let accountMutationMiddleware = null;
+  let accountMutationMiddlewareIdentityDirectory = null;
+  const resolveAccountMutationMiddleware = () => {
+    const identityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
+    if (typeof identityDirectory !== 'string' || !path.isAbsolute(identityDirectory)) return null;
+    if (accountMutationMiddleware && accountMutationMiddlewareIdentityDirectory === identityDirectory) {
+      return accountMutationMiddleware;
+    }
+    const identityStore = new HostIdentityStore({ directory: identityDirectory });
+    const receiptStore = new HostAccountMutationReceiptStore({
+      directory: path.join(identityDirectory, 'account-mutations'),
+      enumerate: async ({ directories }) => {
+        const inventory = await enumerate({
+          directories,
+          hostCommit: pinnedHostCommit,
+        });
+        if (inventory?.filesystem?.status !== 'complete'
+          || !Array.isArray(inventory.filesystem.entries)) {
+          return { status: 'non_ready', entries: [] };
+        }
+        return {
+          status: 'complete',
+          entries: inventory.filesystem.entries.map(entry => ({
+            path: entry.path,
+            sha256: entry.sha256,
+          })),
+        };
+      },
+      verifyTransition: verifySingleTargetMutationTransition,
+    });
+    accountMutationMiddleware = createHostAccountMutationMiddleware({
+      store: receiptStore,
+      resolveMutation: async ({ request, route, userHandle }) => {
+        const directories = resolveHostDataDirectories(request.user.directories);
+        if (!directories) throw new Error('HOST_ACCOUNT_MUTATION_DIRECTORIES_INVALID');
+        await identityStore.assertOutsideRoot(directories.root);
+        const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
+        const method = request.method;
+        let operation;
+        let target;
+        if (route === '/api/characters/edit' && method === 'POST') {
+          const avatar = request.body?.avatar_url;
+          if (request.file || typeof avatar !== 'string'
+            || !/^[A-Za-z0-9 _.-]{1,124}\.png$/i.test(avatar)
+            || path.basename(avatar) !== avatar) throw new Error('HOST_CHARACTER_EDIT_TARGET_INVALID');
+          operation = 'characters-edit';
+          target = path.join(directories.characters, avatar);
+        } else if (route === '/api/quick-replies/save' && method === 'POST') {
+          const name = request.body?.name;
+          if (typeof name !== 'string' || !/^[A-Za-z0-9 _-]{1,80}$/.test(name)
+            || name === '.' || name === '..') throw new Error('HOST_QUICK_REPLY_TARGET_INVALID');
+          operation = 'quick-replies-save';
+          target = path.join(request.user.directories.quickreplies, name + '.json');
+        } else if (route === '/api/stats/update' && method === 'POST') {
+          operation = 'stats-update';
+          target = path.join(directories.root, 'stats.json');
+        } else {
+          throw new Error('HOST_ACCOUNT_MUTATION_ROUTE_UNSUPPORTED');
+        }
+        const relative = path.relative(directories.root, target).split(path.sep).join('/');
+        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)
+          || relative.split('/').some(part => !part || part === '.' || part === '..' || part.includes('\\'))) {
+          throw new Error('HOST_ACCOUNT_MUTATION_TARGET_OUTSIDE_ROOT');
+        }
+        const mutation = {
+          method,
+          route,
+          operation,
+          target_path: relative,
+          host_installation_id: identity.host_installation_id,
+          authenticated_account_id: identity.authenticated_account_id,
+          host_session_id: request.session.logicEngineSessionId,
+          mutation_id: randomUUID(),
+          event_id: randomUUID(),
+          mutation_digest: createHash('sha256')
+            .update(JSON.stringify({ method, route, target_path: relative, body: request.body ?? null }), 'utf8')
+            .digest('hex'),
+        };
+        return { scope: mutation, directories, allowedPaths: [relative] };
+      },
+    });
+    accountMutationMiddlewareIdentityDirectory = identityDirectory;
+    return accountMutationMiddleware;
+  };
+
+  return async function hostBulkMutationGuard(request, response, next) {
     response.set('Cache-Control', 'no-store, private');
     response.set('Vary', 'Cookie');
     const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
@@ -533,6 +620,13 @@ export function createHostBulkMutationGuard({
       && request.session.logicEngineSessionId.length > 0;
     if (!hostConfigured && !hostSessionActive) return next();
     if (isInitialAssistantBootstrapCreate(request, response)) return next();
+    const route = typeof request?.originalUrl === 'string'
+      ? request.originalUrl.split('?', 1)[0]
+      : '';
+    if (['/api/characters/edit', '/api/quick-replies/save', '/api/stats/update'].includes(route)) {
+      const middleware = resolveAccountMutationMiddleware();
+      if (middleware) return middleware(request, response, next);
+    }
     return response.status(503).json({
       status: 'NON_READY',
       code: 'HOST_BULK_MUTATION_UNSUPPORTED',
