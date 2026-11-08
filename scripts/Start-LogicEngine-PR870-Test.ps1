@@ -59,6 +59,18 @@ if (-not [string]::IsNullOrWhiteSpace($CandidateCommit) -and $actualCommit -ne $
     Stop-WithCode ("WRONG_CANDIDATE_COMMIT_" + $actualCommit)
 }
 
+# Core is launched from this checkout, not from the copied SillyTavern plugin.
+# Install its runtime dependencies here as well. The repository intentionally has
+# no committed package-lock.json, so use npm install (not npm ci); package.json
+# pins the direct runtime dependencies to exact versions.
+Write-Host "Installing isolated Logic-Engine Core runtime dependencies..."
+Push-Location $LogicRepo
+try {
+    Invoke-Native $npmCommand.Source @("install", "--omit=dev", "--no-audit", "--no-fund") "CORE_DEPENDENCY_INSTALL_FAILED"
+} finally {
+    Pop-Location
+}
+
 Invoke-Native "git" @("clone", "--no-checkout", "--filter=blob:none", "https://github.com/SillyTavern/SillyTavern.git", $TestSt) "SILLYTAVERN_CLONE_FAILED"
 Invoke-Native "git" @("-C", $TestSt, "fetch", "--depth=1", "origin", $PinnedStCommit) "SILLYTAVERN_PIN_FETCH_FAILED"
 Invoke-Native "git" @("-C", $TestSt, "checkout", "--detach", "FETCH_HEAD") "SILLYTAVERN_PIN_CHECKOUT_FAILED"
