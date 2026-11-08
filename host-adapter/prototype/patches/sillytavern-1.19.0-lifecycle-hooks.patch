@@ -188,8 +188,8 @@ diff --git a/public/script.js b/public/script.js
 +        })).catch(async error => {
 +            console.warn('Logic Engine lifecycle storage unavailable; continuing native SillyTavern operations.', error?.message || error);
 +            return createUnavailableStLifecycleBridge({
-+                getConversationId: getLogicEngineConversationId,
-+                storage: localStorage,
++                getConversationId: async () => null,
++                storage: null,
 +                error,
 +            });
 +        });
