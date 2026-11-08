@@ -30,13 +30,9 @@ The installer creates a managed copy at plugins/logic-engine, installs the Gatew
 
 It does not create a junction. It refuses to overwrite an existing managed plugin directory. If the target already contains plugins/logic-engine or plugins/logic-engine-extension-gateway, stop and inspect the existing installation instead of deleting or replacing it blindly.
 
-## 3. Install the Host patch bundle
+## 3. Host patch bundle (installed by the same command)
 
-After the root runtime is installed:
-
-```powershell
-npm run host:install:bundle -- --st-root "C:\Path\To\SillyTavern"
-```
+The `host:install:st` installer already invokes the Host patch-bundle installer after installing the root runtime and Gateway server plugin. Do not run `host:install:bundle` a second time during this first-install procedure.
 
 The bundle installer:
 
