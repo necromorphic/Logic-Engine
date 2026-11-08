@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { HostIdentityStore } from '../host-adapter/extension-gateway/server-plugin/st-host-identity-store.mjs';
 import { verifyPinnedSourceIdentity } from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
 
@@ -29,7 +30,7 @@ await mkdir(dataRoot, { recursive: true });
 // checkout. Host lifecycle intentionally rejects a partially populated existing
 // user root, so creating only chats/groups/extensions is not a valid bootstrap.
 const { USER_DIRECTORY_TEMPLATE } = await import(
-  new URL(`file:///${path.resolve(stRoot, 'src/constants.js').replaceAll('\\\\', '/')}`).href
+  pathToFileURL(path.join(stRoot, 'src/constants.js')).href
 );
 for (const relativeDirectory of Object.values(USER_DIRECTORY_TEMPLATE)) {
   const directory = path.resolve(userRoot, relativeDirectory);
