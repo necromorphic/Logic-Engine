@@ -89,7 +89,7 @@ for (const [relativePath, required] of anchors) {
 }
 
 
-test('pinned ST chat-history mutation routes are guarded or explicitly unsupported', { skip: !root }, () => {
+test('pinned ST mutation routes are observed without suppressing native operations', { skip: !root }, () => {
     const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
     const requirements = [
         ['src/endpoints/chats.js', "router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard"],
@@ -179,10 +179,8 @@ test('pinned ST chat-history mutation routes are guarded or explicitly unsupport
     }
 
     const thumbnails = read('src/endpoints/thumbnails.js');
-    assert.ok(thumbnails.includes('hostCacheWritesDisabled'),
-        'thumbnail cache writes must be suppressed while Host authority is active');
-    assert.ok(thumbnails.includes('if (hostCacheWritesDisabled && !fs.existsSync(pathToCachedFile)) return serveOriginal();'),
-        'thumbnail cache misses must serve the original without creating an unreceipted account-root file');
+    assert.equal(thumbnails.includes('hostCacheWritesDisabled'), false,
+        'native thumbnail cache writes must not be disabled by Host authority');
     const stableDiffusion = read('src/endpoints/stable-diffusion.js');
     for (const route of ['save-workflow', 'delete-workflow', 'rename-workflow']) {
         assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
@@ -240,7 +238,7 @@ test('settings save and image metadata listing remain unguarded Host-compatible 
         'image metadata listing must not be blocked by the unsupported-mutation guard');
 });
 
-test('native logout must fail closed before clearing the session', { skip: !root }, () => {
+test('native logout continues when optional Host revocation is unavailable', { skip: !root }, () => {
     const source = fs.readFileSync(path.join(root, 'src/endpoints/users-private.js'), 'utf8');
     const start = source.indexOf("router.post('/logout'");
     const end = source.indexOf("router.get('/me'", start);
@@ -250,8 +248,10 @@ test('native logout must fail closed before clearing the session', { skip: !root
     const clear = route.indexOf('request.session.handle = null;');
     assert.ok(revoke >= 0 && clear > revoke,
         'native logout must revoke the Core session before clearing the ST session');
-    assert.ok(route.includes("return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });"),
-        'native logout must leave the ST session intact when Core revocation fails');
+    assert.equal(route.includes("return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });"), false,
+        'Core revocation failure must not veto native logout');
+    assert.ok(route.includes('Logic Engine session revocation unavailable; continuing native logout.'),
+        'revocation failure must be recorded as advisory telemetry');
 });
 
 test('account switching and version invalidation revoke the old Host capability before session mutation', { skip: !root }, () => {
@@ -283,8 +283,8 @@ test('account switching and version invalidation revoke the old Host capability 
             && body.indexOf('await revokeHostSessionBeforeAccountSwitch(request,') < body.indexOf(accountAssignment),
             startMarker + ' must revoke the old capability before assigning the new account');
     }
-    assert.ok(users.includes("response.status(503).send('Host session revocation unavailable; account was not switched.')"),
-        'automatic login must fail closed instead of serving the login page after revocation failure');
+    assert.equal(users.includes("response.status(503).send('Host session revocation unavailable; account was not switched.')"), false,
+        'automatic login must continue when optional Host revocation is unavailable');
     const login = read('src/endpoints/users-public.js');
     const loginCall = login.indexOf("await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' })");
     const loginMutation = login.indexOf('request.session.handle = user.handle;', loginCall);
@@ -293,10 +293,10 @@ test('account switching and version invalidation revoke the old Host capability 
     const loginReset = login.indexOf('delete request.session.logicEngineSessionId;', loginCall);
     assert.ok(loginReset > loginCall && loginReset < loginMutation,
         'account switching must clear the revoked Host identity before issuing a new session');
-    assert.ok(users.includes('Host session revocation unavailable; session was not invalidated.'),
-        'version invalidation must fail closed when Core revocation is unavailable');
-    assert.ok(login.includes('Host session revocation unavailable; account was not switched.'),
-        'account switching must fail closed when Core revocation is unavailable');
+    assert.ok(users.includes('Logic Engine session revocation unavailable; continuing native session invalidation.'),
+        'version invalidation must clear stale Host identity and continue natively');
+    assert.ok(login.includes('Logic Engine session revocation unavailable; continuing native account login.'),
+        'account switching must continue after clearing the old Host identity');
 });
 
 test('Host lifecycle patch embeds the canonical lifecycle source files without drift', () => {
