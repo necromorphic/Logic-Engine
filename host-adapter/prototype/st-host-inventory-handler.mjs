@@ -304,32 +304,24 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
  * account root or the installed source, so they cannot run while Host authority
  * is configured. This is a route guard, not an inventory completeness proof.
  */
-export function createHostUnsupportedMutationGuard({
-  code = 'HOST_MUTATION_ROUTE_UNSUPPORTED',
-} = {}) {
+
+/**
+ * Native SillyTavern account/source mutations are never gated by Host readiness.
+ * Inventory reconciliation observes the result separately; it is not a write prerequisite.
+ */
+export function createHostUnsupportedMutationGuard({ code = 'HOST_MUTATION_ROUTE_UNSUPPORTED' } = {}) {
   if (typeof code !== 'string' || !/^[A-Z0-9_]{1,96}$/.test(code)) {
     throw new TypeError('Host unsupported mutation guard code is invalid.');
   }
-  return function hostUnsupportedMutationGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
-    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
-      && request.session.logicEngineSessionId.length > 0;
-    if (!hostConfigured && !hostSessionActive) return next();
-    return response.status(503).json({
-      status: 'NON_READY',
-      code,
-    });
+  return function hostUnsupportedMutationGuard(_request, _response, next) {
+    return next();
   };
 }
 
+
 /**
- * Fail-closed guard for bulk or non-lineage-aware mutations. A pre-mutation
- * filesystem scan cannot authorize a write: it cannot prove route coverage,
- * prevent a concurrent write, or produce a post-mutation receipt. Until the
- * route has an operation-specific lifecycle receipt, reject it whenever Host
- * authority is configured or a Host session is present.
+ * Native SillyTavern bulk mutations always continue. The Host inventory is
+ * reconciled asynchronously and may disable Memory enrichment, never the native write.
  */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
@@ -339,17 +331,8 @@ export function createHostBulkMutationGuard({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
-  return function hostBulkMutationGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
-    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
-      && request.session.logicEngineSessionId.length > 0;
-    if (!hostConfigured && !hostSessionActive) return next();
-    return response.status(503).json({
-      status: 'NON_READY',
-      code: 'HOST_BULK_MUTATION_UNSUPPORTED',
-    });
+  return function hostBulkMutationGuard(_request, _response, next) {
+    return next();
   };
 }
 
@@ -516,79 +499,20 @@ async function inspectSaveTargetEnrollment(directories, isGroup, locatorParts) {
   }
 }
 
-export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInventory, pinnedHostCommit } = {}) {
-  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) throw new TypeError('Host lifecycle save guard configuration is invalid.');
-  const supported = new Set(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
-  return async function hostLifecycleSaveGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const userHandle = request?.user?.profile?.handle;
-    const session = request?.session;
-    if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
-    const directories = resolveHostDataDirectories(request?.user?.directories);
-    if (!directories) return response.sendStatus(403);
 
-    const body = request?.body;
-    const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
-    const locator = isGroup
-      ? (typeof body?.id === 'string' ? body.id : '')
-      : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string'
-        ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
-    const slash = String.fromCharCode(92);
-    const locatorParts = locator.split('/');
-    if (!locator || locator.includes(slash)
-      || locatorParts.length !== (isGroup ? 1 : 2)
-      || locatorParts.some(part => !part || part === '.' || part === '..')) {
-      return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
-    }
-
-    const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
-    const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
-
-    // Ordinary SillyTavern chats are not Host-enrolled and must remain writable
-    // even when VSS is unavailable. Inspect only the exact target: if it is
-    // absent or its stable first JSONL record has no Host conversation identity,
-    // the lifecycle receipt guard does not apply. Any enrolled or ambiguous
-    // target still goes through the full shared VSS inventory below.
-    if (submittedConversationUuid === undefined || submittedConversationUuid === null) {
-      const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
-      if (targetEnrollment === 'missing' || targetEnrollment === 'unenrolled') return next();
-    }
-
-    let inventory;
-    try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
-    catch (error) {
-      const reason = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
-        ? error.message : 'UNKNOWN';
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE', reason });
-    }
-    if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) {
-      const safeCode = value => typeof value === 'string' && /^[A-Z0-9_]{1,96}$/.test(value) ? value : null;
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE',
-        filesystem_status: safeCode(inventory?.filesystem?.status),
-        filesystem_code: safeCode(inventory?.filesystem?.code),
-        source_status: safeCode(inventory?.source?.status),
-        source_code: safeCode(inventory?.source?.code),
-      });
-    }
-    const kind = isGroup ? 'group-chat' : 'character-chat';
-    const targets = inventory.source.files.filter(file => file?.kind === kind && file?.locator === locator);
-    if (targets.length > 1) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_AMBIGUOUS' });
-    const target = targets[0];
-    const anyEnrolled = inventory.source.files.some(file => typeof file?.logical_identity?.conversation_uuid === 'string' && HOST_SESSION_UUID.test(file.logical_identity.conversation_uuid));
-    if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
-    const conversationUuid = target.logical_identity?.conversation_uuid;
-    if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_IDENTITY_INVALID' });
-    if (submittedConversationUuid !== conversationUuid) {
-      return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH' });
-    }
-    const permit = session.logicEngineHostPreparedMutation;
-    if (!permit || permit.protocol_version !== 1 || permit.host_session_id !== session.logicEngineSessionId || permit.conversation_uuid !== conversationUuid || !supported.has(permit.operation) || !HOST_SESSION_UUID.test(permit.mutation_id ?? '') || !HOST_SESSION_UUID.test(permit.event_id ?? '') || !/^[a-f0-9]{64}$/.test(permit.mutation_digest ?? '')) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED' });
-    delete session.logicEngineHostPreparedMutation;
-    request.logicEngineLifecycleSaveAuthorized = true;
-    request.logicEngineLifecycleOperation = permit.operation;
+/**
+ * Native chat and group saves are not conditional on Host enrollment, VSS,
+ * lifecycle receipts or Core availability. Reconciliation happens out of band.
+ */
+export function createHostLifecycleSaveGuard({
+  enumerate = enumerateHostDataInventory,
+  pinnedHostCommit,
+} = {}) {
+  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
+    || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+    throw new TypeError('Host lifecycle save guard configuration is invalid.');
+  }
+  return function hostLifecycleSaveGuard(_request, _response, next) {
     return next();
   };
 }
