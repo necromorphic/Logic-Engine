@@ -357,23 +357,18 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
  * account root or the installed source, so they cannot run while Host authority
  * is configured. This is a route guard, not an inventory completeness proof.
  */
-export function createHostUnsupportedMutationGuard({
-  code = 'HOST_MUTATION_ROUTE_UNSUPPORTED',
-} = {}) {
+/**
+ * Host is an observer/extension, never an authorization proxy for native ST
+ * mutations. Keep this middleware installed for compatibility with the pinned
+ * route map, but always delegate to SillyTavern's own handler. Host-owned
+ * resources remain protected by their own authenticated Core/Provider APIs.
+ */
+export function createHostUnsupportedMutationGuard({ code = 'HOST_MUTATION_ROUTE_UNSUPPORTED' } = {}) {
   if (typeof code !== 'string' || !/^[A-Z0-9_]{1,96}$/.test(code)) {
     throw new TypeError('Host unsupported mutation guard code is invalid.');
   }
-  return function hostUnsupportedMutationGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
-    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
-      && request.session.logicEngineSessionId.length > 0;
-    if (!hostConfigured && !hostSessionActive) return next();
-    return response.status(503).json({
-      status: 'NON_READY',
-      code,
-    });
+  return function hostUnsupportedMutationGuard(_request, _response, next) {
+    return next();
   };
 }
 
@@ -518,6 +513,13 @@ function isInitialAssistantBootstrapCreate(request, response) {
  * admitted through durable PREPARED/terminal receipts. Every other bulk or
  * non-lineage-aware mutation remains blocked while Host authority is active.
  */
+/**
+ * SillyTavern owns its native account mutations. Host must not deny them when
+ * its identity, inventory, receipt store, or Core services are unavailable.
+ * The pinned route middleware remains as a non-blocking integration seam;
+ * authoritative Host inventory is reconciled independently before protected
+ * Memory access, never by preventing a native ST operation.
+ */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
   pinnedHostCommit,
@@ -526,123 +528,8 @@ export function createHostBulkMutationGuard({
     || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
     throw new TypeError('Host bulk mutation guard configuration is invalid.');
   }
-  let accountMutationMiddleware = null;
-  let accountMutationMiddlewareIdentityDirectory = null;
-  const resolveAccountMutationMiddleware = () => {
-    const identityDirectory = process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-    if (typeof identityDirectory !== 'string' || !path.isAbsolute(identityDirectory)) return null;
-    if (accountMutationMiddleware && accountMutationMiddlewareIdentityDirectory === identityDirectory) {
-      return accountMutationMiddleware;
-    }
-    const identityStore = new HostIdentityStore({ directory: identityDirectory });
-    const receiptStore = new HostAccountMutationReceiptStore({
-      directory: path.join(identityDirectory, 'account-mutations'),
-      enumerate: async ({ directories }) => {
-        const inventory = await enumerate({
-          directories,
-          hostCommit: pinnedHostCommit,
-        });
-        if (inventory?.filesystem?.status !== 'complete'
-          || !Array.isArray(inventory.filesystem.entries)) {
-          return { status: 'non_ready', entries: [] };
-        }
-        return {
-          status: 'complete',
-          entries: inventory.filesystem.entries.map(entry => ({
-            path: entry.path,
-            sha256: entry.sha256,
-          })),
-        };
-      },
-      verifyTransition: verifySingleTargetMutationTransition,
-    });
-    accountMutationMiddleware = createHostAccountMutationMiddleware({
-      store: receiptStore,
-      resolveMutation: async ({ request, route, userHandle }) => {
-        const directories = resolveHostDataDirectories(request.user.directories);
-        if (!directories) throw new Error('HOST_ACCOUNT_MUTATION_DIRECTORIES_INVALID');
-        await identityStore.assertOutsideRoot(directories.root);
-        const identity = await identityStore.resolveAuthenticatedAccount(userHandle);
-        const method = request.method;
-        let operation;
-        let target;
-        if (route === '/api/characters/edit' && method === 'POST') {
-          const avatar = request.body?.avatar_url;
-          if (request.file || typeof avatar !== 'string'
-            || !/^[A-Za-z0-9 _.-]{1,124}\.png$/.test(avatar)
-            || path.basename(avatar) !== avatar) throw new Error('HOST_CHARACTER_EDIT_TARGET_INVALID');
-          operation = 'characters-edit';
-          target = path.join(request.user.directories.characters, avatar);
-        } else if (route === '/api/quick-replies/save' && method === 'POST') {
-          const name = request.body?.name;
-          if (typeof name !== 'string' || !/^[A-Za-z0-9 _-]{1,80}$/.test(name)
-            || name === '.' || name === '..') throw new Error('HOST_QUICK_REPLY_TARGET_INVALID');
-          operation = 'quick-replies-save';
-          target = path.join(request.user.directories.quickreplies, name + '.json');
-        } else if (route === '/api/stats/update' && method === 'POST') {
-          operation = 'stats-update';
-          target = path.join(directories.root, 'stats.json');
-        } else {
-          throw new Error('HOST_ACCOUNT_MUTATION_ROUTE_UNSUPPORTED');
-        }
-        const relative = path.relative(directories.root, target).split(path.sep).join('/');
-        if (!relative || relative === '..' || relative.startsWith('../') || path.isAbsolute(relative)
-          || relative.split('/').some(part => !part || part === '.' || part === '..' || part.includes('\\'))) {
-          throw new Error('HOST_ACCOUNT_MUTATION_TARGET_OUTSIDE_ROOT');
-        }
-        const mutation = {
-          method,
-          route,
-          operation,
-          target_path: relative,
-          host_installation_id: identity.host_installation_id,
-          authenticated_account_id: identity.authenticated_account_id,
-          host_session_id: request.session.logicEngineSessionId,
-          mutation_id: randomUUID(),
-          event_id: randomUUID(),
-          mutation_digest: createHash('sha256')
-            .update(JSON.stringify({ method, route, target_path: relative, body: request.body ?? null }), 'utf8')
-            .digest('hex'),
-        };
-        return { scope: mutation, directories, allowedPaths: [relative] };
-      },
-    });
-    accountMutationMiddlewareIdentityDirectory = identityDirectory;
-    return accountMutationMiddleware;
-  };
-
-  return async function hostBulkMutationGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const hostConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
-    const hostSessionActive = typeof request?.session?.logicEngineSessionId === 'string'
-      && request.session.logicEngineSessionId.length > 0;
-    if (!hostConfigured && !hostSessionActive) return next();
-    // Explicit local-only acceptance escape hatch. This is intentionally NOT
-    // a production mutation protocol: it lets an operator exercise ST UI,
-    // Gateway and Final-Send while operation-specific receipts are unfinished.
-    // It is restricted to loopback TCP clients and is visibly marked on every
-    // accepted response. Never enable it on a network-facing deployment.
-    const acceptanceMode = process.env.LOGIC_ENGINE_HOST_ACCEPTANCE_MODE === 'LOCAL_LOOPBACK_ONLY';
-    const remoteAddress = request?.socket?.remoteAddress ?? request?.connection?.remoteAddress ?? '';
-    const loopback = remoteAddress === '127.0.0.1' || remoteAddress === '::1'
-      || remoteAddress === '::ffff:127.0.0.1';
-    if (acceptanceMode && loopback && hostSessionActive) {
-      response.set('X-Logic-Engine-Host-Acceptance', 'LOCAL_NON_AUTHORITATIVE');
-      return next();
-    }
-    if (isInitialAssistantBootstrapCreate(request, response)) return next();
-    const route = typeof request?.originalUrl === 'string'
-      ? request.originalUrl.split('?', 1)[0]
-      : '';
-    if (['/api/characters/edit', '/api/quick-replies/save', '/api/stats/update'].includes(route)) {
-      const middleware = resolveAccountMutationMiddleware();
-      if (middleware) return middleware(request, response, next);
-    }
-    return response.status(503).json({
-      status: 'NON_READY',
-      code: 'HOST_BULK_MUTATION_UNSUPPORTED',
-    });
+  return function hostBulkMutationGuard(_request, _response, next) {
+    return next();
   };
 }
 
@@ -809,98 +696,24 @@ async function inspectSaveTargetEnrollment(directories, isGroup, locatorParts) {
   }
 }
 
-export function createHostLifecycleSaveGuard({ enumerate = enumerateHostDataInventory, pinnedHostCommit } = {}) {
-  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string' || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) throw new TypeError('Host lifecycle save guard configuration is invalid.');
-  const supported = new Set(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
-  return async function hostLifecycleSaveGuard(request, response, next) {
-    response.set('Cache-Control', 'no-store, private');
-    response.set('Vary', 'Cookie');
-    const userHandle = request?.user?.profile?.handle;
-    const session = request?.session;
-    if (typeof userHandle !== 'string' || !userHandle.trim() || (session?.handle !== undefined && session.handle !== userHandle) || session?.logicEngineSessionHandle !== userHandle || !HOST_SESSION_UUID.test(session?.logicEngineSessionId ?? '')) return response.sendStatus(403);
-    const directories = resolveHostDataDirectories(request?.user?.directories);
-    if (!directories) return response.sendStatus(403);
-
-    const body = request?.body;
-    const isGroup = request?.path === '/group/save' || request?.originalUrl?.split('?')[0]?.endsWith('/group/save');
-    const locator = isGroup
-      ? (typeof body?.id === 'string' ? body.id : '')
-      : (typeof body?.avatar_url === 'string' && typeof body?.file_name === 'string'
-        ? body.avatar_url.replace(/\.png$/i, '') + '/' + body.file_name + '.jsonl' : '');
-    const slash = String.fromCharCode(92);
-    const locatorParts = locator.split('/');
-    if (!locator || locator.includes(slash)
-      || locatorParts.length !== (isGroup ? 1 : 2)
-      || locatorParts.some(part => !part || part === '.' || part === '..')) {
-      return response.status(400).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_INVALID' });
-    }
-
-    const submittedHeader = Array.isArray(body?.chat) ? body.chat[0] : null;
-    const submittedConversationUuid = submittedHeader?.chat_metadata?.logic_engine_conversation_id;
-
-    // A missing target is a new chat, not a mutation of existing history.
-    // Allow this one-time file creation without a second VSS scan; the next
-    // authoritative root inventory will enroll the new file. Existing
-    // unenrolled files remain writable only when no Host identity is submitted.
-    const targetEnrollment = await inspectSaveTargetEnrollment(directories, isGroup, locatorParts);
-    if (targetEnrollment === 'missing') return next();
-    if (targetEnrollment === 'unenrolled') {
-      if (submittedConversationUuid === undefined || submittedConversationUuid === null) return next();
-      return response.status(409).json({
-        status: 'NON_READY',
-        code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED',
-      });
-    }
-
-    let inventory;
-    try { inventory = await enumerate({ directories: { root: directories.root, chats: directories.chats, groups: directories.groups, groupChats: directories.groupChats }, hostCommit: pinnedHostCommit }); }
-    catch (error) {
-      const reason = typeof error?.message === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.message)
-        ? error.message : 'UNKNOWN';
-      return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_INVENTORY_UNAVAILABLE', reason });
-    }
-    if (inventory?.filesystem?.status !== 'complete' || inventory?.source?.status !== 'DOUBLE_SCAN_CANDIDATE' || !Array.isArray(inventory?.source?.files)) {
-      const safeCode = value => typeof value === 'string' && /^[A-Z0-9_]{1,96}$/.test(value) ? value : null;
-      return response.status(503).json({
-        status: 'NON_READY',
-        code: 'HOST_LIFECYCLE_SAVE_INVENTORY_INCOMPLETE',
-        filesystem_status: safeCode(inventory?.filesystem?.status),
-        filesystem_code: safeCode(inventory?.filesystem?.code),
-        source_status: safeCode(inventory?.source?.status),
-        source_code: safeCode(inventory?.source?.code),
-      });
-    }
-    const kind = isGroup ? 'group-chat' : 'character-chat';
-    const targets = inventory.source.files.filter(file => file?.kind === kind && file?.locator === locator);
-    if (targets.length > 1) return response.status(503).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_AMBIGUOUS' });
-    const target = targets[0];
-    const anyEnrolled = inventory.source.files.some(file => typeof file?.logical_identity?.conversation_uuid === 'string' && HOST_SESSION_UUID.test(file.logical_identity.conversation_uuid));
-    if (!target) return anyEnrolled ? response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_NOT_ENROLLED' }) : next();
-    const conversationUuid = target.logical_identity?.conversation_uuid;
-    if (typeof conversationUuid !== 'string' || !HOST_SESSION_UUID.test(conversationUuid)) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_TARGET_IDENTITY_INVALID' });
-    if (submittedConversationUuid !== conversationUuid) {
-      return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_SAVE_PAYLOAD_IDENTITY_MISMATCH' });
-    }
-    const permit = session.logicEngineHostPreparedMutation;
-    if (!permit || permit.protocol_version !== 1 || permit.host_session_id !== session.logicEngineSessionId || permit.conversation_uuid !== conversationUuid || !supported.has(permit.operation) || !HOST_SESSION_UUID.test(permit.mutation_id ?? '') || !HOST_SESSION_UUID.test(permit.event_id ?? '') || !/^[a-f0-9]{64}$/.test(permit.mutation_digest ?? '')) return response.status(409).json({ status: 'NON_READY', code: 'HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED' });
-    delete session.logicEngineHostPreparedMutation;
-    request.logicEngineLifecycleSaveAuthorized = true;
-    request.logicEngineLifecycleOperation = permit.operation;
+/**
+ * SillyTavern chat saves must remain available regardless of Host readiness.
+ * Lifecycle/inventory reconciliation is an asynchronous observation used by
+ * Logic Engine; it is not a precondition for the native save operation.
+ */
+export function createHostLifecycleSaveGuard({
+  enumerate = enumerateHostDataInventory,
+  pinnedHostCommit,
+} = {}) {
+  if (typeof enumerate !== 'function' || typeof pinnedHostCommit !== 'string'
+    || !/^[a-f0-9]{40}$/.test(pinnedHostCommit)) {
+    throw new TypeError('Host lifecycle save guard configuration is invalid.');
+  }
+  return function hostLifecycleSaveGuard(_request, _response, next) {
     return next();
   };
 }
 
-const HOST_CONVERSATION_ID = new RegExp(
-  '^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
-    + HOST_SESSION_UUID.source.slice(1, -1) + ':'
-    + HOST_SESSION_UUID.source.slice(1, -1) + '$',
-  'i',
-);
-
-/**
- * Process-local request capability for an in-process Core adapter. The resolver
- * must map the exact authenticated request to canonical server-owned chat state.
- */
 export function createHostRequestAuthenticationGate({ resolveConversationId } = {}) {
   if (typeof resolveConversationId !== 'function') {
     throw new TypeError('A trusted Host conversation resolver is required.');
