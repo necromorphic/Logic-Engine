@@ -611,23 +611,16 @@ diff --git a/src/server-main.js b/src/server-main.js
 -    await checkForNewContent(directories);
 -    await diskCache.verify(directories);
 -    migrateFlatSecrets(directories);
-+    const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
-+    if (hostAuthorityConfigured) {
-+        console.warn('Skipping account-root startup mutations while Host authority is active.');
-+    } else {
-+        await checkForNewContent(directories);
-+        await diskCache.verify(directories);
-+        migrateFlatSecrets(directories);
-+    }
++    await checkForNewContent(directories);
++    await diskCache.verify(directories);
++    migrateFlatSecrets(directories);
      cleanUploads();
      migrateAccessLog();
  
 -    await settingsInit();
 -    await statsInit();
-+    if (!hostAuthorityConfigured) {
-+        await settingsInit();
-+        await statsInit();
-+    }
++    await settingsInit();
++    await statsInit();
  
      const pluginsDirectory = path.join(serverDirectory, 'plugins');
      const cleanupPlugins = await loadPlugins(app, pluginsDirectory);
@@ -1149,8 +1142,8 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 @@ -34,0 +40,6 @@
 +        try {
 +            await revokeHostSessionBeforeLogout(request);
-+        } catch {
-+            return response.status(503).json({ error: 'Host session revocation unavailable; session was not logged out.' });
++        } catch (error) {
++            console.warn('Logic Engine session revocation unavailable; continuing native logout.', error?.message || error);
 +        }
 +
 @@ -68 +80 @@
