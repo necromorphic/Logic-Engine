@@ -211,15 +211,6 @@ diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
 @@ -442,1 +444,1 @@
 -router.post('/delete', async (request, response) => {
 +router.post('/delete', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -480,1 +482,1 @@
- router.get('/discover', function (request, response) {
-@@ -515,2 +518,2 @@
-         .readdirSync(path.join(request.user.directories.extensions))
-         .filter(f => fs.statSync(path.join(request.user.directories.extensions, f)).isDirectory())
-@@ -524,2 +528,2 @@
-         .readdirSync(PUBLIC_DIRECTORIES.globalExtensions)
-         .filter(f => fs.statSync(path.join(PUBLIC_DIRECTORIES.globalExtensions, f)).isDirectory())
-
 diff --git a/src/endpoints/backgrounds.js b/src/endpoints/backgrounds.js
 --- a/src/endpoints/backgrounds.js
 +++ b/src/endpoints/backgrounds.js
@@ -297,11 +288,3 @@ diff --git a/src/endpoints/stable-diffusion.js b/src/endpoints/stable-diffusion.
 diff --git a/src/endpoints/thumbnails.js b/src/endpoints/thumbnails.js
 --- a/src/endpoints/thumbnails.js
 +++ b/src/endpoints/thumbnails.js
-@@ -285,6 +285,6 @@
-         const thumbnailFolder = getThumbnailFolder(request.user.directories, type);
-         const pathToCachedFile = path.join(thumbnailFolder, file);
- 
-         // Try to generate thumbnail if it doesn't exist
-         if (!fs.existsSync(pathToCachedFile)) {
-             const thumbResult = await generateThumbnail(request.user.directories, type, file, false);
-
