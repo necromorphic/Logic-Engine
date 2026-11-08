@@ -80,11 +80,11 @@ diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
 --- a/src/endpoints/quick-replies.js
 +++ b/src/endpoints/quick-replies.js
 @@ -4,0 +5,2 @@
-+import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 @@ -10 +12 @@
 -router.post('/save', (request, response) => {
-+router.post('/save', hostUnsupportedMutationGuard, (request, response) => {
++router.post('/save', hostBulkMutationGuard, (request, response) => {
 @@ -21 +23 @@
 -router.post('/delete', (request, response) => {
 +router.post('/delete', hostUnsupportedMutationGuard, (request, response) => {
@@ -125,14 +125,18 @@ diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
 --- a/src/endpoints/stats.js
 +++ b/src/endpoints/stats.js
 @@ -5,0 +6,2 @@
-+import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
-+const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
++import { createHostBulkMutationGuard } from './logic-engine-host-inventory-handler.mjs';
++const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 @@ -452 +454 @@
 -router.post('/recreate', async function (request, response) {
 +router.post('/recreate', hostUnsupportedMutationGuard, async function (request, response) {
 @@ -465 +467 @@
 -router.post('/update', function (request, response) {
-+router.post('/update', hostUnsupportedMutationGuard, function (request, response) {
++router.post('/update', hostBulkMutationGuard, async function (request, response) {
++    const handle = request.user.profile.handle;
++    const statsFilePath = path.join(request.user.directories.root, STATS_FILE);
++    await writeFileAtomic(statsFilePath, JSON.stringify(STATS.get(handle)));
++    TIMESTAMPS.set(handle, Date.now());
 diff --git a/src/endpoints/themes.js b/src/endpoints/themes.js
 --- a/src/endpoints/themes.js
 +++ b/src/endpoints/themes.js
