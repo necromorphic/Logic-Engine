@@ -37,7 +37,7 @@ function fixture() {
     { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
   ];
   const bridge = createStLifecycleBridge({
-    journal, getConversationId: () => 'scenario-chat', getChat: () => chat,
+    journal, getConversationId: () => 'scenario-chat', getSourceLocator: () => 'scenario-chat.jsonl', getChat: () => chat,
     saveChat: async () => {},
   });
   return { db, journal, chat, bridge };
