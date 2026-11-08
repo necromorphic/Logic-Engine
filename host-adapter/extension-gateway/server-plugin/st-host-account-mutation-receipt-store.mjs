@@ -56,11 +56,11 @@ function normalizeInventory(inventory) {
 }
 
 export function verifySingleTargetMutationTransition({ scope, changes }) {
-  return safeRelative(scope?.target_path)
-    && Array.isArray(changes)
-    && changes.length === 1
-    && changes[0]?.path === scope.target_path
-    && SHA256.test(changes[0]?.after_sha256 ?? '');
+  if (!safeRelative(scope?.target_path) || !Array.isArray(changes) || changes.length !== 1
+    || changes[0]?.path !== scope.target_path
+    || !SHA256.test(changes[0]?.after_sha256 ?? '')) return false;
+  if (scope.operation === 'characters-edit') return SHA256.test(changes[0]?.before_sha256 ?? '');
+  return ['quick-replies-save', 'stats-update'].includes(scope.operation);
 }
 
 function diffInventory(before, after) {
@@ -287,7 +287,13 @@ export class HostAccountMutationReceiptStore {
     const paths = this.#paths(scope);
     const prepared = await this.#read(paths.prepared);
     const lock = await this.#read(paths.lock);
-    if (!prepared || prepared.lock_token !== lock_token || !lock || lock.lock_token !== lock_token) {
+    if (!prepared || prepared.status !== 'PREPARED' || prepared.lock_token !== lock_token
+      || prepared.mutation_digest !== scope.mutation_digest || prepared.operation !== scope.operation
+      || prepared.route !== scope.route || prepared.event_id !== scope.event_id
+      || prepared.host_installation_id !== scope.host_installation_id
+      || prepared.authenticated_account_id !== scope.authenticated_account_id
+      || prepared.host_session_id !== scope.host_session_id
+      || !lock || lock.lock_token !== lock_token) {
       throw new Error('HOST_ACCOUNT_MUTATION_PREPARE_MISSING_OR_MISMATCHED');
     }
     const after = await this.#snapshot(directories, scope);
@@ -385,7 +391,11 @@ export class HostAccountMutationReceiptStore {
       if (record?.host_installation_id === host_installation_id
         && record?.authenticated_account_id === authenticated_account_id) {
         const terminal = await this.#read(path.join(this.directory, name.replace(/\.prepared\.json$/, '.terminal.json')));
-        if (!terminal || !['COMMITTED', 'ABORTED'].includes(terminal.status)) return true;
+        if (!terminal || !['COMMITTED', 'ABORTED'].includes(terminal.status)
+          || !terminal.receipt
+          || terminal.receipt_digest !== digest(canonical(terminal.receipt))
+          || terminal.receipt.host_installation_id !== host_installation_id
+          || terminal.receipt.authenticated_account_id !== authenticated_account_id) return true;
       }
     }
     return false;
