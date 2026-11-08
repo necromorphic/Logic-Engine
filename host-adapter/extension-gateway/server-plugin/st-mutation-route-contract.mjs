@@ -308,7 +308,11 @@ export async function verifyPinnedSillyTavernMutationCoverage({
     files.set(relative, createHash('sha256').update(bytes).digest('hex'));
     for (const [route, guards] of Object.entries(expectedRoutes)) {
       if (!hasPinnedPostRouteGuards(source, route, guards)) {
-        throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route);
+        const observed = source.split(/\\r?\\n/)
+          .filter(line => line.includes("router.post(") && line.includes(route))
+          .join(' | ').slice(0, 500);
+        throw new Error('HOST_ST_MUTATION_ROUTE_COVERAGE_MISMATCH:' + relative + ':' + route
+          + ':observed=' + observed);
       }
       checkedGuards += guards.length;
       checkedRoutes++;
