@@ -79,7 +79,7 @@ diff --git a/src/endpoints/presets.js b/src/endpoints/presets.js
 diff --git a/src/endpoints/quick-replies.js b/src/endpoints/quick-replies.js
 --- a/src/endpoints/quick-replies.js
 +++ b/src/endpoints/quick-replies.js
-@@ -4,0 +5,2 @@
+@@ -4,0 +5,3 @@
 +import { createHostBulkMutationGuard, createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
