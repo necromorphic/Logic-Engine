@@ -134,14 +134,20 @@ export class HostAccountMutationReceiptStore {
       }
       handle = await fs.open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
       const before = await handle.stat({ bigint: true });
-      if (!before.isFile() || before.dev !== pathBefore.dev || before.ino !== pathBefore.ino
+      // On Windows, Node's path-based lstat and handle-based fstat can report
+      // different device identifiers for the same NTFS file. The file index
+      // (ino) is the stable identity on that platform; POSIX requires the
+      // device+inode pair. Refuse platforms that cannot provide a file id.
+      const sameFile = (left, right) => process.platform === 'win32'
+        ? left.ino !== 0n && right.ino !== 0n && left.ino === right.ino
+        : left.dev === right.dev && left.ino === right.ino;
+      if (!before.isFile() || !sameFile(before, pathBefore)
         || before.size > BigInt(MAX_RECORD_BYTES)) throw new Error('HOST_ACCOUNT_MUTATION_RECORD_INVALID');
       const bytes = await handle.readFile();
       const after = await handle.stat({ bigint: true });
       const pathAfter = await fs.lstat(filePath, { bigint: true });
       if (!pathAfter.isFile() || pathAfter.isSymbolicLink()
-        || before.dev !== after.dev || before.ino !== after.ino
-        || after.dev !== pathAfter.dev || after.ino !== pathAfter.ino
+        || !sameFile(before, after) || !sameFile(after, pathAfter)
         || before.size !== after.size || before.mtimeNs !== after.mtimeNs
         || BigInt(bytes.length) !== after.size) {
         throw new Error('HOST_ACCOUNT_MUTATION_RECORD_CHANGED');
