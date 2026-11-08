@@ -184,7 +184,7 @@ test('pinned ST mutation routes are observed without suppressing native operatio
     const stableDiffusion = read('src/endpoints/stable-diffusion.js');
     for (const route of ['save-workflow', 'delete-workflow', 'rename-workflow']) {
         assert.ok(stableDiffusion.includes(`comfy.post('/${route}', hostUnsupportedMutationGuard`),
-            `ComfyUI workflow mutation /${route} must be fail-closed while Host authority is active`);
+            `ComfyUI workflow mutation /${route} must preserve native behavior with an optional Host observer`);
     }
     const usersSource = read('src/users.js');
     assert.ok(usersSource.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'),
