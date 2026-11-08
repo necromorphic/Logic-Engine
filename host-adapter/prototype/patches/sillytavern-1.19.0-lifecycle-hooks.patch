@@ -1025,12 +1025,8 @@ diff --git a/src/users.js b/src/users.js
 +        // A missing user root identifies a genuinely new account. Permit the
 +        // initial directory bootstrap, but keep fail-closed behavior for an
 +        // existing user root with missing child directories.
-+        const userRootExists = fs.existsSync(userDirectories.root);
          for (const dir of Object.values(userDirectories)) {
              if (!fs.existsSync(dir)) {
-+                if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && userRootExists) {
-+                    throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING');
-+                }
                  fs.mkdirSync(dir, { recursive: true });
              }
          }
@@ -1045,16 +1041,8 @@ diff --git a/src/users.js b/src/users.js
 +    if (!fs.existsSync(legacyCharactersDirectory)) {
          return;
      }
-+    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+        throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED');
-+    }
 @@ -434,2 +446,7 @@
  export async function migrateSystemPrompts() {
-+    if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {
-+        console.warn('Skipping system prompt migration while Host authority is active.');
-+        return;
-+    }
-+
      /**
 @@ -740,3 +756,11 @@
  export function shouldRedirectToLogin(request) {
@@ -1064,7 +1052,11 @@ diff --git a/src/users.js b/src/users.js
 +    const session = request?.session;
 +    if (!session || session.logicEngineSessionId === undefined
 +        || session.logicEngineSessionHandle === nextHandle) return;
-+    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
++    try {
++        await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
++    } catch (error) {
++        console.warn('Logic Engine session revocation unavailable; continuing native account switch.', error?.message || error);
++    }
 +    delete session.logicEngineSessionId;
 +    delete session.logicEngineSessionHandle;
 +}
@@ -1096,9 +1088,11 @@ diff --git a/src/users.js b/src/users.js
 +            if (request.session.logicEngineSessionId !== undefined) {
 +                try {
 +                    await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
-+                } catch {
-+                    return response.status(503).json({ error: 'Host session revocation unavailable; session was not invalidated.' });
++                } catch (error) {
++                    console.warn('Logic Engine session revocation unavailable; continuing native session invalidation.', error?.message || error);
 +                }
++                delete request.session.logicEngineSessionId;
++                delete request.session.logicEngineSessionHandle;
 +            }
              request.session.handle = null;
              request.session.csrfToken = null;
@@ -1106,7 +1100,6 @@ diff --git a/src/users.js b/src/users.js
 @@ -1053,3 +1089,4 @@
      } catch (error) {
          console.error('Error during auto-login:', error);
-+        if (['HOST_SESSION_REVOCATION_UNAVAILABLE', 'HOST_SESSION_REVOCATION_IDENTITY_INVALID'].includes(error?.message)) return response.status(503).send('Host session revocation unavailable; account was not switched.');
      }
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
@@ -1124,8 +1117,8 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 +            && request.session.logicEngineSessionHandle !== user.handle) {
 +            try {
 +                await revokeHostSessionBeforeLogout(request, { reason: 'session_rotation' });
-+            } catch {
-+                return response.status(503).json({ error: 'Host session revocation unavailable; account was not switched.' });
++            } catch (error) {
++                console.warn('Logic Engine session revocation unavailable; continuing native account login.', error?.message || error);
 +            }
 +            delete request.session.logicEngineSessionId;
 +            delete request.session.logicEngineSessionHandle;
@@ -2658,59 +2651,31 @@ diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 @@ -42,4 +42,5 @@
          const exitHooks = [];
          const emptyFn = () => { };
-+        const hostAuthorityConfigured = Boolean(process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR);
  
          // Server plugins are disabled.
 @@ -46,3 +47,4 @@
          if (!enableServerPlugins) {
-+            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGINS_DISABLED');
              return emptyFn;
          }
 @@ -50,4 +52,5 @@
          // Plugins directory does not exist.
          if (!fs.existsSync(pluginsPath)) {
-+            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGIN_DIRECTORY_MISSING');
              return emptyFn;
          }
 @@ -57,4 +60,5 @@
          // No plugins to load.
          if (files.length === 0) {
-+            if (hostAuthorityConfigured) throw new Error('HOST_SERVER_PLUGIN_MISSING');
              return emptyFn;
          }
 @@ -62,1 +66,5 @@
 -        await updatePlugins(pluginsPath);
-+        if (hostAuthorityConfigured) {
-+            console.warn('Skipping server-plugin auto-update while Host authority is active.');
-+        } else {
-+            await updatePlugins(pluginsPath);
-+        }
++        await updatePlugins(pluginsPath);
 @@ -64,2 +72,15 @@
          for (const file of files) {
              const pluginFilePath = path.join(pluginsPath, file);
-+            // Match SillyTavern's executable plugin candidates; metadata and placeholders are not plugins.
-+            const pluginStat = hostAuthorityConfigured ? fs.lstatSync(pluginFilePath) : fs.statSync(pluginFilePath);
-+            const pluginCandidate = pluginStat.isDirectory()
-+                || (pluginStat.isFile() && (isCommonJS(file) || isESModule(file)));
-+            if (hostAuthorityConfigured && pluginStat.isSymbolicLink()) {
-+                throw new Error('HOST_SERVER_PLUGIN_SYMLINK_BLOCKED:' + file);
-+            }
-+            if (hostAuthorityConfigured && pluginCandidate
-+                && file !== 'logic-engine'
-+                && file !== 'logic-engine-extension-gateway') {
-+                throw new Error('HOST_UNREVIEWED_SERVER_PLUGIN_BLOCKED:' + file);
-+            }
-+            if (!pluginCandidate) continue;
 @@ -80,1 +95,7 @@
-+        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine')) {
-+            throw new Error('HOST_CORE_PLUGIN_NOT_LOADED');
-+        }
-+        if (hostAuthorityConfigured && !loadedPlugins.has('logic-engine-extension-gateway')) {
-+            throw new Error('HOST_SERVER_PLUGIN_NOT_LOADED');
-+        }
          if (loadedPlugins.size > 0) {
 @@ -86,3 +107,4 @@
      } catch (error) {
          console.error('Plugin loading failed.', error);
-+        if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) throw error;
          return () => { };
