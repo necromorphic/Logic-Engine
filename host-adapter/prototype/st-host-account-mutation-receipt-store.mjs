@@ -168,6 +168,11 @@ export class HostAccountMutationReceiptStore {
     }
     await this.#ensureDirectory();
     const paths = this.#paths(scope);
+    // Reject known replays before taking the account-wide lock. The second
+    // check below closes the race with another request using the same mutation id.
+    if (await this.#read(paths.prepared) || await this.#read(paths.terminal)) {
+      throw new Error('HOST_ACCOUNT_MUTATION_REPLAY');
+    }
     const root = path.resolve(directories?.root ?? '');
     if (!path.isAbsolute(directories?.root ?? '') || within(root, this.directory)) {
       throw new Error('HOST_ACCOUNT_MUTATION_STORE_MUST_BE_OUTSIDE_ROOT');
@@ -191,6 +196,7 @@ export class HostAccountMutationReceiptStore {
 
     try {
       if (await this.#read(paths.prepared) || await this.#read(paths.terminal)) {
+        await fs.unlink(paths.lock);
         throw new Error('HOST_ACCOUNT_MUTATION_REPLAY');
       }
       const before = await this.#snapshot(directories, scope);
@@ -298,8 +304,18 @@ export class HostAccountMutationReceiptStore {
       if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_ACCOUNT_MUTATION_LOCK_UNSAFE');
       return true;
     } catch (error) {
-      if (error?.code === 'ENOENT') return false;
-      throw error;
+      if (error?.code !== 'ENOENT') throw error;
     }
+    // A prepared record without its lock is an integrity failure, not readiness.
+    const names = await fs.readdir(this.directory);
+    for (const name of names.filter(item => item.endsWith('.prepared.json'))) {
+      const record = await this.#read(path.join(this.directory, name));
+      if (record?.host_installation_id === host_installation_id
+        && record?.authenticated_account_id === authenticated_account_id) {
+        const terminal = await this.#read(path.join(this.directory, name.replace(/\.prepared\.json$/, '.terminal.json')));
+        if (!terminal || !['COMMITTED', 'ABORTED'].includes(terminal.status)) return true;
+      }
+    }
+    return false;
   }
 }
