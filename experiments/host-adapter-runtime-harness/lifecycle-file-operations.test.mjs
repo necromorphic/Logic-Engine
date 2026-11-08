@@ -449,6 +449,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     userMessage('ST_HARNESS_RAW_CHAT_SENTINEL'),
     assistantMessage(),
   ];
+  const createReceiptScope = await beginLifecycleMutation('create-message');
   const create = await observe(async () => {
     const response = await post('/api/chats/save', {
       avatar_url: 'Harness Character.png', file_name: 'chat-one', chat: initialChat, force: true,
@@ -464,6 +465,7 @@ test('pinned ST 1.19.0 supported chat mutations persist; chat deletion, rename, 
     assert.equal(persisted[1].mes, 'ST_HARNESS_RAW_CHAT_SENTINEL');
     return response;
   }, 'added');
+  await finishLifecycleMutation(createReceiptScope);
   assert.ok(create.result.delta.added.some(entry => entry.path.endsWith('chat-one.jsonl')));
 
   const sentUser = identifiedMessage({
