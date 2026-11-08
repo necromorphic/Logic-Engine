@@ -186,7 +186,7 @@ diff --git a/public/script.js b/public/script.js
 +                return payload.lifecycle;
 +            },
 +        })).catch(async error => {
-+            if (hasAnyHostEnrollment(localStorage)) throw Error('NON_READY: enrolled Host journal or authenticated session identity unavailable: ' + error.message);
++            console.warn('Logic Engine lifecycle storage unavailable; continuing native SillyTavern operations.', error?.message || error);
 +            return createUnavailableStLifecycleBridge({
 +                getConversationId: getLogicEngineConversationId,
 +                storage: localStorage,
@@ -423,7 +423,8 @@ diff --git a/public/script.js b/public/script.js
 -        loader: true,
 -    });
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
-+    const conversationId = await getLogicEngineConversationId();
++    let conversationId = null;
++    try { conversationId = await getLogicEngineConversationId(); } catch {}
 +    const oldLocator = getCurrentChatId();
 +    const lifecycleBefore = await lifecycleBridge.beforeMutation('rename-chat', []);
 +    logicEngineLifecyclePendingRenameId = lifecycleBefore.status === 'NOT_ENROLLED' ? null : conversationId;
