@@ -50,7 +50,7 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`.
 - `LOGIC_ENGINE_HOST_BUILD_SHA` is a deployment claim matched to the pinned commit, not runtime attestation.
 
-Host root-inventory authority is accepted only when the persisted lifecycle chain is complete and the latest signed Root Inventory Attestation verifies against the deployment-owned root identity registry and exact pinned source-manifest digest. The embedded Gateway rechecks this read-only authority under its shared Coordinator lease at dispatch-start and final response release. First baselines, review-only inventory, unverified mutations, missing registry entries or invalid signatures remain NON_READY. Fresh-account lifecycle genesis support is still tracked by PR #880.
+Host root-inventory authority is accepted only when the persisted lifecycle chain is complete and the latest signed Root Inventory Attestation verifies against the deployment-owned root identity registry and exact pinned source-manifest digest. The embedded Gateway rechecks this read-only authority under its shared Coordinator lease at dispatch-start and final response release. First baselines, review-only inventory, unverified mutations, missing registry entries or invalid signatures remain NON_READY. Fresh-account lifecycle genesis is implemented in this candidate: lifecycle sequence zero is accepted only with the all-zero genesis digest, and the first real event advances the journal to sequence one. The Core API regression covers valid genesis, nonzero-genesis rejection and first append; live Windows acceptance is still required.
 
 ## NPC Context Receiver and serialization
 
@@ -62,6 +62,6 @@ The protected Final-Send serializer projects Lane A and Lane B into separate lab
 
 The Host request → Core scope resolution → NPC Builder/Receiver → one-shot Host bridge → Gateway → model transport → Final-Send response release path is now composed in the root plugin. The Gateway performs durable dispatch-start, accepted-head/Core/Provider/Host evidence reads and final response revalidation. Non-empty Lane A and Lane B are projected separately; a complete-empty result may use native generation only after both lanes are independently revalidated and empty. Any missing handoff, non-ready lane, unknown sender, revoke race, stale Host inventory, missing authority or ambiguous dispatch is terminal and cannot fall through to an alternative sender.
 
-This is still an integration candidate, not P0 acceptance: PR #880's fresh-account genesis, exact-head CI, pinned installed-source attestation, and the full sender/stream/revoke/retry/cancel/crash matrix remain outstanding.
+This is still an integration candidate, not P0 acceptance: exact-head CI, pinned installed-source attestation, and the full sender/stream/revoke/retry/cancel/crash matrix remain outstanding.
 
 Do not enable `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true` for production until the real Gateway readers, Host inventory revalidation, accepted-head checks, Coordinator lease, revoke race, crash/restart replay and final response write tests all pass on the same commit.
