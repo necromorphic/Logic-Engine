@@ -1196,6 +1196,7 @@ test('Host authentication discards an inventory result when generation is cancel
   assert.equal(gate.isAuthenticatedHostRequest(request), false);
 });
 
+// Regression: native writes must never depend on Host identity, inventory, or Core readiness.
 test('all Host mutation middleware preserve native SillyTavern operations when Host evidence is unavailable', async () => {
   let nextCalls = 0;
   let inventoryCalls = 0;
