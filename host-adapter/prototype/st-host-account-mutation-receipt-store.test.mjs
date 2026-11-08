@@ -192,3 +192,14 @@ test('native route middleware refuses a mismatched session before invoking the n
     assert.equal(await f.store.hasPending(s), false);
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
+
+test('treats an idempotent successful save as a verified no-change terminal receipt', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
