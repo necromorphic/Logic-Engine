@@ -101,11 +101,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch does not apply cleanly' }
           git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero $patch
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Host lifecycle patch application failed' }
-          $deltaPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-unenrolled-chat-fix.patch).Path
-          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --check $deltaPatch
-          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix does not apply cleanly' }
-          git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace $deltaPatch
-          if ($LASTEXITCODE -ne 0) { throw 'Un-enrolled chat lifecycle fix application failed' }
           $rootMutationPatch = (Resolve-Path host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch).Path
           git -C Sillytavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero --check $rootMutationPatch
           if ($LASTEXITCODE -ne 0) { throw 'Root mutation guard patch does not apply cleanly' }
