@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { HostAccountMutationReceiptStore } from '../extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs';
+import { HostAccountMutationReceiptStore } from './st-host-account-mutation-receipt-store.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const uuid = () => randomUUID();
