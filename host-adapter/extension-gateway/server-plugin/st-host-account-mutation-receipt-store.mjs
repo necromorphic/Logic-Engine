@@ -267,7 +267,12 @@ export class HostAccountMutationReceiptStore {
       throw new Error('HOST_ACCOUNT_MUTATION_PREPARE_MISSING_OR_MISMATCHED');
     }
     const lock = await this.#read(paths.lock);
-    if (!lock || lock.lock_token !== lock_token) throw new Error('HOST_ACCOUNT_MUTATION_LOCK_LOST');
+    if (!lock || lock.lock_token !== lock_token
+      || lock.host_installation_id !== scope.host_installation_id
+      || lock.authenticated_account_id !== scope.authenticated_account_id
+      || lock.mutation_id !== scope.mutation_id) {
+      throw new Error('HOST_ACCOUNT_MUTATION_LOCK_LOST');
+    }
     const after = await this.#snapshot(directories, scope);
     const changes = diffInventory(prepared.before, after);
     if (changes.length === 0) {
@@ -319,7 +324,10 @@ export class HostAccountMutationReceiptStore {
       || prepared.host_installation_id !== scope.host_installation_id
       || prepared.authenticated_account_id !== scope.authenticated_account_id
       || prepared.host_session_id !== scope.host_session_id
-      || !lock || lock.lock_token !== lock_token) {
+      || !lock || lock.lock_token !== lock_token
+      || lock.host_installation_id !== scope.host_installation_id
+      || lock.authenticated_account_id !== scope.authenticated_account_id
+      || lock.mutation_id !== scope.mutation_id) {
       throw new Error('HOST_ACCOUNT_MUTATION_PREPARE_MISSING_OR_MISMATCHED');
     }
     const after = await this.#snapshot(directories, scope);
@@ -420,7 +428,10 @@ export class HostAccountMutationReceiptStore {
         ? { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_ORPHANED_PREPARE' }
         : { status: 'NO_PENDING_MUTATION' };
     }
-    if (!Number.isSafeInteger(lock.owner_pid) || lock.owner_pid < 1
+    if (lock.host_installation_id !== host_installation_id
+      || lock.authenticated_account_id !== authenticated_account_id
+      || !UUID.test(lock.mutation_id ?? '')
+      || !Number.isSafeInteger(lock.owner_pid) || lock.owner_pid < 1
       || !Number.isSafeInteger(lock.process_started_at_ms) || lock.process_started_at_ms < 0) {
       return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_OWNER_INVALID' };
     }
