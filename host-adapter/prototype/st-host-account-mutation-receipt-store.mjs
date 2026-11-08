@@ -323,6 +323,11 @@ export class HostAccountMutationReceiptStore {
         || terminal.receipt_digest !== digest(canonical(terminal.receipt))) {
         return { status: 'RECOVERY_REQUIRED', reason: 'HOST_ACCOUNT_MUTATION_TERMINAL_INVALID' };
       }
+      // A crash may occur after the terminal record is durably written but
+      // before the account lock is removed. Release only the lock belonging
+      // to this exact prepared mutation; never remove another request's lock.
+      const terminalLock = await this.#read(paths.lock);
+      if (terminalLock?.lock_token === prepared.lock_token) await fs.unlink(paths.lock);
       return { status: terminal.status, receipt_digest: terminal.receipt_digest };
     }
     const lock = await this.#read(paths.lock);
