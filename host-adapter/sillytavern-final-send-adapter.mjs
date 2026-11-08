@@ -191,6 +191,7 @@ export function createSillyTavernFinalSendAdapter({
       const preparedCandidate = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
+      let providerTransportInvoked = false;
       // A missing or mismatched Host capability disables only Memory enrichment.
       // It must not disable the native provider request.
       const prepared = preparedCandidate
@@ -252,18 +253,19 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
+        providerTransportInvoked = true;
         return args.transport(args.endpointUrl, args.requestInit);
       }
 
-      let transportInvoked = false;
       const nativeTransport = args.transport;
       const onceOnlyTransport = (...transportArgs) => {
-        transportInvoked = true;
+        providerTransportInvoked = true;
         return nativeTransport(...transportArgs);
       };
       const continueNatively = () => {
-        if (transportInvoked) throw new Error('LOGIC_ENGINE_NATIVE_FALLBACK_AFTER_EGRESS_FORBIDDEN');
+        if (providerTransportInvoked) throw new Error('LOGIC_ENGINE_NATIVE_FALLBACK_AFTER_EGRESS_FORBIDDEN');
         if (release) release.state = 'native';
+        providerTransportInvoked = true;
         return nativeTransport(args.endpointUrl, args.requestInit);
       };
       let result;
@@ -286,7 +288,7 @@ export function createSillyTavernFinalSendAdapter({
       }
       if (result && typeof result.then === 'function') {
         return result.catch(error => {
-          if (!transportInvoked) return continueNatively();
+          if (!providerTransportInvoked) return continueNatively();
           return deny(error);
         });
       }
@@ -297,14 +299,17 @@ export function createSillyTavernFinalSendAdapter({
         let result;
         try {
           result = runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
-        } catch {
+        } catch (error) {
+          if (providerTransportInvoked) throw error;
+          providerTransportInvoked = true;
           return args.transport(args.endpointUrl, args.requestInit);
         }
         if (result && typeof result.then === 'function') {
           return result.catch(error => {
             // If the callback already handed off to the provider, the result
             // is ambiguous and must never be retried. Otherwise use ST transport.
-            if (protectedDispatchByResponse.has(args.response)) throw error;
+            if (providerTransportInvoked) throw error;
+            providerTransportInvoked = true;
             return args.transport(args.endpointUrl, args.requestInit);
           });
         }
