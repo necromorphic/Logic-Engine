@@ -53,7 +53,33 @@ Verify:
 
 Do not treat HTTP 200 alone as proof of authority. Check the response identity, readiness state, source status, and diagnostic code.
 
-## 4. Verify Root Inventory and lifecycle
+## 4. Temporary local UI acceptance mode
+
+The mutation receipt protocol does not yet cover every SillyTavern write route. To test the installed UI, session, Gateway and Final-Send composition without mistaking that gap for a broken server, the Host patch supports an explicit local-only acceptance switch.
+
+In the disposable SillyTavern PowerShell window, set the variable **before** starting the server:
+
+```powershell
+$env:LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = "LOCAL_LOOPBACK_ONLY"
+npm start
+```
+
+This permits otherwise-unreceipted mutation routes only when the TCP peer is loopback (127.0.0.1, ::1, or ::ffff:127.0.0.1) and a Host session is active. Accepted mutation responses carry:
+
+```
+X-Logic-Engine-Host-Acceptance: LOCAL_NON_AUTHORITATIVE
+```
+
+This is a temporary test bypass, not a production fix and not evidence that mutation receipts are complete. Do not expose the test server to LAN, VPN, reverse proxies, or the public internet while this variable is set. Remove the variable and restart the server to return to strict fail-closed behavior:
+
+```powershell
+Remove-Item Env:LOGIC_ENGINE_HOST_ACCEPTANCE_MODE -ErrorAction SilentlyContinue
+npm start
+```
+
+Memory → NPC remains disabled. The test mode does not promote the Host mutation runtime acceptance blocker to READY.
+
+## 5. Verify Root Inventory and lifecycle
 
 Use a fresh disposable chat and verify the full lifecycle:
 
@@ -68,7 +94,7 @@ Use a fresh disposable chat and verify the full lifecycle:
 
 For a fresh account, sequence zero is valid only with the all-zero genesis digest. The first persisted lifecycle append must advance the sequence to one.
 
-## 5. Verify ordinary generation and Final-Send
+## 6. Verify ordinary generation and Final-Send
 
 With Memory → NPC still disabled:
 
@@ -81,7 +107,7 @@ With Memory → NPC still disabled:
 
 This stage does not authorize enabling Memory → NPC or bypassing the protected Gateway flow.
 
-## 6. Stop conditions
+## 7. Stop conditions
 
 Stop the acceptance run if any of the following occurs:
 
@@ -97,11 +123,11 @@ Stop the acceptance run if any of the following occurs:
 
 Save the SillyTavern console output, Host/Core logs, installer report, and exact candidate SHA. Do not repeatedly retry a failed scenario without diagnosing its first failure.
 
-## 7. Not part of this acceptance
+## 8. Not part of this acceptance
 
 Memory → NPC stays disabled. The five protected routes, 30 sender identities, Dispatch Ledger replay/revocation cases, and full Gateway/Final-Send security matrix remain subject to the separate P1 acceptance evidence. A successful Windows install does not replace those checks.
 
-## 8. Evidence to retain
+## 9. Evidence to retain
 
 - Candidate branch and exact commit SHA.
 - SillyTavern version and Node.js version.
