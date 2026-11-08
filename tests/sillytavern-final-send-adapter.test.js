@@ -202,7 +202,7 @@ test('protected response stays terminal after final write and cannot be written 
   });
   adapter.authorizeResponseWrite(response, () => writes.push('first'), true);
   assert.deepEqual(writes, ['first']);
-  assert.deepEqual(leases, [{ requestId: protectedMemory.requestId, final: true }]);
+  assert.deepEqual(leases, [], 'native response writes must not wait for a Gateway release lease');
   assert.equal(
     adapter.authorizeResponseWrite(response, () => writes.push('duplicate-end'), true),
     undefined,
@@ -370,8 +370,7 @@ test('authenticated Host session remains active across async provider handoff an
 
   assert.deepEqual(observed, [
     { phase: 'provider', conversationId: 'core-conversation-1' },
-    { phase: 'release', conversationId: 'core-conversation-1' },
-  ]);
+  ], 'native response release must not depend on a Gateway callback');
 });
 
 test('authenticated Host session remains active across async provider handoff and response release', async () => {
@@ -424,6 +423,5 @@ test('authenticated Host session remains active across async provider handoff an
 
   assert.deepEqual(observed, [
     { phase: 'provider', conversationId: 'core-conversation-1' },
-    { phase: 'release', conversationId: 'core-conversation-1' },
-  ]);
+  ], 'native response release must not depend on a Gateway callback');
 });
