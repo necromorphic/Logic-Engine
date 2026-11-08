@@ -1035,9 +1035,6 @@ diff --git a/src/users.js b/src/users.js
 +    if (!fs.existsSync(legacyCharactersDirectory)) {
          return;
      }
-@@ -434,2 +446,2 @@
- export async function migrateSystemPrompts() {
-     /**
 @@ -740,3 +756,15 @@
  export function shouldRedirectToLogin(request) {
      return ENABLE_ACCOUNTS && !request.user;
@@ -1091,10 +1088,6 @@ diff --git a/src/users.js b/src/users.js
              request.session.handle = null;
              request.session.csrfToken = null;
              request.session.version = null;
-@@ -1053,3 +1089,3 @@
-     } catch (error) {
-         console.error('Error during auto-login:', error);
-     }
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
@@ -2642,34 +2635,6 @@ new file mode 100644
 diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 --- a/src/plugin-loader.js
 +++ b/src/plugin-loader.js
-@@ -42,4 +42,4 @@
-         const exitHooks = [];
-         const emptyFn = () => { };
- 
-         // Server plugins are disabled.
-@@ -46,3 +47,3 @@
-         if (!enableServerPlugins) {
-             return emptyFn;
-         }
-@@ -50,4 +52,4 @@
-         // Plugins directory does not exist.
-         if (!fs.existsSync(pluginsPath)) {
-             return emptyFn;
-         }
-@@ -57,4 +60,4 @@
-         // No plugins to load.
-         if (files.length === 0) {
-             return emptyFn;
-         }
 @@ -62,1 +66,1 @@
 -        await updatePlugins(pluginsPath);
 +        await updatePlugins(pluginsPath);
-@@ -64,2 +72,2 @@
-         for (const file of files) {
-             const pluginFilePath = path.join(pluginsPath, file);
-@@ -80,1 +95,1 @@
-         if (loadedPlugins.size > 0) {
-@@ -86,3 +107,3 @@
-     } catch (error) {
-         console.error('Plugin loading failed.', error);
-         return () => { };
