@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -200,6 +200,53 @@ test('treats an idempotent successful save as a verified no-change terminal rece
     const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
     const result = await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
     assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('does not recover a mutation while its owning SillyTavern process is still alive', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'RECOVERY_REQUIRED');
+    assert.equal(result.reason, 'HOST_ACCOUNT_MUTATION_OWNER_STILL_ACTIVE');
+    assert.equal(await f.store.hasPending(s), true);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers an abandoned mutation after its owner process exits', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const lockName = (await readdir(f.storeDir)).find(name => name.endsWith('.account.lock'));
+    const lockPath = path.join(f.storeDir, lockName);
+    const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+    lock.owner_pid = 2147483647;
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a.localeCompare(b))));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers an abandoned exact target write as COMMITTED', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const lockName = (await readdir(f.storeDir)).find(name => name.endsWith('.account.lock'));
+    const lockPath = path.join(f.storeDir, lockName);
+    const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+    lock.owner_pid = 2147483647;
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a.localeCompare(b))));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    f.state.set('characters/a.png', hash('after'));
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
     assert.equal(await f.store.hasPending(s), false);
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
