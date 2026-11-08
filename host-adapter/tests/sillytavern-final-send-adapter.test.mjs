@@ -57,52 +57,42 @@ test('unregistered SillyTavern sender remains native for explicitly unprotected 
   assert.equal(transportCalls, 1);
 });
 
-test('unregistered SillyTavern sender is denied for protected Memory generation', () => {
-  const protectedContext = {
-    requestId: 'request-1',
-    generationId: 'generation-request-1',
-    model: 'test-model',
-    worldId: 'world-1',
-    actorId: 'actor-1',
-    purpose: 'npc_decision',
-    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
-    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
-      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
-  };
-  const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext });
-  const request = { body: { chat_completion_source: 'COMETAPI', stream: false } };
-
-  assert.throws(() => adapter.dispatch({
-    request,
-    senderRoute: adapter.resolveSenderRoute(request),
-    endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit,
-    stream: false,
-    transport: async () => ({ status: 200 }),
-  }), /MEMORY_DISPATCH_NOT_READY/);
-});
-
-test('unknown native route remains unregistered and cannot enter protected dispatch', () => {
+test('unregistered SillyTavern sender bypasses Memory and keeps native generation available', async () => {
+  let handoffs = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => ({
-    requestId: 'request-non-chat',
-    generationId: 'generation-request-non-chat',
-    model: 'test-model',
-    worldId: 'world-1',
-    actorId: 'actor-1',
-    purpose: 'npc_decision',
+    requestId: 'request-1', generationId: 'generation-request-1', model: 'test-model',
+    worldId: 'world-1', actorId: 'actor-1', purpose: 'npc_decision',
     sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
       source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
   }) });
-  assert.throws(() => adapter.dispatch({
+  const request = { body: { chat_completion_source: 'COMETAPI', stream: false } };
+  const result = await adapter.dispatch({
+    request, senderRoute: adapter.resolveSenderRoute(request),
+    endpointUrl: 'https://provider.example/v1/chat/completions', requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
+});
+
+test('unknown native route remains unregistered and uses native transport without Memory', async () => {
+  let handoffs = 0;
+  const adapter = createAdapter({ resolveProtectedMemory: () => ({
+    requestId: 'request-non-chat', generationId: 'generation-request-non-chat',
+    model: 'test-model', worldId: 'world-1', actorId: 'actor-1', purpose: 'npc_decision',
+    sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+    candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
+  }) });
+  const result = await adapter.dispatch({
     request: { body: {} },
-    senderRoute: adapter.resolveSenderRoute({}, 'unknown-route'),
-    hostRoute: 'unknown-route',
-    endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit,
-    stream: false,
-    transport: async () => ({ status: 200 }),
-  }), /MEMORY_DISPATCH_NOT_READY/);
+    senderRoute: adapter.resolveSenderRoute({}, 'unknown-route'), hostRoute: 'unknown-route',
+    endpointUrl: 'https://provider.example/v1/chat/completions', requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
 });
 
 test('all four protected non-Chat-Completions routes dispatch through Core Gateway', async () => {
@@ -290,30 +280,26 @@ test('dispatch falls back to native transport when Host route changes after prep
   assert.equal(transportCalls, 1);
 });
 
-test('dispatch cannot change the default route when preparation has no pinned path', async () => {
+test('dispatch uses native transport when the requested route differs from optional Host context', async () => {
   let resolverCalls = 0;
-  const adapter = createAdapter({
-    resolveProtectedMemory: () => { resolverCalls += 1; return null; },
-  });
+  let handoffs = 0;
+  const adapter = createAdapter({ resolveProtectedMemory: () => { resolverCalls += 1; return null; } });
   const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
     user: { profile: { handle: 'test-user' } },
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI', stream: false },
   };
   const response = {};
   await adapter.prepare(request, response);
-
-  assert.throws(() => adapter.dispatch({
-    request,
-    response,
-    senderRoute: 'text-completions',
-    hostRoute: 'text-completions',
-    endpointUrl: 'https://provider.example/generate',
-    requestInit,
-    stream: false,
-    transport: async () => ({ status: 200 }),
-  }), /LOGIC_ENGINE_HOST_ROUTE_CONTEXT_MISMATCH/);
-  assert.equal(resolverCalls, 0);
+  const result = await adapter.dispatch({
+    request, response, senderRoute: 'text-completions', hostRoute: 'text-completions',
+    endpointUrl: 'https://provider.example/generate', requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(resolverCalls, 1);
+  assert.equal(handoffs, 1);
 });
 
 test('dispatch uses native transport when response differs from optional Host preparation', async () => {
@@ -463,7 +449,7 @@ test('failed Host preparation remains optional and native generation succeeds', 
   assert.equal(handoffs, 1);
 });
 
-test('Host preparation receives the request AbortSignal and rejects cancellation after its await', async () => {
+test('Host preparation cancellation discards optional context without failing native request setup', async () => {
   let receivedSignal;
   let finishPreparation;
   const adapter = createAdapter({
@@ -491,7 +477,16 @@ test('Host preparation receives the request AbortSignal and rejects cancellation
   assert.equal(receivedSignal, controller.signal);
   controller.abort(new Error('client disconnected'));
   finishPreparation({ status: 'READY', context: {} });
-  await assert.rejects(pending, /LOGIC_ENGINE_HOST_GENERATION_CANCELLED/);
+  await pending;
+  let handoffs = 0;
+  const result = await adapter.dispatch({
+    request, response: {},
+    senderRoute: 'openai', endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit, stream: false,
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
 });
 
 test('Host preparation snapshots replay identity before native sender mutation', async () => {
