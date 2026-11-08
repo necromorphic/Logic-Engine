@@ -433,7 +433,9 @@ export function createHostAccountMutationMiddleware({ store, resolveMutation } =
     }
     if (!operation || operation.scope?.host_session_id !== sessionId
       || operation.scope?.method !== request.method || operation.scope?.route !== route
-      || !operation.directories || operation.directories.root !== request.user?.directories?.root
+      || !operation.directories || !path.isAbsolute(operation.directories.root)
+      || !path.isAbsolute(request.user?.directories?.root ?? '')
+      || path.resolve(operation.directories.root) !== path.resolve(request.user.directories.root)
       || !Array.isArray(operation.allowedPaths) || operation.allowedPaths.length === 0) {
       return response.status(503).json({ status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_SCOPE_UNAVAILABLE' });
     }
