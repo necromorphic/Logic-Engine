@@ -34,6 +34,7 @@ function validateScope(scope) {
     || !UUID.test(scope.mutation_id ?? '')
     || !UUID.test(scope.event_id ?? '')
     || !SHA256.test(scope.mutation_digest ?? '')
+    || !safeRelative(scope.target_path)
     || typeof scope.route !== 'string'
     || OPERATIONS.get(scope.method + ' ' + scope.route) !== scope.operation) {
     throw new TypeError('HOST_ACCOUNT_MUTATION_SCOPE_INVALID');
@@ -52,6 +53,14 @@ function normalizeInventory(inventory) {
     return { path: entry.path, sha256: entry.sha256 };
   }).sort((a, b) => a.path.localeCompare(b.path));
   return entries;
+}
+
+export function verifySingleTargetMutationTransition({ scope, changes }) {
+  return safeRelative(scope?.target_path)
+    && Array.isArray(changes)
+    && changes.length === 1
+    && changes[0]?.path === scope.target_path
+    && SHA256.test(changes[0]?.after_sha256 ?? '');
 }
 
 function diffInventory(before, after) {
