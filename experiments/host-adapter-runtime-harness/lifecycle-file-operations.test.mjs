@@ -698,16 +698,10 @@ test('pinned ST 1.19.0 native chat mutations continue while Host inventory recor
   }, ['added', 'modified']);
   assert.ok(restored.result.counts.added > 0 || restored.result.counts.modified > 0);
 
-  const groupUpload = 'group-chat.jsonl';
-  await writeFile(join(uploads, groupUpload), JSON.stringify(identifiedHeader(
-    'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'Harness Group'
-  )) + '\n' + JSON.stringify(identifiedMessage({
-    name: 'Harness User',
-    mes: 'group imported message',
-    messageId: '66666666-6666-4666-8666-666666666666',
-    versionId: '77777777-7777-4777-8777-777777777777',
-  })) + '\n');
-  const groupImport = await post('/api/chats/group/import', {}, { 'x-harness-upload': groupUpload });
+  // Invalid native request: the endpoint must return its own validation result,
+  // not a Host denial or a partially copied orphan group-chat file.
+  const groupImport = await post('/api/chats/group/import', {});
+  assert.equal(groupImport.status, 400, JSON.stringify(groupImport));
   assert.notEqual(groupImport.result?.code, 'HOST_BULK_MUTATION_UNSUPPORTED');
 
   const groupMetadataPath = join(directories.groups, 'group-harness.json');
