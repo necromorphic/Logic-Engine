@@ -305,6 +305,8 @@ export function createSillyTavernFinalSendAdapter({
           result = runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
         } catch (error) {
           if (providerTransportInvoked) throw error;
+          const pendingRelease = args.response ? requestIdByResponse.get(args.response) : null;
+          if (pendingRelease?.state === 'pending') pendingRelease.state = 'native';
           providerTransportInvoked = true;
           return args.transport(args.endpointUrl, args.requestInit);
         }
@@ -313,6 +315,8 @@ export function createSillyTavernFinalSendAdapter({
             // If the callback already handed off to the provider, the result
             // is ambiguous and must never be retried. Otherwise use ST transport.
             if (providerTransportInvoked) throw error;
+            const pendingRelease = args.response ? requestIdByResponse.get(args.response) : null;
+            if (pendingRelease?.state === 'pending') pendingRelease.state = 'native';
             providerTransportInvoked = true;
             return args.transport(args.endpointUrl, args.requestInit);
           });
