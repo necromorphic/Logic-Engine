@@ -10,7 +10,9 @@ function invoke(input, timeoutMs) {
   const result = spawnSync(process.execPath, [clientPath], {
     input: JSON.stringify(input),
     encoding: 'utf8',
-    timeout: timeoutMs + 500,
+    // Keep the HTTP deadline above authoritative, but allow Windows Node
+    // process cold-start overhead outside that request budget.
+    timeout: timeoutMs + 5000,
     windowsHide: true,
     maxBuffer: 8192,
     env: { PATH: process.env.PATH || '', SystemRoot: process.env.SystemRoot || '', WINDIR: process.env.WINDIR || '' },
