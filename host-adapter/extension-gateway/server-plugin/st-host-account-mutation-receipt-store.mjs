@@ -280,6 +280,7 @@ export class HostAccountMutationReceiptStore {
     }
     const receipt = {
       protocol_version: 1,
+      status: 'COMMITTED',
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
       host_session_id: scope.host_session_id,
