@@ -43,7 +43,7 @@ diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 diff --git a/src/endpoints/images.js b/src/endpoints/images.js
 --- a/src/endpoints/images.js
 +++ b/src/endpoints/images.js
-@@ -5,0 +6,3 @@
+@@ -5,0 +6,2 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
 @@ -39 +41 @@
@@ -125,7 +125,7 @@ diff --git a/src/endpoints/sprites.js b/src/endpoints/sprites.js
 diff --git a/src/endpoints/stats.js b/src/endpoints/stats.js
 --- a/src/endpoints/stats.js
 +++ b/src/endpoints/stats.js
-@@ -5,0 +6,2 @@
+@@ -5,0 +6,3 @@
 +import { createHostBulkMutationGuard, createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostBulkMutationGuard = createHostBulkMutationGuard({ pinnedHostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127' });
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
