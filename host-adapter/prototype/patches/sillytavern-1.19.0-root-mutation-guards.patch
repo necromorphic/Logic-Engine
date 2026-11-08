@@ -43,7 +43,7 @@ diff --git a/src/endpoints/image-metadata.js b/src/endpoints/image-metadata.js
 diff --git a/src/endpoints/images.js b/src/endpoints/images.js
 --- a/src/endpoints/images.js
 +++ b/src/endpoints/images.js
-@@ -5,0 +6,2 @@
+@@ -5,0 +6,3 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
 @@ -39 +41 @@
