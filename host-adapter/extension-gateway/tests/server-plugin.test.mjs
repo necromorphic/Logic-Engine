@@ -1239,3 +1239,29 @@ test('Host authentication discards an inventory result when generation is cancel
   assert.equal(result.code, 'HOST_GENERATION_CANCELLED');
   assert.equal(gate.isAuthenticatedHostRequest(request), false);
 });
+
+test('all Host mutation middleware preserve native SillyTavern operations when Host evidence is unavailable', async () => {
+  let nextCalls = 0;
+  let inventoryCalls = 0;
+  const enumerate = async () => {
+    inventoryCalls += 1;
+    throw new Error('native writes must not depend on inventory readiness');
+  };
+  const guards = [
+    createHostBulkMutationGuard({ pinnedHostCommit: pinned, enumerate }),
+    createHostLifecycleSaveGuard({ pinnedHostCommit: pinned, enumerate }),
+    createHostUnsupportedMutationGuard(),
+  ];
+  for (const guard of guards) {
+    const response = makeResponse();
+    await guard({
+      method: 'POST',
+      originalUrl: '/api/characters/create',
+      session: { logicEngineSessionId: defaultUserSessionId },
+      user: { profile: { handle: 'default-user' }, directories: {} },
+    }, response, () => { nextCalls += 1; });
+    assert.equal(response.statusCode, null);
+  }
+  assert.equal(nextCalls, 3);
+  assert.equal(inventoryCalls, 0);
+});
