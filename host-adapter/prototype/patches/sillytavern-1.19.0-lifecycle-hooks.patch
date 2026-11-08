@@ -838,12 +838,12 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
      if (!request.body || !request.body.id) {
          return response.sendStatus(400);
      }
-@@ -38 +38 @@
--const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
-+const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
 diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 --- a/src/endpoints/characters.js
 +++ b/src/endpoints/characters.js
+@@ -38 +38 @@
+-const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
++const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
 @@ -26,6 +26,9 @@
  import { CharXParser, persistCharXAssets } from '../charx.js';
  import cacheBuster from '../middleware/cacheBuster.js';
