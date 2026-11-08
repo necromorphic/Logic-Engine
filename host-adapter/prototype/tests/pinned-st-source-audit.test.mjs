@@ -342,6 +342,8 @@ test('receipted account mutations have one synchronous persisted target', { skip
         'quick-reply save target must remain the native per-user file');
 
     const stats = read('src/endpoints/stats.js');
+    assert.ok(stats.includes('if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR) {'),
+        'immediate stats persistence must be scoped to Host authority');
     assert.ok(stats.includes('await writeFileAtomic(statsFilePath, JSON.stringify(STATS.get(handle)));'),
         'stats update must persist the exact stats file before returning success');
     assert.ok(stats.includes('TIMESTAMPS.set(handle, Date.now());'),
