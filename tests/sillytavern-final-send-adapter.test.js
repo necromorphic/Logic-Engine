@@ -151,24 +151,27 @@ test('protected route mismatch falls back to native provider transport', async (
   assert.equal(writes, 1);
 });
 
-test('adapter denies unknown native sender before any transport handoff', async () => {
+test('unknown native sender bypasses Memory Gateway and keeps native provider output', async () => {
   let handoffs = 0;
+  let gatewayCalls = 0;
   const adapter = createSillyTavernFinalSendAdapter({
-    gateway: { dispatchProtectedRequest: () => { throw new Error('unexpected Gateway call'); } },
+    gateway: { dispatchProtectedRequest: () => { gatewayCalls += 1; } },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
-  assert.throws(() => adapter.dispatch({
+  const result = await adapter.dispatch({
     request: { body: { chat_completion_source: 'not-registered' } },
     response: {},
     senderRoute: 'unknown',
     endpointUrl: 'https://provider.example/generate',
     requestInit: { method: 'POST', body: '{}' },
     stream: false,
-    transport: async () => { handoffs += 1; },
-  }), /MEMORY_DISPATCH_NOT_READY/);
-  assert.equal(handoffs, 0);
+    transport: async () => { handoffs += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(handoffs, 1);
+  assert.equal(gatewayCalls, 0);
 });
 
 
