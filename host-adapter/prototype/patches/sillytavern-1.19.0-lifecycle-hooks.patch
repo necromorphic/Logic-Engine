@@ -224,16 +224,36 @@ diff --git a/public/script.js b/public/script.js
 +                throw error;
 +            }
 +        },
-+        syncCurrentDigestInventory: async () =>
-+            (await getLogicEngineLifecycleBridge()).syncCurrentDigestInventory(),
-+        verifyPersistedInventory: async () =>
-+            (await getLogicEngineLifecycleBridge()).verifyPersistedInventory(),
-+        reconcileCurrentConversation: async () =>
-+            (await getLogicEngineLifecycleBridge()).reconcileCurrentConversation(),
++        syncCurrentDigestInventory: async () => {
++            try { return await (await getLogicEngineLifecycleBridge()).syncCurrentDigestInventory(); }
++            catch (error) {
++                console.warn('Logic Engine digest sync unavailable; continuing native SillyTavern operation.', error?.message || error);
++                return { status: 'NOT_ENROLLED' };
++            }
++        },
++        verifyPersistedInventory: async () => {
++            try { return await (await getLogicEngineLifecycleBridge()).verifyPersistedInventory(); }
++            catch (error) {
++                console.warn('Logic Engine inventory verification unavailable; continuing native SillyTavern operation.', error?.message || error);
++                return { status: 'NOT_ENROLLED' };
++            }
++        },
++        reconcileCurrentConversation: async () => {
++            try { return await (await getLogicEngineLifecycleBridge()).reconcileCurrentConversation(); }
++            catch (error) {
++                console.warn('Logic Engine reconciliation unavailable; continuing native SillyTavern operation.', error?.message || error);
++                return { status: 'NOT_ENROLLED' };
++            }
++        },
 +        guardExport: async () =>
 +            (await getLogicEngineLifecycleBridge()).guardExport(),
-+        getCoreCaptureStatus: async () =>
-+            (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus(),
++        getCoreCaptureStatus: async () => {
++            try { return await (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus(); }
++            catch (error) {
++                console.warn('Logic Engine capture status unavailable; continuing native SillyTavern operation.', error?.message || error);
++                return { status: 'NOT_ENROLLED' };
++            }
++        },
 +    };
 +}
 +
@@ -2432,6 +2452,10 @@ new file mode 100644
 +    enrollCurrentConversation: async () => { throw error; },
 +    beforeMutation: async () => assertUnavailableSafe(),
 +    afterMutation: async () => assertUnavailableSafe(),
++    syncCurrentDigestInventory: async () => assertUnavailableSafe(),
++    verifyPersistedInventory: async () => assertUnavailableSafe(),
++    reconcileCurrentConversation: async () => assertUnavailableSafe(),
++    getCoreCaptureStatus: async () => assertUnavailableSafe(),
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
