@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,248 @@
+@@ -1583,6 +1593,251 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -1531,7 +1531,7 @@ new file mode 100644
 index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,929 @@
+@@ -0,0 +1,947 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1707,15 +1707,30 @@ index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 +  }
 +
 +  async function enrollCurrentConversation() {
-+    const conversationId = await getConversationId(), chat = getChat();
-+    if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
++    const conversationId = await getConversationId();
++    const sourceLocator = getSourceLocator();
++    const chat = getChat();
++    if (!conversationId || !sourceLocator || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
++    const assertEnrollmentSourceUnchanged = async () => {
++      if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator || getChat() !== chat) {
++        throw Error('NON_READY: Host conversation changed during enrollment');
++      }
++    };
++    await assertEnrollmentSourceUnchanged();
 +    const fingerprint = await currentFingerprint(chat);
++    await assertEnrollmentSourceUnchanged();
 +    const descriptors = chat.map(message => ({
 +      role: roleOf(message),
 +      versions: rawVersions(message),
 +      activeVersionIndex: activeIndex(message),
 +    }));
 +    const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
++    // Revalidate after the durable journal write and before touching native chat metadata.
++    await assertEnrollmentSourceUnchanged();
++    if (await currentFingerprint(chat) !== fingerprint) {
++      throw Error('NON_READY: Host chat content changed during enrollment');
++    }
++    await assertEnrollmentSourceUnchanged();
 +    try {
 +      for (let i = 0; i < chat.length; i++) {
 +        const identity = result.mapping[i];
@@ -1725,13 +1740,16 @@ index 0000000..d038ecb490a1619025ba6e9975b7a660373b73dd
 +          activeVersionIndex: identity.activeVersionIndex,
 +        };
 +      }
++      await assertEnrollmentSourceUnchanged();
 +      await saveChat();
++      await assertEnrollmentSourceUnchanged();
 +    } catch (error) {
 +      // The durable baseline now exists but native metadata may not. Subsequent
 +      // fingerprint/identity validation must fail closed; enrollment cannot be retried.
 +      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
 +    }
 +    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
++    await assertEnrollmentSourceUnchanged();
 +    return {
 +      conversationId,
 +      baselineSequence: result.baselineSequence,
