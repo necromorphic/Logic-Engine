@@ -332,3 +332,17 @@ test('pinned patch guards Data Maid, settings restore, account reset and account
   assert.equal(reviewedPatches.includes('/api/logic-engine'), false,
     'additional mutation guards must not add a separate public Host API route');
 });
+
+
+test('Host identity permits first-run user directory bootstrap but rejects missing directories for existing users', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const rootCheck = patch.indexOf('const userRootExists = fs.existsSync(userDirectories.root);');
+  const guardedFailure = patch.indexOf("if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR && userRootExists)", rootCheck);
+  const failure = patch.indexOf("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING');", guardedFailure);
+  const mkdir = patch.indexOf("fs.mkdirSync(dir, { recursive: true });", failure);
+  assert.ok(rootCheck >= 0, 'first-run detection must use the authenticated user root');
+  assert.ok(guardedFailure > rootCheck, 'the fail-closed guard must be conditional on a pre-existing user root');
+  assert.ok(failure > guardedFailure && mkdir > failure,
+    'existing-user integrity failures must stop before creating missing directories');
+});
