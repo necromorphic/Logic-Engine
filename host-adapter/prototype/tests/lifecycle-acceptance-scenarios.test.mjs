@@ -146,6 +146,7 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 });
 
 
+// Native save paths remain available even when Host lifecycle observation cannot prepare a receipt.
 test('direct enrolled-chat save APIs never gate native SillyTavern writes on Host permits', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = (await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8'))
