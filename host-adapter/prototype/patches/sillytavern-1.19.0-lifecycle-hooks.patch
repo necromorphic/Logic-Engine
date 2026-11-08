@@ -1152,7 +1152,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
  const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
  const RESET_CACHE = new Cache(5 * 60 * 1000);
-@@ -34,0 +42,6 @@
+@@ -33,0 +41,6 @@
 +        try {
 +            await revokeHostSessionBeforeLogout(request);
 +        } catch (error) {
