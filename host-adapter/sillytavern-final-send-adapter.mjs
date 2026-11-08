@@ -253,6 +253,10 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
+        // A route mismatch is an ordinary native SillyTavern request, not a
+        // protected Memory dispatch. Do not leave a phantom Gateway release
+        // capability attached to its response.
+        if (release) release.state = 'native';
         providerTransportInvoked = true;
         return args.transport(args.endpointUrl, args.requestInit);
       }
@@ -320,9 +324,25 @@ export function createSillyTavernFinalSendAdapter({
 
     authorizeResponseWrite(response, write, final = false) {
       const release = requestIdByResponse.get(response);
-      // Preserve SillyTavern's idempotent final-end behavior without asking
-      // Logic Engine for permission to write the provider's response.
       if (release?.state === 'completed') return undefined;
+      if (release?.state === 'denied') {
+        throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
+      }
+      if (release?.state === 'pending') {
+        try {
+          if (typeof gateway?.authorizeResponseWrite !== 'function') {
+            throw new Error('MEMORY_DISPATCH_RELEASE_AUTHORITY_UNAVAILABLE');
+          }
+          const result = gateway.authorizeResponseWrite(release.requestId, write, { final: final === true });
+          if (final === true) release.state = 'completed';
+          return result;
+        } catch (error) {
+          release.state = 'denied';
+          throw terminalError(error);
+        }
+      }
+      // Native generations without injected Memory remain fully native:
+      // Logic Engine never becomes a prerequisite for ordinary ST responses.
       const result = write();
       if (release && final === true) release.state = 'completed';
       return result;
