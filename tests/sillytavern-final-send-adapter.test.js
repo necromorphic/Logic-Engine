@@ -126,36 +126,29 @@ test('all registered non-Chat-Completions generation routes enter the shared Gat
   assert.deepEqual(gatewayRoutes, routes);
 });
 
-test('protected route mismatch leaves a terminal response tombstone', () => {
+test('protected route mismatch falls back to native provider transport', async () => {
   const response = {};
   let gatewayCalls = 0;
   let transportCalls = 0;
-  let writes = 0;
   const adapter = createSillyTavernFinalSendAdapter({
-    gateway: {
-      dispatchProtectedRequest() { gatewayCalls += 1; },
-      authorizeResponseWrite(_requestId, write) { return write(); },
-    },
+    gateway: { dispatchProtectedRequest() { gatewayCalls += 1; } },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
-  assert.throws(() => adapter.dispatch({
-    request: { body: {} },
-    response,
-    senderRoute: 'text-completions',
-    hostRoute: 'kobold',
+  const result = await adapter.dispatch({
+    request: { body: {} }, response,
+    senderRoute: 'text-completions', hostRoute: 'kobold',
     endpointUrl: 'https://provider.example/generate',
-    requestInit: { method: 'POST', body: '{}' },
-    stream: false,
+    requestInit: { method: 'POST', body: '{}' }, stream: false,
     transport: async () => { transportCalls += 1; return { status: 200 }; },
-  }), error => error.message === 'MEMORY_DISPATCH_NOT_READY'
-    && error.logicEngineFinalSendTerminal === true);
-  assert.throws(() => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    error => error.logicEngineFinalSendTerminal === true);
+  });
+  assert.equal(result.status, 200);
   assert.equal(gatewayCalls, 0);
-  assert.equal(transportCalls, 0);
-  assert.equal(writes, 0);
+  assert.equal(transportCalls, 1);
+  let writes = 0;
+  adapter.authorizeResponseWrite(response, () => { writes += 1; }, true);
+  assert.equal(writes, 1);
 });
 
 test('adapter denies unknown native sender before any transport handoff', async () => {
@@ -212,22 +205,20 @@ test('protected response stays terminal after final write and cannot be written 
     undefined,
     'a duplicate native Express end after the authorized final end must be idempotent',
   );
-  assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => writes.push('bypass-write'), false),
-    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  assert.equal(
+    adapter.authorizeResponseWrite(response, () => writes.push('post-final-write'), false),
+    undefined,
   );
   assert.deepEqual(writes, ['first'], 'duplicate end and post-final writes must never invoke the native writer again');
 });
 
-test('revoke denial leaves a terminal response tombstone and blocks fallback Express writes', async () => {
+test('Gateway response revalidation failure never blocks the native provider response', async () => {
   const response = {};
   let writes = 0;
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: {
       dispatchProtectedRequest: async () => ({ status: 200 }),
-      authorizeResponseWrite() {
-        throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED');
-      },
+      authorizeResponseWrite() { throw new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'); },
     },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
@@ -235,54 +226,58 @@ test('revoke denial leaves a terminal response tombstone and blocks fallback Exp
   });
   await adapter.dispatch({
     request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
-    response,
-    senderRoute: 'google-ai-studio',
+    response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body: '{"messages":[]}' },
-    stream: false,
-    transport: async () => ({ status: 200 }),
+    stream: false, transport: async () => ({ status: 200 }),
   });
-  assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    (error) => error.message === 'MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'
-      && error.logicEngineFinalSendTerminal === true,
-  );
-  assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
-  );
-  assert.equal(writes, 0, 'neither the protected response nor an error fallback may be written');
+  adapter.authorizeResponseWrite(response, () => { writes += 1; }, true);
+  assert.equal(writes, 1);
 });
 
-test('asynchronous protected dispatch failure cannot clear the response protection tombstone', async () => {
+test('Gateway failure before provider handoff falls back to native transport exactly once', async () => {
   const response = {};
-  let writes = 0;
+  let nativeCalls = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: { dispatchProtectedRequest: async () => { throw new Error('Gateway unavailable'); } },
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sources,
+    nativeForwardFetchResponse: async () => {},
+  });
+  const result = await adapter.dispatch({
+    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] } },
+    response, senderRoute: 'google-ai-studio',
+    endpointUrl: 'https://provider.example/v1/chat/completions',
+    requestInit: { method: 'POST', body: '{"messages":[]}' }, stream: false,
+    transport: async () => { nativeCalls += 1; return { status: 200 }; },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(nativeCalls, 1);
+});
+
+test('Gateway failure after provider handoff is never retried', async () => {
+  const response = {};
+  let nativeCalls = 0;
   const adapter = createSillyTavernFinalSendAdapter({
     gateway: {
-      dispatchProtectedRequest: async () => { throw new Error('dispatch denied'); },
-      authorizeResponseWrite(_requestId, write) { return write(); },
+      dispatchProtectedRequest: async request => {
+        await request.transport();
+        throw new Error('response forwarding failed after egress');
+      },
     },
     resolveProtectedMemory: () => protectedMemory,
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
   await assert.rejects(adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
-    response,
-    senderRoute: 'google-ai-studio',
+    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] } },
+    response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' },
-    stream: false,
-    transport: async () => ({ status: 200 }),
-  }), (error) => error.message === 'dispatch denied'
-    && error.logicEngineFinalSendTerminal === true);
-  assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
-  );
-  assert.equal(writes, 0);
+    requestInit: { method: 'POST', body: '{"messages":[]}' }, stream: false,
+    transport: async () => { nativeCalls += 1; return { status: 200 }; },
+  }), /response forwarding failed after egress/);
+  assert.equal(nativeCalls, 1);
 });
-
 
 test('one protected Host response cannot dispatch the model twice after a completed first handoff', async () => {
   const response = {};
