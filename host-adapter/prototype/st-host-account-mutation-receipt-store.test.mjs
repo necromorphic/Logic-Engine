@@ -250,3 +250,32 @@ test('recovers an abandoned exact target write as COMMITTED', async () => {
     assert.equal(await f.store.hasPending(s), false);
   } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
 });
+
+test('cleans a matching terminal lock even when the server process is still alive', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    const lockKey = hash(JSON.stringify({
+      authenticated_account_id: s.authenticated_account_id,
+      host_installation_id: s.host_installation_id,
+    }));
+    const lockPath = path.join(f.storeDir, lockKey + '.account.lock');
+    const lock = {
+      protocol_version: 1,
+      lock_token: prepared.lock_token,
+      host_installation_id: s.host_installation_id,
+      authenticated_account_id: s.authenticated_account_id,
+      mutation_id: s.mutation_id,
+      owner_pid: process.pid,
+      process_started_at_ms: 0,
+    };
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
