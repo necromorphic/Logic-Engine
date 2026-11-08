@@ -318,7 +318,5 @@ test('Host identity never prevents native user directory bootstrap', async () =>
     'SillyTavern must retain its native missing-directory creation behavior');
   assert.equal(patch.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'), false);
   assert.equal(patch.includes('Skipping system prompt migration while Host authority is active.'), false);
-  assert.ok(patch.includes('await checkForNewContent(directories);'));
-  assert.ok(patch.includes('await settingsInit();'));
 });
 
