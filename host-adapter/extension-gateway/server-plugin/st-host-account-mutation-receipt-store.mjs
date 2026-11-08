@@ -173,8 +173,8 @@ export class HostAccountMutationReceiptStore {
 
   async prepare(scope, { directories, allowedPaths } = {}) {
     validateScope(scope);
-    if (!Array.isArray(allowedPaths) || allowedPaths.length === 0
-      || allowedPaths.some(item => !safeRelative(item)) || new Set(allowedPaths).size !== allowedPaths.length) {
+    if (!Array.isArray(allowedPaths) || allowedPaths.length !== 1
+      || allowedPaths[0] !== scope.target_path || !safeRelative(allowedPaths[0])) {
       throw new TypeError('HOST_ACCOUNT_MUTATION_ALLOWED_PATHS_INVALID');
     }
     await this.#ensureDirectory();
@@ -258,7 +258,13 @@ export class HostAccountMutationReceiptStore {
     if (!lock || lock.lock_token !== lock_token) throw new Error('HOST_ACCOUNT_MUTATION_LOCK_LOST');
     const after = await this.#snapshot(directories, scope);
     const changes = diffInventory(prepared.before, after);
-    if (changes.length === 0 || changes.some(change => !prepared.allowed_paths.includes(change.path))
+    if (changes.length === 0) {
+      // A successful native request may be an idempotent save. Record a
+      // verified no-change terminal state instead of leaving the account
+      // permanently locked; the native route must report write failures itself.
+      return this.abort(scope, { directories, lock_token });
+    }
+    if (changes.some(change => !prepared.allowed_paths.includes(change.path))
       || await this.verifyTransition({ scope, before: prepared.before, after, changes }) !== true) {
       throw new Error('HOST_ACCOUNT_MUTATION_PERSISTED_STATE_MISMATCH');
     }
