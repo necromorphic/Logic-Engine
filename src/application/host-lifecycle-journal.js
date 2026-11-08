@@ -59,6 +59,7 @@ const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const MAX_ROOT_INVENTORY_ENTRIES = 25_000;
 const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
 const MAX_ROOT_DELTA_FILES = 5_000;
+// The handler blob pin is the exact Git blob SHA of the deployed Gateway handler; fixtures must use the same value.
 const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 const HOST_INVENTORY_PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const HOST_INVENTORY_PATCH_BLOB_SHA = '03b683014294195eb2ccae2285ae6d288a575afe3df9e71b65dfe1188d02943d';
