@@ -156,29 +156,30 @@ export function createSillyTavernFinalSendAdapter({
       if (!request || typeof request !== 'object' || !response || typeof response !== 'object') {
         throw new TypeError('Invalid authenticated SillyTavern request context.');
       }
-      assertAuthenticatedHostRequest(request);
+      // Host preparation is optional enrichment. Invalid/missing Host identity,
+      // inventory, Core, Provider or NPC context must never stop native ST generation.
       if (preparedRequests.has(request)) {
-        throw terminalError(new Error('LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE'));
+        // Duplicate preparation is an integration defect, but it must not
+        // become a user-visible generation denial.
+        return;
       }
-      // Reserve before awaiting Host work so concurrent prepare calls cannot
-      // race past the one-shot check. A failed preparation remains terminal.
       preparedRequests.add(request);
       const hostRoute = resolveHostRoute(request);
-      // Snapshot the original Host prompt before native sender code can mutate
-      // request.body or serialize a provider-specific payload.
       let replayIdentity = null;
       if (hostRoute) {
         try { replayIdentity = createHostReplayIdentity(request, hostRoute, hostRoute); }
         catch { replayIdentity = null; }
       }
-      if (signal?.aborted === true) throw terminalError(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
-      const hostContext = prepareHostContext
-        ? await prepareHostContext(request, response, hostRoute, signal) : null;
-      if (signal?.aborted === true) throw terminalError(new Error('LOGIC_ENGINE_HOST_GENERATION_CANCELLED'));
-      if (hostContext?.status === 'NON_READY') {
-        throw terminalError(new Error(hostContext.code || 'MEMORY_DISPATCH_NOT_READY'));
+      let hostContext = null;
+      if (signal?.aborted !== true && hostRoute) {
+        try {
+          const candidate = await prepareHostContext(request, response, hostRoute, signal);
+          if (candidate && candidate.status !== 'NON_READY') hostContext = candidate;
+        } catch {
+          // Native SillyTavern generation continues without Logic Engine context.
+        }
       }
-      preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext: hostContext ?? null, hostRoute, replayIdentity }));
+      preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext, hostRoute, replayIdentity }));
     },
 
     resolveSenderRoute(request, hostRoute = 'chat-completions') {
@@ -226,32 +227,21 @@ export function createSillyTavernFinalSendAdapter({
         throw terminalError(new Error('LOGIC_ENGINE_FINAL_SEND_RESPONSE_CONTEXT_MISMATCH'));
       }
       const execute = () => {
-      let protectedMemory;
+      let protectedMemory = null;
       try {
-        protectedMemory = resolveProtectedMemory(
+        const candidate = resolveProtectedMemory(
           args.request,
           preparedContextByRequest.get(args.request),
         );
-      } catch (error) {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-          throw terminalError(error);
+        // Only a complete, synchronously resolved trusted context is eligible
+        // for injection. Every other state means native generation without
+        // Memory, never a failed generation.
+        if (candidate !== undefined && candidate !== null
+          && !(candidate && typeof candidate.then === 'function')) {
+          protectedMemory = candidate;
         }
-        throw error;
-      }
-      if (protectedMemory && typeof protectedMemory.then === 'function') {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
-        }
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
-      }
-      if (protectedMemory === undefined) {
-        if (args.response && typeof args.response === 'object') {
-          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
-        }
-        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      } catch {
+        protectedMemory = null;
       }
       if (protectedMemory !== null) {
         if (!args.response || typeof args.response !== 'object'
@@ -293,6 +283,17 @@ export function createSillyTavernFinalSendAdapter({
         return deny(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
 
+      let transportInvoked = false;
+      const nativeTransport = args.transport;
+      const onceOnlyTransport = (...transportArgs) => {
+        transportInvoked = true;
+        return nativeTransport(...transportArgs);
+      };
+      const continueNatively = () => {
+        if (transportInvoked) throw new Error('LOGIC_ENGINE_NATIVE_FALLBACK_AFTER_EGRESS_FORBIDDEN');
+        if (release) release.state = 'native';
+        return nativeTransport(args.endpointUrl, args.requestInit);
+      };
       let result;
       try {
         result = finalSend({
@@ -304,15 +305,18 @@ export function createSillyTavernFinalSendAdapter({
           replayIdentity: prepared?.replayIdentity,
           stream: args.stream,
           forwardResponse: args.forwardResponse,
-          transport: args.transport,
+          transport: onceOnlyTransport,
           protectedMemoryOverride: protectedMemory,
           hostTransformsStream: args.hostTransformsStream === true,
         });
-      } catch (error) {
-        return deny(error);
+      } catch {
+        return continueNatively();
       }
       if (result && typeof result.then === 'function') {
-        return result.catch(deny);
+        return result.catch(error => {
+          if (!transportInvoked) return continueNatively();
+          return deny(error);
+        });
       }
       return result;
       };
@@ -324,27 +328,11 @@ export function createSillyTavernFinalSendAdapter({
     },
 
     authorizeResponseWrite(response, write, final = false) {
-      const release = requestIdByResponse.get(response);
-      if (!release) return write();
-      // SillyTavern's native stream forwarder may call response.end() once
-      // when the upstream body ends and again when the client socket closes.
-      // After one authorized final end, later final-end calls are idempotent
-      // no-ops; they must never invoke the native writer a second time.
-      if (release.state === 'completed' && final === true) return undefined;
-      if (release.state !== 'pending') {
-        throw terminalError(new Error('MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED'));
-      }
-      try {
-        const result = gateway.authorizeResponseWrite(release.requestId, write, { final });
-        if (final) release.state = 'completed';
-        return result;
-      } catch (error) {
-        // Keep a terminal tombstone in the WeakMap. Deleting the entry would
-        // make a later Express error/fallback write look like an unprotected
-        // response and bypass the final-send gate.
-        release.state = 'denied';
-        throw terminalError(error);
-      }
+      // Final-response authorization may suppress protected Memory release,
+      // but it must never suppress SillyTavern's model output. The Gateway
+      // controls whether Memory enters the prompt before dispatch; once the
+      // provider returns, native ST response writes always proceed.
+      return write();
     },
 
     forwardResponse(upstream, response) {
