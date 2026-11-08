@@ -147,11 +147,8 @@ test('protected route mismatch falls back to native provider transport', async (
   assert.equal(gatewayCalls, 0);
   assert.equal(transportCalls, 1);
   let writes = 0;
-  assert.throws(
-    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
-    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
-  );
-  assert.equal(writes, 0);
+  adapter.authorizeResponseWrite(response, () => { writes += 1; }, true);
+  assert.equal(writes, 1, 'route mismatch must release an ordinary native ST response');
 });
 
 test('unknown native sender bypasses Memory Gateway and keeps native provider output', async () => {
@@ -238,8 +235,11 @@ test('Gateway response revalidation failure blocks only the Memory-enriched resp
     requestInit: { method: 'POST', body: '{"messages":[]}' },
     stream: false, transport: async () => ({ status: 200 }),
   });
-  adapter.authorizeResponseWrite(response, () => { writes += 1; }, true);
-  assert.equal(writes, 1);
+  assert.throws(
+    () => adapter.authorizeResponseWrite(response, () => { writes += 1; }, true),
+    /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+  );
+  assert.equal(writes, 0, 'revoked Memory must not be released to the client');
 });
 
 test('Gateway failure before provider handoff falls back to native transport exactly once', async () => {
