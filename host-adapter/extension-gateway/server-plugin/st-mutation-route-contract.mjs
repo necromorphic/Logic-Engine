@@ -344,20 +344,21 @@ export async function verifyPinnedSillyTavernMutationCoverage({
       throw new Error('HOST_ST_ACCOUNT_MUTATION_GUARD_MISSING');
     }
     if (relative.endsWith('users.js')
-      && (!source.includes("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING')")
-        || !source.includes("throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED')")
-        || !source.includes("console.warn('Skipping system prompt migration while Host authority is active.')")
-        || !source.includes('if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'))) {
-      throw new Error('HOST_ST_USER_DATA_MIGRATION_GUARD_MISSING');
+      && (source.includes("throw new Error('HOST_LIFECYCLE_USER_DIRECTORY_MISSING')")
+        || source.includes("throw new Error('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED')")
+        || source.includes("console.warn('Skipping system prompt migration while Host authority is active.')")
+        || source.includes('if (process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR)'))) {
+      throw new Error('HOST_ST_USER_DATA_NATIVE_FLOW_BLOCKED');
     }
     if (relative.endsWith('users-private.js')
       && (!source.includes("router.post('/logout'")
         || !source.includes('revokeHostSessionBeforeLogout(request)')
-        || !source.includes('Host session revocation unavailable; session was not logged out.')
+        || !source.includes('Logic Engine session revocation unavailable; continuing native logout.')
         || !source.includes('request.session = null')
         || !PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]?.['/logout']
         || !source.includes(PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]['/logout'])
-        || source.indexOf(PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]['/logout']) > source.indexOf('request.session = null'))) {
+        || source.indexOf(PINNED_ST_SPECIAL_MUTATION_ROUTES[relative]['/logout']) > source.indexOf('request.session.handle = null')
+        || source.includes('Host session revocation unavailable; session was not logged out.'))) {
       throw new Error('HOST_ST_LOGOUT_SESSION_INVALIDATION_MISSING');
     }
     if (relative.endsWith('users-private.js')) {
