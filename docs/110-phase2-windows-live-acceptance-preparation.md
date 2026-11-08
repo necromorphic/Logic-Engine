@@ -24,13 +24,15 @@ The runner:
 - installs SillyTavern dependencies with its committed lockfile;
 - calls the same `install-sillytavern-host-plugin.ps1` installer used for deployment;
 - verifies the root plugin, Gateway plugin, pinned source manifest and browser extension;
-- starts only the disposable SillyTavern instance on loopback.
+- prepares a disposable Host identity and a deployment-owned Core root-identity registry from the installed pinned source manifest;
+- starts a separate Core process with fresh SQLite databases, a local World Pack catalog and generated per-run credentials;
+- starts the disposable SillyTavern instance on loopback with Core URL and credentials configured.
 
-It does not modify the source SillyTavern directory. It does not require ST-VectorService and does not connect to it. Memory → NPC is explicitly disabled.
+It does not modify the source SillyTavern directory. It does not require ST-VectorService and does not connect to it. Memory → NPC is explicitly disabled. The Core databases, credentials and identity registry are disposable and are kept under the printed temporary directory for diagnostics.
 
-**Scope limitation:** this runner proves the installation path, plugin loading and ordinary native-generation smoke test only. It does not start Core, establish authoritative Root Inventory, or prove the VSS/lifecycle authority chain. Those checks remain the next Phase 2 acceptance stage and must not be reported as passed by this smoke test.
+**Scope limitation:** this runner exercises the actual Host-to-Core HTTP connection, identity binding, Root Inventory baseline/attestation attempt, lifecycle endpoints, plugin loading and ordinary native generation. It does not promote the local acceptance bypass to production authority. Uncovered mutation routes remain marked non-authoritative, and a successful smoke run does not authorize Memory → NPC or prove the full protected Final-Send matrix.
 
-The runner uses `LOCAL_LOOPBACK_ONLY` and is non-authoritative. Do not expose the temporary server to LAN, VPN, reverse proxies or the public internet. Preserve the printed temporary directory and `TEST-INFO.txt` after stopping the server.
+The runner uses `LOCAL_LOOPBACK_ONLY`. Do not expose either temporary service to LAN, VPN, reverse proxies or the public internet. Preserve the printed temporary directory, Core logs and `TEST-INFO.txt` after stopping the server.
 
 ## 1. Preconditions
 
