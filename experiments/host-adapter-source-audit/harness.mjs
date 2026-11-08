@@ -467,7 +467,6 @@ test('additional account-root and source mutation routes are fail-closed under H
     ['src/endpoints/presets.js', '/save'],
     ['src/endpoints/presets.js', '/delete'],
     ['src/endpoints/presets.js', '/restore'],
-    ['src/endpoints/quick-replies.js', '/save'],
     ['src/endpoints/quick-replies.js', '/delete'],
     ['src/endpoints/secrets.js', '/write'],
     ['src/endpoints/secrets.js', '/delete'],
@@ -477,7 +476,6 @@ test('additional account-root and source mutation routes are fail-closed under H
     ['src/endpoints/sprites.js', '/upload-zip'],
     ['src/endpoints/sprites.js', '/upload'],
     ['src/endpoints/stats.js', '/recreate'],
-    ['src/endpoints/stats.js', '/update'],
     ['src/endpoints/themes.js', '/save'],
     ['src/endpoints/themes.js', '/delete'],
     ['src/endpoints/worldinfo.js', '/delete'],
@@ -504,9 +502,18 @@ test('additional account-root and source mutation routes are fail-closed under H
   ];
   for (const [file, route] of requirements) {
     const source = mutationSources[file];
-    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = route.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
     const expression = new RegExp("router\\.post\\(['\\\"]" + escaped + "['\\\"]\\s*,\\s*hostUnsupportedMutationGuard\\s*,");
     assert.match(source, expression, file + ' ' + route + ' must be fail-closed');
+  }
+  for (const [file, route] of [
+    ['src/endpoints/quick-replies.js', '/save'],
+    ['src/endpoints/stats.js', '/update'],
+  ]) {
+    const source = mutationSources[file];
+    const escaped = route.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+    const expression = new RegExp("router\\.post\\(['\\\"]" + escaped + "['\\\"]\\s*,\\s*hostBulkMutationGuard\\s*,");
+    assert.match(source, expression, file + ' ' + route + ' must use an operation-specific receipt guard');
   }
   assert.match(rootMutationPatch, /createHostUnsupportedMutationGuard/);
 });
