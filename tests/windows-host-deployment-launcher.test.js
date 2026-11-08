@@ -25,7 +25,9 @@ test('Windows PR 870 launcher verifies a clean locked SillyTavern source before 
   assert.match(source, /SILLYTAVERN_PACKAGE_LOCK_MISSING/);
   assert.match(source, /npm\.cmd/);
   assert.match(source, /"ci", "--no-audit", "--no-fund"/);
-  assert.match(source, /USE_CLEAN_RELEASE/);
+  assert.match(source, /git"\s*,\s*@\("clone", "--no-checkout", "--filter=blob:none"/);
+  assert.match(source, /SILLYTAVERN_PINNED_COMMIT_MISMATCH/);
+  assert.match(source, /ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_UNEXPECTED_DATA/);
 });
 
 test('Windows PR 870 launcher uses the SillyTavern source pin and never enables Memory NPC', async () => {
