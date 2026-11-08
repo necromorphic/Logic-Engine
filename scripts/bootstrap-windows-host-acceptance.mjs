@@ -45,36 +45,37 @@ for (const relativeDirectory of Object.values(USER_DIRECTORY_TEMPLATE)) {
 // A fresh SillyTavern user needs these two root-level files before the browser
 // can complete firstLoadInit(). Seed them from the exact pinned ST checkout;
 // never overwrite files already present in the disposable user data root.
-async function provisionDefaultUserFile(fileName) {
+async function provisionDefaultFile(fileName, destination) {
   const source = path.resolve(stRoot, 'default', 'content', fileName);
-  const destination = path.resolve(userRoot, fileName);
+  const resolvedDestination = path.resolve(destination);
   const sourceRelative = path.relative(stRoot, source);
-  const destinationRelative = path.relative(userRoot, destination);
+  const destinationRelative = path.relative(dataRoot, resolvedDestination);
   if (sourceRelative.startsWith('..' + path.sep) || path.isAbsolute(sourceRelative)
-    || destinationRelative.startsWith('..' + path.sep) || path.isAbsolute(destinationRelative)) {
-    throw new Error('HOST_ACCEPTANCE_DEFAULT_USER_FILE_PATH_ESCAPE');
+    || destinationRelative === '..' || destinationRelative.startsWith('..' + path.sep)
+    || path.isAbsolute(destinationRelative)) {
+    throw new Error('HOST_ACCEPTANCE_DEFAULT_FILE_PATH_ESCAPE');
   }
 
   const sourceStat = await lstat(source).catch(() => null);
   if (!sourceStat?.isFile()) {
     throw new Error('HOST_ACCEPTANCE_DEFAULT_USER_TEMPLATE_MISSING: ' + fileName);
   }
-
+  await mkdir(path.dirname(resolvedDestination), { recursive: true });
   try {
-    await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+    await copyFile(source, resolvedDestination, fsConstants.COPYFILE_EXCL);
   } catch (error) {
-    if (error?.code !== 'EEXIST') {
-      throw error;
-    }
-    const destinationStat = await lstat(destination).catch(() => null);
+    if (error?.code !== 'EEXIST') throw error;
+    const destinationStat = await lstat(resolvedDestination).catch(() => null);
     if (!destinationStat?.isFile()) {
-      throw new Error('HOST_ACCEPTANCE_DEFAULT_USER_FILE_INVALID: ' + fileName);
+      throw new Error('HOST_ACCEPTANCE_DEFAULT_FILE_INVALID: ' + fileName);
     }
   }
 }
 
-await provisionDefaultUserFile('settings.json');
-await provisionDefaultUserFile('user.css');
+await provisionDefaultFile('settings.json', path.join(userRoot, 'settings.json'));
+// SillyTavern serves /css/user.css from DATA_ROOT/_css/user.css, not
+// from the per-user account directory.
+await provisionDefaultFile('user.css', path.join(dataRoot, '_css', 'user.css'));
 
 const identityStore = new HostIdentityStore({ directory: identityDirectory });
 await identityStore.assertOutsideRoot(dataRoot);
