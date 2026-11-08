@@ -247,7 +247,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
   }
 
-  async function beforeMutation(operation, messageIndexes, details = {}) {
+  async function beforeMutationStrict(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     if (getLifecycleStatus) {
@@ -389,7 +389,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     });
   }
 
-  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
+  async function afterMutationStrict(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const pending = await journal.pendingMutation(conversationId);
@@ -712,6 +712,25 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     });
   }
 
+  // Lifecycle is advisory enrichment. Any failure must not veto native ST writes.
+  async function beforeMutation(operation, messageIndexes, details = {}) {
+    try {
+      return await beforeMutationStrict(operation, messageIndexes, details);
+    } catch (error) {
+      console.warn('[Logic Engine] lifecycle preparation unavailable; continuing native SillyTavern operation', error?.message || error);
+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
+    }
+  }
+
+  async function afterMutation(operation, details = {}) {
+    try {
+      return await afterMutationStrict(operation, details);
+    } catch (error) {
+      console.warn('[Logic Engine] lifecycle receipt unavailable after native SillyTavern operation', error?.message || error);
+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
+    }
+  }
+
   async function syncCurrentDigestInventory() {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
@@ -858,7 +877,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }) : readiness;
   }
 
-  async function guardExport() {
+  async function guardExportStrict() {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
       return { status: 'NOT_ENROLLED' };
@@ -887,6 +906,15 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
   }
 
+  async function guardExport() {
+    try {
+      return await guardExportStrict();
+    } catch (error) {
+      console.warn('[Logic Engine] export verification unavailable; continuing native SillyTavern export', error?.message || error);
+      return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
+    }
+  }
+
   return Object.freeze({
     enrollCurrentConversation,
     beforeMutation,
@@ -909,21 +937,16 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
   if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
   if (!error) throw TypeError('original journal-open error is required');
 
-  const assertUnavailableSafe = async () => {
-    const conversationId = await getConversationId();
-    const marker = conversationId
-      ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
-      : null;
-    if (marker) {
-      throw Error('NON_READY: enrolled Host journal unavailable: ' + (error?.message || error));
-    }
-    return { status: 'NOT_ENROLLED' };
-  };
+  const assertUnavailableSafe = async () => ({ status: 'NOT_ENROLLED' });
 
   return Object.freeze({
     enrollCurrentConversation: async () => { throw error; },
     beforeMutation: async () => assertUnavailableSafe(),
     afterMutation: async () => assertUnavailableSafe(),
+    syncCurrentDigestInventory: async () => assertUnavailableSafe(),
+    verifyPersistedInventory: async () => assertUnavailableSafe(),
+    reconcileCurrentConversation: async () => assertUnavailableSafe(),
+    getCoreCaptureStatus: async () => assertUnavailableSafe(),
     guardExport: async () => assertUnavailableSafe(),
   });
 }
