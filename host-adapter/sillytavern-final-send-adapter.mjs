@@ -174,7 +174,7 @@ export function createSillyTavernFinalSendAdapter({
       if (signal?.aborted !== true && hostRoute) {
         try {
           const candidate = await prepareHostContext(request, response, hostRoute, signal);
-          if (candidate && candidate.status !== 'NON_READY') hostContext = candidate;
+          if (signal?.aborted !== true && candidate && candidate.status !== 'NON_READY') hostContext = candidate;
         } catch {
           // Native SillyTavern generation continues without Logic Engine context.
         }
