@@ -323,7 +323,7 @@ export function createSillyTavernFinalSendAdapter({
       const release = requestIdByResponse.get(response);
       // Preserve SillyTavern's idempotent final-end behavior without asking
       // Logic Engine for permission to write the provider's response.
-      if (release?.state === 'completed' && final === true) return undefined;
+      if (release?.state === 'completed') return undefined;
       const result = write();
       if (release && final === true) release.state = 'completed';
       return result;
