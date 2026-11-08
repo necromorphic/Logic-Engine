@@ -217,12 +217,12 @@ export function createSillyTavernFinalSendAdapter({
       if (protectedMemory !== null) {
         if (!args.response || typeof args.response !== 'object'
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
-          if (args.response && typeof args.response === 'object') {
-            requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
-          }
-          throw terminalError(new Error('MEMORY_DISPATCH_NOT_READY'));
+          // Invalid optional Memory metadata is not a reason to deny the
+          // native provider request. Drop enrichment and use ST transport.
+          protectedMemory = null;
+        } else {
+          requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
         }
-        requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
       }
 
       const release = args.response ? requestIdByResponse.get(args.response) : null;
@@ -243,7 +243,8 @@ export function createSillyTavernFinalSendAdapter({
       const hostRoute = dispatchHostRoute;
       if (protectedMemory !== null && prepared
         && !/^[a-f0-9]{64}$/.test(prepared.replayIdentity ?? '')) {
-        return deny(new Error('PROTECTED_MEMORY_FINAL_SEND_REPLAY_IDENTITY_UNAVAILABLE'));
+        protectedMemory = null;
+        if (release) release.state = 'native';
       }
       const expectedRoute = hostRoute === 'chat-completions'
         ? sourceMap.get(args.request?.body?.chat_completion_source)
@@ -293,11 +294,21 @@ export function createSillyTavernFinalSendAdapter({
       };
       const coreConversationId = prepared?.hostContext?.coreConversationId;
       if (runWithAuthenticatedHostSession && coreConversationId) {
+        let result;
         try {
-          return runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
+          result = runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
         } catch {
           return args.transport(args.endpointUrl, args.requestInit);
         }
+        if (result && typeof result.then === 'function') {
+          return result.catch(error => {
+            // If the callback already handed off to the provider, the result
+            // is ambiguous and must never be retried. Otherwise use ST transport.
+            if (protectedDispatchByResponse.has(args.response)) throw error;
+            return args.transport(args.endpointUrl, args.requestInit);
+          });
+        }
+        return result;
       }
       return execute();
     },
