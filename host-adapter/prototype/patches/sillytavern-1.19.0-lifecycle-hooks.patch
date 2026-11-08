@@ -2610,6 +2610,3 @@ new file mode 100644
 +  locatorBindingPrefix: 'logic-engine-host-lifecycle-locator:',
 +  authority: 'NON_AUTHORITATIVE',
 +});
-diff --git a/src/plugin-loader.js b/src/plugin-loader.js
---- a/src/plugin-loader.js
-+++ b/src/plugin-loader.js
