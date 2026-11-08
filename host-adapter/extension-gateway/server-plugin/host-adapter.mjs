@@ -16,6 +16,7 @@ import {
   createHostRootInventoryPersistence,
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { HostAccountMutationReceiptStore } from './st-host-account-mutation-receipt-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
 import { verifyPinnedSourceIdentity } from './st-source-attestation.mjs';
@@ -65,6 +66,13 @@ export function createSillyTavernHostAdapter({
   const identityDirectory = env.LOGIC_ENGINE_HOST_IDENTITY_DIR || '';
   const identityStore = identityDirectory
     ? new HostIdentityStore({ directory: identityDirectory })
+    : null;
+  const accountMutationReceiptStore = identityDirectory
+    ? new HostAccountMutationReceiptStore({
+      directory: path.join(identityDirectory, 'account-mutations'),
+      enumerate: async () => ({ status: 'non_ready', entries: [] }),
+      verifyTransition: async () => false,
+    })
     : null;
   const persistRootInventory = identityStore
     ? injectedPersistRootInventory ?? createHostRootInventoryPersistence({ identityStore, env, fetchImpl })
@@ -122,6 +130,10 @@ export function createSillyTavernHostAdapter({
           await identityStore.assertOutsideRoot(dataRoot);
           if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
           identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+          if (await accountMutationReceiptStore.hasPending(identityRecord)) {
+            return { status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_PENDING' };
+          }
           if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
           hostInventory = await enumerate({
             directories,
