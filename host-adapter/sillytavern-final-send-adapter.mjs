@@ -320,11 +320,13 @@ export function createSillyTavernFinalSendAdapter({
     },
 
     authorizeResponseWrite(response, write, final = false) {
-      // Final-response authorization may suppress protected Memory release,
-      // but it must never suppress SillyTavern's model output. The Gateway
-      // controls whether Memory enters the prompt before dispatch; once the
-      // provider returns, native ST response writes always proceed.
-      return write();
+      const release = requestIdByResponse.get(response);
+      // Preserve SillyTavern's idempotent final-end behavior without asking
+      // Logic Engine for permission to write the provider's response.
+      if (release?.state === 'completed' && final === true) return undefined;
+      const result = write();
+      if (release && final === true) release.state = 'completed';
+      return result;
     },
 
     forwardResponse(upstream, response) {
