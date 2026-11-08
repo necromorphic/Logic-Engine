@@ -225,7 +225,7 @@ test('recovers an abandoned mutation after its owner process exits', async () =>
     const lockPath = path.join(f.storeDir, lockName);
     const lock = JSON.parse(await readFile(lockPath, 'utf8'));
     lock.owner_pid = 2147483647;
-    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a.localeCompare(b))));
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
     await writeFile(lockPath, canonicalLock, 'utf8');
     const result = await f.store.recoverPending(s, { directories: f.directories });
     assert.equal(result.status, 'ABORTED');
@@ -242,7 +242,7 @@ test('recovers an abandoned exact target write as COMMITTED', async () => {
     const lockPath = path.join(f.storeDir, lockName);
     const lock = JSON.parse(await readFile(lockPath, 'utf8'));
     lock.owner_pid = 2147483647;
-    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a.localeCompare(b))));
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
     await writeFile(lockPath, canonicalLock, 'utf8');
     f.state.set('characters/a.png', hash('after'));
     const result = await f.store.recoverPending(s, { directories: f.directories });
