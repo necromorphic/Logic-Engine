@@ -33,3 +33,27 @@ test('legacy group metadata migration is visible as a Host inventory blocker', {
   assert.equal(inventory.legacy_group_metadata_count, 1);
   assert.ok(inventory.blockers.includes('LEGACY_GROUP_METADATA_MIGRATION_PENDING'));
 });
+
+test('native group-chat deletion leaves a valid metadata tombstone without admitting deleted chat content', {
+  skip: process.platform === 'win32',
+}, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'logic-engine-deleted-group-chat-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const directories = {
+    chats: path.join(root, 'chats'),
+    groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group chats'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+  await writeFile(path.join(directories.groups, 'group-one.json'), JSON.stringify({
+    id: 'group-one',
+    chats: ['deleted-group-chat'],
+  }));
+
+  const inventory = await enumeratePinnedSillyTavernChatFiles({ directories, hostCommit: HOST_COMMIT });
+  assert.equal(inventory.status, 'DOUBLE_SCAN_CANDIDATE');
+  assert.ok(inventory.files.some(file => file.kind === 'group-metadata' && file.locator === 'group-one.json'));
+  assert.equal(inventory.files.some(file => file.kind === 'group-chat'), false,
+    'a deleted group-chat file must never be reintroduced from its stale metadata reference');
+});
+
