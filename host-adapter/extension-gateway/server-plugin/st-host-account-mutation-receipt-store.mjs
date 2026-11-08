@@ -463,9 +463,9 @@ export function createHostAccountMutationMiddleware({ store, resolveMutation } =
         // Final-Send must consult store.hasPending() and stay NON_READY.
       }
     };
-    response.once?.('finish', () => { void finalize(); });
+    response.once?.('finish', finalize);
     response.once?.('close', () => {
-      if (response.writableFinished === true || response.finished === true) void finalize();
+      if (response.writableFinished === true || response.finished === true) return finalize();
     });
     try { return next(); }
     catch (error) {
