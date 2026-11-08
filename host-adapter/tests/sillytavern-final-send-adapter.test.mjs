@@ -393,7 +393,7 @@ test('repeated Host preparation is harmless and does not block native generation
 });
 
 
-test('concurrent Host preparation calls cannot race the one-shot reservation', async () => {
+test('concurrent Host preparation calls share one optional preparation operation', async () => {
   let release;
   let preparations = 0;
   const wait = new Promise(resolve => { release = resolve; });
@@ -411,14 +411,14 @@ test('concurrent Host preparation calls cannot race the one-shot reservation', a
     session: { handle: 'test-user' },
     body: { chat_completion_source: 'OPENAI', stream: false },
   };
-  const first = adapter.prepare(request, {});
-  await assert.rejects(adapter.prepare(request, {}), /LOGIC_ENGINE_HOST_PREPARATION_DUPLICATE/);
+  const response = {};
+  const first = adapter.prepare(request, response);
+  const second = adapter.prepare(request, response);
   release();
-  await first;
+  const [firstResult, secondResult] = await Promise.all([first, second]);
   assert.equal(preparations, 1);
+  assert.equal(firstResult, secondResult);
 });
-
-
 test('failed Host preparation remains optional and native generation succeeds', async () => {
   let preparations = 0;
   const adapter = createAdapter({
