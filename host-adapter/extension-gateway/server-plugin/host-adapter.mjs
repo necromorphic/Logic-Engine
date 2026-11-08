@@ -16,7 +16,7 @@ import {
   createHostRootInventoryPersistence,
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
-import { HostAccountMutationReceiptStore } from './st-host-account-mutation-receipt-store.mjs';
+import { HostAccountMutationReceiptStore, verifySingleTargetMutationTransition } from './st-host-account-mutation-receipt-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
 import { verifyPinnedSourceIdentity } from './st-source-attestation.mjs';
@@ -70,8 +70,16 @@ export function createSillyTavernHostAdapter({
   const accountMutationReceiptStore = identityDirectory
     ? new HostAccountMutationReceiptStore({
       directory: path.join(identityDirectory, 'account-mutations'),
-      enumerate: async () => ({ status: 'non_ready', entries: [] }),
-      verifyTransition: async () => false,
+      enumerate: async ({ directories }) => {
+        const inventory = await enumerate({ directories, hostCommit: PINNED_SILLYTAVERN_COMMIT });
+        if (inventory?.filesystem?.status !== 'complete'
+          || !Array.isArray(inventory.filesystem.entries)) return { status: 'non_ready', entries: [] };
+        return {
+          status: 'complete',
+          entries: inventory.filesystem.entries.map(entry => ({ path: entry.path, sha256: entry.sha256 })),
+        };
+      },
+      verifyTransition: verifySingleTargetMutationTransition,
     })
     : null;
   const persistRootInventory = identityStore
@@ -131,6 +139,11 @@ export function createSillyTavernHostAdapter({
           if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
           identityRecord = await identityStore.resolveAuthenticatedAccount(userHandle);
           if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+          const mutationRecovery = await accountMutationReceiptStore.recoverPending(identityRecord, { directories });
+          if (mutationRecovery.status === 'RECOVERY_REQUIRED') {
+            return { status: 'NON_READY', code: mutationRecovery.reason === 'HOST_ACCOUNT_MUTATION_OWNER_STILL_ACTIVE'
+              ? 'HOST_ACCOUNT_MUTATION_PENDING' : 'HOST_ACCOUNT_MUTATION_RECOVERY_REQUIRED' };
+          }
           if (await accountMutationReceiptStore.hasPending(identityRecord)) {
             return { status: 'NON_READY', code: 'HOST_ACCOUNT_MUTATION_PENDING' };
           }
