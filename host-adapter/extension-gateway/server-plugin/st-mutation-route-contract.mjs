@@ -32,6 +32,12 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
     '/import': 'hostBulkMutationGuard',
     '/duplicate': 'hostBulkMutationGuard',
   }),
+  'src/endpoints/quick-replies.js': Object.freeze({
+    '/save': 'hostBulkMutationGuard',
+  }),
+  'src/endpoints/stats.js': Object.freeze({
+    '/update': 'hostBulkMutationGuard',
+  }),
   'src/endpoints/avatars.js': Object.freeze({
     '/delete': 'hostUnsupportedMutationGuard',
     '/upload': 'hostUnsupportedMutationGuard',
@@ -51,7 +57,6 @@ export const PINNED_ST_MUTATION_ROUTES = Object.freeze({
     '/restore': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/quick-replies.js': Object.freeze({
-    '/save': 'hostUnsupportedMutationGuard',
     '/delete': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/themes.js': Object.freeze({
@@ -139,7 +144,6 @@ export const PINNED_ST_UNSUPPORTED_MUTATION_ROUTES = Object.freeze({
   }),
   'src/endpoints/stats.js': Object.freeze({
     '/recreate': 'hostUnsupportedMutationGuard',
-    '/update': 'hostUnsupportedMutationGuard',
   }),
   'src/endpoints/themes.js': Object.freeze({
     '/save': 'hostUnsupportedMutationGuard',
