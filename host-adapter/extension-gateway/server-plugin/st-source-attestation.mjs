@@ -12,7 +12,7 @@ export const PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS = Object.freeze({
   'manifest.json': '50a0bb089db397c67fb2293e25b01044b086e706',
   'package.json': '7f19277fe4aae24722ea8ceb913cba366efefccb',
   'scripts/sillytavern-patch-manager.mjs': '2a65a46db18bedded829036b3693f7125dd21788',
-  'host-adapter/sillytavern-final-send-adapter.mjs': '939aaa9810e4733546bb93db1ee1e68754ff5e47',
+  'host-adapter/sillytavern-final-send-adapter.mjs': '9885415c3957b0ff3ada59aa6006c884164fa9f2',
   'host-adapter/embedded-gateway-runtime.mjs': '1d048c63e678e32e984ce26ac9d31d0d733bed31',
   'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'ff49d4cb38f5035831bcc1772d7f7004c7da85aa',
   'host-adapter/npc-generation-request-metadata.mjs': '3c7ad9c9aa909387b7e40ed5a598faf7252f5409',
