@@ -513,11 +513,10 @@ function isInitialAssistantBootstrapCreate(request, response) {
 }
 
 /**
- * Fail-closed guard for bulk or non-lineage-aware mutations. A pre-mutation
- * filesystem scan cannot authorize a write: it cannot prove route coverage,
- * prevent a concurrent write, or produce a post-mutation receipt. Until the
- * route has an operation-specific lifecycle receipt, reject it whenever Host
- * authority is configured or a Host session is present.
+ * Fail-closed guard for SillyTavern account-root mutations. Only the pinned
+ * single-target character edit, quick-reply save and stats update routes are
+ * admitted through durable PREPARED/terminal receipts. Every other bulk or
+ * non-lineage-aware mutation remains blocked while Host authority is active.
  */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
