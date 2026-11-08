@@ -534,6 +534,7 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'empty-chat',
+    getSourceLocator: () => 'empty-chat.jsonl',
     getChat: () => chat,
     saveChat: async () => {},
   });
