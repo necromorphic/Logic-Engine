@@ -325,3 +325,25 @@ test('Host lifecycle patch embeds the canonical lifecycle source files without d
         assert.equal(embedded, canonicalSource, `${installedPath} in the installer patch drifted from ${sourcePath}`);
     }
 });
+
+
+test('receipted account mutations have one synchronous persisted target', { skip: !root }, () => {
+    const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+    const characters = read('src/endpoints/characters.js');
+    assert.ok(characters.includes("const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;"),
+        'character disk-cache background writes must be disabled while Host receipts are authoritative');
+    assert.ok(characters.includes('const saved = await writeCharacterData(avatarPath, char, targetFile, request);'),
+        'character edit must expose persistence failure to the route');
+    assert.ok(characters.includes('if (!saved) return response.sendStatus(500);'),
+        'character edit must not report success when its PNG write failed');
+
+    const quickReplies = read('src/endpoints/quick-replies.js');
+    assert.ok(quickReplies.includes("const filename = path.join(request.user.directories.quickreplies, sanitize(\u0060\u0024{request.body.name}.json\u0060));"),
+        'quick-reply save target must remain the native per-user file');
+
+    const stats = read('src/endpoints/stats.js');
+    assert.ok(stats.includes('await writeFileAtomic(statsFilePath, JSON.stringify(STATS.get(handle)));'),
+        'stats update must persist the exact stats file before returning success');
+    assert.ok(stats.includes('TIMESTAMPS.set(handle, Date.now());'),
+        'stats update must mark the immediate durable write to prevent later background rewrites');
+});
