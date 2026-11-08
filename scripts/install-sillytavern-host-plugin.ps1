@@ -5,7 +5,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$stRoot = (Resolve-Path $SillyTavernRoot).Path
+if (-not (Test-Path -LiteralPath $SillyTavernRoot -PathType Container)) {
+    throw 'SILLYTAVERN_ROOT_NOT_FOUND'
+}
+$stRoot = (Resolve-Path -LiteralPath $SillyTavernRoot).Path
 $pluginRoot = Join-Path $stRoot 'plugins'
 $pluginPath = Join-Path $pluginRoot 'logic-engine'
 $gatewayPluginPath = Join-Path $pluginRoot 'logic-engine-extension-gateway'
@@ -28,12 +31,24 @@ function Copy-FilteredTree([string]$Source, [string]$Destination) {
     }
 }
 
-$nodeVersionText = (& node --version).Trim()
+# Complete all external-tool and network preflight checks before creating plugin directories.
+$nodeCommand = Get-Command 'node' -ErrorAction SilentlyContinue
+$gitCommand = Get-Command 'git' -ErrorAction SilentlyContinue
+$npmCommand = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
+if (-not $nodeCommand) { Stop-WithCode 'NODE_NOT_AVAILABLE' }
+if (-not $gitCommand) { Stop-WithCode 'GIT_NOT_AVAILABLE' }
+if (-not $npmCommand) { Stop-WithCode 'NPM_CMD_NOT_FOUND' }
+
+$nodeVersionText = (& $nodeCommand.Source --version).Trim()
 if ($LASTEXITCODE -ne 0) { Stop-WithCode 'NODE_NOT_AVAILABLE' }
 $nodeVersion = [version]($nodeVersionText.TrimStart('v'))
 if ($nodeVersion -lt [version]'22.13.0') {
     Stop-WithCode "NODE_VERSION_UNSUPPORTED: $nodeVersionText (requires >=22.13.0)"
 }
+& $npmCommand.Source ping --fetch-retries=0 --fetch-timeout=10000 | Out-Null
+if ($LASTEXITCODE -ne 0) { Stop-WithCode 'NPM_REGISTRY_UNAVAILABLE' }
+& $gitCommand.Source ls-remote --exit-code https://github.com/SillyTavern/SillyTavern.git HEAD | Out-Null
+if ($LASTEXITCODE -ne 0) { Stop-WithCode 'SILLYTAVERN_GITHUB_UNAVAILABLE' }
 
 $stPackagePath = Join-Path $stRoot 'package.json'
 if (-not (Test-Path -LiteralPath $stPackagePath -PathType Leaf)) {
@@ -46,17 +61,15 @@ if ($stPackage.version -ne '1.19.0') {
 if (-not (Test-Path -LiteralPath (Join-Path $stRoot 'src/plugin-loader.js') -PathType Leaf)) {
     Stop-WithCode 'SILLYTAVERN_PLUGIN_LOADER_NOT_FOUND'
 }
-if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
-    New-Item -ItemType Directory -Path $pluginRoot | Out-Null
-}
-# This installer is intentionally first-install-only. Replacing an existing plugin
-# tree here would discard the installed Patch Manager state and can make the
-# Host bundle verifier misclassify our own Final-Send patch as a local edit.
-# Updates and repairs must use the dedicated Patch Manager commands instead.
+# Refuse an existing installation before changing any directory or backup state.
 if ((Test-Path -LiteralPath $pluginPath) -or (Test-Path -LiteralPath $gatewayPluginPath)) {
     Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS'
 }
-
+if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
+    New-Item -ItemType Directory -Path $pluginRoot | Out-Null
+}
+# This installer is intentionally first-install-only. Updates and repairs use the
+# dedicated Patch Manager commands instead.
 $gatewaySource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
 if (-not (Test-Path -LiteralPath (Join-Path $gatewaySource 'index.mjs') -PathType Leaf)) {
     Stop-WithCode 'HOST_GATEWAY_SERVER_PLUGIN_SOURCE_NOT_FOUND'
@@ -92,25 +105,48 @@ try {
     throw
 }
 
-Push-Location $pluginPath
+$patchInstallAttempted = $false
 try {
-    # This repository intentionally has no package-lock.json; npm ci cannot run here.
-    # Invoke the Windows command shim explicitly. In PowerShell, resolving
-    # "npm" can select npm.ps1 and produce malformed command dispatch on some
-    # installations (for example, "Unknown command: pm").
-    $npmCommand = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
-    if (-not $npmCommand) { Stop-WithCode 'NPM_CMD_NOT_FOUND' }
-    & $npmCommand.Source install --omit=dev --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
+    Push-Location $pluginPath
+    try {
+        # This repository intentionally has no committed package-lock.json yet.
+        # Invoke npm.cmd explicitly: npm can resolve to npm.ps1 in PowerShell.
+        & $npmCommand.Source install --omit=dev --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PLUGIN_DEPENDENCY_INSTALL_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_PREFLIGHT_FAILED' }
+        & $nodeCommand.Source 'scripts/sillytavern-patch-manager.mjs' preflight --st-root $stRoot --extension-root $pluginPath
+        if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_PREFLIGHT_FAILED' }
 
-    & node 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $pluginPath
-    if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_INSTALL_FAILED' }
-
-} finally {
-    Pop-Location
+        $patchInstallAttempted = $true
+        & $nodeCommand.Source 'scripts/sillytavern-patch-manager.mjs' install --st-root $stRoot --extension-root $pluginPath
+        if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_INSTALL_FAILED' }
+    } finally {
+        Pop-Location
+    }
+} catch {
+    # npm/preflight failures happen before SillyTavern is patched. If Patch Manager
+    # was invoked, remove the copied plugin only after its own recovery/status check
+    # proves that no managed patch remains installed. Otherwise preserve evidence.
+    $safeToRemovePlugin = -not $patchInstallAttempted
+    if ($patchInstallAttempted -and (Test-Path -LiteralPath (Join-Path $pluginPath 'scripts/sillytavern-patch-manager.mjs'))) {
+        $statusOutput = & $nodeCommand.Source (Join-Path $pluginPath 'scripts/sillytavern-patch-manager.mjs') status --st-root $stRoot --extension-root $pluginPath 2>$null
+        $statusExitCode = $LASTEXITCODE
+        if ($statusExitCode -eq 0) {
+            try {
+                $patchStatus = ($statusOutput -join [Environment]::NewLine) | ConvertFrom-Json
+                $safeToRemovePlugin = $patchStatus.status -eq 'NOT_INSTALLED'
+            } catch {
+                $safeToRemovePlugin = $false
+            }
+        }
+    }
+    if ($safeToRemovePlugin -and (Test-Path -LiteralPath $pluginPath)) {
+        Remove-Item -LiteralPath $pluginPath -Recurse -Force
+        Write-Warning 'Failed first install was cleaned up; retry is safe after correcting the reported cause.'
+    } else {
+        Write-Warning 'Install state could not be proven clean. Plugin files were preserved for recovery; do not delete them manually.'
+    }
+    throw
 }
 
 # Install Final-Send before Host Bundle. The Host bundle generator explicitly
