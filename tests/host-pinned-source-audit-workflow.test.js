@@ -8,21 +8,22 @@ const workflow = readFileSync(
 );
 
 test('Windows pinned-source audit propagates every Node test failure', () => {
-  const lines = workflow.split(/\\r?\\n/);
+  const lines = workflow.split('\n');
   const commands = lines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) => line.trimStart().startsWith('node --test '));
 
   assert.equal(commands.length, 3, 'all three pinned-source test suites must remain explicit');
-  for (const { line, index } of commands) {
-    assert.match(line, /node --test/);
+  for (const { index } of commands) {
     const nextNonEmpty = lines.slice(index + 1).find(candidate => candidate.trim());
-    assert.match(nextNonEmpty ?? '', /^\\s*if \\(\\$LASTEXITCODE -ne 0\\) \\{ exit \\$LASTEXITCODE \\}/,
-      'each Node test suite must stop the PowerShell step on a non-zero exit code');
+    assert.ok(
+      nextNonEmpty?.trim().startsWith('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'),
+      'each Node test suite must stop the PowerShell step on a non-zero exit code',
+    );
   }
 });
 
 test('Windows pinned-source syntax checks propagate Node failures', () => {
-  assert.match(workflow, /function Assert-NodeSyntax/);
-  assert.match(workflow, /if \\(\\$LASTEXITCODE -ne 0\\) \\{ throw "Node syntax check failed:/);
+  assert.ok(workflow.includes('function Assert-NodeSyntax([string]$file)'));
+  assert.ok(workflow.includes('if ($LASTEXITCODE -ne 0) { throw "Node syntax check failed: $file" }'));
 });
