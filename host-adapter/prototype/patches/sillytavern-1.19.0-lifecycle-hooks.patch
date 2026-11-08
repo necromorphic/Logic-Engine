@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,222 @@
+@@ -1583,6 +1593,207 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -240,7 +240,7 @@ diff --git a/public/script.js b/public/script.js
  export async function clearChat({ clearData = false } = {}) {
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604 +1830,18 @@
+@@ -1604,1 +1830,18 @@
 -    if (clearData) chat.length = 0;
 +    if (clearData) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -411,7 +411,7 @@ diff --git a/public/script.js b/public/script.js
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
              //Transition to the new chat.
-@@ -10729,13 +11003,31 @@
+@@ -10729,13 +11003,32 @@
   * @param {string} newName New name for the chat (no JSONL extension)
   */
  export async function renameChat(oldFileName, newName) {
@@ -606,7 +606,7 @@ diff --git a/src/server-main.js b/src/server-main.js
  app.use(bodyParser.json({ limit: '500mb' }));
  app.use(bodyParser.urlencoded({ extended: true, limit: '500mb' }));
  
-@@ -301,13 +307,20 @@
+@@ -301,13 +307,13 @@
      const directories = await getUserDirectoriesList();
      await migrateGroupChatsMetadataFormat(directories);
 -    await checkForNewContent(directories);
@@ -830,7 +830,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
  // With 100 MB limit it would take roughly 3000 characters to reach this limit
  const memoryCacheCapacity = getConfigValue('performance.memoryCacheCapacity', '100mb');
  const memoryCache = new MemoryLimitedMap(memoryCacheCapacity);
-@@ -38 +41 @@
+@@ -38,1 +41,1 @@
 -const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
 +const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
 @@ -1021,7 +1025,7 @@
@@ -991,10 +991,10 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
  const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
  const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
-@@ -206 +211 @@
+@@ -206,1 +211,1 @@
 -router.post('/save', function (request, response) {
 +router.post('/save', function (request, response) {
-@@ -340 +345 @@
+@@ -340,1 +345,1 @@
 -router.post('/make-snapshot', async (request, response) => {
 +router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
 @@ -347,7 +352,7 @@
@@ -1013,7 +1013,7 @@ diff --git a/src/users.js b/src/users.js
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -122,8 +123,15 @@
+@@ -122,8 +123,11 @@
      const directoriesList = userHandles.map(handle => getUserDirectories(handle));
      for (const userDirectories of directoriesList) {
 +        // A missing user root identifies a genuinely new account. Permit the
@@ -1025,7 +1025,7 @@ diff --git a/src/users.js b/src/users.js
              }
          }
      }
-@@ -232,7 +240,11 @@
+@@ -232,7 +240,8 @@
  export async function migrateUserData() {
      const publicDirectory = path.join(process.cwd(), 'public');
  
@@ -1035,10 +1035,10 @@ diff --git a/src/users.js b/src/users.js
 +    if (!fs.existsSync(legacyCharactersDirectory)) {
          return;
      }
-@@ -434,2 +446,7 @@
+@@ -434,2 +446,2 @@
  export async function migrateSystemPrompts() {
      /**
-@@ -740,3 +756,11 @@
+@@ -740,3 +756,15 @@
  export function shouldRedirectToLogin(request) {
      return ENABLE_ACCOUNTS && !request.user;
  }
@@ -1076,7 +1076,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -994,5 +1021,12 @@
+@@ -994,5 +1021,14 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (request.session.logicEngineSessionId !== undefined) {
@@ -1091,7 +1091,7 @@ diff --git a/src/users.js b/src/users.js
              request.session.handle = null;
              request.session.csrfToken = null;
              request.session.version = null;
-@@ -1053,3 +1089,4 @@
+@@ -1053,3 +1089,3 @@
      } catch (error) {
          console.error('Error during auto-login:', error);
      }
@@ -1119,7 +1119,7 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 +        }
          request.session.handle = user.handle;
          request.session.version = getAccountVersion(user);
-@@ -150 +153 @@
+@@ -150,1 +153,1 @@
 -router.post('/recover-step2', async (request, response) => {
 +router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
@@ -1147,13 +1147,13 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +            console.warn('Logic Engine session revocation unavailable; continuing native logout.', error?.message || error);
 +        }
 +
-@@ -68 +80 @@
+@@ -68,1 +80,1 @@
 -router.post('/change-avatar', async (request, response) => {
 +router.post('/change-avatar', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -103 +115 @@
+@@ -103,1 +115,1 @@
 -router.post('/change-password', async (request, response) => {
 +router.post('/change-password', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -156 +168 @@
+@@ -156,1 +168,1 @@
 -router.post('/backup', async (request, response) => {
 +router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
 @@ -181,6 +193,6 @@
@@ -1164,7 +1164,7 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
      try {
          const password = request.body.password;
-@@ -204 +216 @@
+@@ -204,1 +216,1 @@
 -router.post('/change-name', async (request, response) => {
 +router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
 @@ -258,7 +271,7 @@
@@ -1183,22 +1183,22 @@ diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
 +const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
-@@ -66 +68 @@
+@@ -66,1 +68,1 @@
 -router.post('/disable', requireAdminMiddleware, async (request, response) => {
 +router.post('/disable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -95 +97 @@
+@@ -95,1 +97,1 @@
 -router.post('/enable', requireAdminMiddleware, async (request, response) => {
 +router.post('/enable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -119 +121 @@
+@@ -119,1 +121,1 @@
 -router.post('/promote', requireAdminMiddleware, async (request, response) => {
 +router.post('/promote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -143 +145 @@
+@@ -143,1 +145,1 @@
 -router.post('/demote', requireAdminMiddleware, async (request, response) => {
 +router.post('/demote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -172 +174 @@
+@@ -172,1 +174,1 @@
 -router.post('/create', requireAdminMiddleware, async (request, response) => {
 +router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -216 +218 @@
+@@ -216,1 +218,1 @@
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
 +router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
@@ -1515,7 +1515,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,929 @@
+@@ -0,0 +1,948 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2642,34 +2642,34 @@ new file mode 100644
 diff --git a/src/plugin-loader.js b/src/plugin-loader.js
 --- a/src/plugin-loader.js
 +++ b/src/plugin-loader.js
-@@ -42,4 +42,5 @@
+@@ -42,4 +42,4 @@
          const exitHooks = [];
          const emptyFn = () => { };
  
          // Server plugins are disabled.
-@@ -46,3 +47,4 @@
+@@ -46,3 +47,3 @@
          if (!enableServerPlugins) {
              return emptyFn;
          }
-@@ -50,4 +52,5 @@
+@@ -50,4 +52,4 @@
          // Plugins directory does not exist.
          if (!fs.existsSync(pluginsPath)) {
              return emptyFn;
          }
-@@ -57,4 +60,5 @@
+@@ -57,4 +60,4 @@
          // No plugins to load.
          if (files.length === 0) {
              return emptyFn;
          }
-@@ -62,1 +66,5 @@
+@@ -62,1 +66,1 @@
 -        await updatePlugins(pluginsPath);
 +        await updatePlugins(pluginsPath);
-@@ -64,2 +72,15 @@
+@@ -64,2 +72,2 @@
          for (const file of files) {
              const pluginFilePath = path.join(pluginsPath, file);
-@@ -80,1 +95,7 @@
+@@ -80,1 +95,1 @@
          if (loadedPlugins.size > 0) {
-@@ -86,3 +107,4 @@
+@@ -86,3 +107,3 @@
      } catch (error) {
          console.error('Plugin loading failed.', error);
          return () => { };
