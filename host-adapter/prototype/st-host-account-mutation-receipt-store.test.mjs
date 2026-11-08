@@ -17,6 +17,7 @@ const scope = () => ({
   mutation_digest: hash('request'),
   method: 'POST',
   route: '/api/characters/edit',
+  target_path: 'characters/a.png',
   operation: 'characters-edit',
 });
 async function fixture() {
