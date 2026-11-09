@@ -60,7 +60,7 @@ if ($ResumeExisting) {
     if (-not (Test-Path -LiteralPath $LogicRepo -PathType Container) -or -not (Test-Path -LiteralPath $TestSt -PathType Container)) {
         Stop-WithCode "RESUME_ACCEPTANCE_CHECKOUTS_NOT_FOUND"
     }
-    $dirty = @(git -C $LogicRepo status --porcelain)
+    $dirty = @(git -C $LogicRepo status --porcelain --untracked-files=no)
     if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
         Stop-WithCode "RESUME_LOGIC_ENGINE_CHECKOUT_NOT_CLEAN"
     }
