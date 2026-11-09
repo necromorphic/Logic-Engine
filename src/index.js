@@ -313,6 +313,7 @@ if (memoryProviderPath !== undefined) {
 }
 const server = createApiServer({
   engine: logicEngine, token, internalToken, approvalToken, adminToken, adapterTokens,
+  defaultHostWorldId: process.env.ENGINE_HOST_DEFAULT_WORLD_ID || null,
   hostVersionLedger,
   hostRootInventoryJournal,
   resolveHostRootIdentity,
