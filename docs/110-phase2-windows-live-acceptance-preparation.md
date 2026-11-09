@@ -301,3 +301,31 @@ Corrective commits:
 - `1e980eafbc20a85f4fe5bd83e7dbbf373ab5a11` — cross-platform consistency test.
 
 These corrective changes are awaiting exact-head CI. Do not repeat the Windows live test yet; the current blocker is CI/source-pin consistency, not a newly established Host Inventory runtime diagnosis.
+
+
+### CI review — 2026-11-09, candidate 3e63fa0c9e939d7cfa95c255bd64974e1aa26725
+
+Completed workflow results:
+
+- PASS: Host Extension Gateway static validation.
+- PASS: Host Extension Gateway candidate check.
+- PASS: SillyTavern Host Plugin Installer.
+- PASS: Host Extension Gateway pinned SillyTavern source audit.
+- PASS: Pinned SillyTavern Host source audit.
+- PASS: Host Account Mutation Receipts.
+- PASS: Host browser IndexedDB restart.
+- PASS: Gateway Final-Send Validation.
+- FAIL: Runtime tests — 2,124 passed, 67 skipped, 5 failed.
+
+The five failures are one fixture-drift issue, not five independent runtime defects. The Host and Core implementation now correctly pins the canonical Host inventory handler Git blob SHA to `2c83528f5d66068de186425bf93e8cb6e336ca3a`, but two test fixtures still signed attestations containing the previous SHA `7fa465f6276dac38c386c4a91245ec5b8c79cde8`. The strict attestation shape/pin validator therefore rejects those fixtures as `HOST_ROOT_INVENTORY_ATTESTATION_INVALID` before the signature-verification branch is reached. The five affected tests are in `tests/host-lifecycle-journal.test.js` and `tests/host-root-inventory-attestation-api.test.js`.
+
+### Fixture correction — 2026-11-09
+
+Updated the stale Host handler pin in both affected test fixtures to the canonical SHA:
+
+- `caf379617ccfdb140f2febd10d23875c5245aaf8` — lifecycle journal attestation fixture.
+- `5f2107afab8b3f1b00d08a60fb7be646e2ea9f41` — Core HTTP attestation fixture.
+
+These are fixture-only corrections. No production validation was weakened and no security gate was bypassed. The correction is not accepted until Runtime tests and all required workflows pass on the exact resulting branch head.
+
+**Next verification:** inspect CI on the latest PR #946 head. Do not rerun Windows live acceptance yet; the immediate blocker is the stale test fixture, now corrected. Once exact-head CI is green, resume at the single outstanding Windows Root Inventory sync/diagnostic step; do not repeat the already-passed installer, ST session, enrollment, World creation, or binding setup.
