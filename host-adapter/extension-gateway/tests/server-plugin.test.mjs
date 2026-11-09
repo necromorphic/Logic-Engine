@@ -677,7 +677,7 @@ test('host inventory route hides scanner errors and absolute paths from the HTTP
     query: { conversation_uuid: '4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403' },
   }, response);
   assert.equal(response.statusCode, 503);
-  assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE', reason: 'UNKNOWN' });
+  assert.deepEqual(response.body, { status: 'NON_READY', code: 'SOURCE_INVENTORY_UNAVAILABLE', reason: 'HOST_INVENTORY_INTERNAL_ERROR' });
   assert.equal(JSON.stringify(response.body).includes('private'), false);
 });
 
