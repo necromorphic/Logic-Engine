@@ -121,13 +121,13 @@ async function runPowerShell(script, env, timeout = 120_000) {
       error?.code ? 'code=' + String(error.code) : null,
       error?.signal ? 'signal=' + String(error.signal) : null,
       error?.syscall ? 'syscall=' + String(error.syscall) : null,
-      error?.path ? 'executable=' + String(error.path).split(/[\\\\/]/).pop() : null,
+      error?.path ? 'executable=' + String(error.path).split(/[\\/]/).pop() : null,
       error?.killed === true ? 'killed=true' : null,
     ].filter(Boolean).join('; ');
     const diagnostic = [stderr, stdout, metadata].filter(Boolean).join(' | ')
-      .replace(/\\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\b/gi, '<uuid>')
-      .replace(/[A-Z]:\\\\[^\\r\\n"]+/gi, '<path>')
-      .replace(/https?:\\/\\/[^\\s]+/gi, '<url>')
+      .replace(/\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi, '<uuid>')
+      .replace(/[A-Z]:\\[^\r\n"]+/gi, '<path>')
+      .replace(/https?:\/\/[^\s]+/gi, '<url>')
       .replace(/\\s+/g, ' ')
       .slice(0, 320) || 'No child output or spawn metadata';
     throw new Error('HOST_VSS_POWERSHELL_FAILED: ' + diagnostic);
