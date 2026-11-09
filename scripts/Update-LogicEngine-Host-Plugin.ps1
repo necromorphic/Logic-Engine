@@ -64,6 +64,9 @@ foreach ($file in $files) {
 
 $backupRoot = Join-Path $env:TEMP ('LogicEngine-Host-Plugin-Backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+$manifestExisted = Test-Path -LiteralPath $manifestPath -PathType Leaf
+$manifestBackupPath = Join-Path $backupRoot 'pinned-source-manifest.json'
+if ($manifestExisted) { Copy-Item -LiteralPath $manifestPath -Destination $manifestBackupPath }
 $completed = $false
 $previousSilTavernDir = [Environment]::GetEnvironmentVariable('SILLYTAVERN_DIR', 'Process')
 $previousLocation = Get-Location
@@ -112,6 +115,11 @@ try {
         } elseif (-not $entry.Existed -and (Test-Path -LiteralPath $entry.Destination -PathType Leaf)) {
             Remove-Item -LiteralPath $entry.Destination -Force
         }
+    }
+    if ($manifestExisted -and (Test-Path -LiteralPath $manifestBackupPath -PathType Leaf)) {
+        Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
+    } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Remove-Item -LiteralPath $manifestPath -Force
     }
     throw
 } finally {
