@@ -91,3 +91,44 @@ test('inventory failure preserves explicit Host diagnostic markers', async () =>
   }
   assert.equal(response.body.reason, 'HOST_VSS_CREATE_FAILED:9');
 });
+
+test('PowerShell wrapper diagnostics retain the safe failure detail in server logs', async t => {
+  const originalError = console.error;
+  const diagnostics = [];
+  console.error = (...args) => diagnostics.push(args);
+  t.after(() => { console.error = originalError; });
+
+  const handler = createHostInventoryHandler({
+    enumerate: async () => {
+      throw new Error('HOST_VSS_POWERSHELL_FAILED: powershell.exe launch failed at C:\\Users\\alice\\private\\powershell.exe');
+    },
+    pinnedHostCommit: 'a'.repeat(40),
+    hostBuildClaim: '',
+  });
+  const response = fakeResponse();
+  await handler({
+    user: {
+      profile: { handle: 'alice' },
+      directories: {
+        root: '/tmp/st-data',
+        chats: '/tmp/st-data/chats',
+        groups: '/tmp/st-data/groups',
+        groupChats: '/tmp/st-data/groupChats',
+        extensions: '/tmp/st-data/extensions',
+      },
+    },
+    session: {
+      logicEngineSessionId: '22222222-2222-4222-8222-222222222222',
+      logicEngineSessionHandle: 'alice',
+    },
+    query: { conversation_uuid: '33333333-3333-4333-8333-333333333333' },
+  }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.reason, 'HOST_VSS_POWERSHELL_FAILED');
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0][1].diagnostic, /HOST_VSS_POWERSHELL_FAILED: powershell\.exe launch failed/);
+  assert.match(diagnostics[0][1].diagnostic, /<path>/);
+  assert.doesNotMatch(diagnostics[0][1].diagnostic, /alice|private/);
+  assert.doesNotMatch(JSON.stringify(response.body), /powershell|private|Users/);
+});
