@@ -309,6 +309,8 @@ $coreEnvironmentNames = @(
     "ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES",
     "ENGINE_MEMORY_PROVIDER_DB_PATH",
     "ENGINE_MEMORY_NPC_CONTENT_FIELDS",
+    "ENGINE_MEMORY_NPC_ENABLED",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED",
     "LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH",
     "LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID",
     "LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN",
@@ -354,6 +356,7 @@ try {
     # Retrieval remains disabled; the allowlist is intentionally narrow.
     $env:ENGINE_MEMORY_PROVIDER_DB_PATH = Join-Path $CoreData "memory-provider.sqlite"
     $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = '["attributes.public_note"]'
+    $env:ENGINE_MEMORY_NPC_ENABLED = "false"
 
     # Separate loopback authority process. It provisions only the authority schema;
     # both domains remain un-enrolled until a reviewed baseline is explicitly approved.
@@ -379,7 +382,7 @@ try {
     }
     if (-not $authorityReady) { throw "ACCEPTED_HEAD_AUTHORITY_READINESS_TIMEOUT" }
     # Keep authority credentials out of the Core process environment.
-    foreach ($name in @("LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH","LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID","LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PORT")) {
+    foreach ($name in @("LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH","LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID","LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PORT","LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED")) {
         [Environment]::SetEnvironmentVariable($name, $null, "Process")
     }
 
