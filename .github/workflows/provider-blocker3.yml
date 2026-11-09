@@ -74,8 +74,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: provider-blocker3-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   provider-acceptance:
