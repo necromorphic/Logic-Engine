@@ -39,6 +39,79 @@ function unavailable(code) {
 }
 
 /**
+ * Ensure Core has a durable World/Actor binding before the read-only embedded
+ * Gateway resolves it. Credentials and the default World stay server-owned;
+ * only authenticated Host identity components are sent.
+ */
+export async function ensureCoreConversationWorldBinding({ env = process.env, fetchImpl = globalThis.fetch, context } = {}) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const coreUrl = env?.LOGIC_ENGINE_CORE_URL;
+  const apiToken = env?.LOGIC_ENGINE_API_TOKEN;
+  const adapterId = env?.LOGIC_ENGINE_ADAPTER_ID;
+  const adapterToken = env?.LOGIC_ENGINE_ADAPTER_TOKEN;
+  if (typeof fetchImpl !== 'function' || typeof coreUrl !== 'string' || !coreUrl.trim()
+    || typeof apiToken !== 'string' || apiToken.length < 16
+    || typeof adapterId !== 'string' || !adapterId.trim()
+    || typeof adapterToken !== 'string' || adapterToken.length < 16 || adapterToken === apiToken) {
+    return Object.freeze({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
+  }
+  if (!uuid.test(context?.host_session_id ?? '')
+    || !uuid.test(context?.host_installation_id ?? '')
+    || !uuid.test(context?.conversation_uuid ?? '')) {
+    return Object.freeze({ status: 'NON_READY', code: 'HOST_CONTEXT_IDENTITY_INVALID' });
+  }
+  let url;
+  try { url = new URL(coreUrl); } catch {
+    return Object.freeze({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+    || url.search || url.hash || !['', '/'].includes(url.pathname)) {
+    return Object.freeze({ status: 'NON_READY', code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED' });
+  }
+  url.pathname = '/v1/host-context/resolve';
+  const conversationId = [
+    context.host_session_id, context.host_installation_id, context.conversation_uuid,
+  ].join(':');
+  try {
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + apiToken,
+        'content-type': 'application/json',
+        'x-adapter-id': adapterId,
+        'x-adapter-token': adapterToken,
+      },
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        host_session_id: context.host_session_id,
+        host_installation_id: context.host_installation_id,
+        conversation_uuid: context.conversation_uuid,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => null);
+    const binding = payload?.context;
+    const validId = value => typeof value === 'string' && value.length > 0
+      && value === value.trim() && value.length <= 200
+      && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+    if (!response.ok || !binding || typeof binding !== 'object' || Array.isArray(binding)
+      || Object.keys(binding).sort().join(',') !== 'actor_id,actor_type,adapter_id,conversation_id,world_id'
+      || binding.adapter_id !== adapterId || binding.conversation_id !== conversationId
+      || !validId(binding.world_id) || !validId(binding.actor_id)
+      || typeof binding.actor_type !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/i.test(binding.actor_type)) {
+      return Object.freeze({
+        status: 'NON_READY',
+        code: /^[A-Z][A-Z0-9_]{2,95}$/.test(payload?.error?.code ?? '')
+          ? payload.error.code : 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE',
+      });
+    }
+    return Object.freeze({ status: 'READY' });
+  } catch {
+    return Object.freeze({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
+  }
+}
+
+/**
  * Authenticated Host Adapter.
  *
  * This component owns SillyTavern session authentication, installation/account/
@@ -314,6 +387,12 @@ export function createSillyTavernHostAdapter({
       const result = await authentication.authenticate(request, conversationUuid, signal);
       if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (result.status !== 'READY') return result;
+      // The embedded Gateway opens Core read-only. Persist the first-time
+      // conversation→World binding through Core's authenticated API before the
+      // in-process reader resolves that binding from the shared SQLite file.
+      const coreBinding = await ensureCoreConversationWorldBinding({ env, fetchImpl, context: result.context });
+      if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
+      if (coreBinding.status !== 'READY') return coreBinding;
       return Object.freeze({
         status: 'READY',
         context: result.context,
