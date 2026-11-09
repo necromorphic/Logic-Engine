@@ -35,7 +35,7 @@ The old browser-dispatch route is not an approved ingress and must not be restor
 | SillyTavern session authentication | Host | Verify the exact server request after native ST authentication middleware. Browser values never establish identity. |
 | Installation/account/conversation identity | Host | Resolve from server-owned Host identity storage and persisted chat metadata. |
 | Adapter identity | Deployment/Core configuration | Core derives it from authenticated `x-adapter-id` + `x-adapter-token`; request JSON cannot choose it. |
-| Conversation → World | Core | Resolve through the existing `HostConversationWorldBindingService`. |
+| Conversation → World | Core | Resolve through `HostConversationWorldBindingService`; first-time assignment may use deployment-owned `ENGINE_HOST_DEFAULT_WORLD_ID`, never a browser-supplied World. |
 | Adapter → Actor | Core | Resolve through the existing `ActorBindingService`; exactly one active actor is required. |
 | Memory query/record authorization | Core + Memory Provider | Core owns orchestration and disclosure; Provider owns exact record/query grants and authorization generations. |
 | Canonical source and field visibility | Core | Use existing canonical-source validators and `AuthorizedReadService`; Host cannot supply fields or policy. |
@@ -58,7 +58,7 @@ No second identity store, World/Actor resolver, authorization authority, Provide
 
 The Core tuple is the approved PC-NEXT-11 shape already enforced by Core `host-session-context.js`: `host_session_id:host_installation_id:conversation_uuid`. `authenticated_account_id` is a separate trusted assertion field and is not a tuple component. All UUID values must be canonical UUID strings. The Core tuple has exactly three components; no whitespace, extra component, alternate separator, filename, chat index, or account handle is accepted.
 
-A new ST session produces a new Core `conversation_id` even when the stable `conversation_uuid` is unchanged. Core World bindings are therefore session-scoped. A missing/revoked binding for the new tuple fails closed and requires the existing explicit audited bind/rebind operation; no implicit rebind is allowed.
+A new ST session produces a new Core `conversation_id` even when the stable `conversation_uuid` is unchanged. Core World bindings are therefore session-scoped. On first resolution, Core may create a binding only when the deployment has configured `ENGINE_HOST_DEFAULT_WORLD_ID`; the browser cannot select the World. The creation is persisted and audited as `DEPLOYMENT_DEFAULT_WORLD`. Existing bindings are never reassigned by this path, and revoked bindings remain revoked and require the existing explicit audited rebind operation.
 
 The existing Host-local stable key `host_installation_id:authenticated_account_id:conversation_uuid` remains the stable identity used by Host-owned lifecycle/version-ledger flows and storage correlation. It is not the `conversation_id` for the Memory APIs in §§4–5. For those APIs, Host composes the Core-scoped tuple from the already authenticated session ID, server-owned installation ID, and persisted conversation UUID. This is a deterministic scope projection from the same identity sources, not a second identity authority or a new persisted identity.
 
@@ -72,6 +72,12 @@ The existing Host-local stable key `host_installation_id:authenticated_account_i
 6. Host repeats session/account/identity checks at dispatch time. Browser/localStorage values are locators or consistency hints only.
 
 Host must not send a browser-selected `world_id`, `actor_id`, `adapter_id`, account UUID, installation UUID, or session UUID as authority. The Host authentication gate validates the Host-local stable tuple against server-owned installation/account identity and independently verifies the live signed ST session ID. For the Memory context/retrieval APIs in §§4–5, the dispatch proxy constructs the Core tuple `host_session_id:host_installation_id:conversation_uuid` from those already authenticated values. Lifecycle/version-ledger calls remain separate and retain their existing Host-local conversation identity semantics.
+
+
+
+### Deployment default World
+
+For a single-World SillyTavern deployment, configure `ENGINE_HOST_DEFAULT_WORLD_ID` to the already provisioned canonical World ID. Core uses this server-owned setting to create and audit the first binding for each new session-scoped Host conversation tuple. This removes per-chat administrative binding without allowing the browser to choose a World. For multi-World deployments, retain explicit audited assignment; do not infer a World from chat content or browser metadata. Revoked bindings always require explicit audited rebind.
 
 ## 3. Authentication and signed assertion
 
@@ -153,7 +159,7 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
 Core implementation rules:
 
 1. Derive `adapter_id` from authenticated headers.
-2. Resolve the exact active conversation binding using the existing `HostConversationWorldBindingService.resolve({ adapterId, conversationId })`.
+2. Resolve the exact active conversation binding using `HostConversationWorldBindingService.resolveOrBind({ adapterId, conversationId, defaultWorldId })` when `ENGINE_HOST_DEFAULT_WORLD_ID` is configured. This creates only a missing first-time binding to the deployment-owned default World, inside Core and under the authenticated adapter. Otherwise use `resolve()`. A revoked binding is never automatically restored.
 3. Resolve exactly one active actor using the existing `ActorBindingService.resolveForAdapter(worldId, adapterId)`. This method itself rejects zero or multiple active bindings and rejects a missing/destroyed actor; the HTTP route does not make a second `resolve()` call.
 4. Return only the five fields above. Do not return canonical content, Provider data, grant state, or diagnostics.
 5. Reject missing, revoked, stale, ambiguous, cross-world, malformed, or destroyed bindings. Never accept caller-selected World/Actor values.
