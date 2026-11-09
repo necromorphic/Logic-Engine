@@ -101,6 +101,51 @@ export class HostConversationWorldBindingService {
     });
   }
 
+  /**
+   * Resolve an existing binding or create the first binding from a
+   * deployment-owned default World. The caller cannot choose that World.
+   * Revoked bindings are never silently reactivated.
+   */
+  resolveOrBind({ adapterId, conversationId, defaultWorldId } = {}) {
+    if (!validId(adapterId) || !validId(conversationId) || !validId(defaultWorldId)) {
+      throw new EngineError('HOST_DEFAULT_WORLD_NOT_CONFIGURED',
+        'A valid deployment-owned default World is required for automatic Host conversation binding.', 503);
+    }
+    return this.engine.store.tx(() => {
+      const existing = this.db.prepare('SELECT adapter_id,conversation_id,world_id,active,created_at,updated_at FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?')
+        .get(adapterId, conversationId);
+      if (existing) {
+        if (existing.active !== 1) {
+          throw new EngineError('HOST_CONVERSATION_REBIND_REQUIRED',
+            'A revoked Host conversation identity requires explicit audited rebind.', 409);
+        }
+        if (!this.engine.store.world(existing.world_id)) {
+          throw new EngineError('HOST_CONVERSATION_WORLD_UNAVAILABLE',
+            'The bound canonical world is unavailable.', 409);
+        }
+        return Object.freeze({ ...existing, active: true, already_bound: true });
+      }
+      if (!this.engine.store.world(defaultWorldId)) {
+        throw new EngineError('HOST_DEFAULT_WORLD_NOT_FOUND',
+          'The deployment-owned default World does not exist.', 503);
+      }
+      const timestamp = now();
+      this.db.prepare('INSERT INTO host_conversation_world_bindings (adapter_id,conversation_id,world_id,active,created_at,updated_at) VALUES(?,?,?,1,?,?)')
+        .run(adapterId, conversationId, defaultWorldId, timestamp, timestamp);
+      this.db.prepare('INSERT INTO audit_entries (world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(defaultWorldId, this.engine.store.world(defaultWorldId).world_revision,
+          'host.conversation_world.auto_bound', conversationId, JSON.stringify({
+            adapter_id: adapterId, conversation_id: conversationId, world_id: defaultWorldId,
+            assignment_source: 'DEPLOYMENT_DEFAULT_WORLD',
+          }), timestamp);
+      return Object.freeze({
+        adapter_id: adapterId, conversation_id: conversationId, world_id: defaultWorldId,
+        active: true, created_at: timestamp, updated_at: timestamp, already_bound: false,
+        assignment_source: 'DEPLOYMENT_DEFAULT_WORLD',
+      });
+    });
+  }
+
   resolve(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)
       || Object.keys(input).some((key) => key !== 'adapterId' && key !== 'conversationId')) {
