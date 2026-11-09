@@ -20,6 +20,7 @@ if (-not (Test-Path -LiteralPath $secretPath -PathType Leaf)) {
 }
 $secrets = Get-Content -LiteralPath $secretPath -Raw | ConvertFrom-Json
 if ($secrets.core_url -notmatch '^http://127\.0\.0\.1:\d+$'
+    -or [string]::IsNullOrWhiteSpace($secrets.api_token)
     -or [string]::IsNullOrWhiteSpace($secrets.admin_token)
     -or [string]::IsNullOrWhiteSpace($secrets.adapter_id)
     -or [string]::IsNullOrWhiteSpace($secrets.world_id)) {
@@ -40,7 +41,10 @@ $body = @{
 
 try {
     $result = Invoke-RestMethod -Uri ($secrets.core_url + "/v1/host-conversation-bindings") `
-        -Method Post -Headers @{ "x-admin-token" = $secrets.admin_token } `
+        -Method Post -Headers @{
+            "Authorization" = "Bearer " + $secrets.api_token
+            "x-admin-token" = $secrets.admin_token
+        } `
         -ContentType "application/json" -Body $body -TimeoutSec 10
 } catch {
     $detail = $_.ErrorDetails.Message
