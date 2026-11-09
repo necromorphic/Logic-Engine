@@ -44,6 +44,42 @@ test('Core refuses to bind a Host conversation to a nonexistent world', (t) => {
     (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
 });
 
+test('new Host conversations auto-bind only to the deployment default World; revoked bindings stay revoked', (t) => {
+  const { store, service } = setup(t);
+  assert.throws(() => service.resolveOrBind({
+    adapterId: 'adapter-a', conversationId: 'session:install:chat', defaultWorldId: null,
+  }), (error) => error.code === 'HOST_DEFAULT_WORLD_NOT_CONFIGURED');
+
+  const first = service.resolveOrBind({
+    adapterId: 'adapter-a', conversationId: 'session:install:chat', defaultWorldId: 'binding-world-a',
+  });
+  assert.equal(first.world_id, 'binding-world-a');
+  assert.equal(first.already_bound, false);
+  assert.equal(first.assignment_source, 'DEPLOYMENT_DEFAULT_WORLD');
+
+  const second = service.resolveOrBind({
+    adapterId: 'adapter-a', conversationId: 'session:install:chat', defaultWorldId: 'binding-world-b',
+  });
+  assert.equal(second.world_id, 'binding-world-a');
+  assert.equal(second.already_bound, true);
+
+  assert.throws(() => service.resolve({ adapterId: 'adapter-b', conversationId: 'session:install:chat' }),
+    (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
+
+  service.revoke({
+    adapterId: 'adapter-a', conversationId: 'session:install:chat', reason: 'Host conversation was deleted',
+  });
+  assert.throws(() => service.resolveOrBind({
+    adapterId: 'adapter-a', conversationId: 'session:install:chat', defaultWorldId: 'binding-world-a',
+  }), (error) => error.code === 'HOST_CONVERSATION_REBIND_REQUIRED');
+
+  const audit = store.db.prepare("SELECT action,payload_json FROM audit_entries WHERE action LIKE 'host.conversation_world.%' ORDER BY audit_id").all();
+  assert.deepEqual(audit.map(row => row.action), [
+    'host.conversation_world.auto_bound', 'host.conversation_world.revoked',
+  ]);
+  assert.equal(JSON.parse(audit[0].payload_json).assignment_source, 'DEPLOYMENT_DEFAULT_WORLD');
+});
+
 test('duplicate binding is idempotent; silent reassignment and revoked resolution fail closed', (t) => {
   const { store, service } = setup(t);
   service.bind({ adapterId: 'adapter-a', conversationId: 'chat-1', worldId: 'binding-world-a' });
