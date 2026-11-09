@@ -1606,7 +1606,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,1032 @@
+@@ -0,0 +1,1038 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2420,7 +2420,13 @@ new file mode 100644
 +
 +  async function syncCurrentDigestInventory() {
 +    const conversationId = await getConversationId();
-+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    if (!conversationId) return { status: 'NOT_ENROLLED' };
++    let recoveredBaseline = false;
++    if (!(await enrolledOrFailClosed(conversationId))) {
++      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
++      recoveredBaseline = true;
++    }
 +    if (getPersistedInventory) {
 +      const persisted = await verifyPersistedInventory(conversationId);
 +      if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
