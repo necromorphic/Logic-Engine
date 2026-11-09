@@ -270,6 +270,10 @@ const ROOT_ENTRY_KEYS = new Set(['path', 'identity', 'sha256']);
 const ROOT_IDENTITY_KEYS = new Set(['dev', 'ino', 'mode', 'size', 'mtimeMs', 'ctimeMs']);
 const MAX_ROOT_INVENTORY_BYTES = 8 * 1024 * 1024;
 const MAX_ROOT_INVENTORY_ENTRIES = 25000;
+// Match fs-inventory.js compareText exactly. localeCompare uses ICU collation
+// (case/punctuation rules) and can reject the scanner's deterministic code-point
+// order on Windows, causing a valid VSS manifest to be discarded before Core.
+const compareRootPath = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
 function validRootEntries(entries) {
   if (!Array.isArray(entries) || entries.length > MAX_ROOT_INVENTORY_ENTRIES) return false;
@@ -285,7 +289,7 @@ function validRootEntries(entries) {
       || entry.path.startsWith('/') || entry.path.startsWith('//') || /^[a-z]:/i.test(entry.path)
       || entry.path.includes('\\\\')
       || entry.path.split('/').some(part => !part || part === '.' || part === '..')
-      || (previous !== null && entry.path.localeCompare(previous) < 0)
+      || (previous !== null && compareRootPath(entry.path, previous) < 0)
       || !entry.identity || typeof entry.identity !== 'object' || Array.isArray(entry.identity)
       || Object.getPrototypeOf(entry.identity) !== Object.prototype
       || Object.keys(entry.identity).length !== ROOT_IDENTITY_KEYS.size

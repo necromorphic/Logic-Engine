@@ -192,7 +192,9 @@ function Get-FreeLoopbackPort {
 
 $adapterId = "sillytavern-local-acceptance"
 $apiToken = New-TestSecret
+$adminToken = New-TestSecret
 $adapterToken = New-TestSecret
+$acceptanceWorldId = "local-windows-acceptance-world"
 $corePort = Get-FreeLoopbackPort
 $stPort = Get-FreeLoopbackPort
 
@@ -235,6 +237,7 @@ $catalogJson = ConvertTo-Json -InputObject $catalog -Depth 8 -Compress
 
 $coreEnvironmentNames = @(
     "ENGINE_API_TOKEN",
+    "ENGINE_ADMIN_TOKEN",
     "ENGINE_ADAPTER_TOKENS",
     "ENGINE_DB_PATH",
     "LOGIC_ENGINE_COORDINATOR_DB_PATH",
@@ -267,6 +270,7 @@ foreach ($name in $coreEnvironmentNames) {
 $coreProcess = $null
 try {
     $env:ENGINE_API_TOKEN = $apiToken
+    $env:ENGINE_ADMIN_TOKEN = $adminToken
     $env:ENGINE_ADAPTER_TOKENS = $adapterTokensJson
     $env:ENGINE_DB_PATH = Join-Path $CoreData "logic-engine.sqlite"
     $env:LOGIC_ENGINE_COORDINATOR_DB_PATH = Join-Path $CoreData "coordinator.sqlite"
@@ -306,6 +310,29 @@ try {
         throw "CORE_READINESS_TIMEOUT"
     }
 
+    # Provision one disposable canonical World before ST starts. The browser never
+    # chooses world_id; later conversation binding uses this fixed server-owned ID.
+    $worldBody = @{
+        world_id = $acceptanceWorldId
+        world_pack_id = "local-acceptance-pack"
+        world_pack_version = "1.0.0"
+        game_time = "2005-12-29T10:00:00Z"
+    } | ConvertTo-Json -Depth 5 -Compress
+    $worldHeaders = @{
+        "Authorization" = "Bearer " + $apiToken
+        "x-admin-token" = $adminToken
+    }
+    try {
+        $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds") -Method Post -Headers $worldHeaders -ContentType "application/json" -Body $worldBody -TimeoutSec 10
+        if (-not $worldResult.world -or $worldResult.world.world_id -ne $acceptanceWorldId) {
+            throw "WORLD_PROVISIONING_RESPONSE_INVALID"
+        }
+    } catch {
+        $detail = $_.ErrorDetails.Message
+        if ([string]::IsNullOrWhiteSpace($detail)) { $detail = $_.Exception.Message }
+        throw ("ACCEPTANCE_WORLD_PROVISIONING_FAILED: " + $detail)
+    }
+
     $env:LOGIC_ENGINE_CORE_URL = "http://127.0.0.1:" + $corePort
     $env:LOGIC_ENGINE_API_TOKEN = $apiToken
     $env:LOGIC_ENGINE_ADAPTER_ID = $adapterId
@@ -316,6 +343,19 @@ try {
     $env:LOGIC_ENGINE_MEMORY_NPC_ENABLED = "false"
     $env:LOGIC_ENGINE_HOST_ACCEPTANCE_MODE = "LOCAL_LOOPBACK_ONLY"
 
+    $secretPath = Join-Path $TempRoot "host-acceptance-secrets.json"
+    $secretRecord = @{
+        core_url = "http://127.0.0.1:" + $corePort
+        api_token = $apiToken
+        admin_token = $adminToken
+        adapter_id = $adapterId
+        world_id = $acceptanceWorldId
+    } | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($secretPath, $secretRecord, [System.Text.UTF8Encoding]::new($false))
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $userGrant = "*${currentSid}:(R)"
+    & icacls.exe $secretPath /inheritance:r /grant:r $userGrant "*S-1-5-18:(R)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "ACCEPTANCE_SECRET_ACL_HARDENING_FAILED" }
     $infoLines = @(
         "TEMPORARY WINDOWS HOST/CORE ACCEPTANCE",
         ("Logic-Engine commit: " + $actualCommit),
@@ -324,6 +364,9 @@ try {
         ("SillyTavern source commit: " + $actualStCommit),
         ("SillyTavern loopback port: " + $stPort),
         ("Core loopback port: " + $corePort),
+        ("Acceptance world: " + $acceptanceWorldId),
+        ("Acceptance binding helper: scripts/Bind-Host-Acceptance-Conversation.ps1"),
+        ("Acceptance secrets file: " + $secretPath),
         ("Host installation ID: " + $bootstrap.host_installation_id),
         ("Account ID: " + $bootstrap.authenticated_account_id),
         ("Root ID: " + $bootstrap.root_id),

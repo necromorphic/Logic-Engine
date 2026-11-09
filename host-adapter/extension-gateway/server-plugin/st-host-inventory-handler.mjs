@@ -269,15 +269,28 @@ export function createHostInventoryHandler({
         ...(sourceIdentity?.manifest_sha256 ? { host_source_manifest_sha256: sourceIdentity.manifest_sha256 } : {}),
       });
     } catch (error) {
-      // Return only a bounded diagnostic token. Never expose paths, chat IDs,
-      // file counts, raw PowerShell output, or exception text to the browser.
+      // Keep browser output opaque. Emit a bounded server-side diagnostic so
+      // unexpected provider/runtime failures can be identified without asking
+      // operators to enable verbose tracing or exposing local paths/secrets.
       const message = typeof error?.message === 'string' ? error.message : '';
       const marker = message.match(/^(HOST_[A-Z0-9_]+)(?::([0-9]+))?/);
+      const osCode = ['EACCES', 'EPERM', 'ENOENT', 'EEXIST', 'EINVAL', 'ENOTDIR', 'EISDIR']
+        .includes(error?.code) ? error.code : null;
       const reason = marker
         ? marker[2] ? `${marker[1]}:${marker[2]}` : marker[1]
-        : ['EACCES', 'EPERM', 'ENOENT', 'EEXIST', 'EINVAL', 'ENOTDIR', 'EISDIR'].includes(error?.code)
-          ? error.code
-          : 'UNKNOWN';
+        : osCode ?? 'HOST_INVENTORY_INTERNAL_ERROR';
+      const safeMessage = message
+        .replace(/\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi, '<uuid>')
+        .replace(/https?:\/\/[^\s]+/gi, '<url>')
+        .replace(/[A-Z]:\\[^\r\n"]+/gi, '<path>')
+        .replace(/\s+/g, ' ')
+        .slice(0, 240);
+      console.error('[LogicEngine] Host inventory failed', {
+        reason,
+        error_name: typeof error?.name === 'string' ? error.name.slice(0, 80) : 'Error',
+        error_code: osCode,
+        diagnostic: safeMessage || reason || 'No exception message',
+      });
       return response.status(503).json({
         status: 'NON_READY',
         code: 'SOURCE_INVENTORY_UNAVAILABLE',

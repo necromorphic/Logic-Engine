@@ -31,7 +31,7 @@ const handlerSource = await readFile(path.join(repoRoot, 'host-adapter/extension
 const lifecycleBlobSha = gitBlobSha(lifecyclePatch);
 const rootMutationBlobSha = gitBlobSha(rootMutationPatch);
 const patchBlobSha = sha256(Buffer.from([lifecycleBlobSha, rootMutationBlobSha].join('\n'), 'utf8'));
-const handlerBlobSha = gitBlobSha(handlerSource);
+const handlerBlobSha = gitBlobSha(normalizeLineEndings(handlerSource));
 
 // The Host Bundle installer may receive a SillyTavern tree where the separate
 // Final-Send Patch Manager has already installed its pinned patch. Reproduce

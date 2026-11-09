@@ -166,3 +166,234 @@ Memory → NPC stays disabled. The five protected routes, 30 sender identities, 
 - Startup and restart logs.
 - Result of ordinary native generation.
 - Any remaining REVIEW_ONLY or NON_READY blockers.
+
+## 10. Acceptance execution log (do not repeat passed steps without a version change)
+
+### Windows live run — 2026-11-09
+
+**Candidate:** PR #946, branch fix/windows-root-inventory-path-order.
+
+**Exact Logic Engine commit tested:** 6d277bd881772f735e34f0951f40dc7fe0302d7a.
+
+**SillyTavern source:** 06bde939fb1e9c4c8d8641d810f0a916b5bce127 (pinned 1.19.0).
+
+**Patch state:** Host patch 1.0.0; Gateway and Memory → NPC report DISABLED_FAIL_CLOSED.
+
+**Environment:** Windows, Node.js 22.18.0, npm 10.9.3, disposable ST/Core loopback harness. Temporary root recorded by the operator: LogicEngine-ST-Test-20261109-093251.
+
+**Passed and retained as evidence for this exact candidate/environment:**
+
+- Isolated SillyTavern and Core start successfully.
+- Both first-party server plugins load.
+- Native model generation works; chat messages save; character cards can be created and saved.
+- Authenticated ST session endpoint succeeds.
+- Persisted Host identity endpoint succeeds using the same cookie session.
+- Initial conversation enrollment creates a baseline with sequence 1 and explicitly marks pre-enrollment history UNKNOWN_UNRECOVERABLE, REVIEW_ONLY, NON_READY.
+- Disposable Core World provisioning succeeds.
+- Explicit Host conversation-to-World binding succeeds (BOUND, active, fixed test World).
+- The initial installer/backup verification and pinned ST source identity are recorded as successful for this harness run.
+
+Do not repeat these steps unless the tested Logic Engine commit, Host patch bundle, pinned ST commit, or disposable harness changes in a way that affects them.
+
+**Current blocker at the tested commit:**
+
+- GET /api/plugins/logic-engine-extension-gateway/inventory?... returned HTTP 503, SOURCE_INVENTORY_UNAVAILABLE, reason UNKNOWN.
+- Follow-up POST .../host-version-ledger/reconcile returned HTTP 409, HOST_INVENTORY_INCOMPLETE.
+- Core capture status remained NOT_SYNCED.
+- The 409 is downstream of incomplete Host inventory; it is not an independent root cause.
+- Root cause is not yet established. Do not label the Root Inventory ordering fix as proven to have solved the Windows failure until a successful authoritative inventory response is observed.
+
+### Diagnostic patch after the failed run
+
+The candidate was advanced after the above test to add bounded server-side diagnostics for unexpected Host Inventory exceptions. The browser response remains fail-closed and does not expose paths, chat IDs, UUIDs, or raw exception text. The diagnostic patch is not yet Windows-accepted until the operator runs the updated candidate once and the server log identifies the failure.
+
+Commits after the tested run:
+- 6573463a55ceb8b8ee1d6324d856d92ff9d31224 — safe server-side Host Inventory diagnostics.
+- 5eae547b9da153e9bb07a6cf6f452fb6008cb1a2 — diagnostic redaction correction.
+- 3924d5a9c3fe0be5cd474c53bc79a5c7b2375a55 — diagnostic regression tests.
+- d1335980f5404087c4228d5a1296efb76103bee8 — complete test fixture.
+
+These commits do not retroactively change the version on which the failed Windows result was observed.
+
+## 11. Remaining acceptance gates for Phase 2
+
+Run only the failed or not-yet-proven gates below. Preserve the exact Logic Engine SHA and patch bundle digest with every new result.
+
+### A. Windows Host / Root Inventory — currently blocking
+
+1. On the diagnostic candidate, capture the single server-side [LogicEngine] Host inventory failed diagnostic from the existing isolated run. Identify and fix the actual exception; do not loop the browser request.
+2. Re-run the inventory sync once after the fix. Required: complete filesystem inventory from one shared VSS snapshot, matching source inventory snapshot ID, verified pinned source identity, verified mutation-route coverage, Core baseline and attestation accepted, and an authoritative reconciliation response.
+3. Confirm Core capture changes from NOT_SYNCED to the documented ready state only after all proofs are accepted.
+4. Confirm lifecycle sequence/head and root manifest survive a SillyTavern restart without creating a second baseline or silently rebinding the conversation.
+5. Change one enrolled file in the disposable root and confirm the next inventory detects the exact drift and remains non-ready until reconciled.
+6. Confirm missing, stale, malformed, or mismatched VSS/source/lifecycle evidence cannot produce AUTHORITATIVE_COMPLETE.
+7. Confirm the Windows VSS snapshot is released on both success and failure; no live-tree fallback is permitted.
+
+### B. Host mutation authority
+
+1. Exercise the covered mutation routes against a real ST session and verify each accepted mutation produces exactly one durable receipt.
+2. Exercise unsupported mutation routes and confirm they fail closed without modifying data.
+3. Exercise pending mutation recovery after process interruption; confirm no duplicate receipt, partial mutation, or generation while recovery is required.
+4. Repeat only the relevant UI save/create flows after mutation receipts are authoritative. The earlier local acceptance-mode success is explicitly non-authoritative and does not satisfy this gate.
+
+### C. Core / Memory / NPC context
+
+1. Verify durable World/Actor binding and authorization are resolved by Core, not selected by browser request data.
+2. Verify both NPC evidence lanes are immutable and handed off exactly once, with the expected source, identity, sequence and authorization.
+3. Verify missing, stale, revoked, cross-world, cross-actor, and replayed evidence fails closed.
+4. Verify provider/context construction produces the expected bounded NPC context and no legacy retrieval or alternate route bypasses Core authorization.
+
+### D. Gateway / Final-Send protected flow
+
+1. Verify all five protected routes through the real Host → Core → Provider → NPC → Gateway → Final-Send path.
+2. Verify the 30 sender-identity cases, including valid identities and invalid/forged/mismatched identities.
+3. Verify Dispatch Ledger idempotency, replay rejection, revocation, expiry, and duplicate-send prevention.
+4. Verify cancellation, crash/restart, timeout, and partial-failure cases do not cause a second send or a send after revocation.
+5. Verify the final response is delivered exactly once and ordinary native generation remains functional when Memory → NPC is disabled.
+6. Verify there is no alternate direct ST/Core route, legacy fallback, or bypass around the Extension Gateway and Final-Send gates.
+
+### E. SQLite VFS / ST-VectorService integration
+
+1. Verify POSIX xDelete semantics and Windows handle-relative deletion without path traversal or reparse-point escape.
+2. Verify database/WAL/SHM role and sidecar manifest consistency, including create, checkpoint, close, delete and reopen.
+3. Verify crash recovery and interrupted WAL/SHM cleanup preserve database integrity and never delete an unrelated file.
+4. Verify Windows ACL/handle ownership and POSIX permissions enforce the intended provider boundary.
+5. Verify ST-VectorService uses the approved VFS/provider path and cannot open or mutate the database through an alternate filesystem path.
+6. Verify corruption, missing sidecar, stale manifest, permission denial and concurrent access all fail closed with recoverable diagnostics.
+
+### F. CI and release evidence
+
+- All required workflows must be green on the exact candidate SHA that is being accepted; a previous SHA's green run does not qualify.
+- The Windows live acceptance must be green on that same candidate and pinned ST commit.
+- Security review must confirm no acceptance-only bypass is enabled in production configuration.
+- Memory → NPC stays disabled until A–F are accepted and the release authority explicitly enables it.
+
+**Current completion state:** Windows installation/session/enrollment/binding smoke path is partially accepted. Root Inventory is blocked. Full Phase 2 acceptance is not complete.
+
+### CI review — 2026-11-09, candidate 56dd34e395516469d8b1d99add1dcae7652d7b35
+
+Completed workflow results:
+
+- PASS: Host Account Mutation Receipts.
+- PASS: Host browser IndexedDB restart.
+- PASS: Host Extension Gateway static validation.
+- PASS: Host Extension Gateway candidate check.
+- PASS: Pinned SillyTavern Host source audit.
+- PASS: Gateway Final-Send Validation.
+- FAIL: Runtime tests — 2,128 passed, 67 skipped, 1 failed.
+- FAIL: Host Extension Gateway pinned SillyTavern source audit.
+- FAIL: SillyTavern Host Plugin Installer.
+
+The three failures share one cause: the exact Git blob pin for the Host inventory handler was calculated/compared inconsistently across Windows line-ending modes. Windows may materialize CRLF while the reviewed source identity is the canonical LF Git blob. The installer/pinned-source generator and the consistency test did not all normalize line endings identically.
+
+The failing runtime assertion was `Host and Core pin the same exact lifecycle patch bundle and inventory handler`. The pinned-source audit and installer stopped at `HOST_PINNED_HANDLER_BLOB_SHA_MISMATCH`; these are not independent installer defects.
+
+### Corrective patch — after 56dd34e395516469d8b1d99add1dcae7652d7b35
+
+- Canonical handler Git blob pin aligned to `2c83528f5d66068de186425bf93e8cb6e336ca3a` in Host and Core.
+- Pinned-source generator now normalizes CRLF/CR to LF before calculating the handler Git blob identity.
+- Cross-platform pin consistency test now calculates the same canonical LF identity.
+
+Corrective commits:
+- `15c7974a84387b41856e359c92c0fcd6f48873aa` — Host canonical pin.
+- `94e4f6b89784dbbb85b5eb664bcdadc02462645c` — Core canonical pin.
+- `c8458ccb83b62dc2dba7f2e1fb2e57979c8453d9` — generator line-ending normalization.
+- `1e980eafbc20a85f4fe5bd83e7dbbf373ab5a11` — cross-platform consistency test.
+
+These corrective changes are awaiting exact-head CI. Do not repeat the Windows live test yet; the current blocker is CI/source-pin consistency, not a newly established Host Inventory runtime diagnosis.
+
+
+### CI review — 2026-11-09, candidate 3e63fa0c9e939d7cfa95c255bd64974e1aa26725
+
+Completed workflow results:
+
+- PASS: Host Extension Gateway static validation.
+- PASS: Host Extension Gateway candidate check.
+- PASS: SillyTavern Host Plugin Installer.
+- PASS: Host Extension Gateway pinned SillyTavern source audit.
+- PASS: Pinned SillyTavern Host source audit.
+- PASS: Host Account Mutation Receipts.
+- PASS: Host browser IndexedDB restart.
+- PASS: Gateway Final-Send Validation.
+- FAIL: Runtime tests — 2,124 passed, 67 skipped, 5 failed.
+
+The five failures are one fixture-drift issue, not five independent runtime defects. The Host and Core implementation now correctly pins the canonical Host inventory handler Git blob SHA to `2c83528f5d66068de186425bf93e8cb6e336ca3a`, but two test fixtures still signed attestations containing the previous SHA `7fa465f6276dac38c386c4a91245ec5b8c79cde8`. The strict attestation shape/pin validator therefore rejects those fixtures as `HOST_ROOT_INVENTORY_ATTESTATION_INVALID` before the signature-verification branch is reached. The five affected tests are in `tests/host-lifecycle-journal.test.js` and `tests/host-root-inventory-attestation-api.test.js`.
+
+### Fixture correction — 2026-11-09
+
+Updated the stale Host handler pin in both affected test fixtures to the canonical SHA:
+
+- `caf379617ccfdb140f2febd10d23875c5245aaf8` — lifecycle journal attestation fixture.
+- `5f2107afab8b3f1b00d08a60fb7be646e2ea9f41` — Core HTTP attestation fixture.
+
+These are fixture-only corrections. No production validation was weakened and no security gate was bypassed. The correction is not accepted until Runtime tests and all required workflows pass on the exact resulting branch head.
+
+**Next verification:** inspect CI on the latest PR #946 head. Do not rerun Windows live acceptance yet; the immediate blocker is the stale test fixture, now corrected. Once exact-head CI is green, resume at the single outstanding Windows Root Inventory sync/diagnostic step; do not repeat the already-passed installer, ST session, enrollment, World creation, or binding setup.
+
+### Diagnostic follow-up — 2026-11-09
+
+The current Windows response `HOST_VSS_POWERSHELL_FAILED` was traced to a diagnostic-loss defect in the inventory handler, not yet to the underlying VSS/PowerShell failure itself:
+
+- `windows-vss-snapshot.mjs` wraps unclassified PowerShell launch/provider failures as `HOST_VSS_POWERSHELL_FAILED: <bounded detail>`.
+- The inventory handler correctly extracted the public reason token, but its server-log expression selected that token whenever any Host marker was present. This discarded the explanatory suffix, making the new server-side diagnostic ineffective for precisely this failure class.
+- Corrected the handler to log the already-scrubbed, 240-character diagnostic message while keeping the HTTP response restricted to the reason token. UUIDs, URLs, and Windows absolute paths remain redacted.
+- Added a regression test for a PowerShell wrapper error proving that the server log retains the safe detail while the browser response remains opaque.
+
+Fix commits:
+- `8fc56b911477c6d817c385326ea297b9bb8772ff` — preserve sanitized Host inventory failure detail in server logs.
+- `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad` — regression test for PowerShell wrapper diagnostic preservation.
+
+**Acceptance status:** code correction is committed to PR #946. Exact-head CI has not yet been observed for `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad`; do not update the Windows test copy or repeat inventory yet. After exact-head CI passes, update only the disposable acceptance copy, capture the single server log diagnostic, fix the underlying PowerShell/VSS cause, then perform one inventory sync.
+
+### Exact-head CI diagnosis — 2026-11-09
+
+The first CI run for diagnostic commit `1b689200917b4aa217eb7a65516b874ae9ac4330` exposed one shared root cause behind three red checks:
+
+- The Host inventory handler source changed, producing canonical Git blob SHA `5d22bc8df340b12b66781a7add71c90345cefd22`.
+- The pinned-source manifest generator and Windows installer correctly rejected that new handler because `PINNED_HOST_HANDLER_GIT_BLOB_SHA` still held the previous SHA `2c83528f5d66068de186425bf93e8cb6e336ca3a`.
+- Runtime test `Host and Core pin the same exact lifecycle patch bundle and inventory handler` failed for the same stale pin. The other 2,129 runtime tests passed (67 skipped).
+
+Corrected the canonical Host handler pin to the new exact Git blob SHA:
+- `bad330d01e32808750aeb3b07bae8543bfc488cf` — update `PINNED_HOST_HANDLER_GIT_BLOB_SHA`.
+
+This is a pin synchronization fix, not a relaxation of verification. The installer and runtime consistency test continue to require an exact blob match.
+
+**Next gate:** wait for exact-head CI on `bad330d01e32808750aeb3b07bae8543bfc488cf`. Do not update the Windows acceptance copy or repeat inventory until all required checks are green.
+
+
+### Exact-head Runtime diagnosis and correction — 2026-11-09
+
+On candidate `03942a1691bf54836eeac4143bac6a797c8feb2b`, Runtime tests failed in two places:
+
+1. Core's `HOST_INVENTORY_HANDLER_BLOB_SHA` and two signed-attestation fixtures still pinned `2c83528f5d66068de186425bf93e8cb6e336ca3a`, while the current Host handler's canonical Git blob was `5d22bc8df340b12b66781a7add71c90345cefd22`.
+2. The stale fixture was rejected by strict attestation validation before signature verification, so the invalid-signature test received `HOST_ROOT_INVENTORY_ATTESTATION_INVALID` instead of its expected `HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID`.
+
+Corrected the Core trust pin and both fixtures to the exact current Host handler blob. No validation was weakened.
+
+Commits:
+- `25dba46df8577244d31c025b56a2e2cf62e94c07` — Core accepted handler pin.
+- `b76f37f244efb788f658395ebbc386637a58b386` — lifecycle journal attestation fixture.
+- `aff6799a545782448b60f82f8316810119963aa7` — Core HTTP attestation fixture.
+
+**Acceptance:** these corrections await exact-head CI. Do not repeat Windows setup or inventory sync until all required checks pass on the current PR head.
+
+
+### Exact-head CI acceptance — 2026-11-09
+
+**Candidate:** PR #946, exact HEAD `87676a6e90fef2893cdd8e127aede83cc9c8bd46`.
+
+All 9 required workflows completed successfully on this exact HEAD:
+
+- PASS — Host Extension Gateway static validation.
+- PASS — Host Extension Gateway candidate check.
+- PASS — Host Account Mutation Receipts.
+- PASS — Pinned SillyTavern Host source audit.
+- PASS — Host browser IndexedDB restart.
+- PASS — SillyTavern Host Plugin Installer.
+- PASS — Gateway Final-Send Validation.
+- PASS — Host Extension Gateway pinned SillyTavern source audit.
+- PASS — Runtime tests.
+
+This resolves the CI pin/fixture blocker for this exact candidate. It does not establish Windows VSS/Root Inventory live acceptance. Resume only at the existing disposable Windows acceptance copy and capture the newly preserved server-side PowerShell/VSS diagnostic. Do not repeat installer, session, identity, enrollment, World provisioning or binding setup. After diagnosing and fixing the actual VSS/PowerShell exception, perform one inventory synchronization.
+
+Pinned SillyTavern source remains `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0). The existing test conversation remains bound; do not enroll or bind it again.

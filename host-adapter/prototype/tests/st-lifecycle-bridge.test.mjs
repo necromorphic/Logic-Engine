@@ -71,11 +71,13 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
   let sourceLocator = 'chat-file-1';
+  let activeChat = chat;
+  let activeConversationId = conversationId;
   const bridge = createStLifecycleBridge({
     journal,
-    getConversationId: () => conversationId,
+    getConversationId: () => activeConversationId,
     getSourceLocator: () => sourceLocator,
-    getChat: () => chat,
+    getChat: () => activeChat,
     publishDigest,
     publishSnapshot,
     getPersistedInventory,
@@ -86,7 +88,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, getLocator() { return sourceLocator; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setChat(value) { activeChat = value; }, setConversationId(value) { activeConversationId = value; }, setLocator(value) { sourceLocator = value; }, getLocator() { return sourceLocator; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 
@@ -139,6 +141,23 @@ async function makePersistedInventory(chat, { sessionId, conversationUuid, userH
     }],
   };
 }
+
+test('enrollment aborts before native metadata save if the active chat changes during journal persistence', async () => {
+  const f = makeFixture();
+  const originalEnroll = f.journal.enroll.bind(f.journal);
+  let release;
+  f.journal.enroll = async input => {
+    await new Promise(resolve => { release = resolve; });
+    return originalEnroll(input);
+  };
+  const enrollment = f.bridge.enrollCurrentConversation();
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  f.setLocator('another-chat-file');
+  release();
+  await assert.rejects(enrollment, /Host conversation changed during enrollment/);
+  assert.equal(f.saveCount, 0, 'native chat save must not run after the active conversation changes');
+  assert.equal(f.chat[0]._logicEngineLifecycle, undefined, 'identities must not be attached to the stale chat');
+});
 
 test('lifecycle mutations require a matching durable before/after pair', async () => {
   const f = makeFixture();
@@ -515,6 +534,7 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'empty-chat',
+    getSourceLocator: () => 'empty-chat.jsonl',
     getChat: () => chat,
     saveChat: async () => {},
   });
