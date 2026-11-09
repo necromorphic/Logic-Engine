@@ -29,10 +29,7 @@ $env:ENGINE_HOST_ASSERTION_NONCE_DB_PATH = Join-Path $coreData "host-assertion-n
 $env:ENGINE_HOST_LIFECYCLE_DB_PATH = Join-Path $coreData "host-lifecycle.sqlite"
 $env:ENGINE_HOST_VERSION_LEDGER_DB_PATH = Join-Path $coreData "host-versions.sqlite"
 $env:LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH = Join-Path $coreData "accepted-head-authority.sqlite"
-$env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS
-if ([string]::IsNullOrWhiteSpace($env:ENGINE_MEMORY_NPC_CONTENT_FIELDS)) {
-    $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = "[]"
-}
+$env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = '["attributes.public_note"]'
 
 Push-Location $repoRoot
 try {
