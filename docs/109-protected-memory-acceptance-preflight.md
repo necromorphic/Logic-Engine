@@ -29,7 +29,7 @@ Environment inputs:
 - `LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN`
 - `ENGINE_MEMORY_NPC_CONTENT_FIELDS`
 
-The accepted-head authority must already be running on loopback. The read credential is used only to inspect authority status. No Core/Provider write credential is needed.
+The Windows acceptance launcher now starts the authority as a separate loopback process and records its port plus read-only credential in the ACL-restricted acceptance secrets file. The authority database is created independently from Core and Provider. In this disposable acceptance setup, the process runs under the same Windows user as the launcher; this is **not** evidence of production service-identity or ACL isolation. The read credential is used only to inspect authority status. No Core/Provider write credential is passed to the preflight.
 
 ## Deliberate limitations
 
