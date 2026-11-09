@@ -610,3 +610,40 @@ test('lifecycle journal proxy status is session-bound and forwards only server-d
   assert.equal(wrongAccount.statusCode, 403);
   assert.equal(wrongAccount.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
 });
+
+test('digest proxy reports a bounded reason for Host session-scope rejection without weakening authentication', async () => {
+  const handler = createHostDigestProxyHandler({ env: CONFIG, fetchImpl: async () => {
+    throw Error('upstream must not be called for an unauthenticated request');
+  } });
+  const cases = [
+    [{ user: { profile: {} }, session: {} }, 'HOST_USER_IDENTITY_MISSING'],
+    [{ ...requestFor(capture), session: { ...requestFor(capture).session, logicEngineSessionHandle: 'other' } }, 'HOST_SESSION_HANDLE_MISMATCH'],
+    [{ ...requestFor(capture), session: { ...requestFor(capture).session, handle: 'other' } }, 'HOST_SESSION_ACCOUNT_MISMATCH'],
+    [{ ...requestFor(capture), session: { handle: 'alice', logicEngineSessionHandle: 'alice' } }, 'HOST_SESSION_ID_MISSING_OR_INVALID'],
+    [{ ...requestFor({ ...capture, conversation_id: 'not-a-host-conversation-id' }) }, 'HOST_CONVERSATION_ID_INVALID'],
+  ];
+  for (const [request, reason] of cases) {
+    const response = responseRecorder();
+    await handler(request, response);
+    assert.equal(response.statusCode, 403);
+    assert.equal(response.payload.error.code, 'HOST_SESSION_SCOPE_REQUIRED');
+    assert.equal(response.payload.error.reason, reason);
+  }
+});
+
+test('digest proxy uses a bounded timeout signal after successful Host session authentication', async () => {
+  let observedSignal;
+  const handler = createHostDigestProxyHandler({
+    env: CONFIG,
+    timeoutMs: 1234,
+    fetchImpl: async (_url, options) => {
+      observedSignal = options.signal;
+      return { status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    },
+  });
+  const response = responseRecorder();
+  await handler(requestFor(capture), response);
+  assert.equal(response.statusCode, 201);
+  assert.ok(observedSignal instanceof AbortSignal);
+  assert.equal(observedSignal.aborted, false);
+});
