@@ -246,6 +246,11 @@ $adapterToken = New-TestSecret
 $acceptanceWorldId = "local-windows-acceptance-world"
 $corePort = Get-FreeLoopbackPort
 $stPort = Get-FreeLoopbackPort
+$authorityPort = Get-FreeLoopbackPort
+$authorityCoreToken = New-TestSecret
+$authorityProviderToken = New-TestSecret
+$authorityReadToken = New-TestSecret
+$authorityDbPath = Join-Path $CoreData "accepted-head-authority.sqlite"
 
 $bootstrapScript = Join-Path $LogicRepo "scripts/bootstrap-windows-host-acceptance.mjs"
 if (-not (Test-Path -LiteralPath $bootstrapScript -PathType Leaf)) {
@@ -304,6 +309,12 @@ $coreEnvironmentNames = @(
     "ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES",
     "ENGINE_MEMORY_PROVIDER_DB_PATH",
     "ENGINE_MEMORY_NPC_CONTENT_FIELDS",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN",
+    "LOGIC_ENGINE_ACCEPTED_HEAD_PORT",
     "LOGIC_ENGINE_CORE_URL",
     "LOGIC_ENGINE_API_TOKEN",
     "LOGIC_ENGINE_ADAPTER_ID",
@@ -320,6 +331,7 @@ foreach ($name in $coreEnvironmentNames) {
 }
 
 $coreProcess = $null
+$authorityProcess = $null
 try {
     $env:ENGINE_API_TOKEN = $apiToken
     $env:ENGINE_ADMIN_TOKEN = $adminToken
@@ -342,6 +354,34 @@ try {
     # Retrieval remains disabled; the allowlist is intentionally narrow.
     $env:ENGINE_MEMORY_PROVIDER_DB_PATH = Join-Path $CoreData "memory-provider.sqlite"
     $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = '["attributes.public_note"]'
+
+    # Separate loopback authority process. It provisions only the authority schema;
+    # both domains remain un-enrolled until a reviewed baseline is explicitly approved.
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH = $authorityDbPath
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID = "local-windows-acceptance-authority"
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN = $authorityCoreToken
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN = $authorityProviderToken
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN = $authorityReadToken
+    $env:LOGIC_ENGINE_ACCEPTED_HEAD_PORT = [string]$authorityPort
+    $authorityStdout = Join-Path $TempRoot "accepted-head-authority.stdout.log"
+    $authorityStderr = Join-Path $TempRoot "accepted-head-authority.stderr.log"
+    $authorityScript = Join-Path $LogicRepo "scripts/security/run-accepted-head-authority.js"
+    $authorityProcess = Start-Process -FilePath $nodeCommand.Source -ArgumentList @($authorityScript) -WorkingDirectory $LogicRepo -NoNewWindow -PassThru -RedirectStandardOutput $authorityStdout -RedirectStandardError $authorityStderr
+    $authorityReady = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if ($authorityProcess.HasExited) { throw "ACCEPTED_HEAD_AUTHORITY_START_FAILED" }
+        try {
+            $authorityHeaders = @{ Authorization = "Bearer " + $authorityReadToken }
+            $authorityStatus = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $authorityPort + "/v1/heads") -Headers $authorityHeaders -TimeoutSec 2
+            if ($authorityStatus.heads.core -eq 0 -and $authorityStatus.heads.provider -eq 0) { $authorityReady = $true; break }
+        } catch {}
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $authorityReady) { throw "ACCEPTED_HEAD_AUTHORITY_READINESS_TIMEOUT" }
+    # Keep authority credentials out of the Core process environment.
+    foreach ($name in @("LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH","LOGIC_ENGINE_ACCEPTED_HEAD_INSTALLATION_ID","LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN","LOGIC_ENGINE_ACCEPTED_HEAD_PORT")) {
+        [Environment]::SetEnvironmentVariable($name, $null, "Process")
+    }
 
     $coreStdout = Join-Path $TempRoot "core.stdout.log"
     $coreStderr = Join-Path $TempRoot "core.stderr.log"
@@ -416,6 +456,8 @@ try {
         adapter_token = $adapterToken
         world_id = $acceptanceWorldId
         core_data = $CoreData
+        accepted_head_authority_port = $authorityPort
+        accepted_head_authority_read_token = $authorityReadToken
         data_root = $dataRoot
         host_identity_dir = $identityDirectory
         host_receipt_dir = $receiptDirectory
@@ -442,6 +484,8 @@ try {
         ("Root ID: " + $bootstrap.root_id),
         ("Source manifest SHA-256: " + $bootstrap.source_manifest_sha256),
         ("Memory Provider DB: " + (Join-Path $CoreData "memory-provider.sqlite")),
+        ("Accepted Head Authority DB: " + $authorityDbPath),
+        ("Accepted Head Authority: loopback port " + $authorityPort + " (Core/Provider un-enrolled)"),
         'Memory Provider field allowlist: ["attributes.public_note"]',
         "Memory -> NPC: disabled",
         "ST-VectorService: not required and not used",
@@ -469,6 +513,10 @@ try {
     if ($coreProcess -and -not $coreProcess.HasExited) {
         Stop-Process -Id $coreProcess.Id -Force
         Wait-Process -Id $coreProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+    }
+    if ($authorityProcess -and -not $authorityProcess.HasExited) {
+        Stop-Process -Id $authorityProcess.Id -Force
+        Wait-Process -Id $authorityProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
     }
     foreach ($name in $coreEnvironmentNames) {
         [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")
