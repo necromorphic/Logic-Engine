@@ -16,6 +16,41 @@ import { createCoreNpcGenerationContextRuntime } from './npc-generation-context-
 
 const validCoreId = value => typeof value === 'string' && value.length > 0 && value.length <= 200 && value === value.trim();
 
+/**
+ * Create an empty Provider schema for deployment bootstrap only.
+ *
+ * This keeps direct SQLiteMemoryProvider construction inside the single
+ * approved Core composition module. It does not ingest records, create grants,
+ * build indexes, or authorize retrieval.
+ */
+export function initializeMemoryProviderSchema({ providerPath, coordinatorPath } = {}) {
+  if (typeof providerPath !== 'string' || !providerPath.trim() || providerPath === ':memory:') {
+    throw new TypeError('Provider schema bootstrap requires a durable providerPath');
+  }
+  if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim()) {
+    throw new TypeError('Provider schema bootstrap requires coordinatorPath');
+  }
+  if (aliasesSameFile(providerPath, coordinatorPath)) {
+    throw new Error('PROVIDER_COORDINATOR_PATH_ALIAS');
+  }
+  const provider = new SQLiteMemoryProvider({
+    path: resolve(providerPath),
+    coordinatorPath: resolve(coordinatorPath),
+    getSnapshot: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
+    validateSourceVersion: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
+    validateInventory: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
+  });
+  provider.close();
+  return Object.freeze({
+    status: 'PROVIDER_SCHEMA_CREATED',
+    accepted_head_enrolled: false,
+    accepted_head: 0,
+    records_created: 0,
+    grants_created: 0,
+    memory_content_created: false,
+  });
+}
+
 function canonicalFilePath(path) {
   let candidate = resolve(path);
   const suffix = [];
