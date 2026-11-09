@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -56,7 +56,7 @@ test('protected Memory preflight reports missing prerequisites without creating 
     assert.equal(result.report.result, 'NOT_READY');
     assert.ok(result.report.checks.some(item => item.id === 'provider_db' && item.status === 'BLOCKED'));
     assert.ok(result.report.checks.some(item => item.id === 'accepted_head_authority' && item.status === 'BLOCKED'));
-    for (const path of Object.values(paths)) assert.equal((await import('node:fs')).existsSync(path), false);
+    for (const path of Object.values(paths)) assert.equal(existsSync(path), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
