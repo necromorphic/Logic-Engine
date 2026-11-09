@@ -128,7 +128,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
       .replace(/\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi, '<uuid>')
       .replace(/[A-Z]:\\[^\r\n"]+/gi, '<path>')
       .replace(/https?:\/\/[^\s]+/gi, '<url>')
-      .replace(/\\s+/g, ' ')
+      .replace(/\s+/g, ' ')
       .slice(0, 320) || 'No child output or spawn metadata';
     throw new Error('HOST_VSS_POWERSHELL_FAILED: ' + diagnostic);
   }
