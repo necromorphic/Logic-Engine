@@ -437,6 +437,14 @@ try {
         throw ("ACCEPTANCE_WORLD_PROVISIONING_FAILED: " + $detail)
     }
 
+    # Create only the Provider schema after Core has created the shared Coordinator.
+    # Existing Provider databases are verified read-only; no existing data is rewritten.
+    $providerBootstrap = Join-Path $LogicRepo "scripts/acceptance/provision-provider-schema.mjs"
+    if (-not (Test-Path -LiteralPath $providerBootstrap -PathType Leaf)) {
+        throw "PROVIDER_SCHEMA_BOOTSTRAP_NOT_FOUND"
+    }
+    Invoke-Native "node" @($providerBootstrap, (Join-Path $CoreData "memory-provider.sqlite"), (Join-Path $CoreData "coordinator.sqlite")) "PROVIDER_SCHEMA_BOOTSTRAP_FAILED"
+
     $env:LOGIC_ENGINE_CORE_URL = "http://127.0.0.1:" + $corePort
     $env:LOGIC_ENGINE_API_TOKEN = $apiToken
     $env:LOGIC_ENGINE_ADAPTER_ID = $adapterId
