@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { HostLifecycleJournal } from '../lifecycle-journal.mjs';
+import { HostLifecycleJournal, contentDigest } from '../lifecycle-journal.mjs';
 import { createStLifecycleBridge } from '../st-lifecycle-bridge.mjs';
 
 globalThis.crypto ??= webcrypto;
@@ -1047,4 +1047,62 @@ test('Core pending mutation is recovered by replaying the local durable after re
   assert.equal(replay.operation, 'edit-message');
   assert.equal(remote.status, 'PENDING_MUTATION');
   assert.equal(resumed.operation, 'before:create-swipe');
+});
+
+
+test('sync automatically restores an origin-lost journal from persisted chat IDs without minting replacements', async () => {
+  const f = makeFixture(undefined, {
+    publishSnapshot: async () => ({ reconciliation: { code: 'HOST_INVENTORY_NOT_READY' } }),
+  });
+  const expected = [];
+  for (let index = 0; index < f.chat.length; index++) {
+    const message = f.chat[index];
+    const messageId = index === 0
+      ? '11111111-1111-4111-8111-111111111111'
+      : '22222222-2222-4222-8222-222222222222';
+    const versionId = index === 0
+      ? '33333333-3333-4333-8333-333333333333'
+      : '44444444-4444-4444-8444-444444444444';
+    message._logicEngineLifecycle = {
+      messageId,
+      activeVersionIndex: 0,
+      versions: [{
+        versionId,
+        versionIndex: 0,
+        payloadDigest: await contentDigest(message.mes),
+        parentVersionId: null,
+      }],
+    };
+    expected.push({ messageId, versionId });
+  }
+
+  const result = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(result.journalRecovery, 'RESTORED_FROM_PERSISTED_CHAT_METADATA');
+  assert.equal(result.historyBoundary, 'CURRENT_STATE_BASELINE_ONLY');
+  assert.equal(result.preRecoveryHistory, 'UNKNOWN_UNRECOVERABLE');
+  assert.equal(result.status, 'NON_READY');
+  const snapshot = await f.journal.latestIdentitySnapshot('chat-1');
+  assert.deepEqual(snapshot.map(message => ({
+    messageId: message.messageId,
+    versionId: message.versions[0].versionId,
+  })), expected);
+});
+
+test('origin recovery refuses missing or mismatched persisted identity metadata', async () => {
+  const f = makeFixture(undefined, {
+    publishSnapshot: async () => ({ reconciliation: { code: 'HOST_INVENTORY_NOT_READY' } }),
+  });
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [{
+      versionId: '33333333-3333-4333-8333-333333333333',
+      versionIndex: 0,
+      payloadDigest: '0'.repeat(64),
+      parentVersionId: null,
+    }],
+  };
+  const result = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(result.status, 'NOT_ENROLLED');
+  assert.equal(result.reason, 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES');
 });
