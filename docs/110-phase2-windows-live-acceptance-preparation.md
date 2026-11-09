@@ -329,3 +329,18 @@ Updated the stale Host handler pin in both affected test fixtures to the canonic
 These are fixture-only corrections. No production validation was weakened and no security gate was bypassed. The correction is not accepted until Runtime tests and all required workflows pass on the exact resulting branch head.
 
 **Next verification:** inspect CI on the latest PR #946 head. Do not rerun Windows live acceptance yet; the immediate blocker is the stale test fixture, now corrected. Once exact-head CI is green, resume at the single outstanding Windows Root Inventory sync/diagnostic step; do not repeat the already-passed installer, ST session, enrollment, World creation, or binding setup.
+
+### Diagnostic follow-up — 2026-11-09
+
+The current Windows response `HOST_VSS_POWERSHELL_FAILED` was traced to a diagnostic-loss defect in the inventory handler, not yet to the underlying VSS/PowerShell failure itself:
+
+- `windows-vss-snapshot.mjs` wraps unclassified PowerShell launch/provider failures as `HOST_VSS_POWERSHELL_FAILED: <bounded detail>`.
+- The inventory handler correctly extracted the public reason token, but its server-log expression selected that token whenever any Host marker was present. This discarded the explanatory suffix, making the new server-side diagnostic ineffective for precisely this failure class.
+- Corrected the handler to log the already-scrubbed, 240-character diagnostic message while keeping the HTTP response restricted to the reason token. UUIDs, URLs, and Windows absolute paths remain redacted.
+- Added a regression test for a PowerShell wrapper error proving that the server log retains the safe detail while the browser response remains opaque.
+
+Fix commits:
+- `8fc56b911477c6d817c385326ea297b9bb8772ff` — preserve sanitized Host inventory failure detail in server logs.
+- `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad` — regression test for PowerShell wrapper diagnostic preservation.
+
+**Acceptance status:** code correction is committed to PR #946. Exact-head CI has not yet been observed for `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad`; do not update the Windows test copy or repeat inventory yet. After exact-head CI passes, update only the disposable acceptance copy, capture the single server log diagnostic, fix the underlying PowerShell/VSS cause, then perform one inventory sync.
