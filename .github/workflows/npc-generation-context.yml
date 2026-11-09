@@ -35,6 +35,10 @@ on:
       - '.github/workflows/provider-blocker3.yml'
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   npc-generation-context:
     runs-on: [self-hosted, Windows, X64]
