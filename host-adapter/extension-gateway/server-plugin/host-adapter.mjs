@@ -110,7 +110,12 @@ export function createSillyTavernHostAdapter({
   let authentication = null;
 
   if (identityStore) {
-    const lifecycle = createHostLifecycleJournalProxy({ identityStore });
+    const lifecycle = createHostLifecycleJournalProxy({
+      identityStore,
+      ensureRootInventory: (request, conversationUuid) => authentication
+        ? authentication.authenticate(request, conversationUuid)
+        : Promise.resolve({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' }),
+    });
     lifecycleEvents = lifecycle.append;
     lifecycleStatus = lifecycle.status;
 
