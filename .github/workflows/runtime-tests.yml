@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [self-hosted]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     permissions:
@@ -35,8 +35,8 @@ jobs:
         run: node --test tests/deployment-security-contracts.test.js
 
   npc-boundary:
-    # Run the NPC-owned pure admission boundary on a hosted runner as well.
-    runs-on: ubuntu-latest
+    # Run the NPC-owned pure admission boundary on the local Windows runner.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -78,8 +78,8 @@ jobs:
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
   core-trusted-acquisition:
-    # Keep Core-owned acquisition lifecycle tests runnable even when the local Windows runner is offline.
-    runs-on: ubuntu-latest
+    # Run Core-owned acquisition lifecycle tests locally with the integrated Windows suite.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -93,9 +93,9 @@ jobs:
       - name: Run trusted acquisition lifecycle and restore tests
         run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/trusted-initial-knowledge-api-boundary.test.js tests/memory-provider-coordinated-restore.characterization.test.js
   windows-symlink-security:
-    # Windows lstat exposes a file ID but reports dev=0; verify the actual
-    # descriptor identity and require the reparse-point tests on a hosted runner.
-    runs-on: windows-latest
+    # Windows lstat exposes a file ID but reports dev=0; verify descriptor identity
+    # and reparse-point behavior on the local Windows runner.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -114,9 +114,8 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/core-trusted-initial-knowledge-ingestion.test.js tests/sqlite-memory-provider.test.js
 
   host-inventory-reconciliation:
-    # Exercise the real file-backed Core/Coordinator/Host-ledger race on Linux
-    # as well as the full Windows Runtime suite above.
-    runs-on: ubuntu-latest
+    # Exercise the real file-backed Core/Coordinator/Host-ledger race on the local Windows runner.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -131,8 +130,8 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/host-version-digest-ledger.test.js tests/host-version-ledger-api.test.js
 
   process-contract:
-    # Keep the pure Process Manager contract matrix runnable on a hosted runner.
-    runs-on: ubuntu-latest
+    # Keep the pure Process Manager contract matrix on the local Windows runner.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -145,8 +144,8 @@ jobs:
         run: node --test tests/process-contract.test.js
 
   mechanics-policy-authority:
-    # Keep the versioned policy/evaluation lifecycle covered on a hosted runner.
-    runs-on: ubuntu-latest
+    # Keep the versioned policy/evaluation lifecycle covered on the local Windows runner.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -185,13 +184,13 @@ jobs:
 
   secure-vfs-registration-probe:
       # Build and test the native extension against the exact Node-bundled SQLite
-      # engine on both OS families; do not use the PR merge ref for this probe.
-      runs-on: ${{ matrix.os }}
+      # engine on the local Windows runner. Linux-only native coverage remains separate.
+      runs-on: [self-hosted, Windows, X64]
       timeout-minutes: 10
       strategy:
         fail-fast: false
         matrix:
-          os: [ubuntu-latest, windows-latest]
+          os: [self-hosted]
       permissions:
         contents: read
       steps:
