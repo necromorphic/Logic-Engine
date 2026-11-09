@@ -289,7 +289,7 @@ export function createHostInventoryHandler({
         reason,
         error_name: typeof error?.name === 'string' ? error.name.slice(0, 80) : 'Error',
         error_code: osCode,
-        diagnostic: marker || osCode ? reason : safeMessage || 'No exception message',
+        diagnostic: safeMessage || reason || 'No exception message',
       });
       return response.status(503).json({
         status: 'NON_READY',
