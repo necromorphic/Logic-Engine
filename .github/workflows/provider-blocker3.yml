@@ -79,7 +79,7 @@ concurrency:
 
 jobs:
   provider-acceptance:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -92,8 +92,7 @@ jobs:
           npm --version
           node -p "'node:sqlite=' + (process.versions.sqlite || 'not-exposed-by-this-Node-build')"
           node -p "JSON.stringify({platform: process.platform, arch: process.arch, versions: process.versions}, null, 2)"
-          uname -a
-          cat /etc/os-release
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,OSArchitecture | Format-List
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Accepted-head, Provider, and protected-dispatch acceptance tests
