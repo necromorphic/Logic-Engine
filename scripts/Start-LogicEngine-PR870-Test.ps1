@@ -124,6 +124,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $TestSt "package-lock.json") -PathTy
 if ($ResumeExisting) {
     # Update only the three changed server modules and refresh the pinned source
     # manifest. Existing chat data, Core databases, identity and ST patches remain.
+    if (-not (Test-Path -LiteralPath (Join-Path $TestSt "node_modules") -PathType Container)) {
+        Push-Location $TestSt
+        try {
+            Invoke-Native $npmCommand.Source @("ci", "--no-audit", "--no-fund") "SILLYTAVERN_DEPENDENCY_INSTALL_FAILED"
+        } finally {
+            Pop-Location
+        }
+    }
     $updater = Join-Path $LogicRepo "scripts/Update-LogicEngine-Host-Plugin.ps1"
     if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) {
         Stop-WithCode "HOST_PLUGIN_UPDATER_NOT_FOUND"
