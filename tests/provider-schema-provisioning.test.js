@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
 
-const script = new URL('../scripts/acceptance/provision-provider-schema.mjs', import.meta.url);
+const script = fileURLToPath(new URL('../scripts/acceptance/provision-provider-schema.mjs', import.meta.url));
 
 test('Provider schema bootstrap creates only an empty unenrolled schema and is read-only on rerun', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-provider-schema-bootstrap-'));
@@ -14,7 +15,7 @@ test('Provider schema bootstrap creates only an empty unenrolled schema and is r
   const providerPath = join(directory, 'provider.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
 
-  const first = spawnSync(process.execPath, [script.pathname, providerPath, coordinatorPath], {
+  const first = spawnSync(process.execPath, [script, providerPath, coordinatorPath], {
     encoding: 'utf8',
     timeout: 15000,
   });
@@ -24,7 +25,8 @@ test('Provider schema bootstrap creates only an empty unenrolled schema and is r
   let db = new DatabaseSync(providerPath, { readOnly: true });
   try {
     const head = db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
-    assert.deepEqual(head, { head: 0, enrolled: 0 });
+    assert.equal(head.head, 0);
+    assert.equal(head.enrolled, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_query_grants').get().count, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants').get().count, 0);
@@ -52,10 +54,9 @@ test('Provider schema bootstrap creates only an empty unenrolled schema and is r
   db = new DatabaseSync(providerPath, { readOnly: true });
   try {
     assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_query_grants').get().count, 1);
-    assert.deepEqual(
-      db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get(),
-      { head: 0, enrolled: 0 },
-    );
+    const head = db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
+    assert.equal(head.head, 0);
+    assert.equal(head.enrolled, 0);
   } finally {
     db.close();
   }
