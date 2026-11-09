@@ -84,7 +84,7 @@ jobs:
         run: node --test tests/security-vfs-strict-mode.test.js
 
   windows:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
