@@ -107,7 +107,7 @@ function readAcceptedHead(db, id) {
 readAcceptedHead(core?.db, 'core_accepted_head');
 readAcceptedHead(provider?.db, 'provider_accepted_head');
 
-if (present('ENGINE_MEMORY_NPC_ENABLED') && process.env.ENGINE_MEMORY_NPC_ENABLED === 'true') {
+if (process.env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true' || process.env.ENGINE_MEMORY_NPC_ENABLED === 'true') {
   add('memory_npc_flag', 'WARN', 'Memory NPC flag is enabled; this preflight does not authorize production activation');
 } else {
   add('memory_npc_flag', 'PASS', 'Memory NPC is not enabled by this preflight');
