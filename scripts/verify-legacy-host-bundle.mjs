@@ -110,13 +110,9 @@ export async function verifyLegacyHostBundle({
       }
       verifiedFiles.set(entry.path, canonicalTextHash(bytes));
     }
-    // The current Host bundle deliberately leaves SillyTavern's native
-    // plugin loader untouched. Require stable Host-owned attestation files
-    // instead of the retired plugin-loader patch entry.
-    if (!verifiedFiles.has('public/script.js')
-      || !verifiedFiles.has('src/endpoints/logic-engine-host-inventory-handler.mjs')) {
-      return { verified: false, files: new Map() };
-    }
+    // A predecessor manifest is accepted based on its exact pinned identity
+    // and complete per-file verification. Do not require files introduced by
+    // a newer Host bundle: valid older deployments may not contain them.
     return { verified: true, files: verifiedFiles };
   } catch {
     return { verified: false, files: new Map() };
