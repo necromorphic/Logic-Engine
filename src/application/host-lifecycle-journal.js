@@ -62,7 +62,7 @@ const MAX_ROOT_DELTA_FILES = 5_000;
 // The handler blob pin is the exact Git blob SHA of the deployed Gateway handler; fixtures must use the same value.
 const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 const HOST_INVENTORY_PINNED_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
-const HOST_INVENTORY_PATCH_BLOB_SHA = '454d68e55bfce161cc1d743de7e19b00eec8e6410a1107bcd955d2cebfaeb142';
+const HOST_INVENTORY_PATCH_BLOB_SHA = 'ef9d2bcc9648f29182621dcb42669ea82a6493bb2a1fc34404ccd925d285d9f0';
 const HOST_INVENTORY_HANDLER_BLOB_SHA = '5d22bc8df340b12b66781a7add71c90345cefd22';
 const ROOT_ATTESTATION_KEYS = Object.freeze([
   'protocol_version', 'adapter_id', 'host_installation_id', 'authenticated_account_id', 'root_id',
