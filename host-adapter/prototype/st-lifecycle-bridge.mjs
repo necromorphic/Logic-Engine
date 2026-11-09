@@ -172,6 +172,70 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return enrolled;
   }
 
+  // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
+  // local port, the chat's persisted identity metadata remains available but
+  // the old origin's journal does not. Rebuild only a current-state baseline
+  // from those already-persisted IDs and verified payload digests; never mint
+  // replacement message/version IDs or claim the missing event history.
+  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+    const sourceLocator = getSourceLocator();
+    const chat = getChat();
+    if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
+    const fingerprint = await currentFingerprint(chat);
+    const messageIds = new Set();
+    const versionIds = new Set();
+    const messages = [];
+    for (let messageIndex = 0; messageIndex < chat.length; messageIndex++) {
+      const message = chat[messageIndex];
+      const identity = message?._logicEngineLifecycle;
+      const versions = rawVersions(message);
+      if (!identity || !HOST_UUID.test(identity.messageId ?? '')
+        || messageIds.has(identity.messageId)
+        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
+        || identity.activeVersionIndex !== activeIndex(message)
+        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= versions.length) return null;
+      messageIds.add(identity.messageId);
+      const persistedVersions = [];
+      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
+        const version = identity.versions[versionIndex];
+        if (!version || !HOST_UUID.test(version.versionId ?? '')
+          || versionIds.has(version.versionId)
+          || version.versionIndex !== versionIndex
+          || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
+          || version.payloadDigest !== await contentDigest(versions[versionIndex])
+          || (version.parentVersionId != null && !HOST_UUID.test(version.parentVersionId))) return null;
+        versionIds.add(version.versionId);
+        persistedVersions.push({
+          versionId: version.versionId,
+          versionIndex,
+          payloadDigest: version.payloadDigest,
+          parentVersionId: version.parentVersionId ?? null,
+        });
+      }
+      messages.push({
+        messageId: identity.messageId,
+        messageIndex,
+        role: roleOf(message),
+        activeVersionIndex: identity.activeVersionIndex,
+        versions: persistedVersions,
+      });
+    }
+    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
+      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
+      throw Error('NON_READY: Host conversation changed during origin recovery');
+    }
+    const restored = await journal.restoreBaseline({
+      conversationId,
+      sourceFingerprint: fingerprint,
+      messages,
+    });
+    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
+      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
+      throw Error('NON_READY: Host conversation changed after origin recovery');
+    }
+    return restored;
+  }
+
   async function enrollCurrentConversation() {
     const conversationId = await getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
@@ -714,7 +778,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   async function syncCurrentDigestInventory() {
     const conversationId = await getConversationId();
-    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId) return { status: 'NOT_ENROLLED' };
+    let recoveredBaseline = false;
+    if (!(await enrolledOrFailClosed(conversationId))) {
+      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
+      recoveredBaseline = true;
+    }
     if (getPersistedInventory) {
       const persisted = await verifyPersistedInventory(conversationId);
       if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
@@ -752,7 +822,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
       }
     }
-    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
+    const published = await publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
+    return recoveredBaseline ? {
+      ...published,
+      journalRecovery: 'RESTORED_FROM_PERSISTED_CHAT_METADATA',
+      historyBoundary: 'CURRENT_STATE_BASELINE_ONLY',
+      preRecoveryHistory: 'UNKNOWN_UNRECOVERABLE',
+    } : published;
   }
 
   function getCoreCaptureStatus() {
