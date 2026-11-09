@@ -166,3 +166,106 @@ Memory → NPC stays disabled. The five protected routes, 30 sender identities, 
 - Startup and restart logs.
 - Result of ordinary native generation.
 - Any remaining REVIEW_ONLY or NON_READY blockers.
+
+## 10. Acceptance execution log (do not repeat passed steps without a version change)
+
+### Windows live run — 2026-11-09
+
+**Candidate:** PR #946, branch fix/windows-root-inventory-path-order.
+
+**Exact Logic Engine commit tested:** 6d277bd881772f735e34f0951f40dc7fe0302d7a.
+
+**SillyTavern source:** 06bde939fb1e9c4c8d8641d810f0a916b5bce127 (pinned 1.19.0).
+
+**Patch state:** Host patch 1.0.0; Gateway and Memory → NPC report DISABLED_FAIL_CLOSED.
+
+**Environment:** Windows, Node.js 22.18.0, npm 10.9.3, disposable ST/Core loopback harness. Temporary root recorded by the operator: LogicEngine-ST-Test-20261109-093251.
+
+**Passed and retained as evidence for this exact candidate/environment:**
+
+- Isolated SillyTavern and Core start successfully.
+- Both first-party server plugins load.
+- Native model generation works; chat messages save; character cards can be created and saved.
+- Authenticated ST session endpoint succeeds.
+- Persisted Host identity endpoint succeeds using the same cookie session.
+- Initial conversation enrollment creates a baseline with sequence 1 and explicitly marks pre-enrollment history UNKNOWN_UNRECOVERABLE, REVIEW_ONLY, NON_READY.
+- Disposable Core World provisioning succeeds.
+- Explicit Host conversation-to-World binding succeeds (BOUND, active, fixed test World).
+- The initial installer/backup verification and pinned ST source identity are recorded as successful for this harness run.
+
+Do not repeat these steps unless the tested Logic Engine commit, Host patch bundle, pinned ST commit, or disposable harness changes in a way that affects them.
+
+**Current blocker at the tested commit:**
+
+- GET /api/plugins/logic-engine-extension-gateway/inventory?... returned HTTP 503, SOURCE_INVENTORY_UNAVAILABLE, reason UNKNOWN.
+- Follow-up POST .../host-version-ledger/reconcile returned HTTP 409, HOST_INVENTORY_INCOMPLETE.
+- Core capture status remained NOT_SYNCED.
+- The 409 is downstream of incomplete Host inventory; it is not an independent root cause.
+- Root cause is not yet established. Do not label the Root Inventory ordering fix as proven to have solved the Windows failure until a successful authoritative inventory response is observed.
+
+### Diagnostic patch after the failed run
+
+The candidate was advanced after the above test to add bounded server-side diagnostics for unexpected Host Inventory exceptions. The browser response remains fail-closed and does not expose paths, chat IDs, UUIDs, or raw exception text. The diagnostic patch is not yet Windows-accepted until the operator runs the updated candidate once and the server log identifies the failure.
+
+Commits after the tested run:
+- 6573463a55ceb8b8ee1d6324d856d92ff9d31224 — safe server-side Host Inventory diagnostics.
+- 5eae547b9da153e9bb07a6cf6f452fb6008cb1a2 — diagnostic redaction correction.
+- 3924d5a9c3fe0be5cd474c53bc79a5c7b2375a55 — diagnostic regression tests.
+- d1335980f5404087c4228d5a1296efb76103bee8 — complete test fixture.
+
+These commits do not retroactively change the version on which the failed Windows result was observed.
+
+## 11. Remaining acceptance gates for Phase 2
+
+Run only the failed or not-yet-proven gates below. Preserve the exact Logic Engine SHA and patch bundle digest with every new result.
+
+### A. Windows Host / Root Inventory — currently blocking
+
+1. On the diagnostic candidate, capture the single server-side [LogicEngine] Host inventory failed diagnostic from the existing isolated run. Identify and fix the actual exception; do not loop the browser request.
+2. Re-run the inventory sync once after the fix. Required: complete filesystem inventory from one shared VSS snapshot, matching source inventory snapshot ID, verified pinned source identity, verified mutation-route coverage, Core baseline and attestation accepted, and an authoritative reconciliation response.
+3. Confirm Core capture changes from NOT_SYNCED to the documented ready state only after all proofs are accepted.
+4. Confirm lifecycle sequence/head and root manifest survive a SillyTavern restart without creating a second baseline or silently rebinding the conversation.
+5. Change one enrolled file in the disposable root and confirm the next inventory detects the exact drift and remains non-ready until reconciled.
+6. Confirm missing, stale, malformed, or mismatched VSS/source/lifecycle evidence cannot produce AUTHORITATIVE_COMPLETE.
+7. Confirm the Windows VSS snapshot is released on both success and failure; no live-tree fallback is permitted.
+
+### B. Host mutation authority
+
+1. Exercise the covered mutation routes against a real ST session and verify each accepted mutation produces exactly one durable receipt.
+2. Exercise unsupported mutation routes and confirm they fail closed without modifying data.
+3. Exercise pending mutation recovery after process interruption; confirm no duplicate receipt, partial mutation, or generation while recovery is required.
+4. Repeat only the relevant UI save/create flows after mutation receipts are authoritative. The earlier local acceptance-mode success is explicitly non-authoritative and does not satisfy this gate.
+
+### C. Core / Memory / NPC context
+
+1. Verify durable World/Actor binding and authorization are resolved by Core, not selected by browser request data.
+2. Verify both NPC evidence lanes are immutable and handed off exactly once, with the expected source, identity, sequence and authorization.
+3. Verify missing, stale, revoked, cross-world, cross-actor, and replayed evidence fails closed.
+4. Verify provider/context construction produces the expected bounded NPC context and no legacy retrieval or alternate route bypasses Core authorization.
+
+### D. Gateway / Final-Send protected flow
+
+1. Verify all five protected routes through the real Host → Core → Provider → NPC → Gateway → Final-Send path.
+2. Verify the 30 sender-identity cases, including valid identities and invalid/forged/mismatched identities.
+3. Verify Dispatch Ledger idempotency, replay rejection, revocation, expiry, and duplicate-send prevention.
+4. Verify cancellation, crash/restart, timeout, and partial-failure cases do not cause a second send or a send after revocation.
+5. Verify the final response is delivered exactly once and ordinary native generation remains functional when Memory → NPC is disabled.
+6. Verify there is no alternate direct ST/Core route, legacy fallback, or bypass around the Extension Gateway and Final-Send gates.
+
+### E. SQLite VFS / ST-VectorService integration
+
+1. Verify POSIX xDelete semantics and Windows handle-relative deletion without path traversal or reparse-point escape.
+2. Verify database/WAL/SHM role and sidecar manifest consistency, including create, checkpoint, close, delete and reopen.
+3. Verify crash recovery and interrupted WAL/SHM cleanup preserve database integrity and never delete an unrelated file.
+4. Verify Windows ACL/handle ownership and POSIX permissions enforce the intended provider boundary.
+5. Verify ST-VectorService uses the approved VFS/provider path and cannot open or mutate the database through an alternate filesystem path.
+6. Verify corruption, missing sidecar, stale manifest, permission denial and concurrent access all fail closed with recoverable diagnostics.
+
+### F. CI and release evidence
+
+- All required workflows must be green on the exact candidate SHA that is being accepted; a previous SHA's green run does not qualify.
+- The Windows live acceptance must be green on that same candidate and pinned ST commit.
+- Security review must confirm no acceptance-only bypass is enabled in production configuration.
+- Memory → NPC stays disabled until A–F are accepted and the release authority explicitly enables it.
+
+**Current completion state:** Windows installation/session/enrollment/binding smoke path is partially accepted. Root Inventory is blocked. Full Phase 2 acceptance is not complete.
