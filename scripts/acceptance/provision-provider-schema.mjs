@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { SQLiteMemoryProvider } from '../../src/application/sqlite-memory-provider.js';
+import { initializeMemoryProviderSchema } from '../../src/application/memory-npc-provider-adapter.js';
 
 const [providerPathArg, coordinatorPathArg] = process.argv.slice(2);
 if (!providerPathArg || !coordinatorPathArg) {
@@ -51,22 +51,6 @@ if (existsSync(providerPath)) {
     db.close();
   }
 } else {
-  const provider = new SQLiteMemoryProvider({
-    path: providerPath,
-    coordinatorPath,
-    // These fail-closed callbacks are never invoked during schema construction.
-    // No records, grants, indexes, or Memory content are created by this bootstrap.
-    getSnapshot: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
-    validateSourceVersion: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
-    validateInventory: () => { throw new Error('PROVIDER_SCHEMA_BOOTSTRAP_ONLY'); },
-  });
-  provider.close();
-  process.stdout.write(JSON.stringify({
-    status: 'PROVIDER_SCHEMA_CREATED',
-    accepted_head_enrolled: false,
-    accepted_head: 0,
-    records_created: 0,
-    grants_created: 0,
-    memory_content_created: false,
-  }) + '\n');
+  const result = initializeMemoryProviderSchema({ providerPath, coordinatorPath });
+  process.stdout.write(JSON.stringify(result) + '\n');
 }
