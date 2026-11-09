@@ -121,43 +121,55 @@ if (-not (Test-Path -LiteralPath (Join-Path $TestSt "src/plugin-loader.js") -Pat
 if (-not (Test-Path -LiteralPath (Join-Path $TestSt "package-lock.json") -PathType Leaf)) {
     Stop-WithCode "SILLYTAVERN_PACKAGE_LOCK_MISSING"
 }
-$templateConfig = Join-Path $TestSt "default/config.yaml"
-if (-not (Test-Path -LiteralPath $templateConfig -PathType Leaf)) {
-    Stop-WithCode "SILLYTAVERN_DEFAULT_CONFIG_TEMPLATE_NOT_FOUND"
-}
-Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $TestSt "config.yaml") -Force
-# The official release tracks data/.gitkeep as an empty-directory placeholder.
-# Remove only that known placeholder; reject any real profile data in the pinned source.
-$dataDirectory = Join-Path $TestSt "data"
-if (Test-Path -LiteralPath $dataDirectory -PathType Container) {
-    $dataEntries = @(Get-ChildItem -LiteralPath $dataDirectory -Force)
-    $unexpectedData = @($dataEntries | Where-Object { $_.Name -ne ".gitkeep" })
-    if ($unexpectedData.Count -gt 0) {
-        Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_UNEXPECTED_DATA"
+if ($ResumeExisting) {
+    # Update only the three changed server modules and refresh the pinned source
+    # manifest. Existing chat data, Core databases, identity and ST patches remain.
+    $updater = Join-Path $LogicRepo "scripts/Update-LogicEngine-Host-Plugin.ps1"
+    if (-not (Test-Path -LiteralPath $updater -PathType Leaf)) {
+        Stop-WithCode "HOST_PLUGIN_UPDATER_NOT_FOUND"
     }
-    Remove-Item -LiteralPath $dataDirectory -Recurse -Force
-}
-if (Test-Path -LiteralPath (Join-Path $TestSt "public/user")) {
-    Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_USER_UPLOADS"
-}
+    & $updater -SillyTavernRoot $TestSt
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        Stop-WithCode ("HOST_PLUGIN_UPDATE_FAILED_" + $LASTEXITCODE)
+    }
+} else {
+    $templateConfig = Join-Path $TestSt "default/config.yaml"
+    if (-not (Test-Path -LiteralPath $templateConfig -PathType Leaf)) {
+        Stop-WithCode "SILLYTAVERN_DEFAULT_CONFIG_TEMPLATE_NOT_FOUND"
+    }
+    Copy-Item -LiteralPath $templateConfig -Destination (Join-Path $TestSt "config.yaml") -Force
+    # The official release tracks data/.gitkeep as an empty-directory placeholder.
+    # Remove only that known placeholder; reject any real profile data in the pinned source.
+    $dataDirectory = Join-Path $TestSt "data"
+    if (Test-Path -LiteralPath $dataDirectory -PathType Container) {
+        $dataEntries = @(Get-ChildItem -LiteralPath $dataDirectory -Force)
+        $unexpectedData = @($dataEntries | Where-Object { $_.Name -ne ".gitkeep" })
+        if ($unexpectedData.Count -gt 0) {
+            Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_UNEXPECTED_DATA"
+        }
+        Remove-Item -LiteralPath $dataDirectory -Recurse -Force
+    }
+    if (Test-Path -LiteralPath (Join-Path $TestSt "public/user")) {
+        Stop-WithCode "ISOLATION_FAILURE_PINNED_SOURCE_CONTAINS_USER_UPLOADS"
+    }
 
-# SillyTavern's committed lockfile makes its dependency install reproducible.
-Push-Location $TestSt
-try {
-    Invoke-Native $npmCommand.Source @("ci", "--no-audit", "--no-fund") "SILLYTAVERN_DEPENDENCY_INSTALL_FAILED"
-} finally {
-    Pop-Location
-}
+    # SillyTavern's committed lockfile makes its dependency install reproducible.
+    Push-Location $TestSt
+    try {
+        Invoke-Native $npmCommand.Source @("ci", "--no-audit", "--no-fund") "SILLYTAVERN_DEPENDENCY_INSTALL_FAILED"
+    } finally {
+        Pop-Location
+    }
 
-# Run the exact installer intended for deployment. This installs the root plugin,
-# managed Final-Send patch, Host Gateway plugin, browser extension and Host patches.
-$installer = Join-Path $LogicRepo "scripts/install-sillytavern-host-plugin.ps1"
-if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
-    Stop-WithCode "CANONICAL_HOST_INSTALLER_NOT_FOUND"
-}
-& $installer -SillyTavernRoot $TestSt
-if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-    Stop-WithCode ("CANONICAL_HOST_INSTALLER_FAILED_" + $LASTEXITCODE)
+    # First installation uses the canonical transactional installer.
+    $installer = Join-Path $LogicRepo "scripts/install-sillytavern-host-plugin.ps1"
+    if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+        Stop-WithCode "CANONICAL_HOST_INSTALLER_NOT_FOUND"
+    }
+    & $installer -SillyTavernRoot $TestSt
+    if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+        Stop-WithCode ("CANONICAL_HOST_INSTALLER_FAILED_" + $LASTEXITCODE)
+    }
 }
 
 $requiredPaths = @(
