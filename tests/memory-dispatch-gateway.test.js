@@ -1568,6 +1568,7 @@ test('Host abort after upstream headers but before final response release record
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('host-abort-after-headers-new-id', {
+        replayIdentity: request.replayIdentity,
         stream: true,
         hostTransformsStream: true,
       })),
