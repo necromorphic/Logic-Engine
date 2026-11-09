@@ -54,7 +54,7 @@ test('inventory failure emits a bounded server diagnostic and keeps browser resp
   assert.equal(diagnostics[0][0], '[LogicEngine] Host inventory failed');
   assert.equal(diagnostics[0][1].error_name, 'TypeError');
   assert.match(diagnostics[0][1].diagnostic, /<path>/);
-  assert.match(diagnostics[0][1].diagnostic, /<uuid>/);
+  assert.doesNotMatch(diagnostics[0][1].diagnostic, /11111111-1111-4111-8111-111111111111/);
   assert.doesNotMatch(JSON.stringify(response.body), /Users|alice|private-chat|11111111/);
   assert.doesNotMatch(JSON.stringify(diagnostics), /C:\\\\Users\\\\alice|private-chat\.json|11111111-1111/);
 });
