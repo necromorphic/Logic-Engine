@@ -359,3 +359,20 @@ Corrected the canonical Host handler pin to the new exact Git blob SHA:
 This is a pin synchronization fix, not a relaxation of verification. The installer and runtime consistency test continue to require an exact blob match.
 
 **Next gate:** wait for exact-head CI on `bad330d01e32808750aeb3b07bae8543bfc488cf`. Do not update the Windows acceptance copy or repeat inventory until all required checks are green.
+
+
+### Exact-head Runtime diagnosis and correction — 2026-11-09
+
+On candidate `03942a1691bf54836eeac4143bac6a797c8feb2b`, Runtime tests failed in two places:
+
+1. Core's `HOST_INVENTORY_HANDLER_BLOB_SHA` and two signed-attestation fixtures still pinned `2c83528f5d66068de186425bf93e8cb6e336ca3a`, while the current Host handler's canonical Git blob was `5d22bc8df340b12b66781a7add71c90345cefd22`.
+2. The stale fixture was rejected by strict attestation validation before signature verification, so the invalid-signature test received `HOST_ROOT_INVENTORY_ATTESTATION_INVALID` instead of its expected `HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID`.
+
+Corrected the Core trust pin and both fixtures to the exact current Host handler blob. No validation was weakened.
+
+Commits:
+- `25dba46df8577244d31c025b56a2e2cf62e94c07` — Core accepted handler pin.
+- `b76f37f244efb788f658395ebbc386637a58b386` — lifecycle journal attestation fixture.
+- `aff6799a545782448b60f82f8316810119963aa7` — Core HTTP attestation fixture.
+
+**Acceptance:** these corrections await exact-head CI. Do not repeat Windows setup or inventory sync until all required checks pass on the current PR head.
