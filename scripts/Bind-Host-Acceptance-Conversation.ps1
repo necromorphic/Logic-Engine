@@ -19,17 +19,25 @@ if (-not (Test-Path -LiteralPath $secretPath -PathType Leaf)) {
     throw "ACCEPTANCE_SECRETS_NOT_FOUND: restart the updated isolated acceptance script first"
 }
 $secrets = Get-Content -LiteralPath $secretPath -Raw | ConvertFrom-Json
-if ($secrets.core_url -notmatch '^http://127\.0\.0\.1:\d+$'
-    -or [string]::IsNullOrWhiteSpace($secrets.api_token)
-    -or [string]::IsNullOrWhiteSpace($secrets.admin_token)
-    -or [string]::IsNullOrWhiteSpace($secrets.adapter_id)
-    -or [string]::IsNullOrWhiteSpace($secrets.world_id)) {
+
+# Keep each logical condition on one line for Windows PowerShell 5.1.
+# In PS 5.1, placing a binary operator at the start of the next line is not a
+# valid continuation and causes a parser error before the script can run.
+$secretsInvalid = ([string]::IsNullOrWhiteSpace($secrets.core_url)) -or
+    ($secrets.core_url -notmatch '^http://127\\.0\\.0\\.1:\\d+$') -or
+    ([string]::IsNullOrWhiteSpace($secrets.api_token)) -or
+    ([string]::IsNullOrWhiteSpace($secrets.admin_token)) -or
+    ([string]::IsNullOrWhiteSpace($secrets.adapter_id)) -or
+    ([string]::IsNullOrWhiteSpace($secrets.world_id))
+if ($secretsInvalid) {
     throw "ACCEPTANCE_SECRETS_INVALID"
 }
-if ([string]::IsNullOrWhiteSpace($ConversationId)
-    -or $ConversationId.Length -gt 200
-    -or $ConversationId -ne $ConversationId.Trim()
-    -or $ConversationId -match '[\x00-\x1f\x7f]') {
+
+$conversationIdInvalid = ([string]::IsNullOrWhiteSpace($ConversationId)) -or
+    ($ConversationId.Length -gt 200) -or
+    ($ConversationId -ne $ConversationId.Trim()) -or
+    ($ConversationId -match '[\\x00-\\x1f\\x7f]')
+if ($conversationIdInvalid) {
     throw "INVALID_HOST_CONVERSATION_ID"
 }
 
@@ -52,10 +60,12 @@ try {
     throw ("HOST_CONVERSATION_BINDING_FAILED: " + $detail)
 }
 
-if (-not $result.binding -or $result.binding.conversation_id -ne $ConversationId
-    -or $result.binding.world_id -ne $secrets.world_id
-    -or $result.binding.adapter_id -ne $secrets.adapter_id
-    -or $result.binding.active -ne $true) {
+$bindingInvalid = (-not $result.binding) -or
+    ($result.binding.conversation_id -ne $ConversationId) -or
+    ($result.binding.world_id -ne $secrets.world_id) -or
+    ($result.binding.adapter_id -ne $secrets.adapter_id) -or
+    ($result.binding.active -ne $true)
+if ($bindingInvalid) {
     throw "HOST_CONVERSATION_BINDING_RESPONSE_INVALID"
 }
 
