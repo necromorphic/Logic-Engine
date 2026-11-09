@@ -77,6 +77,7 @@ test('inventory failure preserves explicit Host diagnostic markers', async () =>
           chats: '/tmp/st-data/chats',
           groups: '/tmp/st-data/groups',
           groupChats: '/tmp/st-data/groupChats',
+          extensions: '/tmp/st-data/extensions',
         },
       },
       session: {
