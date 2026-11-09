@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   powershell-51-smoke:
-    runs-on: windows-2022
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     permissions:
       contents: read
