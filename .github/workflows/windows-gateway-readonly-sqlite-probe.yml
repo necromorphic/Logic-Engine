@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   windows-disposable-acl-probe:
-    runs-on: windows-2022
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 6
     permissions:
       contents: read
