@@ -44,7 +44,7 @@ test('Provider schema bootstrap creates only an empty unenrolled schema and is r
     db.close();
   }
 
-  const second = spawnSync(process.execPath, [script.pathname, providerPath, coordinatorPath], {
+  const second = spawnSync(process.execPath, [script, providerPath, coordinatorPath], {
     encoding: 'utf8',
     timeout: 15000,
   });
