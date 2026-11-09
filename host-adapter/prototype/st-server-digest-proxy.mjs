@@ -20,18 +20,22 @@ const HOST_SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a
 const HOST_CONVERSATION_ID = new RegExp('^' + HOST_SESSION_UUID.source.slice(1, -1) + ':'
   + HOST_SESSION_UUID.source.slice(1, -1) + ':' + HOST_SESSION_UUID.source.slice(1, -1) + '$', 'i');
 
-function requestMatchesAuthenticatedHostSession(request, conversationId) {
+function authenticatedHostSessionFailure(request, conversationId) {
   const session = request?.session;
   const userHandle = request?.user?.profile?.handle;
   const sessionHandle = session?.handle;
   const sessionId = session?.logicEngineSessionId;
   const sessionIdentityHandle = session?.logicEngineSessionHandle;
-  return typeof userHandle === 'string' && userHandle.trim().length > 0
-    && (sessionHandle === undefined || sessionHandle === userHandle)
-    && sessionIdentityHandle === userHandle
-    && typeof sessionId === 'string' && HOST_SESSION_UUID.test(sessionId)
-    && typeof conversationId === 'string'
-    && HOST_CONVERSATION_ID.test(conversationId);
+  if (typeof userHandle !== 'string' || !userHandle.trim()) return 'HOST_USER_IDENTITY_MISSING';
+  if (sessionHandle !== undefined && sessionHandle !== userHandle) return 'HOST_SESSION_ACCOUNT_MISMATCH';
+  if (sessionIdentityHandle !== userHandle) return 'HOST_SESSION_HANDLE_MISMATCH';
+  if (typeof sessionId !== 'string' || !HOST_SESSION_UUID.test(sessionId)) return 'HOST_SESSION_ID_MISSING_OR_INVALID';
+  if (typeof conversationId !== 'string' || !HOST_CONVERSATION_ID.test(conversationId)) return 'HOST_CONVERSATION_ID_INVALID';
+  return null;
+}
+
+function requestMatchesAuthenticatedHostSession(request, conversationId) {
+  return authenticatedHostSessionFailure(request, conversationId) === null;
 }
 
 function requestMatchesAuthenticatedHostContext(request, context) {
@@ -106,9 +110,14 @@ export function createHostDigestProxyHandler({
         error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
       });
     }
-    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+    const sessionFailure = authenticatedHostSessionFailure(request, request?.body?.conversation_id);
+    if (sessionFailure) {
       return response.status(403).json({
-        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+        error: {
+          code: 'HOST_SESSION_SCOPE_REQUIRED',
+          reason: sessionFailure,
+          message: 'The Host conversation is not bound to this authenticated SillyTavern session.',
+        },
       });
     }
     if (!validCapture(request?.body)) {
@@ -204,9 +213,14 @@ export function createHostInventoryReconcileProxyHandler({
     }
     let bodyBytes = Infinity;
     try { bodyBytes = Buffer.byteLength(JSON.stringify(request?.body)); } catch {}
-    if (!requestMatchesAuthenticatedHostSession(request, request?.body?.conversation_id)) {
+    const sessionFailure = authenticatedHostSessionFailure(request, request?.body?.conversation_id);
+    if (sessionFailure) {
       return response.status(403).json({
-        error: { code: 'HOST_SESSION_SCOPE_REQUIRED', message: 'The Host conversation is not bound to this authenticated SillyTavern session.' },
+        error: {
+          code: 'HOST_SESSION_SCOPE_REQUIRED',
+          reason: sessionFailure,
+          message: 'The Host conversation is not bound to this authenticated SillyTavern session.',
+        },
       });
     }
     if (bodyBytes > MAX_RECONCILE_BYTES) {
