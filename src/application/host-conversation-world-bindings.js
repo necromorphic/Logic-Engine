@@ -106,10 +106,10 @@ export class HostConversationWorldBindingService {
    * deployment-owned default World. The caller cannot choose that World.
    * Revoked bindings are never silently reactivated.
    */
-  resolveOrBind({ adapterId, conversationId, defaultWorldId } = {}) {
-    if (!validId(adapterId) || !validId(conversationId) || !validId(defaultWorldId)) {
-      throw new EngineError('HOST_DEFAULT_WORLD_NOT_CONFIGURED',
-        'A valid deployment-owned default World is required for automatic Host conversation binding.', 503);
+  resolveOrBind({ adapterId, conversationId, defaultWorldId = null } = {}) {
+    if (!validId(adapterId) || !validId(conversationId)) {
+      throw new EngineError('INVALID_HOST_CONVERSATION_RESOLUTION',
+        'Authenticated adapter identity and stable Host conversation identity are required.', 400);
     }
     return this.engine.store.tx(() => {
       const existing = this.db.prepare('SELECT adapter_id,conversation_id,world_id,active,created_at,updated_at FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?')
@@ -124,6 +124,10 @@ export class HostConversationWorldBindingService {
             'The bound canonical world is unavailable.', 409);
         }
         return Object.freeze({ ...existing, active: true, already_bound: true });
+      }
+      if (!validId(defaultWorldId)) {
+        throw new EngineError('HOST_DEFAULT_WORLD_NOT_CONFIGURED',
+          'A valid deployment-owned default World is required for automatic Host conversation binding.', 503);
       }
       if (!this.engine.store.world(defaultWorldId)) {
         throw new EngineError('HOST_DEFAULT_WORLD_NOT_FOUND',
