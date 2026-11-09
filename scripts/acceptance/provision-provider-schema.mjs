@@ -6,7 +6,7 @@ import { SQLiteMemoryProvider } from '../../src/application/sqlite-memory-provid
 
 const [providerPathArg, coordinatorPathArg] = process.argv.slice(2);
 if (!providerPathArg || !coordinatorPathArg) {
-  process.stderr.write('Usage: node provision-provider-schema.mjs <provider-db> <coordinator-db>\\n');
+  process.stderr.write('Usage: node provision-provider-schema.mjs <provider-db> <coordinator-db>\n');
   process.exit(2);
 }
 const providerPath = resolve(providerPathArg);
@@ -46,7 +46,7 @@ if (existsSync(providerPath)) {
       accepted_head_enrolled: head.enrolled === 1,
       accepted_head: head.head,
       writes_performed: false,
-    }) + '\\n');
+    }) + '\n');
   } finally {
     db.close();
   }
@@ -68,5 +68,5 @@ if (existsSync(providerPath)) {
     records_created: 0,
     grants_created: 0,
     memory_content_created: false,
-  }) + '\\n');
+  }) + '\n');
 }
