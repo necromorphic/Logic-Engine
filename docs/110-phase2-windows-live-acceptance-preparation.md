@@ -344,3 +344,18 @@ Fix commits:
 - `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad` — regression test for PowerShell wrapper diagnostic preservation.
 
 **Acceptance status:** code correction is committed to PR #946. Exact-head CI has not yet been observed for `23eca8f5500dbe97c0b1cee1756a0ef4e29622ad`; do not update the Windows test copy or repeat inventory yet. After exact-head CI passes, update only the disposable acceptance copy, capture the single server log diagnostic, fix the underlying PowerShell/VSS cause, then perform one inventory sync.
+
+### Exact-head CI diagnosis — 2026-11-09
+
+The first CI run for diagnostic commit `1b689200917b4aa217eb7a65516b874ae9ac4330` exposed one shared root cause behind three red checks:
+
+- The Host inventory handler source changed, producing canonical Git blob SHA `5d22bc8df340b12b66781a7add71c90345cefd22`.
+- The pinned-source manifest generator and Windows installer correctly rejected that new handler because `PINNED_HOST_HANDLER_GIT_BLOB_SHA` still held the previous SHA `2c83528f5d66068de186425bf93e8cb6e336ca3a`.
+- Runtime test `Host and Core pin the same exact lifecycle patch bundle and inventory handler` failed for the same stale pin. The other 2,129 runtime tests passed (67 skipped).
+
+Corrected the canonical Host handler pin to the new exact Git blob SHA:
+- `bad330d01e32808750aeb3b07bae8543bfc488cf` — update `PINNED_HOST_HANDLER_GIT_BLOB_SHA`.
+
+This is a pin synchronization fix, not a relaxation of verification. The installer and runtime consistency test continue to require an exact blob match.
+
+**Next gate:** wait for exact-head CI on `bad330d01e32808750aeb3b07bae8543bfc488cf`. Do not update the Windows acceptance copy or repeat inventory until all required checks are green.
