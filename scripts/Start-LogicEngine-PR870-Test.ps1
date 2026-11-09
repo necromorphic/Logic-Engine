@@ -485,7 +485,7 @@ try {
         ("Source manifest SHA-256: " + $bootstrap.source_manifest_sha256),
         ("Memory Provider DB: " + (Join-Path $CoreData "memory-provider.sqlite")),
         ("Accepted Head Authority DB: " + $authorityDbPath),
-        ("Accepted Head Authority: loopback port " + $authorityPort + " (Core/Provider un-enrolled)"),
+        ("Accepted Head Authority: loopback port " + $authorityPort + " (Core/Provider un-enrolled; same Windows user, acceptance-only)"),
         'Memory Provider field allowlist: ["attributes.public_note"]',
         "Memory -> NPC: disabled",
         "ST-VectorService: not required and not used",
