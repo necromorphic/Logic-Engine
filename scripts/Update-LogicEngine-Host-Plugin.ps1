@@ -50,7 +50,7 @@ foreach ($file in $files) {
         $destination = Join-Path $directory $file
         if (Test-Path -LiteralPath $destination) {
             $item = Get-Item -LiteralPath $destination -Force
-            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
                 throw ('HOST_PLUGIN_DESTINATION_UNSAFE: ' + $destination)
             }
         }
