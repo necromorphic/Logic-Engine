@@ -547,12 +547,14 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   assert.equal(preparedGeneration.context.conversation_uuid, UUID);
   assert.equal(preparedGeneration.context.root_inventory_sequence, 1);
   assert.equal(preparedGeneration.requestId, '88888888-8888-4888-8888-888888888888');
-  // Generation preparation authenticates Host locally only. Core World/Actor
-  // and NPC evidence are resolved later through the embedded in-process bridge.
+  // Generation preparation authenticates Host and ensures the durable
+  // conversation→World/Actor binding through Core. NPC evidence is resolved
+  // later through the embedded in-process bridge.
   assert.equal(Object.hasOwn(preparedGeneration, 'coreContext'), false);
   assert.equal(Object.hasOwn(preparedGeneration, 'retrieval'), false);
-  assert.equal(coreCalls.length, coreCallsBeforeGeneration);
-  assert.equal(resolvedCoreContexts.length, resolvedContextsBeforeGeneration);
+  assert.equal(coreCalls.length, coreCallsBeforeGeneration + 1);
+  assert.equal(coreCalls.at(-1), '/v1/host-context/resolve');
+  assert.equal(resolvedCoreContexts.length, resolvedContextsBeforeGeneration + 1);
 
   // The pinned Horde endpoint carries its prompt and Logic Engine metadata
   // directly on request.body (the Horde params object is only generation settings).
