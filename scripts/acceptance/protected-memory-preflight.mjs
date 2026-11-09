@@ -107,14 +107,6 @@ function readAcceptedHead(db, id) {
 readAcceptedHead(core?.db, 'core_accepted_head');
 readAcceptedHead(provider?.db, 'provider_accepted_head');
 
-for (const [name, db] of [
-  ['core_db', core?.db], ['provider_db', provider?.db], ['coordinator_db', coordinator?.db],
-  ['accepted_head_authority_db', authority?.db], ['host_assertion_nonce_db', nonce?.db],
-  ['host_lifecycle_db', lifecycle?.db], ['host_version_ledger_db', version?.db],
-]) {
-  try { db?.close(); } catch {}
-}
-
 if (present('ENGINE_MEMORY_NPC_ENABLED') && process.env.ENGINE_MEMORY_NPC_ENABLED === 'true') {
   add('memory_npc_flag', 'WARN', 'Memory NPC flag is enabled; this preflight does not authorize production activation');
 } else {
@@ -148,6 +140,14 @@ if (present('LOGIC_ENGINE_ACCEPTED_HEAD_PORT') && present('LOGIC_ENGINE_ACCEPTED
   }
 } else {
   add('accepted_head_authority', 'BLOCKED', 'authority port or read-only credential is not configured');
+}
+
+for (const [name, db] of [
+  ['core_db', core?.db], ['provider_db', provider?.db], ['coordinator_db', coordinator?.db],
+  ['accepted_head_authority_db', authority?.db], ['host_assertion_nonce_db', nonce?.db],
+  ['host_lifecycle_db', lifecycle?.db], ['host_version_ledger_db', version?.db],
+]) {
+  try { db?.close(); } catch {}
 }
 
 const blockers = checks.filter(x => ['BLOCKED', 'FAIL'].includes(x.status));
