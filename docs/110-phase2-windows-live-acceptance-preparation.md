@@ -269,3 +269,35 @@ Run only the failed or not-yet-proven gates below. Preserve the exact Logic Engi
 - Memory → NPC stays disabled until A–F are accepted and the release authority explicitly enables it.
 
 **Current completion state:** Windows installation/session/enrollment/binding smoke path is partially accepted. Root Inventory is blocked. Full Phase 2 acceptance is not complete.
+
+### CI review — 2026-11-09, candidate 56dd34e395516469d8b1d99add1dcae7652d7b35
+
+Completed workflow results:
+
+- PASS: Host Account Mutation Receipts.
+- PASS: Host browser IndexedDB restart.
+- PASS: Host Extension Gateway static validation.
+- PASS: Host Extension Gateway candidate check.
+- PASS: Pinned SillyTavern Host source audit.
+- PASS: Gateway Final-Send Validation.
+- FAIL: Runtime tests — 2,128 passed, 67 skipped, 1 failed.
+- FAIL: Host Extension Gateway pinned SillyTavern source audit.
+- FAIL: SillyTavern Host Plugin Installer.
+
+The three failures share one cause: the exact Git blob pin for the Host inventory handler was calculated/compared inconsistently across Windows line-ending modes. Windows may materialize CRLF while the reviewed source identity is the canonical LF Git blob. The installer/pinned-source generator and the consistency test did not all normalize line endings identically.
+
+The failing runtime assertion was `Host and Core pin the same exact lifecycle patch bundle and inventory handler`. The pinned-source audit and installer stopped at `HOST_PINNED_HANDLER_BLOB_SHA_MISMATCH`; these are not independent installer defects.
+
+### Corrective patch — after 56dd34e395516469d8b1d99add1dcae7652d7b35
+
+- Canonical handler Git blob pin aligned to `2c83528f5d66068de186425bf93e8cb6e336ca3a` in Host and Core.
+- Pinned-source generator now normalizes CRLF/CR to LF before calculating the handler Git blob identity.
+- Cross-platform pin consistency test now calculates the same canonical LF identity.
+
+Corrective commits:
+- `15c7974a84387b41856e359c92c0fcd6f48873aa` — Host canonical pin.
+- `94e4f6b89784dbbb85b5eb664bcdadc02462645c` — Core canonical pin.
+- `c8458ccb83b62dc2dba7f2e1fb2e57979c8453d9` — generator line-ending normalization.
+- `1e980eafbc20a85f4fe5bd83e7dbbf373ab5a11` — cross-platform consistency test.
+
+These corrective changes are awaiting exact-head CI. Do not repeat the Windows live test yet; the current blocker is CI/source-pin consistency, not a newly established Host Inventory runtime diagnosis.
