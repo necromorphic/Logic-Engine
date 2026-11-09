@@ -760,13 +760,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         // New session-scoped tuples are assigned only to a deployment-owned
         // default World. The browser supplies no World/Actor authority. Existing
         // and revoked bindings retain their normal conflict/rebind semantics.
-        const conversation = defaultHostWorldId
-          ? hostConversationBindings.resolveOrBind({
-            adapterId, conversationId: body.conversation_id, defaultWorldId: defaultHostWorldId,
-          })
-          : hostConversationBindings.resolve({
-            adapterId, conversationId: body.conversation_id,
-          });
+        const conversation = hostConversationBindings.resolveOrBind({
+          adapterId, conversationId: body.conversation_id, defaultWorldId: defaultHostWorldId,
+        });
         const actor = actorBindings.resolveForAdapter(conversation.world_id, adapterId);
         if (!actor?.actor || typeof actor.actor.entity_id !== 'string'
           || typeof actor.actor.entity_type !== 'string') {
