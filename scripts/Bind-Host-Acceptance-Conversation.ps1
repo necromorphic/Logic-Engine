@@ -24,7 +24,7 @@ $secrets = Get-Content -LiteralPath $secretPath -Raw | ConvertFrom-Json
 # In PS 5.1, placing a binary operator at the start of the next line is not a
 # valid continuation and causes a parser error before the script can run.
 $secretsInvalid = ([string]::IsNullOrWhiteSpace($secrets.core_url)) -or
-    ($secrets.core_url -notmatch '^http://127\\.0\\.0\\.1:\\d+$') -or
+    ($secrets.core_url -notmatch '^http://127\.0\.0\.1:\d+$') -or
     ([string]::IsNullOrWhiteSpace($secrets.api_token)) -or
     ([string]::IsNullOrWhiteSpace($secrets.admin_token)) -or
     ([string]::IsNullOrWhiteSpace($secrets.adapter_id)) -or
@@ -36,7 +36,7 @@ if ($secretsInvalid) {
 $conversationIdInvalid = ([string]::IsNullOrWhiteSpace($ConversationId)) -or
     ($ConversationId.Length -gt 200) -or
     ($ConversationId -ne $ConversationId.Trim()) -or
-    ($ConversationId -match '[\\x00-\\x1f\\x7f]')
+    ($ConversationId -match '[\x00-\x1f\x7f]')
 if ($conversationIdInvalid) {
     throw "INVALID_HOST_CONVERSATION_ID"
 }
