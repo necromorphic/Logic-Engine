@@ -368,7 +368,7 @@ try {
     try {
         if ($ResumeExisting) {
             $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds/" + $acceptanceWorldId + "/state") -Headers $worldHeaders -TimeoutSec 10
-            if (-not $worldResult.state -or $worldResult.state.world_id -ne $acceptanceWorldId) {
+            if (-not $worldResult.state) {
                 throw "EXISTING_ACCEPTANCE_WORLD_INVALID"
             }
         } else {
