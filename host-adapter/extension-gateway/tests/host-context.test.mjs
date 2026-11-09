@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveGatewayHostContext } from '../host-context.mjs';
+import { ensureCoreConversationWorldBinding } from '../server-plugin/host-adapter.mjs';
 const sessionId='11111111-1111-4111-8111-111111111111';
 const installationId='22222222-2222-4222-8222-222222222222';
 const accountId='33333333-3333-4333-8333-333333333333';
@@ -35,4 +36,62 @@ test('Gateway resolves stable installation/account/conversation identity with se
   assert.equal(resolved.hostInstallationId,installationId);
   assert.equal(resolved.authenticatedAccountId,accountId);
   assert.equal(calls.length,2);
+});
+
+test('Host persists the server-derived Core conversation binding before the read-only Gateway runs', async () => {
+  let captured;
+  const result = await ensureCoreConversationWorldBinding({
+    env: {
+      LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:52087',
+      LOGIC_ENGINE_API_TOKEN: 'a'.repeat(32),
+      LOGIC_ENGINE_ADAPTER_ID: 'sillytavern-main',
+      LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(32),
+    },
+    fetchImpl: async (url, options) => {
+      captured = { url, options, body: JSON.parse(options.body) };
+      return response(200, { context: {
+        adapter_id: 'sillytavern-main',
+        conversation_id: sessionId + ':' + installationId + ':' + conversationUuid,
+        world_id: 'world-default',
+        actor_id: 'actor-main',
+        actor_type: 'character',
+      } });
+    },
+    context: {
+      host_session_id: sessionId,
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+      conversation_uuid: conversationUuid,
+    },
+  });
+  assert.deepEqual(result, { status: 'READY' });
+  assert.equal(captured.url.pathname, '/v1/host-context/resolve');
+  assert.equal(captured.options.headers['x-adapter-id'], 'sillytavern-main');
+  assert.deepEqual(captured.body, {
+    conversation_id: sessionId + ':' + installationId + ':' + conversationUuid,
+    host_session_id: sessionId,
+    host_installation_id: installationId,
+    conversation_uuid: conversationUuid,
+  });
+});
+
+test('Host does not dispatch when Core cannot create or resolve a deployment-owned World binding', async () => {
+  const result = await ensureCoreConversationWorldBinding({
+    env: {
+      LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:52087',
+      LOGIC_ENGINE_API_TOKEN: 'a'.repeat(32),
+      LOGIC_ENGINE_ADAPTER_ID: 'sillytavern-main',
+      LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(32),
+    },
+    fetchImpl: async () => response(403, {
+      error: { code: 'HOST_DEFAULT_WORLD_NOT_CONFIGURED' },
+    }),
+    context: {
+      host_session_id: sessionId,
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+      conversation_uuid: conversationUuid,
+    },
+  });
+  assert.deepEqual(result, { status: 'NON_READY', code: 'HOST_DEFAULT_WORLD_NOT_CONFIGURED' });
 });
