@@ -18,7 +18,10 @@ function responseCapture() {
   };
 }
 
-test('first lifecycle preflight bootstraps missing Root Inventory through the authenticated Host gate and retries once', async () => {
+test('first lifecycle preflight bootstraps missing Root Inventory through the authenticated Host gate and retries once', async (t) => {
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = process.cwd();
+  t.after(() => { if (previousDataRoot === undefined) delete globalThis.DATA_ROOT; else globalThis.DATA_ROOT = previousDataRoot; });
   let upstreamCalls = 0;
   let bootstrapCalls = 0;
   const fetchImpl = async (url, options) => {
@@ -89,7 +92,10 @@ test('first lifecycle preflight bootstraps missing Root Inventory through the au
   assert.deepEqual(response.payload, { lifecycle: { status: 'READY' } });
 });
 
-test('lifecycle preflight does not bootstrap or retry unrelated authorization failures', async () => {
+test('lifecycle preflight does not bootstrap or retry unrelated authorization failures', async (t) => {
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = process.cwd();
+  t.after(() => { if (previousDataRoot === undefined) delete globalThis.DATA_ROOT; else globalThis.DATA_ROOT = previousDataRoot; });
   let upstreamCalls = 0;
   let bootstrapCalls = 0;
   const proxy = createHostLifecycleJournalProxy({
