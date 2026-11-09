@@ -247,6 +247,7 @@ $coreEnvironmentNames = @(
     "ENGINE_HOST_ROOT_IDENTITIES",
     "ENGINE_HOST_AUTHORITY_ID",
     "ENGINE_HOST_AUTHORITY_GENERATION",
+    "ENGINE_HOST_DEFAULT_WORLD_ID",
     "LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH",
     "ENGINE_HOST",
     "ENGINE_PORT",
@@ -280,6 +281,7 @@ try {
     $env:ENGINE_HOST_ROOT_IDENTITIES = $registryJson
     $env:ENGINE_HOST_AUTHORITY_ID = "local-windows-acceptance"
     $env:ENGINE_HOST_AUTHORITY_GENERATION = "1"
+    $env:ENGINE_HOST_DEFAULT_WORLD_ID = $acceptanceWorldId
     $env:LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH = $catalogPath
     $env:ENGINE_HOST = "127.0.0.1"
     $env:ENGINE_PORT = [string]$corePort
