@@ -105,7 +105,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, defaultHostWorldId = null, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -757,9 +757,16 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw new EngineError('INVALID_HOST_CONTEXT_RESOLUTION',
             'Host context resolution accepts only the canonical PC-NEXT-11 conversation_id.', 400);
         }
-        const conversation = hostConversationBindings.resolve({
-          adapterId, conversationId: body.conversation_id,
-        });
+        // New session-scoped tuples are assigned only to a deployment-owned
+        // default World. The browser supplies no World/Actor authority. Existing
+        // and revoked bindings retain their normal conflict/rebind semantics.
+        const conversation = defaultHostWorldId
+          ? hostConversationBindings.resolveOrBind({
+            adapterId, conversationId: body.conversation_id, defaultWorldId: defaultHostWorldId,
+          })
+          : hostConversationBindings.resolve({
+            adapterId, conversationId: body.conversation_id,
+          });
         const actor = actorBindings.resolveForAdapter(conversation.world_id, adapterId);
         if (!actor?.actor || typeof actor.actor.entity_id !== 'string'
           || typeof actor.actor.entity_type !== 'string') {
