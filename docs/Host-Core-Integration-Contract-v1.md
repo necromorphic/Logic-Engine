@@ -318,7 +318,9 @@ Do not return secrets, raw request data, hidden entity values, Provider snippets
 | Invalid, tampered, or malformed signed assertion | 401 | `HOST_SESSION_ASSERTION_INVALID` |
 | Missing/invalid API bearer | 401 | `UNAUTHORIZED` |
 | Missing/invalid adapter credentials | 403 | `ADAPTER_REQUIRED` |
-| No active conversation → World binding | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
+| New conversation with no configured deployment default World | 503 | `HOST_DEFAULT_WORLD_NOT_CONFIGURED` |
+| Revoked conversation binding | 409 | `HOST_CONVERSATION_REBIND_REQUIRED` |
+| Active conversation binding missing outside the automatic default-World path | 403 | `HOST_CONVERSATION_NOT_AUTHORIZED` |
 | Bound World missing between conversation and Actor resolution | 409 | `HOST_CONVERSATION_WORLD_UNAVAILABLE` |
 | Core World disappears during Actor resolution | 404 | `WORLD_NOT_FOUND` |
 | Actor resolver returns malformed/ineligible binding data | 409 | `HOST_ACTOR_BINDING_UNAVAILABLE` |
