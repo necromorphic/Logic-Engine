@@ -13,12 +13,12 @@ $Repo = "https://github.com/necromorphic/Logic-Engine.git"
 $PinnedStCommit = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
 if ($ResumeExisting) {
     if ([string]::IsNullOrWhiteSpace($TempRoot) -or -not (Test-Path -LiteralPath $TempRoot -PathType Container)) {
-        Stop-WithCode "RESUME_TEMP_ROOT_REQUIRED"
+        throw "RESUME_TEMP_ROOT_REQUIRED"
     }
     $TempRoot = (Resolve-Path -LiteralPath $TempRoot).Path
 } else {
     if (-not [string]::IsNullOrWhiteSpace($TempRoot)) {
-        Stop-WithCode "TEMP_ROOT_IS_ONLY_VALID_WITH_RESUME_EXISTING"
+        throw "TEMP_ROOT_IS_ONLY_VALID_WITH_RESUME_EXISTING"
     }
     $TempRoot = Join-Path $env:TEMP ("LogicEngine-ST-Test-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 }
@@ -56,7 +56,22 @@ New-Item -ItemType Directory -Path $TempRoot -Force | Out-Null
 Write-Host ("Isolated test directory: " + $TempRoot)
 Write-Host ("Provisioning pinned SillyTavern commit: " + $PinnedStCommit)
 
-if ([string]::IsNullOrWhiteSpace($CandidateCommit)) {
+if ($ResumeExisting) {
+    if (-not (Test-Path -LiteralPath $LogicRepo -PathType Container) -or -not (Test-Path -LiteralPath $TestSt -PathType Container)) {
+        Stop-WithCode "RESUME_ACCEPTANCE_CHECKOUTS_NOT_FOUND"
+    }
+    $dirty = @(git -C $LogicRepo status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0) {
+        Stop-WithCode "RESUME_LOGIC_ENGINE_CHECKOUT_NOT_CLEAN"
+    }
+    if ([string]::IsNullOrWhiteSpace($CandidateCommit)) {
+        Invoke-Native "git" @("-C", $LogicRepo, "fetch", "--depth=1", "origin", $CandidateRef) "CANDIDATE_FETCH_FAILED"
+        Invoke-Native "git" @("-C", $LogicRepo, "checkout", "-B", $CandidateRef, "FETCH_HEAD") "CANDIDATE_CHECKOUT_FAILED"
+    } else {
+        Invoke-Native "git" @("-C", $LogicRepo, "fetch", "--depth=1", "origin", $CandidateCommit) "CANDIDATE_FETCH_FAILED"
+        Invoke-Native "git" @("-C", $LogicRepo, "checkout", "--detach", "FETCH_HEAD") "CANDIDATE_CHECKOUT_FAILED"
+    }
+} elseif ([string]::IsNullOrWhiteSpace($CandidateCommit)) {
     Invoke-Native "git" @("clone", "--depth", "1", "--branch", $CandidateRef, "--single-branch", $Repo, $LogicRepo) "LOGIC_ENGINE_CLONE_FAILED"
 } else {
     Invoke-Native "git" @("clone", "--no-checkout", $Repo, $LogicRepo) "LOGIC_ENGINE_CLONE_FAILED"
@@ -83,9 +98,11 @@ try {
     Pop-Location
 }
 
-Invoke-Native "git" @("clone", "--no-checkout", "--filter=blob:none", "https://github.com/SillyTavern/SillyTavern.git", $TestSt) "SILLYTAVERN_CLONE_FAILED"
-Invoke-Native "git" @("-C", $TestSt, "fetch", "--depth=1", "origin", $PinnedStCommit) "SILLYTAVERN_PIN_FETCH_FAILED"
-Invoke-Native "git" @("-C", $TestSt, "checkout", "--detach", "FETCH_HEAD") "SILLYTAVERN_PIN_CHECKOUT_FAILED"
+if (-not $ResumeExisting) {
+    Invoke-Native "git" @("clone", "--no-checkout", "--filter=blob:none", "https://github.com/SillyTavern/SillyTavern.git", $TestSt) "SILLYTAVERN_CLONE_FAILED"
+    Invoke-Native "git" @("-C", $TestSt, "fetch", "--depth=1", "origin", $PinnedStCommit) "SILLYTAVERN_PIN_FETCH_FAILED"
+    Invoke-Native "git" @("-C", $TestSt, "checkout", "--detach", "FETCH_HEAD") "SILLYTAVERN_PIN_CHECKOUT_FAILED"
+}
 $actualStCommit = (git -C $TestSt rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $actualStCommit -ne $PinnedStCommit) {
     Stop-WithCode "SILLYTAVERN_PINNED_COMMIT_MISMATCH"
