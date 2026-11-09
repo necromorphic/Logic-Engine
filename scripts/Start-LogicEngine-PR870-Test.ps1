@@ -1,7 +1,9 @@
 param(
     [string]$SillyTavernRoot,
     [string]$CandidateRef = "integration/host-core-v1",
-    [string]$CandidateCommit
+    [string]$CandidateCommit,
+    [string]$TempRoot,
+    [switch]$ResumeExisting
 )
 
 # Isolated Windows deployment smoke test.
@@ -9,7 +11,17 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "https://github.com/necromorphic/Logic-Engine.git"
 $PinnedStCommit = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
-$TempRoot = Join-Path $env:TEMP ("LogicEngine-ST-Test-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+if ($ResumeExisting) {
+    if ([string]::IsNullOrWhiteSpace($TempRoot) -or -not (Test-Path -LiteralPath $TempRoot -PathType Container)) {
+        Stop-WithCode "RESUME_TEMP_ROOT_REQUIRED"
+    }
+    $TempRoot = (Resolve-Path -LiteralPath $TempRoot).Path
+} else {
+    if (-not [string]::IsNullOrWhiteSpace($TempRoot)) {
+        Stop-WithCode "TEMP_ROOT_IS_ONLY_VALID_WITH_RESUME_EXISTING"
+    }
+    $TempRoot = Join-Path $env:TEMP ("LogicEngine-ST-Test-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+}
 $TestSt = Join-Path $TempRoot "SillyTavern"
 $LogicRepo = Join-Path $TempRoot "Logic-Engine"
 
