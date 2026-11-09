@@ -70,8 +70,8 @@ $previousLocation = Get-Location
 
 try {
     foreach ($entry in $destinations) {
-        $rootPrefix = $stRoot.TrimEnd([char[]]@('\\', '/'))
-        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\\', '/'))
+        $rootPrefix = $stRoot.TrimEnd([char[]]@('\', '/'))
+        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\', '/'))
         $backupPath = Join-Path $backupRoot $relative
         if ($entry.Existed) {
             New-Item -ItemType Directory -Path (Split-Path $backupPath) -Force | Out-Null
@@ -104,8 +104,8 @@ try {
     } | ConvertTo-Json -Depth 4
 } catch {
     foreach ($entry in $destinations) {
-        $rootPrefix = $stRoot.TrimEnd([char[]]@('\\', '/'))
-        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\\', '/'))
+        $rootPrefix = $stRoot.TrimEnd([char[]]@('\', '/'))
+        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\', '/'))
         $backupPath = Join-Path $backupRoot $relative
         if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
             Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
