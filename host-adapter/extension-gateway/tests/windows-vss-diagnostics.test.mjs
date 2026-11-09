@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('Windows VSS child diagnostics do not truncate at execFile command metadata', async () => {
   const source = await readFile(new URL('../server-plugin/windows-vss-snapshot.mjs', import.meta.url), 'utf8');
   const catchStart = source.indexOf('async function runPowerShell');
-  const catchEnd = source.indexOf('\n}\n\n/**', catchStart);
+  const catchEnd = source.indexOf('async function withWindowsVssSnapshotUnlocked', catchStart);
   assert.ok(catchStart >= 0 && catchEnd > catchStart, 'runPowerShell must remain present');
   const implementation = source.slice(catchStart, catchEnd);
 
