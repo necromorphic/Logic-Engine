@@ -441,6 +441,8 @@ try {
         ("Account ID: " + $bootstrap.authenticated_account_id),
         ("Root ID: " + $bootstrap.root_id),
         ("Source manifest SHA-256: " + $bootstrap.source_manifest_sha256),
+        ("Memory Provider DB: " + (Join-Path $CoreData "memory-provider.sqlite")),
+        'Memory Provider field allowlist: ["attributes.public_note"]',
         "Memory -> NPC: disabled",
         "ST-VectorService: not required and not used",
         "Host acceptance mode: LOCAL_LOOPBACK_ONLY (non-authoritative for uncovered mutation routes)",
