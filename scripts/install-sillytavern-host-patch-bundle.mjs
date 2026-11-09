@@ -194,6 +194,11 @@ try {
         patchBlobSha: 'dd491fec699cf4a21b32480c2780b79d79a7665302e97624cbcfc8381aa64deb',
         manifestSha256: '5d5490a939a13f94b83b4a407f09d61a18aeefe67e73b65b7e8200d3a0aa736b',
       },
+      {
+        commit: PINNED_HOST_COMMIT,
+        patchBlobSha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
+        manifestSha256: '592c480cbf9ca3f3573c695961b1a11785353f16d2902e4d82dba9f849d90c62',
+      },
     ],
     expectedOverlayFiles,
   });
