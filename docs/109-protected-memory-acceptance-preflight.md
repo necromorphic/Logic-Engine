@@ -8,7 +8,7 @@ Run it from the same PowerShell process/environment that will launch Core, after
 node scripts/acceptance/protected-memory-preflight.mjs
 ```
 
-The script reports only presence/state, never secret values. Exit codes:
+The acceptance launcher now provisions a separate `memory-provider.sqlite` in the disposable Core data directory and configures the narrow `attributes.public_note` field allowlist. On an already-running environment, this takes effect only after a controlled restart using `-ResumeExisting`; it does not alter the current process. The Memory → NPC runtime flag remains false. The wrapper reports only presence/state, never secret values. Exit codes:
 
 - `0`: no blocker detected by this limited preflight; this is **not** an acceptance pass.
 - `1`: one or more prerequisites are absent or not enrolled.
