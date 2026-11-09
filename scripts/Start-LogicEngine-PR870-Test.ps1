@@ -336,6 +336,10 @@ try {
         world_id = $acceptanceWorldId
     } | ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText($secretPath, $secretRecord, [System.Text.UTF8Encoding]::new($false))
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $userGrant = "*${currentSid}:(R)"
+    & icacls.exe $secretPath /inheritance:r /grant:r $userGrant "*S-1-5-18:(R)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "ACCEPTANCE_SECRET_ACL_HARDENING_FAILED" }
     $infoLines = @(
         "TEMPORARY WINDOWS HOST/CORE ACCEPTANCE",
         ("Logic-Engine commit: " + $actualCommit),
