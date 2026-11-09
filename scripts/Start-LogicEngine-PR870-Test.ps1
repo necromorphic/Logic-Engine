@@ -367,7 +367,6 @@ try {
         ("SillyTavern loopback port: " + $stPort),
         ("Core loopback port: " + $corePort),
         ("Acceptance world: " + $acceptanceWorldId),
-        ("Acceptance binding helper: scripts/Bind-Host-Acceptance-Conversation.ps1"),
         ("Acceptance secrets file: " + $secretPath),
         ("Host installation ID: " + $bootstrap.host_installation_id),
         ("Account ID: " + $bootstrap.authenticated_account_id),
