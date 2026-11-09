@@ -51,8 +51,8 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-epistemic-state.test.js tests/npc-knowledge-read.test.js tests/npc-belief-state.test.js tests/npc-knowledge-snapshot-race.test.js tests/npc-generation-context.test.js tests/npc-generation-context-runtime.test.js tests/npc-generation-context-host-bridge.test.js tests/npc-belief-state-snapshot-race.test.js tests/npc-goal-lifecycle.test.js tests/npc-plan-progress.test.js tests/npc-autonomous-intention-selector.test.js tests/npc-internal-conflict-evaluator.test.js tests/npc-decision-reconsideration-evaluator.test.js
 
   test:
-    # VSS-backed Host inventory tests require the hosted Windows image's VSS provider;
-    # keep this portable CI job independent of the local self-hosted runner service.
+    # Full Host inventory acceptance runs on the local Windows machine; VSS
+    # creation requires the runner process to have the required local privileges.
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     permissions:
@@ -187,10 +187,6 @@ jobs:
       # engine on the local Windows runner. Linux-only native coverage remains separate.
       runs-on: [self-hosted, Windows, X64]
       timeout-minutes: 10
-      strategy:
-        fail-fast: false
-        matrix:
-          os: [self-hosted]
       permissions:
         contents: read
       steps:
