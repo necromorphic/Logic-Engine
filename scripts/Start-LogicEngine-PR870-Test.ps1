@@ -366,9 +366,16 @@ try {
         "x-admin-token" = $adminToken
     }
     try {
-        $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds") -Method Post -Headers $worldHeaders -ContentType "application/json" -Body $worldBody -TimeoutSec 10
-        if (-not $worldResult.world -or $worldResult.world.world_id -ne $acceptanceWorldId) {
-            throw "WORLD_PROVISIONING_RESPONSE_INVALID"
+        if ($ResumeExisting) {
+            $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds/" + $acceptanceWorldId + "/state") -Headers $worldHeaders -TimeoutSec 10
+            if (-not $worldResult.state -or $worldResult.state.world_id -ne $acceptanceWorldId) {
+                throw "EXISTING_ACCEPTANCE_WORLD_INVALID"
+            }
+        } else {
+            $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds") -Method Post -Headers $worldHeaders -ContentType "application/json" -Body $worldBody -TimeoutSec 10
+            if (-not $worldResult.world -or $worldResult.world.world_id -ne $acceptanceWorldId) {
+                throw "WORLD_PROVISIONING_RESPONSE_INVALID"
+            }
         }
     } catch {
         $detail = $_.ErrorDetails.Message
