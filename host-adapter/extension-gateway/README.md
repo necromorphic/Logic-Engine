@@ -46,6 +46,13 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 - The browser conversation UUID is only a locator. Host validates it against the complete server-side Host inventory before resolving Core context.
 - Host carries the verified root ID, inventory sequence and manifest digest into the server-owned generation context. The Gateway must revalidate that inventory snapshot under the shared Coordinator before `DISPATCH_STARTED` and immediately before every actual client response write, including each streamed chunk and final end.
 - World and Actor are never accepted from the browser; Host obtains them from Core-owned durable binding resolution.
+
+### Automatic first-time World binding
+
+For a single-World deployment, set `ENGINE_HOST_DEFAULT_WORLD_ID` in the **Core API process** to the ID of an already-created canonical World. On the first protected generation for each session-scoped Host conversation, the Host Adapter sends only its authenticated session/installation/conversation identity to Core. Core creates and audits the missing binding to that deployment-owned default World; the browser cannot submit or select a World. The embedded Gateway opens the Core database read-only, so this binding is persisted through the authenticated Core API before the embedded reader resolves it. Existing bindings are reused; revoked bindings are never silently restored. Multi-World deployments must use an explicit audited assignment workflow.
+
+The first lifecycle preflight can occur before the first generation has created a Root Inventory snapshot. If Core returns exactly `HOST_LIFECYCLE_NOT_AUTHORIZED`, the Host lifecycle proxy invokes the same authenticated Host inventory gate used by generation and retries the status read once. It does not retry other authorization failures, perform enrollment, or rebind revoked identities.
+
 - Core Security Gateway remains the sole World/Actor and Memory authorization authority.
 - `LOGIC_ENGINE_HOST_IDENTITY_DIR` must be an absolute deployment-owned directory outside SillyTavern's global `DATA_ROOT`.
 - `LOGIC_ENGINE_HOST_BUILD_SHA` is a deployment claim matched to the pinned commit, not runtime attestation.
