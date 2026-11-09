@@ -15,12 +15,8 @@ concurrency:
 
 jobs:
   deployment-security-contracts:
-    name: Deployment security contracts (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [self-hosted]
-    runs-on: ${{ matrix.os }}
+    name: Deployment security contracts (local Windows)
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
