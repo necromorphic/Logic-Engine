@@ -164,7 +164,7 @@ jobs:
   symlink-security:
     # Windows self-hosted runners may not have symlink creation privileges.
     # Keep both security-boundary tests mandatory on a Linux runner.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
