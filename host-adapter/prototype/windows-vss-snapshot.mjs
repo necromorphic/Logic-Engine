@@ -130,6 +130,7 @@ async function runPowerShell(script, env, timeout = 120_000) {
       .replace(/\\s+/g, ' ')
       .slice(0, 320) || 'No child output or spawn metadata';
     throw new Error('HOST_VSS_POWERSHELL_FAILED: ' + diagnostic);
+  }
 }
 
 /**
