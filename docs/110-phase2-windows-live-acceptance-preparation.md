@@ -376,3 +376,24 @@ Commits:
 - `aff6799a545782448b60f82f8316810119963aa7` — Core HTTP attestation fixture.
 
 **Acceptance:** these corrections await exact-head CI. Do not repeat Windows setup or inventory sync until all required checks pass on the current PR head.
+
+
+### Exact-head CI acceptance — 2026-11-09
+
+**Candidate:** PR #946, exact HEAD `87676a6e90fef2893cdd8e127aede83cc9c8bd46`.
+
+All 9 required workflows completed successfully on this exact HEAD:
+
+- PASS — Host Extension Gateway static validation.
+- PASS — Host Extension Gateway candidate check.
+- PASS — Host Account Mutation Receipts.
+- PASS — Pinned SillyTavern Host source audit.
+- PASS — Host browser IndexedDB restart.
+- PASS — SillyTavern Host Plugin Installer.
+- PASS — Gateway Final-Send Validation.
+- PASS — Host Extension Gateway pinned SillyTavern source audit.
+- PASS — Runtime tests.
+
+This resolves the CI pin/fixture blocker for this exact candidate. It does not establish Windows VSS/Root Inventory live acceptance. Resume only at the existing disposable Windows acceptance copy and capture the newly preserved server-side PowerShell/VSS diagnostic. Do not repeat installer, session, identity, enrollment, World provisioning or binding setup. After diagnosing and fixing the actual VSS/PowerShell exception, perform one inventory synchronization.
+
+Pinned SillyTavern source remains `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (1.19.0). The existing test conversation remains bound; do not enroll or bind it again.
