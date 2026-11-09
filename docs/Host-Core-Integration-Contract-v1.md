@@ -159,7 +159,7 @@ Success — HTTP 200, exact response envelope `host-context-resolve-response/v1`
 Core implementation rules:
 
 1. Derive `adapter_id` from authenticated headers.
-2. Resolve the exact active conversation binding using `HostConversationWorldBindingService.resolveOrBind({ adapterId, conversationId, defaultWorldId })` when `ENGINE_HOST_DEFAULT_WORLD_ID` is configured. This creates only a missing first-time binding to the deployment-owned default World, inside Core and under the authenticated adapter. Otherwise use `resolve()`. A revoked binding is never automatically restored.
+2. Resolve the conversation using `HostConversationWorldBindingService.resolveOrBind({ adapterId, conversationId, defaultWorldId })`. Existing active bindings work even when no default is configured. A missing first-time binding is created only from deployment-owned `ENGINE_HOST_DEFAULT_WORLD_ID`; without it Core returns `HOST_DEFAULT_WORLD_NOT_CONFIGURED`. A revoked binding is never automatically restored.
 3. Resolve exactly one active actor using the existing `ActorBindingService.resolveForAdapter(worldId, adapterId)`. This method itself rejects zero or multiple active bindings and rejects a missing/destroyed actor; the HTTP route does not make a second `resolve()` call.
 4. Return only the five fields above. Do not return canonical content, Provider data, grant state, or diagnostics.
 5. Reject missing, revoked, stale, ambiguous, cross-world, malformed, or destroyed bindings. Never accept caller-selected World/Actor values.
