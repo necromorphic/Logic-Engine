@@ -302,6 +302,8 @@ $coreEnvironmentNames = @(
     "ENGINE_PORT",
     "ENGINE_ALLOW_REMOTE",
     "ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES",
+    "ENGINE_MEMORY_PROVIDER_DB_PATH",
+    "ENGINE_MEMORY_NPC_CONTENT_FIELDS",
     "LOGIC_ENGINE_CORE_URL",
     "LOGIC_ENGINE_API_TOKEN",
     "LOGIC_ENGINE_ADAPTER_ID",
@@ -336,6 +338,10 @@ try {
     $env:ENGINE_PORT = [string]$corePort
     $env:ENGINE_ALLOW_REMOTE = "false"
     $env:ENGINE_TRUSTED_INITIAL_KNOWLEDGE_SOURCES = "[]"
+    # Provision a separate, disposable Provider database for diagnostics.
+    # Retrieval remains disabled; the allowlist is intentionally narrow.
+    $env:ENGINE_MEMORY_PROVIDER_DB_PATH = Join-Path $CoreData "memory-provider.sqlite"
+    $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = '["attributes.public_note"]'
 
     $coreStdout = Join-Path $TempRoot "core.stdout.log"
     $coreStderr = Join-Path $TempRoot "core.stderr.log"
