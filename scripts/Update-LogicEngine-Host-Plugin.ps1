@@ -70,7 +70,7 @@ $previousLocation = Get-Location
 
 try {
     foreach ($entry in $destinations) {
-        $relative = [IO.Path]::GetRelativePath($stRoot, $entry.Destination)
+        $relative = $entry.Destination.Substring($stRoot.TrimEnd('\\', '/') .Length).TrimStart('\\', '/')
         $backupPath = Join-Path $backupRoot $relative
         if ($entry.Existed) {
             New-Item -ItemType Directory -Path (Split-Path $backupPath) -Force | Out-Null
