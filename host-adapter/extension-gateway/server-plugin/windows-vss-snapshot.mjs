@@ -107,16 +107,29 @@ async function runPowerShell(script, env, timeout = 120_000) {
       '-EncodedCommand', encoded,
     ], { windowsHide: true, timeout, maxBuffer: 1024 * 1024, env: { ...process.env, ...env } });
   } catch (error) {
-    const output = [error?.stdout, error?.stderr, error?.message].filter(Boolean).join('\\n');
+    // execFile's synthesized error.message starts with the complete command line.
+    // For -EncodedCommand that is a long opaque payload and can push the actual
+    // PowerShell failure out of the diagnostic window. Inspect only child output
+    // plus structured spawn metadata; never log command/args/environment values.
+    const stdout = typeof error?.stdout === 'string' ? error.stdout : '';
+    const stderr = typeof error?.stderr === 'string' ? error.stderr : '';
+    const output = [stderr, stdout].filter(Boolean).join('\\n');
     const markers = [...output.matchAll(/HOST_VSS_[A-Z0-9_]+(?::[0-9]+)?/g)].map(match => match[0]);
     const marker = markers.find(value => value !== 'HOST_VSS_SNAPSHOT_ID');
     if (marker) throw new Error(marker);
-    // Preserve a short, path-scrubbed diagnostic for CI and deployment review;
-    // never include the encoded command or environment values.
-    const diagnostic = String(error?.stderr || error?.message || error?.code || 'unknown')
+    const metadata = [
+      error?.code ? 'code=' + String(error.code) : null,
+      error?.signal ? 'signal=' + String(error.signal) : null,
+      error?.syscall ? 'syscall=' + String(error.syscall) : null,
+      error?.path ? 'executable=' + String(error.path).split(/[\\\\/]/).pop() : null,
+      error?.killed === true ? 'killed=true' : null,
+    ].filter(Boolean).join('; ');
+    const diagnostic = [stderr, stdout, metadata].filter(Boolean).join(' | ')
+      .replace(/\\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\b/gi, '<uuid>')
       .replace(/[A-Z]:\\\\[^\\r\\n"]+/gi, '<path>')
+      .replace(/https?:\\/\\/[^\\s]+/gi, '<url>')
       .replace(/\\s+/g, ' ')
-      .slice(0, 320);
+      .slice(0, 320) || 'No child output or spawn metadata';
     throw new Error('HOST_VSS_POWERSHELL_FAILED: ' + diagnostic);
   }
 }
