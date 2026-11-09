@@ -280,10 +280,10 @@ export function createHostInventoryHandler({
         ? marker[2] ? `${marker[1]}:${marker[2]}` : marker[1]
         : osCode ?? 'HOST_INVENTORY_INTERNAL_ERROR';
       const safeMessage = message
-        .replace(/[A-Z]:\\[^\\r\\n"]+/gi, '<path>')
-        .replace(/\\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\b/gi, '<uuid>')
-        .replace(/https?:\\/\\/[^\\s]+/gi, '<url>')
-        .replace(/\\s+/g, ' ')
+        .replace(/[A-Z]:\\[^\r\n"]+/gi, '<path>')
+        .replace(/\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi, '<uuid>')
+        .replace(/https?:\/\/[^\s]+/gi, '<url>')
+        .replace(/\s+/g, ' ')
         .slice(0, 240);
       console.error('[LogicEngine] Host inventory failed', {
         reason,
