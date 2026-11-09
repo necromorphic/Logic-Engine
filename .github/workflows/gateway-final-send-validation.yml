@@ -57,7 +57,7 @@ concurrency:
 
 jobs:
   gateway-final-send:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
