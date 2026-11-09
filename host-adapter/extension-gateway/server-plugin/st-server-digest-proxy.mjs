@@ -554,6 +554,7 @@ export function createHostLifecycleJournalProxy({
   fetchImpl = globalThis.fetch,
   identityStore,
   receiptStore = null,
+  ensureRootInventory = null,
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
@@ -565,6 +566,9 @@ export function createHostLifecycleJournalProxy({
     || typeof receiptStore.commit !== 'function' || typeof receiptStore.abort !== 'function'
     || typeof receiptStore.recover !== 'function')) {
     throw new TypeError('A durable Host lifecycle receipt store is required');
+  }
+  if (ensureRootInventory !== null && typeof ensureRootInventory !== 'function') {
+    throw new TypeError('ensureRootInventory must be a trusted Host inventory initializer');
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
@@ -779,7 +783,21 @@ export function createHostLifecycleJournalProxy({
         host_session_id: resolved.hostSessionId,
         conversation_uuid: resolved.conversationUuid,
       };
-      const result = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+      let result = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+      // A fresh ST installation may reach its first lifecycle guard before any
+      // model generation has run. In that case no Root Inventory baseline exists
+      // yet. Initialize it through the same authenticated Host gate used by
+      // generation, then retry exactly once. Other authorization failures remain
+      // fail-closed and never trigger an enrollment/rebind.
+      if (result.status === 403
+        && result.payload?.error?.code === 'HOST_LIFECYCLE_NOT_AUTHORIZED'
+        && ensureRootInventory) {
+        let initialized = null;
+        try { initialized = await ensureRootInventory(request, resolved.conversationUuid); } catch {}
+        if (initialized?.status === 'READY') {
+          result = await upstream('/v1/host-lifecycle/status', 'GET', null, identity);
+        }
+      }
       if (result.status !== 200 || result.payload?.lifecycle?.status !== 'PENDING_MUTATION') {
         const permit = request?.session?.logicEngineHostPreparedMutation;
         if (permit?.conversation_uuid === resolved.conversationUuid) {
