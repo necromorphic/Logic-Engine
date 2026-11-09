@@ -399,7 +399,14 @@ try {
         api_token = $apiToken
         admin_token = $adminToken
         adapter_id = $adapterId
+        adapter_token = $adapterToken
         world_id = $acceptanceWorldId
+        core_data = $CoreData
+        data_root = $dataRoot
+        host_identity_dir = $identityDirectory
+        host_receipt_dir = $receiptDirectory
+        sillytavern_root = $TestSt
+        logic_engine_root = $LogicRepo
     } | ConvertTo-Json -Depth 4
     [System.IO.File]::WriteAllText($secretPath, $secretRecord, [System.Text.UTF8Encoding]::new($false))
     $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
