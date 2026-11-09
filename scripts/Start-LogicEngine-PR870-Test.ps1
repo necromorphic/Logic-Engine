@@ -306,7 +306,10 @@ try {
         world_pack_version = "1.0.0"
         game_time = "2005-12-29T10:00:00Z"
     } | ConvertTo-Json -Depth 5 -Compress
-    $worldHeaders = @{ "x-admin-token" = $adminToken }
+    $worldHeaders = @{
+        "Authorization" = "Bearer " + $apiToken
+        "x-admin-token" = $adminToken
+    }
     try {
         $worldResult = Invoke-RestMethod -Uri ("http://127.0.0.1:" + $corePort + "/v1/worlds") -Method Post -Headers $worldHeaders -ContentType "application/json" -Body $worldBody -TimeoutSec 10
         if (-not $worldResult.world -or $worldResult.world.world_id -ne $acceptanceWorldId) {
@@ -331,6 +334,7 @@ try {
     $secretPath = Join-Path $TempRoot "host-acceptance-secrets.json"
     $secretRecord = @{
         core_url = "http://127.0.0.1:" + $corePort
+        api_token = $apiToken
         admin_token = $adminToken
         adapter_id = $adapterId
         world_id = $acceptanceWorldId
