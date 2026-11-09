@@ -52,8 +52,8 @@ permissions:
 # Preserve an active exact-head validation run when newer commits are pushed.
 # GitHub may replace an older pending run, but must not cancel the running job.
 concurrency:
-  group: gateway-final-send-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   gateway-final-send:
