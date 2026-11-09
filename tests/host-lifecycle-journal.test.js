@@ -302,7 +302,7 @@ const makeRootAttestation = result => {
     covered_delta_sha256: result.delta_sha256 ?? null,
     coverage_id: 'ST-1.19.0-HOST-LIFECYCLE-P0-V1',
     pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patch_blob_sha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
+    patch_blob_sha: '15d7b1a727ff87e8f662b7d393ca75138d6dc14625298a2e8f3e490f16178924',
     host_handler_blob_sha: '7fa465f6276dac38c386c4a91245ec5b8c79cde8',
     source_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
     source_manifest_sha256: sourceManifestSha256,
