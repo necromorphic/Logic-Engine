@@ -51,8 +51,8 @@ permissions:
 
 # Keep active exact-head VFS bootstrap probes running across newer integration commits.
 concurrency:
-  group: sqlite-vfs-probe-v2-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   linux:
