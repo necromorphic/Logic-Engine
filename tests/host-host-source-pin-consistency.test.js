@@ -25,7 +25,7 @@ test('Host and Core pin the same exact lifecycle patch bundle and inventory hand
   const lifecyclePatch = gitBlobSha(read('host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'));
   const rootMutationPatch = gitBlobSha(read('host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch'));
   const actualPatchBundle = sha256([lifecyclePatch, rootMutationPatch].join('\n'));
-  const actualHandler = gitBlobSha(read('host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs'));
+  const actualHandler = gitBlobSha(Buffer.from(read('host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs').toString('utf8').replace(/\r\n?/g, '\n'), 'utf8'));
 
   assert.equal(PINNED_PATCH_BUNDLE_SHA256, actualPatchBundle,
     'Gateway patch bundle pin must match the exact two reviewed patch layers');
