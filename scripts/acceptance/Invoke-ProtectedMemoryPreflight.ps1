@@ -56,6 +56,11 @@ $env:ENGINE_HOST_LIFECYCLE_DB_PATH = Join-Path $coreData "host-lifecycle.sqlite"
 $env:ENGINE_HOST_VERSION_LEDGER_DB_PATH = Join-Path $coreData "host-versions.sqlite"
 $env:LOGIC_ENGINE_ACCEPTED_HEAD_AUTHORITY_DB_PATH = Join-Path $coreData "accepted-head-authority.sqlite"
 $env:ENGINE_MEMORY_NPC_CONTENT_FIELDS = '["attributes.public_note"]'
+if ($null -eq $secrets.accepted_head_authority_port -or [string]::IsNullOrWhiteSpace([string]$secrets.accepted_head_authority_read_token)) {
+    throw "ACCEPTED_HEAD_AUTHORITY_READ_CONFIGURATION_MISSING"
+}
+$env:LOGIC_ENGINE_ACCEPTED_HEAD_PORT = [string]$secrets.accepted_head_authority_port
+$env:LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN = [string]$secrets.accepted_head_authority_read_token
 
 Push-Location $repoRoot
 try {
