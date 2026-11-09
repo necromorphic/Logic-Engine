@@ -119,6 +119,66 @@ export class HostLifecycleJournal {
     }
     return null;
   }
+  async restoreBaseline({ conversationId, sourceFingerprint, messages }) {
+    if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid restored baseline');
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const digestPattern = /^[a-f0-9]{64}$/;
+    const messageIds = new Set();
+    const versionIds = new Set();
+    const mapping = messages.map((message, messageIndex) => {
+      if (!message || !uuid.test(message.messageId ?? '') || messageIds.has(message.messageId)
+        || message.messageIndex !== messageIndex || typeof message.role !== 'string'
+        || !Number.isInteger(message.activeVersionIndex) || !Array.isArray(message.versions)
+        || !message.versions.length || message.activeVersionIndex < 0
+        || message.activeVersionIndex >= message.versions.length) {
+        throw Error('NON_READY: persisted Host identity metadata is incomplete or duplicated');
+      }
+      messageIds.add(message.messageId);
+      const versions = message.versions.map((version, versionIndex) => {
+        if (!version || !uuid.test(version.versionId ?? '') || versionIds.has(version.versionId)
+          || version.versionIndex !== versionIndex || !digestPattern.test(version.payloadDigest ?? '')
+          || (version.parentVersionId !== null && version.parentVersionId !== undefined
+            && !uuid.test(version.parentVersionId))) {
+          throw Error('NON_READY: persisted Host version identity metadata is invalid');
+        }
+        versionIds.add(version.versionId);
+        return {
+          versionId: version.versionId,
+          versionIndex,
+          payloadDigest: version.payloadDigest,
+          parentVersionId: version.parentVersionId ?? null,
+        };
+      });
+      return {
+        messageId: message.messageId,
+        messageIndex,
+        role: message.role,
+        activeVersionIndex: message.activeVersionIndex,
+        versions,
+      };
+    });
+    if ((await this.#records(conversationId)).length || await this.#head(conversationId)) {
+      throw Error('Already enrolled or checkpoint exists; restored baseline is not supported');
+    }
+    const row = await this.append({
+      conversationId,
+      eventId: id(),
+      operation: 'baseline',
+      sourceFingerprint,
+      payload: {
+        captureBoundary: 'origin-recovery-current-state-baseline',
+        preRecoveryHistory: 'UNKNOWN_UNRECOVERABLE',
+        messages: mapping,
+      },
+    });
+    if (row?.status === 'NON_READY') throw Error('NON_READY: restored baseline append rejected: ' + row.reason);
+    return {
+      mapping,
+      baselineSequence: row.sequence,
+      preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
+      restoredFromPersistedChatMetadata: true,
+    };
+  }
   async enroll({ conversationId, sourceFingerprint, messages }) {
     if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
     if ((await this.#records(conversationId)).length || await this.#head(conversationId)) throw Error('Already enrolled or checkpoint exists; explicit re-baseline is not supported');

@@ -1236,7 +1236,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/publi
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,365 @@
 +// Generation start/stop signals do not independently mutate persisted chat files; their resulting messages are covered by message-send/receive receipts.
 +const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 +const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
@@ -1357,6 +1357,66 @@ new file mode 100644
 +      throw error;
 +    }
 +    return null;
++  }
++  async restoreBaseline({ conversationId, sourceFingerprint, messages }) {
++    if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid restored baseline');
++    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++    const digestPattern = /^[a-f0-9]{64}$/;
++    const messageIds = new Set();
++    const versionIds = new Set();
++    const mapping = messages.map((message, messageIndex) => {
++      if (!message || !uuid.test(message.messageId ?? '') || messageIds.has(message.messageId)
++        || message.messageIndex !== messageIndex || typeof message.role !== 'string'
++        || !Number.isInteger(message.activeVersionIndex) || !Array.isArray(message.versions)
++        || !message.versions.length || message.activeVersionIndex < 0
++        || message.activeVersionIndex >= message.versions.length) {
++        throw Error('NON_READY: persisted Host identity metadata is incomplete or duplicated');
++      }
++      messageIds.add(message.messageId);
++      const versions = message.versions.map((version, versionIndex) => {
++        if (!version || !uuid.test(version.versionId ?? '') || versionIds.has(version.versionId)
++          || version.versionIndex !== versionIndex || !digestPattern.test(version.payloadDigest ?? '')
++          || (version.parentVersionId !== null && version.parentVersionId !== undefined
++            && !uuid.test(version.parentVersionId))) {
++          throw Error('NON_READY: persisted Host version identity metadata is invalid');
++        }
++        versionIds.add(version.versionId);
++        return {
++          versionId: version.versionId,
++          versionIndex,
++          payloadDigest: version.payloadDigest,
++          parentVersionId: version.parentVersionId ?? null,
++        };
++      });
++      return {
++        messageId: message.messageId,
++        messageIndex,
++        role: message.role,
++        activeVersionIndex: message.activeVersionIndex,
++        versions,
++      };
++    });
++    if ((await this.#records(conversationId)).length || await this.#head(conversationId)) {
++      throw Error('Already enrolled or checkpoint exists; restored baseline is not supported');
++    }
++    const row = await this.append({
++      conversationId,
++      eventId: id(),
++      operation: 'baseline',
++      sourceFingerprint,
++      payload: {
++        captureBoundary: 'origin-recovery-current-state-baseline',
++        preRecoveryHistory: 'UNKNOWN_UNRECOVERABLE',
++        messages: mapping,
++      },
++    });
++    if (row?.status === 'NON_READY') throw Error('NON_READY: restored baseline append rejected: ' + row.reason);
++    return {
++      mapping,
++      baselineSequence: row.sequence,
++      preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
++      restoredFromPersistedChatMetadata: true,
++    };
 +  }
 +  async enroll({ conversationId, sourceFingerprint, messages }) {
 +    if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
@@ -1546,7 +1606,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,950 @@
+@@ -0,0 +1,1026 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1721,6 +1781,69 @@ new file mode 100644
 +    return enrolled;
 +  }
 +
++  // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
++  // local port, the chat's persisted identity metadata remains available but
++  // the old origin's journal does not. Rebuild only a current-state baseline
++  // from those already-persisted IDs and verified payload digests; never mint
++  // replacement message/version IDs or claim the missing event history.
++  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
++    const sourceLocator = getSourceLocator();
++    const chat = getChat();
++    if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
++    const fingerprint = await currentFingerprint(chat);
++    const messageIds = new Set();
++    const versionIds = new Set();
++    const messages = [];
++    for (let messageIndex = 0; messageIndex < chat.length; messageIndex++) {
++      const message = chat[messageIndex];
++      const identity = message?._logicEngineLifecycle;
++      const versions = rawVersions(message);
++      if (!identity || !HOST_UUID.test(identity.messageId ?? '')
++        || messageIds.has(identity.messageId)
++        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
++        || identity.activeVersionIndex !== activeIndex(message)
++        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= versions.length) return null;
++      messageIds.add(identity.messageId);
++      const persistedVersions = [];
++      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
++        const version = identity.versions[versionIndex];
++        if (!version || !HOST_UUID.test(version.versionId ?? '')
++          || versionIds.has(version.versionId)
++          || version.versionIndex !== versionIndex
++          || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
++          || version.payloadDigest !== await contentDigest(versions[versionIndex])
++          || (version.parentVersionId != null && !HOST_UUID.test(version.parentVersionId))) return null;
++        versionIds.add(version.versionId);
++        persistedVersions.push({
++          versionId: version.versionId,
++          versionIndex,
++          payloadDigest: version.payloadDigest,
++          parentVersionId: version.parentVersionId ?? null,
++        });
++      }
++      messages.push({
++        messageId: identity.messageId,
++        messageIndex,
++        role: roleOf(message),
++        activeVersionIndex: identity.activeVersionIndex,
++        versions: persistedVersions,
++      });
++    }
++    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
++      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
++      throw Error('NON_READY: Host conversation changed during origin recovery');
++    }
++    const restored = await journal.restoreBaseline({
++      conversationId,
++      sourceFingerprint: fingerprint,
++      messages,
++    });
++    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
++      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
++      throw Error('NON_READY: Host conversation changed after origin recovery');
++    }
++    return restored;
++  }
 +  async function enrollCurrentConversation() {
 +    const conversationId = await getConversationId();
 +    const sourceLocator = getSourceLocator();
@@ -1819,7 +1942,13 @@ new file mode 100644
 +
 +  async function beforeMutation(operation, messageIndexes, details = {}) {
 +    const conversationId = await getConversationId();
-+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
++    if (!conversationId) return { status: 'NOT_ENROLLED' };
++    let recoveredBaseline = false;
++    if (!(await enrolledOrFailClosed(conversationId))) {
++      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
++      recoveredBaseline = true;
++    }
 +    if (getLifecycleStatus) {
 +      let remote;
 +      try { remote = await getLifecycleStatus(conversationId); }
@@ -2322,7 +2451,13 @@ new file mode 100644
 +        tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
 +      }
 +    }
-+    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
++    const published = await publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
++    return recoveredBaseline ? {
++      ...published,
++      journalRecovery: 'RESTORED_FROM_PERSISTED_CHAT_METADATA',
++      historyBoundary: 'CURRENT_STATE_BASELINE_ONLY',
++      preRecoveryHistory: 'UNKNOWN_UNRECOVERABLE',
++    } : published;
 +  }
 +
 +  function getCoreCaptureStatus() {
