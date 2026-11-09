@@ -10,17 +10,43 @@ $secretPath = Join-Path $resolvedRoot "host-acceptance-secrets.json"
 if (-not (Test-Path -LiteralPath $secretPath -PathType Leaf)) {
     throw "ACCEPTANCE_SECRETS_NOT_FOUND"
 }
+
 $secrets = Get-Content -LiteralPath $secretPath -Raw | ConvertFrom-Json
-foreach ($name in @("core_data", "logic_engine_root")) {
-    if ([string]::IsNullOrWhiteSpace([string]$secrets.$name)) {
-        throw ("ACCEPTANCE_SECRET_FIELD_MISSING_" + $name.ToUpperInvariant())
+if ([string]::IsNullOrWhiteSpace([string]$secrets.core_data)) {
+    throw "ACCEPTANCE_SECRET_FIELD_MISSING_CORE_DATA"
+}
+
+# Prefer the repository containing this wrapper. This makes the command work
+# from a normal checkout without copying scripts into the disposable runtime.
+$scriptCandidates = @(
+    (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..") -ErrorAction Stop).Path
+)
+if (-not [string]::IsNullOrWhiteSpace([string]$secrets.logic_engine_root)) {
+    $configuredRoot = [string]$secrets.logic_engine_root
+    if (Test-Path -LiteralPath $configuredRoot -PathType Container) {
+        $configuredRoot = (Resolve-Path -LiteralPath $configuredRoot).Path
+        if ($scriptCandidates -notcontains $configuredRoot) {
+            $scriptCandidates += $configuredRoot
+        }
     }
 }
-$repoRoot = (Resolve-Path -LiteralPath ([string]$secrets.logic_engine_root) -ErrorAction Stop).Path
-$scriptPath = Join-Path $repoRoot "scripts/acceptance/protected-memory-preflight.mjs"
-if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
-    throw "PROTECTED_MEMORY_PREFLIGHT_SCRIPT_NOT_FOUND"
+
+$repoRoot = $null
+$scriptPath = $null
+foreach ($candidate in $scriptCandidates) {
+    $candidateScript = Join-Path $candidate "scripts/acceptance/protected-memory-preflight.mjs"
+    $candidateImport = Join-Path $candidate "src/security/accepted-head-client-sync.js"
+    if ((Test-Path -LiteralPath $candidateScript -PathType Leaf) -and
+        (Test-Path -LiteralPath $candidateImport -PathType Leaf)) {
+        $repoRoot = $candidate
+        $scriptPath = $candidateScript
+        break
+    }
 }
+if (-not $scriptPath) {
+    throw ("PROTECTED_MEMORY_PREFLIGHT_FILES_NOT_FOUND. Checked: " + ($scriptCandidates -join "; "))
+}
+
 $coreData = [string]$secrets.core_data
 $env:ENGINE_DB_PATH = Join-Path $coreData "logic-engine.sqlite"
 $env:LOGIC_ENGINE_COORDINATOR_DB_PATH = Join-Path $coreData "coordinator.sqlite"
