@@ -53,7 +53,7 @@ jobs:
   test:
     # VSS-backed Host inventory tests require the hosted Windows image's VSS provider;
     # keep this portable CI job independent of the local self-hosted runner service.
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
     permissions:
       contents: read
