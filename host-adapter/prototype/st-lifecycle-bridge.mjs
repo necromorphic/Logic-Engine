@@ -482,7 +482,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = await getConversationId();
-    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId) return { status: 'NOT_ENROLLED' };
+    let recoveredBaseline = false;
+    if (!(await enrolledOrFailClosed(conversationId))) {
+      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
+      recoveredBaseline = true;
+    }
     const pending = await journal.pendingMutation(conversationId);
     if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
     if (pending.status !== 'PENDING_MUTATION' || pending.operation !== operation) {
