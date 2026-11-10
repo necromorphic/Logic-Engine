@@ -565,7 +565,12 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const preparedHordeGeneration = await adapter.prepareGenerationContext(nativeHordeRequest, 'horde-text');
   assert.equal(preparedHordeGeneration.status, 'READY');
   assert.equal(preparedHordeGeneration.requestId, '88888888-8888-4888-8888-888888888888');
-  assert.equal(coreCalls.length, coreCallsBeforeGeneration);
+  // Horde uses the same authenticated preparation contract as the other
+  // native generation routes: it must ensure the durable Core conversation
+  // binding, but it must not invoke the legacy HTTP Memory retrieval path.
+  assert.equal(coreCalls.length, coreCallsBeforeGeneration + 2);
+  assert.equal(coreCalls.at(-1), '/v1/host-context/resolve');
+  assert.equal(resolvedCoreContexts.length, resolvedContextsBeforeGeneration + 2);
 
   // The production scanner currently emits DOUBLE_SCAN_CANDIDATE. Prove that
   // such a candidate cannot reach Core, even when the same server credentials exist.
