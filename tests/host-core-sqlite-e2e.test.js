@@ -333,8 +333,8 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.ok(persistedCanonicalSource, 'the canonical source must independently exist in Core SQLite');
     assert.equal(JSON.parse(persistedCanonicalSource.attributes_json).public_note, canary,
       'the unique canary must be present in the canonical Core source on disk');
-    assert.equal(String(persistedCanonicalSource.source_version), String(source.source_version),
-      'the canonical source version must match Provider lineage');
+    assert.equal(source.source_version, `core-entity-v1:${persistedCanonicalSource.source_version}`,
+      'the canonical Core version token must map to the independently persisted numeric source version');
 
     // The actual ST authentication gate rejects a session/account identity mismatch
     // before any outbound Core request is made.
