@@ -148,10 +148,11 @@ export function receiveNpcContext({
   hostBinding,
   requestId,
   generationId,
+  runId,
   model,
   purpose = 'npc_decision',
 } = {}) {
-  if (!UUID(requestId) || !UUID(generationId) || !ID(model) || !ID(purpose)
+  if (!UUID(requestId) || !UUID(generationId) || !UUID(runId) || !ID(model) || !ID(purpose)
     || !exactDataRecord(hostContext, ['adapter_id', 'conversation_id', 'world_id', 'actor_id', 'actor_type'])
     || !ID(hostContext.adapter_id) || !ID(hostContext.conversation_id)
     || !ID(hostContext.world_id) || !ID(hostContext.actor_id) || !ID(hostContext.actor_type)
@@ -281,6 +282,7 @@ export function receiveNpcContext({
   const sources = [...sourcesByIdentity.values()];
   if (sources.length === 0 && candidates.length !== 0) throw new Error('NPC_CONTEXT_SOURCE_SET_INVALID');
   const immutableEvidence = {
+    runId,
     requestId,
     generationId,
     coreEnvelopeDigest,
@@ -319,6 +321,7 @@ export function receiveNpcContext({
     .update(JSON.stringify(canonicalJson(immutableEvidence)), 'utf8')
     .digest('hex');
   return Object.freeze({
+    runId,
     requestId,
     generationId,
     contextDigest,
