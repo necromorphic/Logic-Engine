@@ -66,13 +66,6 @@ function canonicalJson(value, seen = new WeakSet()) {
   return output;
 }
 
-function validProviderEvidenceCursor(value) {
-  return exactDataRecord(value, ['data_version', 'candidate_digest'])
-    && Number.isSafeInteger(value.data_version) && value.data_version >= 0
-    && typeof value.candidate_digest === 'string'
-    && /^[a-f0-9]{64}$/.test(value.candidate_digest);
-}
-
 function denseArray(value, max) {
   if (!Array.isArray(value) || utilTypes.isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype
     || value.length > max) return false;
@@ -180,13 +173,14 @@ export function receiveNpcContext({
     || !/^[a-f0-9]{64}$/.test(hostBinding.root_manifest_sha256 ?? '')) {
     throw new Error('NPC_CONTEXT_SCOPE_INVALID');
   }
+  // Consume the public memory-npc-result/v1 envelope. Core intentionally
+  // keeps provider_evidence_cursor internal to its dispatch evidence path.
   if (!exactDataRecord(retrieval, [
-    'status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor',
+    'status', 'admitted', 'candidates', 'reason', 'snapshot',
   ])
     || retrieval.status !== 'ready' || retrieval.reason !== null
     || !denseArray(retrieval.admitted, 50) || !denseArray(retrieval.candidates, 50)
     || retrieval.admitted.length > retrieval.candidates.length
-    || !validProviderEvidenceCursor(retrieval.provider_evidence_cursor)
     || !exactDataRecord(retrieval.snapshot, ['world_revision', 'commit_sequence'])
     || !Number.isSafeInteger(retrieval.snapshot.world_revision) || retrieval.snapshot.world_revision < 0
     || !Number.isSafeInteger(retrieval.snapshot.commit_sequence) || retrieval.snapshot.commit_sequence < 0) {
@@ -296,10 +290,6 @@ export function receiveNpcContext({
     snapshot: {
       world_revision: retrieval.snapshot.world_revision,
       commit_sequence: retrieval.snapshot.commit_sequence,
-    },
-    providerEvidenceCursor: {
-      data_version: retrieval.provider_evidence_cursor.data_version,
-      candidate_digest: retrieval.provider_evidence_cursor.candidate_digest,
     },
     hostContext: {
       adapter_id: hostContext.adapter_id,
