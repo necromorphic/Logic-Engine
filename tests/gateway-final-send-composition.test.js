@@ -194,6 +194,14 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   assert.equal(result.candidates.length, 1);
   assert.equal(result.contentBlocks[0].content, candidate.content);
   assert.equal(result.providerEvidenceCursor.data_version, 4);
+  assert.ok(Object.isFrozen(result));
+  assert.ok(Object.isFrozen(result.hostContext));
+  assert.ok(Object.isFrozen(result.sources));
+  assert.ok(Object.isFrozen(result.candidates));
+  assert.ok(Object.isFrozen(result.contentBlocks));
+  assert.ok(Object.isFrozen(result.contentBlocks[0]));
+  assert.ok(Object.isFrozen(result.contentBlocks[0].content));
+  assert.ok(Object.isFrozen(result.snapshot));
 });
 
 test('production protected-memory projection fails closed when the prepared Host envelope is not READY', () => {
