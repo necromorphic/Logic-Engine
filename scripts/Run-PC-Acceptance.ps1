@@ -8,6 +8,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:Checks = New-Object System.Collections.Generic.List[object]
 $script:Warnings = New-Object System.Collections.Generic.List[string]
+$patchSha256 = $null
+$patchTargetEvidence = @()
+$vectorEvidence = @()
 
 function Add-Check {
     param([string]$Name, [string]$Status, [string]$Details, [int]$ExitCode = 0)
@@ -196,7 +199,294 @@ try {
         $patchPath = Join-Path $repoRoot 'host-adapter\prototype\patches\sillytavern-1.19.0-lifecycle-hooks.patch'
         if (-not (Test-Path -LiteralPath $patchPath -PathType Leaf)) {
             Add-Check 'Host lifecycle patch presence' 'FAIL' "Patch file missing: $patchPath" 1
-        } elseif ($git) {
+        } else {
+            $patchSha256 = Get-FileSha256 $patchPath
+            $patchText = Get-Content -LiteralPath $patchPath -Raw
+            $patchTargetEvidence = @(
+                foreach ($match in [regex]::Matches($patchText, '(?m)^diff --git a/.+ b/(.+) = @(& git -C $stRoot apply --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+            $applyCode = $LASTEXITCODE
+            if ($applyCode -eq 0) {
+                Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch applies cleanly to the discovered SillyTavern source. Check only; no files changed.'
+            } else {
+                $reverseOutput = @(& git -C $stRoot apply --reverse --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+                $reverseCode = $LASTEXITCODE
+                if ($reverseCode -eq 0) {
+                    Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch is already applied; reverse-check confirms the exact patch footprint. No files changed.'
+                } else {
+                    $detail = (($applyOutput + $reverseOutput) -join ' ').Trim()
+                    Add-Check 'Host lifecycle patch compatibility' 'FAIL' ("Patch neither applies cleanly nor matches an already-applied state. " + $detail) 1
+                }
+            }
+        }
+        $stPkgLock = Join-Path $stRoot 'package-lock.json'
+        if (Test-Path -LiteralPath $stPkgLock -PathType Leaf) {
+            Add-Check 'SillyTavern dependency lockfile' 'PASS' (Get-FileSha256 $stPkgLock)
+        } else { Add-Check 'SillyTavern dependency lockfile' 'WARN' 'package-lock.json not present.' }
+    } else {
+        Add-Check 'SillyTavern discovery' 'WARN' 'No unique SillyTavern folder or matching ZIP found. Patch compatibility was not tested.'
+    }
+
+    if ($vectorCandidates.Count -eq 1) {
+        $vectorRoot = $vectorCandidates[0].Root
+        $vectorPkg = Read-Package $vectorRoot
+        $vectorEvidence = @(
+            foreach ($relative in @('package.json','package-lock.json','server.js')) {
+                $target = Join-Path $vectorRoot $relative
+                if (Test-Path -LiteralPath $target -PathType Leaf) {
+                    [pscustomobject]@{ relativePath = $relative; sha256 = Get-FileSha256 $target; length = (Get-Item -LiteralPath $target).Length }
+                }
+            }
+            $storage = Join-Path $vectorRoot 'vector_storage'
+            if (Test-Path -LiteralPath $storage -PathType Container) {
+                foreach ($db in Get-ChildItem -LiteralPath $storage -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '\.(sqlite|sqlite3|db)(-wal|-shm)? 'PASS' ("{0} {1} at {2}" -f $vectorPkg.name, $vectorPkg.version, $vectorRoot)
+        if ($vectorPkg.scripts -and $vectorPkg.scripts.test -and $npm) {
+            [void](Invoke-ExternalCheck 'ST-VectorService test suite' 'npm' @('test','--if-present') $vectorRoot)
+        } else {
+            Add-Check 'ST-VectorService tests' 'WARN' 'No npm test script declared; service was inventoried but not executed.'
+        }
+        $vectorServer = Join-Path $vectorRoot 'server.js'
+        if (Test-Path -LiteralPath $vectorServer -PathType Leaf) {
+            Add-Check 'ST-VectorService entrypoint' 'PASS' (Get-FileSha256 $vectorServer)
+        } else { Add-Check 'ST-VectorService entrypoint' 'WARN' 'server.js not found at service root.' }
+    } elseif ($vectorCandidates.Count -gt 1) {
+        Add-Check 'ST-VectorService discovery' 'FAIL' ("Multiple candidates found: " + (($vectorCandidates | ForEach-Object Root) -join '; ')) 1
+    } else {
+        Add-Check 'ST-VectorService discovery' 'WARN' 'No local VectorService folder found. It was not modified.'
+    }
+
+    $criticalFailures = @($script:Checks | Where-Object { $_.status -eq 'FAIL' }).Count
+    $warnings = @($script:Checks | Where-Object { $_.status -eq 'WARN' }).Count
+    $report = [ordered]@{
+        schemaVersion = 1
+        reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        durationSeconds = [math]::Round(([datetime]::UtcNow - $started).TotalSeconds, 2)
+        machine = $env:COMPUTERNAME
+        user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        repository = $repoRoot
+        repositoryVersion = [string]$enginePackage.version
+        nodeVersion = if ($node) { (& node --version 2>&1 | Out-String).Trim() } else { $null }
+        gitVersion = if ($git) { (& git --version 2>&1 | Out-String).Trim() } else { $null }
+        discoveredSillyTavern = $stRoot
+        hostLifecyclePatchSha256 = $patchSha256
+        hostLifecyclePatchTargets = @($patchTargetEvidence)
+        vectorServiceFingerprint = @($vectorEvidence)
+        discoveredVectorService = if ($vectorCandidates.Count -eq 1) { $vectorCandidates[0].Root } else { $null }
+        counts = [ordered]@{ passed = @($script:Checks | Where-Object status -eq 'PASS').Count; failed = $criticalFailures; warnings = $warnings }
+        checks = @($script:Checks.ToArray())
+        safety = [ordered]@{
+            liveSillyTavernModified = $false
+            vectorServiceModified = $false
+            sqliteDatabasesModified = $false
+            patchApplied = $false
+            note = 'This runner performs discovery, test execution and git apply --check only. It does not install or apply patches.'
+        }
+    }
+    $reportPath = Join-Path $runRoot 'acceptance-report.json'
+    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    Write-Host ''
+    Write-Host ("RESULT: {0} passed / {1} failed / {2} warnings" -f $report.counts.passed, $report.counts.failed, $report.counts.warnings)
+    Write-Host "REPORT: $reportPath"
+    if ($criticalFailures -gt 0) { exit 1 }
+}
+catch {
+    Add-Check 'Runner execution' 'FAIL' $_.Exception.Message 1
+    $fatal = [ordered]@{
+        schemaVersion = 1; reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        repository = $repoRoot; fatalError = $_.Exception.Message
+        checks = @($script:Checks.ToArray())
+        safety = @{ liveSillyTavernModified = $false; vectorServiceModified = $false; sqliteDatabasesModified = $false; patchApplied = $false }
+    }
+    $fatal | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot 'acceptance-report.json') -Encoding UTF8
+    Write-Host "REPORT: $(Join-Path $runRoot 'acceptance-report.json')"
+    exit 1
+}
+finally {
+    Stop-Transcript | Out-Null
+})) {
+                    $relative = $match.Groups[1].Value
+                    $target = Join-Path $stRoot ($relative -replace '/', '\\')
+                    [pscustomobject]@{
+                        relativePath = $relative
+                        exists = (Test-Path -LiteralPath $target -PathType Leaf)
+                        sha256 = Get-FileSha256 $target
+                    }
+                }
+            )
+            Add-Check 'Host lifecycle patch fingerprint' 'PASS' ("SHA256 {0}; {1} target files fingerprinted." -f $patchSha256, $patchTargetEvidence.Count)
+        }
+        if ((Test-Path -LiteralPath $patchPath -PathType Leaf) -and $git) {
+            $applyOutput = @(& git -C $stRoot apply --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+            $applyCode = $LASTEXITCODE
+            if ($applyCode -eq 0) {
+                Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch applies cleanly to the discovered SillyTavern source. Check only; no files changed.'
+            } else {
+                $reverseOutput = @(& git -C $stRoot apply --reverse --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+                $reverseCode = $LASTEXITCODE
+                if ($reverseCode -eq 0) {
+                    Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch is already applied; reverse-check confirms the exact patch footprint. No files changed.'
+                } else {
+                    $detail = (($applyOutput + $reverseOutput) -join ' ').Trim()
+                    Add-Check 'Host lifecycle patch compatibility' 'FAIL' ("Patch neither applies cleanly nor matches an already-applied state. " + $detail) 1
+                }
+            }
+        }
+        $stPkgLock = Join-Path $stRoot 'package-lock.json'
+        if (Test-Path -LiteralPath $stPkgLock -PathType Leaf) {
+            Add-Check 'SillyTavern dependency lockfile' 'PASS' (Get-FileSha256 $stPkgLock)
+        } else { Add-Check 'SillyTavern dependency lockfile' 'WARN' 'package-lock.json not present.' }
+    } else {
+        Add-Check 'SillyTavern discovery' 'WARN' 'No unique SillyTavern folder or matching ZIP found. Patch compatibility was not tested.'
+    }
+
+    if ($vectorCandidates.Count -eq 1) {
+        $vectorRoot = $vectorCandidates[0].Root
+        $vectorPkg = Read-Package $vectorRoot
+        Add-Check 'ST-VectorService discovery' 'PASS' ("{0} {1} at {2}" -f $vectorPkg.name, $vectorPkg.version, $vectorRoot)
+        if ($vectorPkg.scripts -and $vectorPkg.scripts.test -and $npm) {
+            [void](Invoke-ExternalCheck 'ST-VectorService test suite' 'npm' @('test','--if-present') $vectorRoot)
+        } else {
+            Add-Check 'ST-VectorService tests' 'WARN' 'No npm test script declared; service was inventoried but not executed.'
+        }
+        $vectorServer = Join-Path $vectorRoot 'server.js'
+        if (Test-Path -LiteralPath $vectorServer -PathType Leaf) {
+            Add-Check 'ST-VectorService entrypoint' 'PASS' (Get-FileSha256 $vectorServer)
+        } else { Add-Check 'ST-VectorService entrypoint' 'WARN' 'server.js not found at service root.' }
+    } elseif ($vectorCandidates.Count -gt 1) {
+        Add-Check 'ST-VectorService discovery' 'FAIL' ("Multiple candidates found: " + (($vectorCandidates | ForEach-Object Root) -join '; ')) 1
+    } else {
+        Add-Check 'ST-VectorService discovery' 'WARN' 'No local VectorService folder found. It was not modified.'
+    }
+
+    $criticalFailures = @($script:Checks | Where-Object { $_.status -eq 'FAIL' }).Count
+    $warnings = @($script:Checks | Where-Object { $_.status -eq 'WARN' }).Count
+    $report = [ordered]@{
+        schemaVersion = 1
+        reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        durationSeconds = [math]::Round(([datetime]::UtcNow - $started).TotalSeconds, 2)
+        machine = $env:COMPUTERNAME
+        user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        repository = $repoRoot
+        repositoryVersion = [string]$enginePackage.version
+        nodeVersion = if ($node) { (& node --version 2>&1 | Out-String).Trim() } else { $null }
+        gitVersion = if ($git) { (& git --version 2>&1 | Out-String).Trim() } else { $null }
+        discoveredSillyTavern = $stRoot
+        discoveredVectorService = if ($vectorCandidates.Count -eq 1) { $vectorCandidates[0].Root } else { $null }
+        counts = [ordered]@{ passed = @($script:Checks | Where-Object status -eq 'PASS').Count; failed = $criticalFailures; warnings = $warnings }
+        checks = @($script:Checks.ToArray())
+        safety = [ordered]@{
+            liveSillyTavernModified = $false
+            vectorServiceModified = $false
+            sqliteDatabasesModified = $false
+            patchApplied = $false
+            note = 'This runner performs discovery, test execution and git apply --check only. It does not install or apply patches.'
+        }
+    }
+    $reportPath = Join-Path $runRoot 'acceptance-report.json'
+    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    Write-Host ''
+    Write-Host ("RESULT: {0} passed / {1} failed / {2} warnings" -f $report.counts.passed, $report.counts.failed, $report.counts.warnings)
+    Write-Host "REPORT: $reportPath"
+    if ($criticalFailures -gt 0) { exit 1 }
+}
+catch {
+    Add-Check 'Runner execution' 'FAIL' $_.Exception.Message 1
+    $fatal = [ordered]@{
+        schemaVersion = 1; reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        repository = $repoRoot; fatalError = $_.Exception.Message
+        checks = @($script:Checks.ToArray())
+        safety = @{ liveSillyTavernModified = $false; vectorServiceModified = $false; sqliteDatabasesModified = $false; patchApplied = $false }
+    }
+    $fatal | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot 'acceptance-report.json') -Encoding UTF8
+    Write-Host "REPORT: $(Join-Path $runRoot 'acceptance-report.json')"
+    exit 1
+}
+finally {
+    Stop-Transcript | Out-Null
+} }) {
+                    [pscustomobject]@{ relativePath = $db.FullName.Substring($vectorRoot.Length).TrimStart('\','/'); sha256 = $null; length = $db.Length; modifiedUtc = $db.LastWriteTimeUtc.ToString('o'); note = 'Database content not read or hashed.' }
+                }
+            }
+        )
+        Add-Check 'ST-VectorService discovery' 'PASS' ("{0} {1} at {2}" -f $vectorPkg.name, $vectorPkg.version, $vectorRoot)
+        if ($vectorPkg.scripts -and $vectorPkg.scripts.test -and $npm) {
+            [void](Invoke-ExternalCheck 'ST-VectorService test suite' 'npm' @('test','--if-present') $vectorRoot)
+        } else {
+            Add-Check 'ST-VectorService tests' 'WARN' 'No npm test script declared; service was inventoried but not executed.'
+        }
+        $vectorServer = Join-Path $vectorRoot 'server.js'
+        if (Test-Path -LiteralPath $vectorServer -PathType Leaf) {
+            Add-Check 'ST-VectorService entrypoint' 'PASS' (Get-FileSha256 $vectorServer)
+        } else { Add-Check 'ST-VectorService entrypoint' 'WARN' 'server.js not found at service root.' }
+    } elseif ($vectorCandidates.Count -gt 1) {
+        Add-Check 'ST-VectorService discovery' 'FAIL' ("Multiple candidates found: " + (($vectorCandidates | ForEach-Object Root) -join '; ')) 1
+    } else {
+        Add-Check 'ST-VectorService discovery' 'WARN' 'No local VectorService folder found. It was not modified.'
+    }
+
+    $criticalFailures = @($script:Checks | Where-Object { $_.status -eq 'FAIL' }).Count
+    $warnings = @($script:Checks | Where-Object { $_.status -eq 'WARN' }).Count
+    $report = [ordered]@{
+        schemaVersion = 1
+        reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        durationSeconds = [math]::Round(([datetime]::UtcNow - $started).TotalSeconds, 2)
+        machine = $env:COMPUTERNAME
+        user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        repository = $repoRoot
+        repositoryVersion = [string]$enginePackage.version
+        nodeVersion = if ($node) { (& node --version 2>&1 | Out-String).Trim() } else { $null }
+        gitVersion = if ($git) { (& git --version 2>&1 | Out-String).Trim() } else { $null }
+        discoveredSillyTavern = $stRoot
+        discoveredVectorService = if ($vectorCandidates.Count -eq 1) { $vectorCandidates[0].Root } else { $null }
+        counts = [ordered]@{ passed = @($script:Checks | Where-Object status -eq 'PASS').Count; failed = $criticalFailures; warnings = $warnings }
+        checks = @($script:Checks.ToArray())
+        safety = [ordered]@{
+            liveSillyTavernModified = $false
+            vectorServiceModified = $false
+            sqliteDatabasesModified = $false
+            patchApplied = $false
+            note = 'This runner performs discovery, test execution and git apply --check only. It does not install or apply patches.'
+        }
+    }
+    $reportPath = Join-Path $runRoot 'acceptance-report.json'
+    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    Write-Host ''
+    Write-Host ("RESULT: {0} passed / {1} failed / {2} warnings" -f $report.counts.passed, $report.counts.failed, $report.counts.warnings)
+    Write-Host "REPORT: $reportPath"
+    if ($criticalFailures -gt 0) { exit 1 }
+}
+catch {
+    Add-Check 'Runner execution' 'FAIL' $_.Exception.Message 1
+    $fatal = [ordered]@{
+        schemaVersion = 1; reportType = 'Logic Engine PC acceptance preflight'
+        generatedUtc = [datetime]::UtcNow.ToString('o')
+        repository = $repoRoot; fatalError = $_.Exception.Message
+        checks = @($script:Checks.ToArray())
+        safety = @{ liveSillyTavernModified = $false; vectorServiceModified = $false; sqliteDatabasesModified = $false; patchApplied = $false }
+    }
+    $fatal | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runRoot 'acceptance-report.json') -Encoding UTF8
+    Write-Host "REPORT: $(Join-Path $runRoot 'acceptance-report.json')"
+    exit 1
+}
+finally {
+    Stop-Transcript | Out-Null
+})) {
+                    $relative = $match.Groups[1].Value
+                    $target = Join-Path $stRoot ($relative -replace '/', '\\')
+                    [pscustomobject]@{
+                        relativePath = $relative
+                        exists = (Test-Path -LiteralPath $target -PathType Leaf)
+                        sha256 = Get-FileSha256 $target
+                    }
+                }
+            )
+            Add-Check 'Host lifecycle patch fingerprint' 'PASS' ("SHA256 {0}; {1} target files fingerprinted." -f $patchSha256, $patchTargetEvidence.Count)
+        }
+        if ((Test-Path -LiteralPath $patchPath -PathType Leaf) -and $git) {
             $applyOutput = @(& git -C $stRoot apply --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
             $applyCode = $LASTEXITCODE
             if ($applyCode -eq 0) {
