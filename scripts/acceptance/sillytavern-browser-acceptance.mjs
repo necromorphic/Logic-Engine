@@ -24,43 +24,33 @@ let context;
 let page;
 async function ensureApiConnected() {
   const apiTopButton = page.locator('#api_button');
-  const connectButton = () => page.locator('button:visible, [role="button"]:visible, .menu_button:visible').filter({ hasText: /^\s*Connect\s*$/i });
+  const state = async () => ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' +
+    ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
+  if (/connected/i.test(await state())) return 'already-connected';
+
+  const connectButton = () => page.locator('button:visible, [role="button"]:visible, .menu_button:visible')
+    .filter({ hasText: /^\\s*Connect\\s*$/i });
   let connect = connectButton();
   if (!await connect.count()) {
     if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
     await page.waitForTimeout(500);
     connect = connectButton();
   }
-  if (!await connect.count()) {
-    const textConnect = page.getByText('Connect', { exact: true }).first();
-    if (await textConnect.count() && await textConnect.isVisible().catch(() => false)) {
-      await textConnect.click();
-      const deadline = Date.now() + 45000;
-      while (Date.now() < deadline) {
-        const label = (await textConnect.innerText().catch(() => '')).trim();
-        const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' +
-          ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
-        if (!/^connect$/i.test(label) || /connected/i.test(state)) return;
-        await page.waitForTimeout(500);
-      }
-      throw new Error('API_CONNECT_TIMEOUT');
-    }
-  }
   if (await connect.count()) {
     const button = connect.first();
     if (await button.isDisabled()) throw new Error('CONNECT_BUTTON_DISABLED');
     await button.click();
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      const label = (await button.innerText().catch(() => '')).trim();
-      const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' + ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
-      if (!/^connect$/i.test(label) || /connected/i.test(state) || /disconnect/i.test(label)) return;
-      await page.waitForTimeout(500);
-    }
-    throw new Error('API_CONNECT_TIMEOUT');
+    await page.waitForTimeout(1500);
+    return 'connect-clicked';
   }
-  const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' + ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
-  if (/connected/i.test(state)) return;
+
+  const textConnect = page.getByText('Connect', { exact: true }).first();
+  if (await textConnect.count() && await textConnect.isVisible().catch(() => false)) {
+    await textConnect.click();
+    await page.waitForTimeout(1500);
+    return 'connect-clicked';
+  }
+  if (/connected/i.test(await state())) return 'already-connected';
   throw new Error('CONNECT_BUTTON_NOT_FOUND');
 }
 try {
@@ -100,8 +90,8 @@ try {
   }
 
   try {
-    await ensureApiConnected();
-    record('Model/API connection', 'PASS', 'Existing model selection retained; Connect clicked automatically if required.');
+    const connectAction = await ensureApiConnected();
+    record('Connect action', 'PASS', connectAction === 'already-connected' ? 'SillyTavern already reports a connected API.' : 'Clicked Connect without changing the selected model; generation verifies the connection.');
   } catch (error) {
     record('Model/API connection', 'FAIL', error.message);
     throw error;
