@@ -337,3 +337,22 @@ User executed the five focused suites at commit `163abd7e1`: **113 tests passed,
 This is a strong automated integration result, but it does not by itself establish the full Block 2 production acceptance: the test harness still does not substitute for a live Host → Core → NPC receiver run with a real accepted source and independently verified outbound model request.
 
 Next acceptance work remains: perform the production-composition scenario with changed source/context between Receiver preparation and Final-Send, prove rejection before model egress, then complete live Receiver binding and exact outbound body evidence. Status remains **BLOCKED / NOT YET ACCEPTED** for the full Block 2 until that evidence exists.
+
+### 2026-11-10 — Receiver-to-Final-Send stale-context integration test added (NOT TESTED)
+
+Added a combined test to `tests/memory-dispatch-gateway.test.js` that uses the real `receiveNpcContext()` implementation, the real protected Final-Send adapter, and the Gateway's isolated SQLite-backed dispatch fixture.
+
+The test:
+- prepares an accepted NPC context from an exact Core Result Envelope and Host binding;
+- verifies that the returned content block and digest are immutable, and that mutating the original retrieval object after Receiver preparation does not alter the accepted projection;
+- simulates Provider evidence changing after preparation in two independent ways: canonical source version changes and Provider record version changes;
+- sends the prepared Receiver output through Final-Send and the Gateway;
+- requires both stale variants to fail closed before `DISPATCH_STARTED`, with zero Gateway transport calls and zero upstream model calls.
+
+This closes a specific automated coverage gap by connecting Receiver output to the actual Final-Send/Gateway boundary rather than testing those pieces only in isolation. The Provider evidence reader remains the controlled Gateway test fixture; this does not yet prove the full live Core/SQLite Provider/Host composition.
+
+Commits:
+- `12da3bcb24c6c7719f534f09c135cd8810ea6d47` — Receiver-to-Final-Send integration test;
+- `03329b50a39a92c6240553bc71515df83aab886d` — include both source-version and record-version stale cases.
+
+**Execution status:** NOT TESTED. Run the expanded five-suite command below before accepting this block.
