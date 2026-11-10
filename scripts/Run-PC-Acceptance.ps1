@@ -175,6 +175,22 @@ try {
         }
     }
 
+    if ($vectorCandidates.Count -eq 0) {
+        $vectorZip = Find-Archive -Roots $searchRoots -Pattern '^(ST[-_])?VectorService.*\.zip$'
+        if ($vectorZip) {
+            $vectorExtract = Join-Path $runRoot 'isolated-vector-service-source'
+            New-Item -ItemType Directory -Path $vectorExtract -Force | Out-Null
+            Expand-Archive -LiteralPath $vectorZip -DestinationPath $vectorExtract -Force
+            $vectorPackageRoots = @(Find-CandidateRoots -Roots @($vectorExtract) -MaxDepth 4)
+            foreach ($candidateRoot in $vectorPackageRoots) {
+                $pkg = Read-Package $candidateRoot
+                if ($pkg -and (($pkg.name -match 'vector') -or ((Split-Path -Leaf $candidateRoot) -match 'ST-VectorService|VectorService'))) {
+                    $vectorCandidates.Add([pscustomobject]@{ Root = $candidateRoot; Version = [string]$pkg.version; Name = [string]$pkg.name }) | Out-Null
+                }
+            }
+        }
+    }
+
     $stRoot = $null
     $stSource = 'not found'
     if ($stCandidates.Count -eq 1) {
