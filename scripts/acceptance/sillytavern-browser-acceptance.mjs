@@ -39,7 +39,9 @@ try {
   await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
   record('SillyTavern UI', 'PASS', 'HTTP ' + response.status() + ', composer rendered');
 
-  for (const endpoint of ['/session', '/identity']) {
+  // ST mounts this extension router under its plugin namespace; these are not root routes.
+  const gatewayPrefix = '/api/plugins/logic-engine-extension-gateway';
+  for (const endpoint of [gatewayPrefix + '/session', gatewayPrefix + '/identity']) {
     try {
       const result = await page.evaluate(async route => {
         const response = await fetch(route, { credentials: 'same-origin', cache: 'no-store' });
