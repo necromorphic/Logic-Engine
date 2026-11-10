@@ -30,6 +30,10 @@ async function ensureApiConnected() {
 
   if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
   await page.waitForTimeout(500);
+  const disconnectText = page.getByText('Disconnect', { exact: true }).first();
+  if (await disconnectText.count() && await disconnectText.isVisible().catch(() => false)) return 'already-connected';
+  const connectedText = page.getByText('Connected', { exact: true }).first();
+  if (await connectedText.count() && await connectedText.isVisible().catch(() => false)) return 'already-connected';
   const connectText = page.getByText('Connect', { exact: true }).first();
   if (await connectText.count() && await connectText.isVisible().catch(() => false)) {
     await connectText.click();
