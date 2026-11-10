@@ -102,6 +102,19 @@ The contract document `Host-Core-Integration-Contract-v1.md` states that:
 
 These blockers must be resolved by implementation and evidence, not waived by changing expected statuses.
 
+## Progress log
+
+### 2026-11-10 — Block 1 evidence instrumentation added, execution pending
+
+The Host-Core-SQLite E2E test was extended to:
+- seed a per-run unique canary in the canonical Core entity;
+- retrieve it through the Host Adapter → Core HTTP → MemoryNpcConsumer → file-backed SQLite Provider route;
+- open the Core and Provider databases independently in read-only mode;
+- verify SQLite integrity, canonical entity content/source version, Provider record metadata/lineage, index entry, and query/record grants;
+- revoke the record grant and then the query grant, verifying both durable grant state and absence of the canary from retrieval output.
+
+**Execution status:** NOT TESTED. The code changes have not yet been run locally. GitHub Actions run for this candidate was cancelled before the targeted test executed. Do not mark Block 1 PASS until the targeted test passes on the candidate commit and its output is reviewed.
+
 ## First execution target
 
 Work only on Block 1 until its evidence requirements pass. Do not enable Memory → NPC in the user's normal SillyTavern installation. Continue using disposable local test data and loopback-only services.
