@@ -271,3 +271,29 @@ Additional commits:
 - `aa659461236843db19ce85079cc948d2868a97ba` — assert the bridge does not forward Host run ID as an extra Core request field.
 
 **Execution status:** NOT TESTED. Run the Receiver, Gateway composition, Host bridge, and protected Final-Send suites together. Block 2 remains NOT TESTED.
+
+
+### 2026-11-10 — Block 2 focused suites passed after Host run-ID implementation
+
+User executed all four focused suites at commit `dbc8a54b495d83c5c0fcb103cd56cac3a13e049f`:
+
+```
+node --import ./tests/configure-test-env.js --test
+  ./tests/npc-context-receiver.test.mjs
+  ./tests/gateway-final-send-composition.test.js
+  ./tests/npc-generation-context-host-bridge.test.js
+  ./tests/protected-memory-final-send.test.js
+```
+
+**Result: 57 tests, 57 passed, 0 failed, 0 skipped.**
+
+This verifies the current automated contracts for:
+- Host-generated distinct `run_id`, `request_id`, and `generation_id`;
+- exact unchanged three-field Core generation metadata contract;
+- one-shot request/response-bound Host handoff and duplicate/reuse rejection;
+- immutable NPC Receiver projection, mandatory generation/run IDs, deterministic context digest, exact original Core envelope digest, safe rejection of accessor/Proxy inputs;
+- Final-Send validation requiring run ID and both digests;
+- protected NPC content serialization and Host locator stripping;
+- protected sender routing, exactly one transport handoff in tested path, and fail-closed unsupported/invalid cases.
+
+**Status remains:** Block 2 automated focused suites PASS; full Block 2 acceptance NOT YET PASS. The tests are unit/composition-level evidence, not a real end-to-end run through live Host → Core HTTP → Provider → NPC Receiver → production Gateway → model transport. Remaining acceptance work includes exercising the real installed production composition with an explicitly enabled disposable acceptance fixture, proving immutable context and digest continuity at runtime, tamper/stale-source/duplicate-handoff rejection at the actual boundary, and verifying no model egress for rejected contexts. Do not enable Memory → NPC in the normal SillyTavern installation.
