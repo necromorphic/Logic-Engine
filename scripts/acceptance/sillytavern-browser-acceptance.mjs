@@ -125,7 +125,7 @@ try {
 }
 if (context) await context.close().catch(() => {});
 const summary = {
-  schema_version: 3, base_url: baseUrl.href, browser: 'Microsoft Edge launched with existing profile; no remote debugging', completed_at: new Date().toISOString(),
+  schema_version: 4, base_url: baseUrl.href, browser: 'Microsoft Edge launched with an isolated profile cloned from user settings; no remote debugging', completed_at: new Date().toISOString(),
   results, browser_errors: errors,
   totals: {
     pass: results.filter(x => x.status === 'PASS').length,
