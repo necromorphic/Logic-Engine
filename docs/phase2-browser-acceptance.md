@@ -15,7 +15,7 @@ git pull --ff-only origin integration/host-core-v1
 
 Use the exact loopback port printed by the deployment smoke harness when it selected a dynamic port.
 
-The script starts Edge normally with the existing profile and opens `edge://inspect`. In Edge, select **Remote debugging** in the left navigation and enable **Allow remote debugging for this browser instance**. Return to PowerShell and press Enter. The script reads the local DevTools port created by Edge and Playwright attaches to that same profile. Edge remains open after the test.
+The script starts Edge normally with the existing profile and opens `edge://inspect`. In Edge, select **Remote debugging** in the left navigation and enable **Allow remote debugging for this browser instance**. Return to PowerShell and press Enter. The script reads the local DevTools port created by Edge, opens the SillyTavern URL in that same profile, and asks you to select the API/model. After the model is connected, press Enter again; Playwright attaches to that same profile. Edge remains open after the test.
 
 ## Safety and isolation
 
