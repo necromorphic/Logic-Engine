@@ -91,7 +91,7 @@ function installTestTransport(gateway, factory) {
 
 async function createFixture({
   sendUpstream, createTransport, coreHead = 1, providerHead = 1,
-  initialProviderGrant = true, providerCandidatesOverride, onReadCoreEvidence,
+  initialProviderGrant = true, providerCandidatesOverride, providerCursorOverride, onReadCoreEvidence,
 } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
@@ -116,6 +116,7 @@ async function createFixture({
   let providerGranted = initialProviderGrant;
   let hostInventoryReady = true;
   let currentProviderCandidatesOverride = providerCandidatesOverride;
+  let currentProviderCursorOverride = providerCursorOverride;
   let policyAuthority = { authority_id: 'test-memory-policy', generation: 1, fingerprint: 'd'.repeat(64) };
   const calls = [];
   const makeGateway = () => installTestTransport(new MemoryDispatchGateway({
@@ -144,7 +145,7 @@ async function createFixture({
       readiness: 'READY',
       sources,
       candidates: currentProviderCandidatesOverride ?? candidates,
-      provider_evidence_cursor: providerEvidenceCursor,
+      provider_evidence_cursor: currentProviderCursorOverride ?? providerEvidenceCursor,
     }),
     readHostEvidence: ({ hostContext: binding, worldId, actorId }) => ({
       status: hostInventoryReady ? 'READY' : 'NON_READY',
@@ -177,6 +178,7 @@ async function createFixture({
     setProviderGranted(value) { providerGranted = value; },
     setHostInventoryReady(value) { hostInventoryReady = value; },
     setProviderCandidates(value) { currentProviderCandidatesOverride = value; },
+    setProviderCursor(value) { currentProviderCursorOverride = value; },
     setPolicyAuthority(value) { policyAuthority = value; },
     async close() {
       if (closed) return;
@@ -399,6 +401,49 @@ test('Gateway rejects accessor, Proxy and sparse source/candidate containers bef
       transport: () => { fixture.calls.push('unexpected-sparse'); return Promise.resolve({ status: 200 }); },
     })), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Provider source-version change after retrieval blocks dispatch before model egress', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('provider-source-version-stale');
+    fixture.setProviderCandidates(request.candidates.map(candidate => ({
+      ...candidate,
+      source_version: 'version-8',
+    })));
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0, 'stale source version must not reach the model');
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'stale source version must be rejected before DISPATCH_STARTED',
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('Provider evidence cursor change after retrieval blocks dispatch before model egress', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('provider-cursor-stale');
+    fixture.setProviderCursor({ data_version: 8, candidate_digest: 'e'.repeat(64) });
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(request),
+      /MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED/,
+    );
+    assert.equal(fixture.calls.length, 0, 'changed provider cursor must not reach the model');
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'changed provider cursor must be rejected before DISPATCH_STARTED',
+    );
   } finally {
     await fixture.close();
   }
