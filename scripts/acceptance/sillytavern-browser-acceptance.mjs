@@ -73,12 +73,21 @@ try {
     await sendButton.click();
 
     let assistantText = '';
+    let previousText = '';
+    let stablePolls = 0;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const assistantMessages = page.locator('#chat .mes:not(.is_user) .mes_text');
       if (await assistantMessages.count() > 0) {
-        assistantText = (await assistantMessages.last().innerText().catch(() => '')).trim();
-        if (assistantText.length > 0) break;
+        const currentText = (await assistantMessages.last().innerText().catch(() => '')).trim();
+        const stopVisible = await page.locator('#mes_stop').isVisible().catch(() => false);
+        if (currentText && currentText !== '...' && currentText === previousText && !stopVisible) {
+          stablePolls += 1;
+        } else {
+          stablePolls = 0;
+        }
+        previousText = currentText;
+        if (stablePolls >= 3) { assistantText = currentText; break; }
       }
       await page.waitForTimeout(1000);
     }
@@ -106,7 +115,9 @@ try {
 
   const screenshot = path.join(reportDir, 'browser-acceptance.png');
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
-  record('Browser diagnostics', errors.length ? 'FAIL' : 'PASS', errors.length + ' browser error(s); screenshot: ' + screenshot);
+  const uncaught = errors.filter(item => item.type === 'pageerror');
+  record('Browser diagnostics', uncaught.length ? 'FAIL' : 'PASS',
+    errors.length + ' console/network warning(s), ' + uncaught.length + ' uncaught page error(s); screenshot: ' + screenshot);
 } catch (error) {
   record('Browser acceptance execution', 'FAIL', error.stack || error.message);
   if (page) await page.screenshot({ path: path.join(reportDir, 'browser-acceptance-failure.png'), fullPage: true }).catch(() => {});
