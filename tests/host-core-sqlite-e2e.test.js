@@ -17,6 +17,7 @@ import { createApiServer } from '../src/api/server.js';
 import { createSillyTavernHostAdapter } from '../host-adapter/extension-gateway/server-plugin/host-adapter.mjs';
 import { HostIdentityStore } from '../host-adapter/extension-gateway/server-plugin/st-host-identity-store.mjs';
 import { PINNED_ST_MUTATION_COVERAGE_SHA256, PINNED_ST_MUTATION_ROUTE_COUNT } from '../host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs';
+import { receiveNpcContext } from '../host-adapter/npc-context-receiver.mjs';
 
 const API_TOKEN = 'host-core-sqlite-api-token-long-enough';
 const ADAPTER_TOKEN = 'host-core-sqlite-adapter-token-long-enough';
@@ -121,7 +122,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       epistemic_kind: 'acquired_report',
       producer_kind: 'host-core-sqlite-e2e',
       content_disposition: 'usable',
-      evidence_assessment: 'unassessed',
+      evidence_assessment: 'supported',
       lineage: [{
         source_kind: 'canonical_entity',
         entity_id: sourceId,
@@ -284,6 +285,42 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       canary,
     );
     assert.equal(hostFetchRequests.length, 1, 'the installed Gateway adapter must perform one Core Memory HTTP request');
+
+    // Continue the exact live Host → Core HTTP → SQLite Provider result into
+    // the production NPC Receiver. Host inventory/root values are explicitly
+    // supplied by the E2E fixture and remain fixture-backed evidence.
+    const authenticatedHost = await hostAdapter.authenticateGenerationRequest(
+      makeHostRequest(), CONVERSATION,
+    );
+    assert.equal(authenticatedHost.status, 'READY');
+    const receiverHostContext = retrieved.payload.host_context;
+    const received = receiveNpcContext({
+      retrieval: retrieved.payload.retrieval,
+      hostContext: receiverHostContext,
+      hostBinding: {
+        ...authenticatedHost.context,
+        adapter_id: receiverHostContext.adapter_id,
+        world_id: receiverHostContext.world_id,
+        actor_id: receiverHostContext.actor_id,
+        actor_type: receiverHostContext.actor_type,
+      },
+      requestId: '55555555-5555-4555-8555-555555555556',
+      generationId: '66666666-6666-4666-8666-666666666667',
+      runId: '77777777-7777-4777-8777-777777777778',
+      model: 'acceptance-fake-provider',
+      purpose: 'npc_decision',
+    });
+    assert.equal(received.candidates.length, 1);
+    assert.equal(received.contentBlocks.length, 1);
+    assert.equal(received.contentBlocks[0].content['attributes.public_note'], canary);
+    assert.equal(received.candidates[0].record_ref, record.record_ref);
+    assert.equal(received.candidates[0].record_version, record.record_version);
+    assert.equal(received.candidates[0].source_entity_id, sourceId);
+    assert.equal(received.candidates[0].source_version, source.source_version);
+    assert.match(received.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
+    assert.match(received.contextDigest, /^[a-f0-9]{64}$/);
+    assert.equal(Object.isFrozen(received), true);
+    assert.equal(Object.isFrozen(received.contentBlocks[0].content), true);
 
     // Independently inspect both durable databases through separate read-only
     // SQLite connections. The HTTP result alone is not accepted as proof that
