@@ -154,3 +154,13 @@ Commits:
 ## Next execution target
 
 Proceed to Block 2 — NPC Context Receiver. Preserve the fixture limitations above and do not claim production readiness. Continue using disposable local test data and loopback-only services.
+
+### 2026-11-10 — Block 2 first local test run and fixture corrections (NOT TESTED after fixes)
+
+User ran `npc-context-receiver.test.mjs` and `gateway-final-send-composition.test.js`: 23 passed, 2 failed. The focused Receiver tests all passed. The two failures were:
+- stale source assertion expected the pre-Receiver empty-context expression; updated to assert the post-Receiver expression;
+- production composition fixture had `conversation_uuid` set to the installation UUID instead of the conversation UUID, causing the strict Receiver to reject scope with `NPC_CONTEXT_SCOPE_INVALID`; corrected the fixture to use the conversation UUID already embedded in both Host/Core conversation identifiers.
+
+Fix commits: `72e8a5ac91412eac3be66bc114a9d49c09f21a21` and `98e0b563e75259a40b503ad5e704aa847750a89c`.
+
+**Execution status:** fixes are committed but NOT TESTED. Block 2 remains NOT TESTED. No claim of production acceptance is made.
