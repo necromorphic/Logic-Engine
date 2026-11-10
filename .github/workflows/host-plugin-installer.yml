@@ -5,6 +5,7 @@ on:
     paths:
       - 'scripts/install-sillytavern-host-plugin.ps1'
       - 'scripts/Start-LogicEngine-PR870-Test.ps1'
+      - 'scripts/Run-Phase2-PC-Acceptance.ps1'
       - 'scripts/bootstrap-windows-host-acceptance.mjs'
       - 'tests/windows-host-deployment-launcher.test.js'
       - 'scripts/sillytavern-patch-manager.mjs'
@@ -47,6 +48,13 @@ jobs:
           $source = Get-Content -LiteralPath './scripts/Start-LogicEngine-PR870-Test.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Windows PowerShell 5.1 launcher syntax is valid.'
+      - name: Parse consolidated Phase 2 acceptance runner with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-Content -LiteralPath './scripts/Run-Phase2-PC-Acceptance.ps1' -Raw
+          [void][scriptblock]::Create($source)
+          Write-Output 'Phase 2 acceptance runner syntax is valid.'
       - name: Check local Host acceptance bootstrap syntax
         shell: pwsh
         run: |
