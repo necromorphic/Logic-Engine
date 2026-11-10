@@ -138,10 +138,10 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     content: 'A verified memory candidate',
   };
   const hostBinding = {
-    host_installation_id: 'host-installation',
-    authenticated_account_id: 'account',
-    host_session_id: 'session',
-    conversation_id: 'conversation',
+    host_installation_id: '11111111-1111-4111-8111-111111111111',
+    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    host_session_id: '55555555-5555-4555-8555-555555555555',
+    conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
     conversation_uuid: '11111111-1111-4111-8111-111111111111',
     root_id: 'root',
     root_inventory_sequence: 7,
@@ -149,7 +149,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   };
   const coreContext = {
     adapter_id: 'st-host-adapter',
-    conversation_id: 'core-conversation',
+    conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
     actor_type: 'character',
   };
   const prepared = {
@@ -162,7 +162,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     },
   };
   const acceptedContext = {
-    request_id: 'request-id',
+    request_id: '44444444-4444-4444-8444-444444444444',
     generation_id: 'generation-id',
     world_id: 'world',
     actor_id: 'actor',
@@ -226,22 +226,22 @@ test('production protected-memory projection rejects Lane B content without a ma
     hostContext: {
       status: 'READY',
       host: { context: {
-        host_installation_id: 'host-installation',
-        authenticated_account_id: 'account',
-        host_session_id: 'session',
-        conversation_id: 'conversation',
+        host_installation_id: '11111111-1111-4111-8111-111111111111',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+        host_session_id: '55555555-5555-4555-8555-555555555555',
+        conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
         conversation_uuid: '11111111-1111-4111-8111-111111111111',
         root_id: 'root',
         root_inventory_sequence: 7,
         root_manifest_sha256: 'a'.repeat(64),
       } },
-      coreContext: { adapter_id: 'adapter', conversation_id: 'core-conversation', actor_type: 'character' },
+      coreContext: { adapter_id: 'adapter', conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333', actor_type: 'character' },
     },
   }, {
     consume: () => ({
       status: 'accepted',
       context: {
-        request_id: 'request-id',
+        request_id: '44444444-4444-4444-8444-444444444444',
         generation_id: 'generation-id',
         world_id: 'world',
         actor_id: 'actor',
@@ -277,14 +277,14 @@ test('production protected-memory projection rejects same-count Lane B candidate
   const result = buildProtectedMemory({ body: { model: 'horde-model' } }, {
     response: {}, hostRoute: 'horde-text',
     hostContext: { status: 'READY', host: { context: {
-      host_installation_id: 'host-installation', authenticated_account_id: 'account',
-      host_session_id: 'session', conversation_id: 'conversation',
+      host_installation_id: '11111111-1111-4111-8111-111111111111', authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      host_session_id: '55555555-5555-4555-8555-555555555555', conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
       conversation_uuid: '11111111-1111-4111-8111-111111111111',
       root_id: 'root', root_inventory_sequence: 7, root_manifest_sha256: 'a'.repeat(64),
-    } }, coreContext: { adapter_id: 'adapter', conversation_id: 'core-conversation', actor_type: 'character' } },
+    } }, coreContext: { adapter_id: 'adapter', conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333', actor_type: 'character' } },
   }, { consume: () => ({
     status: 'accepted',
-    context: { request_id: 'request-id', generation_id: 'generation-id', world_id: 'world', actor_id: 'actor',
+    context: { request_id: '44444444-4444-4444-8444-444444444444', generation_id: 'generation-id', world_id: 'world', actor_id: 'actor',
       snapshot: { world_revision: 3, commit_sequence: 9 },
       lanes: { lane_a: { items: [] }, lane_b: { status: 'ready', candidates: [contextCandidate] } } },
     laneB: { status: 'ready',
