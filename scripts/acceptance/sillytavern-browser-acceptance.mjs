@@ -4,10 +4,10 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON);
 const { chromium } = require('playwright');
-const baseUrl = new URL(process.env.ST_BASE_URL || 'http://127.0.0.1:8000');
+const baseUrl = new URL(process.env.ST_BASE_URL || 'http://127.0.0.1:60619');
 const reportDir = process.env.ST_ACCEPTANCE_REPORT_DIR || process.cwd();
 const timeoutMs = Number(process.env.ST_ACCEPTANCE_TIMEOUT_MS || 120000);
-const skipGeneration = process.env.ST_ACCEPTANCE_SKIP_GENERATION === '1';
+
 const profileDir = process.env.ST_EDGE_PROFILE_DIR;
 const edgeExe = process.env.ST_EDGE_EXECUTABLE;
 fs.mkdirSync(reportDir, { recursive: true });
@@ -24,7 +24,7 @@ let context;
 let page;
 async function ensureApiConnected() {
   const apiTopButton = page.locator('#api_button');
-  const connectButton = () => page.locator('button:visible').filter({ hasText: /^\\s*Connect\\s*$/i });
+  const connectButton = () => page.locator('button:visible, [role="button"]:visible, .menu_button:visible').filter({ hasText: /^\s*Connect\s*$/i });
   let connect = connectButton();
   if (!await connect.count()) {
     if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
@@ -94,14 +94,7 @@ try {
 
   const composer = page.locator('#send_textarea');
   const sendButton = page.locator('#send_but');
-  const placeholder = await composer.getAttribute('placeholder') || '';
-  // The placeholder can become stale while the user's configured model still
-  // responds. Treat a live generation attempt as the authoritative API check.
-  if (skipGeneration) {
-    record('Model/API readiness', 'BLOCKED', 'Skipped by -SkipGeneration; live generation is required to verify API readiness.');
-  } else {
-    record('Model/API readiness', 'PASS', 'Composer is available; API connectivity will be verified by an actual generation (placeholder: ' + (placeholder || '<empty>') + ').');
-    await page.locator('#options_button').click();
+  await page.locator('#options_button').click();
     const newChat = page.locator('#option_start_new_chat');
     const canStartNewChat = await newChat.isVisible().catch(() => false);
     if (!canStartNewChat) {
@@ -109,6 +102,7 @@ try {
     } else {
       await newChat.click();
       await page.waitForTimeout(1200);
+      const assistantCountBeforeSend = await page.locator('#chat .mes[is_user="false"][is_system="false"]').count();
       const marker = 'LOGIC_ENGINE_ACCEPTANCE_' + new Date().toISOString() + '_' + Math.random().toString(16).slice(2, 8);
       await composer.fill('Automated Logic Engine acceptance check. Reply with the exact word ACCEPTED. Test marker: ' + marker);
       if (await sendButton.isVisible().catch(() => false)) {
@@ -123,7 +117,7 @@ try {
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
         const assistantMessages = page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text');
-        if (await assistantMessages.count() > 0) {
+        if (await assistantMessages.count() > assistantCountBeforeSend) {
           const currentText = (await assistantMessages.last().innerText().catch(() => '')).trim();
           const stopVisible = await page.locator('#mes_stop').isVisible().catch(() => false);
           if (currentText && currentText !== '...' && currentText === previousText && !stopVisible) stablePolls += 1;
@@ -143,9 +137,9 @@ try {
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
         await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
         const persisted = await page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker }).count();
-        const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').count();
-        if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'Test user message and assistant response remain visible.');
-        else record('Chat persistence after reload', 'FAIL', 'One or both test messages were not restored.');
+        const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').filter({ hasText: assistantText }).count();
+        if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'The exact test marker and assistant response were restored.');
+        else record('Chat persistence after reload', 'FAIL', 'Restored user marker=' + persisted + ', matching assistant response=' + persistedAssistant);
       }
     }
   }
@@ -159,9 +153,9 @@ try {
   record('Browser acceptance execution', 'FAIL', error.stack || error.message);
   if (page) await page.screenshot({ path: path.join(reportDir, 'browser-acceptance-failure.png'), fullPage: true }).catch(() => {});
 }
-// Intentionally do not call browser.close(): this is an attached Edge session and must remain open.
+if (context) await context.close().catch(() => {});
 const summary = {
-  schema_version: 2, base_url: baseUrl.href, browser: 'Microsoft Edge launched with existing profile; no remote debugging', completed_at: new Date().toISOString(),
+  schema_version: 3, base_url: baseUrl.href, browser: 'Microsoft Edge launched with existing profile; no remote debugging', completed_at: new Date().toISOString(),
   results, browser_errors: errors,
   totals: {
     pass: results.filter(x => x.status === 'PASS').length,
