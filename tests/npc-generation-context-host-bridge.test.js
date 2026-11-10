@@ -17,6 +17,9 @@ function setup({ prepareStatus = 'ready' } = {}) {
   const runtime = {
     async prepareForDispatch(metadata) {
       preparedMetadata = metadata;
+      assert.deepEqual(Object.keys(metadata).sort(), [
+        'generation_id', 'generation_type', 'request_id',
+      ]);
       return prepareStatus === 'ready'
         ? { status: 'ready', handoff, reason: null }
         : { status: 'non_ready', handoff: null, reason: 'context_not_ready' };
