@@ -142,28 +142,9 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   // Route the consumed one-shot Core handoff through the strict production
   // Receiver. The envelope is assembled only from server-owned handoff data.
   const received = receiveNpcContext({
-    retrieval: {
-      status: 'ready',
-      admitted: accepted.laneB.candidates.map(candidate => ({
-        record_ref: candidate.record_ref,
-        record_version: candidate.record_version,
-        epistemic_kind: candidate.epistemic_kind,
-        evidence_assessment: candidate.evidence_assessment,
-      })),
-      candidates: laneBContext.candidates.map(candidate => ({
-        record_ref: candidate.record_ref,
-        record_version: candidate.record_version,
-        authorization_generation: candidate.authorization_generation,
-        source_entity_id: candidate.source_entity_id,
-        source_version: candidate.source_version,
-        epistemic_kind: candidate.epistemic_kind,
-        evidence_assessment: candidate.evidence_assessment,
-        content: candidate.content,
-      })),
-      reason: null,
-      snapshot: context.snapshot,
-      provider_evidence_cursor: accepted.laneB.provider_evidence_cursor,
-    },
+    // Pass the exact immutable Core-produced Lane B Result Envelope into
+    // the Receiver; do not reconstruct a lookalike from projected metadata.
+    retrieval: laneBContext.result,
     hostContext: {
       adapter_id: coreContext.adapter_id,
       conversation_id: coreContext.conversation_id,
@@ -209,6 +190,7 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
     requestId: received.requestId,
     generationId: received.generationId,
     contextDigest: received.contextDigest,
+    coreEnvelopeDigest: received.coreEnvelopeDigest,
     model: received.model,
     worldId: received.worldId,
     actorId: received.actorId,
