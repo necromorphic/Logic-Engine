@@ -142,7 +142,6 @@ try {
         else record('Chat persistence after reload', 'FAIL', 'Restored user marker=' + persisted + ', matching assistant response=' + persistedAssistant);
       }
     }
-  }
 
   const screenshot = path.join(reportDir, 'browser-acceptance.png');
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
