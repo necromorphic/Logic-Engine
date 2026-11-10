@@ -356,3 +356,8 @@ Commits:
 - `03329b50a39a92c6240553bc71515df83aab886d` — include both source-version and record-version stale cases.
 
 **Execution status:** NOT TESTED. Run the expanded five-suite command below before accepting this block.
+
+The combined test also supplies an explicit stable replay identity, because the Receiver projection intentionally does not own the original Host prompt body. Final-Send therefore receives replay identity through its trusted call argument rather than inventing it from NPC context.
+
+Follow-up test fixture commit:
+- `4ddec0125286611b5d86d77e79f21527d4fcadfa` — supply the trusted replay identity to the integrated Final-Send test.
