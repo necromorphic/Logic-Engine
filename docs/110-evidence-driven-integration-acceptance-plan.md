@@ -254,3 +254,20 @@ Commits:
 - `2aceb8f028f17452382b572bc6750566d1c60a9d` — one-shot bridge run-ID test.
 
 **Execution status:** NOT TESTED. Final-Send protected-context validation and new run-ID tests require a fresh focused run. Block 2 remains NOT TESTED.
+
+
+### 2026-11-10 — Block 2 run-ID validation coverage expanded (NOT TESTED)
+
+Additional test fixtures now cover the stricter Final-Send boundary and the Host/Core contract split:
+- protected Final-Send fixtures include valid Host run ID, context digest, and Core envelope digest;
+- Host bridge tests verify Host run IDs are generated uniquely and retained separately, while the object passed into Core has exactly the original three keys (`request_id`, `generation_id`, `generation_type`);
+- composition fixture returns the run ID from the consumed Host bridge handoff.
+
+Additional commits:
+- `9340eac2d73887c122b275b4738acd3c56391a88` — require run ID and both digests at Final-Send validation;
+- `5d4bad8735c2121f604fd57479aafb14b01e3393` — provide Host run ID in composition fixture;
+- `7928c103f91fb58d96f002b730db9da9b3932237` — update protected Final-Send fixture;
+- `6defeb57a040911d596b4e5d7eef3348fc0ff420` and `1f99a132a4b0b8348334df51d94142843e292916` — cover run-ID generation and exact Core metadata contract;
+- `aa659461236843db19ce85079cc948d2868a97ba` — assert the bridge does not forward Host run ID as an extra Core request field.
+
+**Execution status:** NOT TESTED. Run the Receiver, Gateway composition, Host bridge, and protected Final-Send suites together. Block 2 remains NOT TESTED.
