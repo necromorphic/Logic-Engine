@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
 
 const require = createRequire(process.env.PLAYWRIGHT_PACKAGE_JSON);
 const { chromium } = require('playwright');
@@ -22,27 +24,6 @@ const record = (name, status, detail = '') => {
 
 let context;
 let page;
-async function ensureApiConnected() {
-  const apiTopButton = page.locator('#api_button');
-  const state = async () => ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' +
-    ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
-  if (/connected/i.test(await state())) return 'already-connected';
-
-  if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
-  await page.waitForTimeout(500);
-  const disconnectText = page.getByText('Disconnect', { exact: true }).first();
-  if (await disconnectText.count() && await disconnectText.isVisible().catch(() => false)) return 'already-connected';
-  const connectedText = page.getByText('Connected', { exact: true }).first();
-  if (await connectedText.count() && await connectedText.isVisible().catch(() => false)) return 'already-connected';
-  const connectText = page.getByText('Connect', { exact: true }).first();
-  if (await connectText.count() && await connectText.isVisible().catch(() => false)) {
-    await connectText.click();
-    await page.waitForTimeout(1500);
-    return 'connect-clicked';
-  }
-  if (/connected/i.test(await state())) return 'already-connected';
-  throw new Error('CONNECT_BUTTON_NOT_FOUND');
-}
 try {
   if (!profileDir || !edgeExe) throw new Error('EDGE_PROFILE_OR_EXECUTABLE_NOT_CONFIGURED');
   console.log('[INFO] Launching Edge with isolated profile: ' + profileDir);
@@ -82,64 +63,56 @@ try {
     }
   }
 
-  try {
-    const connectAction = await ensureApiConnected();
-    record('Connect action', 'PASS', connectAction === 'already-connected' ? 'SillyTavern already reports a connected API.' : 'Clicked Connect without changing the selected model; generation verifies the connection.');
-  } catch (error) {
-    record('Model/API connection', 'FAIL', error.message);
-    throw error;
-  }
+  console.log('');
+  console.log('[ACTION REQUIRED] In the opened SillyTavern window:');
+  console.log('  1. Select the character and chat you want to use for this test.');
+  console.log('  2. If the API is disconnected, click Connect. Do not change the selected model, API URL, or key.');
+  console.log('  3. Return to this console and press Enter once. The runner will send one test message in the currently open chat.');
+  console.log('[INFO] Waiting for your confirmation...');
+  if (!stdin.isTTY) throw new Error('INTERACTIVE_TERMINAL_REQUIRED_FOR_ST_UI_STEP');
+  const prompt = createInterface({ input: stdin, output: stdout });
+  try { await prompt.question('Press Enter after the SillyTavern chat is ready... '); }
+  finally { prompt.close(); }
+  record('Manual SillyTavern preparation', 'PASS', 'User confirmed the character/chat is selected and API connection is ready.');
 
   const composer = page.locator('#send_textarea');
   const sendButton = page.locator('#send_but');
-  await page.locator('#options_button').click();
-    const newChat = page.locator('#option_start_new_chat');
-    const canStartNewChat = await newChat.isVisible().catch(() => false);
-    if (!canStartNewChat) {
-      record('Generation and chat persistence', 'BLOCKED', 'No active character/chat context is available to start a clean test chat.');
-    } else {
-      await newChat.click();
-      await page.waitForTimeout(1200);
-      const assistantCountBeforeSend = await page.locator('#chat .mes[is_user="false"][is_system="false"]').count();
-      const marker = 'LOGIC_ENGINE_ACCEPTANCE_' + new Date().toISOString() + '_' + Math.random().toString(16).slice(2, 8);
-      await composer.fill('Automated Logic Engine acceptance check. Reply with the exact word ACCEPTED. Test marker: ' + marker);
-      if (await sendButton.isVisible().catch(() => false)) {
-        await sendButton.click();
-      } else {
-        await composer.press('Enter');
-      }
+  const assistantCountBeforeSend = await page.locator('#chat .mes[is_user="false"][is_system="false"]').count();
+  const marker = 'LOGIC_ENGINE_ACCEPTANCE_' + new Date().toISOString() + '_' + Math.random().toString(16).slice(2, 8);
+  await composer.fill('Automated Logic Engine acceptance check. Reply with the exact word ACCEPTED. Test marker: ' + marker);
+  if (await sendButton.isVisible().catch(() => false)) await sendButton.click();
+  else await composer.press('Enter');
 
-      let assistantText = '';
-      let previousText = '';
-      let stablePolls = 0;
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const assistantMessages = page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text');
-        if (await assistantMessages.count() > assistantCountBeforeSend) {
-          const currentText = (await assistantMessages.last().innerText().catch(() => '')).trim();
-          const stopVisible = await page.locator('#mes_stop').isVisible().catch(() => false);
-          if (currentText && currentText !== '...' && currentText === previousText && !stopVisible) stablePolls += 1;
-          else stablePolls = 0;
-          previousText = currentText;
-          if (stablePolls >= 3) { assistantText = currentText; break; }
-        }
-        await page.waitForTimeout(1000);
-      }
-      if (!assistantText) {
-        record('Model generation', 'FAIL', 'No assistant response within ' + timeoutMs + ' ms; inspect browser/server logs.');
-      } else {
-        record('Model generation', 'PASS', 'Assistant response received (' + assistantText.length + ' characters).');
-        const userMessage = page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker });
-        if (await userMessage.count() === 0) record('User message rendered', 'FAIL', 'Unique test marker not found in chat.');
-        else record('User message rendered', 'PASS', 'Unique test marker found.');
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
-        await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
-        const persisted = await page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker }).count();
-        const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').filter({ hasText: assistantText }).count();
-        if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'The exact test marker and assistant response were restored.');
-        else record('Chat persistence after reload', 'FAIL', 'Restored user marker=' + persisted + ', matching assistant response=' + persistedAssistant);
-      }
+  let assistantText = '';
+  let previousText = '';
+  let stablePolls = 0;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const assistantMessages = page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text');
+    if (await assistantMessages.count() > assistantCountBeforeSend) {
+      const currentText = (await assistantMessages.last().innerText().catch(() => '')).trim();
+      const stopVisible = await page.locator('#mes_stop').isVisible().catch(() => false);
+      if (currentText && currentText !== '...' && currentText === previousText && !stopVisible) stablePolls += 1;
+      else stablePolls = 0;
+      previousText = currentText;
+      if (stablePolls >= 3) { assistantText = currentText; break; }
     }
+    await page.waitForTimeout(1000);
+  }
+  if (!assistantText) {
+    record('Model generation', 'FAIL', 'No assistant response within ' + timeoutMs + ' ms; inspect browser/server logs.');
+  } else {
+    record('Model generation', 'PASS', 'Assistant response received (' + assistantText.length + ' characters).');
+    const userMessage = page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker });
+    if (await userMessage.count() === 0) record('User message rendered', 'FAIL', 'Unique test marker not found in chat.');
+    else record('User message rendered', 'PASS', 'Unique test marker found.');
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
+    const persisted = await page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker }).count();
+    const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').filter({ hasText: assistantText }).count();
+    if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'The exact test marker and assistant response were restored.');
+    else record('Chat persistence after reload', 'FAIL', 'Restored user marker=' + persisted + ', matching assistant response=' + persistedAssistant);
+  }
 
   const screenshot = path.join(reportDir, 'browser-acceptance.png');
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
