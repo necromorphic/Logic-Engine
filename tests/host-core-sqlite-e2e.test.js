@@ -297,10 +297,6 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     const receiverEnvelope = retrieved.payload.retrieval;
     const receiverEnvelopeDiagnostics = {
       keys: receiverEnvelope && typeof receiverEnvelope === 'object' ? Reflect.ownKeys(receiverEnvelope) : null,
-      prototype: receiverEnvelope && typeof receiverEnvelope === 'object'
-        ? Object.getPrototypeOf(receiverEnvelope) === Object.prototype ? 'Object.prototype'
-          : Object.getPrototypeOf(receiverEnvelope) === null ? 'null' : 'other'
-        : typeof receiverEnvelope,
       status: receiverEnvelope?.status,
       reason: receiverEnvelope?.reason,
       admittedIsArray: Array.isArray(receiverEnvelope?.admitted),
@@ -310,15 +306,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       snapshot: receiverEnvelope?.snapshot,
       snapshotKeys: receiverEnvelope?.snapshot && typeof receiverEnvelope.snapshot === 'object'
         ? Reflect.ownKeys(receiverEnvelope.snapshot) : null,
-      cursor: receiverEnvelope?.provider_evidence_cursor,
-      cursorKeys: receiverEnvelope?.provider_evidence_cursor
-        && typeof receiverEnvelope.provider_evidence_cursor === 'object'
-        ? Reflect.ownKeys(receiverEnvelope.provider_evidence_cursor) : null,
-      cursorPrototype: receiverEnvelope?.provider_evidence_cursor
-        && typeof receiverEnvelope.provider_evidence_cursor === 'object'
-        ? Object.getPrototypeOf(receiverEnvelope.provider_evidence_cursor) === Object.prototype ? 'Object.prototype'
-          : Object.getPrototypeOf(receiverEnvelope.provider_evidence_cursor) === null ? 'null' : 'other'
-        : typeof receiverEnvelope?.provider_evidence_cursor,
+      unexpectedProviderCursor: Object.hasOwn(receiverEnvelope ?? {}, 'provider_evidence_cursor'),
     };
     const receiverAdmissionDiagnostics = {
       admitted: receiverEnvelope?.admitted,
@@ -334,8 +322,8 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
           ? Reflect.ownKeys(candidate.content) : null,
       })),
     };
-    const envelopeContractValid = receiverEnvelopeDiagnostics.keys?.length === 6
-      && ['status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor']
+    const envelopeContractValid = receiverEnvelopeDiagnostics.keys?.length === 5
+      && ['status', 'admitted', 'candidates', 'reason', 'snapshot']
         .every(key => Object.hasOwn(receiverEnvelope, key))
       && receiverEnvelope.status === 'ready' && receiverEnvelope.reason === null
       && Array.isArray(receiverEnvelope.admitted) && Array.isArray(receiverEnvelope.candidates)
@@ -343,11 +331,9 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       && receiverEnvelopeDiagnostics.snapshotKeys?.length === 2
       && Number.isSafeInteger(receiverEnvelope.snapshot?.world_revision)
       && Number.isSafeInteger(receiverEnvelope.snapshot?.commit_sequence)
-      && receiverEnvelopeDiagnostics.cursorKeys?.length === 2
-      && Number.isSafeInteger(receiverEnvelope.provider_evidence_cursor?.data_version)
-      && /^[a-f0-9]{64}$/.test(receiverEnvelope.provider_evidence_cursor?.candidate_digest ?? '');
+      && receiverEnvelopeDiagnostics.unexpectedProviderCursor === false;
     assert.equal(envelopeContractValid, true,
-      'actual Core Result Envelope does not satisfy Receiver schema: ' + JSON.stringify(receiverEnvelopeDiagnostics));
+      'actual Core public Result Envelope does not satisfy memory-npc-result/v1: ' + JSON.stringify(receiverEnvelopeDiagnostics));
     assert.equal(receiverEnvelope.admitted.length, receiverEnvelope.candidates.length,
       'Core did not admit every supported candidate for NPC projection: ' + JSON.stringify(receiverAdmissionDiagnostics));
     const received = receiveNpcContext({
