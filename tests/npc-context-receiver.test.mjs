@@ -24,6 +24,7 @@ const hostBinding = Object.freeze({
   actor_type: 'npc',
 });
 const requestId = '44444444-4444-4444-8444-444444444444';
+const runId = '77777777-7777-4777-8777-777777777777';
 const generationId = '66666666-6666-4666-8666-666666666666';
 const candidate = (overrides = {}) => ({
   record_ref: 'memory:record-1',
@@ -54,31 +55,38 @@ const retrieval = (overrides = {}) => ({
 test('receiver digest is stable for the same accepted context and changes when admitted content changes', () => {
   const original = retrieval();
   const first = receiveNpcContext({
-    retrieval: original, hostContext, hostBinding, requestId, generationId,
+    retrieval: original, hostContext, hostBinding, requestId, generationId, runId,
     model: 'google/gemini-test',
   });
   const repeated = receiveNpcContext({
-    retrieval: retrieval(), hostContext, hostBinding, requestId, generationId,
+    retrieval: retrieval(), hostContext, hostBinding, requestId, generationId, runId,
     model: 'google/gemini-test',
   });
   const changed = receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ content: { 'attributes.public_note': 'Changed content' } })] }),
-    hostContext, hostBinding, requestId, generationId,
+    hostContext, hostBinding, requestId, generationId, runId,
     model: 'google/gemini-test',
   });
   assert.equal(first.contextDigest, repeated.contextDigest);
+  const otherRun = receiveNpcContext({ retrieval: retrieval(), hostContext, hostBinding, requestId, generationId,
+    runId: '88888888-8888-4888-8888-888888888888', model: 'google/gemini-test' });
+  assert.notEqual(first.contextDigest, otherRun.contextDigest);
   assert.notEqual(first.contextDigest, changed.contextDigest);
   assert.match(first.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
   assert.notEqual(first.coreEnvelopeDigest, changed.coreEnvelopeDigest);
 });
 
-test('receiver rejects missing or malformed generation identity', () => {
+test('receiver rejects missing or malformed generation identity and run identity', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval(), hostContext, hostBinding, requestId,
     model: 'google/gemini-test',
   }), /NPC_CONTEXT_SCOPE_INVALID/);
   assert.throws(() => receiveNpcContext({
-    retrieval: retrieval(), hostContext, hostBinding, requestId, generationId: 'not-a-uuid',
+    retrieval: retrieval(), hostContext, hostBinding, requestId, generationId: 'not-a-uuid', runId,
+    model: 'google/gemini-test',
+  }), /NPC_CONTEXT_SCOPE_INVALID/);
+  assert.throws(() => receiveNpcContext({
+    retrieval: retrieval(), hostContext, hostBinding, requestId, generationId, runId: 'not-a-uuid',
     model: 'google/gemini-test',
   }), /NPC_CONTEXT_SCOPE_INVALID/);
 });
@@ -90,8 +98,10 @@ test('receiver converts only matching Core-admitted candidates into Gateway meta
     hostBinding,
     requestId,
     generationId,
+    runId,
     model: 'google/gemini-test',
   });
+  assert.equal(result.runId, runId);
   assert.equal(result.generationId, generationId);
   assert.match(result.contextDigest, /^[a-f0-9]{64}$/);
   assert.match(result.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
@@ -129,6 +139,7 @@ test('authorized complete-empty result is preserved as an empty ready context', 
     hostBinding,
     requestId,
     generationId,
+    runId,
     model: 'google/gemini-test',
   });
   assert.deepEqual(result.sources, []);
@@ -140,12 +151,12 @@ test('NON_READY and malformed result envelopes are rejected', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: { status: 'non_ready', admitted: [], candidates: [], reason: 'provider_unavailable' },
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
 });
 
@@ -162,7 +173,7 @@ test('receiver rejects unassessed, disputed and insufficient evidence before pro
         candidates: [candidate({ evidence_assessment })],
       }),
       hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
     }), /NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH/);
   }
 });
@@ -174,7 +185,7 @@ test('receiver does not project preserved but unadmitted evidence', () => {
       candidates: [candidate({ evidence_assessment: 'disputed' })],
     }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   });
   assert.deepEqual(result.sources, []);
   assert.deepEqual(result.candidates, []);
@@ -185,19 +196,20 @@ test('receiver rejects source-version, admission and scope mismatches', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ source_version: '' })] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ admitted: [] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval(),
     hostContext: { ...hostContext, actor_id: 'attacker-actor' },
     hostBinding,
     requestId,
-    generationId, model: 'google/gemini-test',
+    generationId,
+    runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_SCOPE_INVALID/);
 });
 
@@ -207,22 +219,22 @@ test('receiver rejects accessor, Proxy, excessive nesting and oversized content 
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [accessor] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CANDIDATE_INVALID/);
   assert.throws(() => receiveNpcContext({
     retrieval: new Proxy(retrieval(), {}),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_NON_READY/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ content: { nested: { level2: { level3: { level4: { level5: { secret: true } } } } } } })] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
   assert.throws(() => receiveNpcContext({
     retrieval: retrieval({ candidates: [candidate({ content: { note: 'x'.repeat(32769) } })] }),
     hostContext, hostBinding, requestId,
-    generationId, model: 'google/gemini-test',
+    generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_CONTENT_INVALID/);
 });
 
@@ -240,6 +252,7 @@ test('receiver preserves bounded JSON-safe nested NPC content', () => {
     hostBinding,
     requestId,
     generationId,
+    runId,
     model: 'google/gemini-test',
   });
   assert.deepEqual(result.contentBlocks[0].content, nested.content);
