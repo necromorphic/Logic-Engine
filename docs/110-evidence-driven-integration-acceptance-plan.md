@@ -361,3 +361,21 @@ The combined test also supplies an explicit stable replay identity, because the 
 
 Follow-up test fixture commit:
 - `4ddec0125286611b5d86d77e79f21527d4fcadfa` — supply the trusted replay identity to the integrated Final-Send test.
+
+### 2026-11-10 — Receiver-to-Final-Send stale-context integration suite passed
+
+User executed the five focused suites on Windows / Node 22.18.0 after fast-forwarding `integration/host-core-v1` to `c4109c001`.
+
+**Result: 114 tests, 114 passed, 0 failed, 0 skipped.**
+
+The successful run includes the new combined test `immutable NPC Receiver context rejects post-prepare mutation and stale Provider evidence before model egress`. It exercised the actual `receiveNpcContext()` implementation, protected Final-Send adapter, and SQLite-backed Gateway test fixture. It confirmed:
+- Receiver content and digest remain unchanged after attempts to mutate the accepted context and original Core retrieval object;
+- changed canonical `source_version` is rejected;
+- changed Provider `record_version` is rejected;
+- both stale cases produce zero Gateway transport calls, zero upstream model calls, and no durable `DISPATCH_STARTED` row.
+
+It also reran the Receiver, Host one-shot bridge, Final-Send composition, protected sender routing, revocation, streaming, crash recovery, cross-process ordering, and sender-family regression coverage.
+
+**Disposition:** Block 2 automated regression/integration tests PASS. This is not the full Block 2 production acceptance: Provider evidence is still controlled by the Gateway fixture in the new stale-context test, and there is still no live Host → Core HTTP → real SQLite Provider → Receiver → production Gateway → observed model-boundary request proving the complete chain. The Host inventory/root authority caveat from Block 1 also remains: its targeted E2E uses explicit inventory/root-proof fixtures.
+
+**Next implementation target:** build the disposable acceptance composition using the existing real file-backed Core/Provider E2E fixture, attach the real Receiver and production Final-Send/Gateway, and expose a deterministic local fake provider as the outbound-body observer. Keep Memory → NPC disabled in the normal SillyTavern installation.
