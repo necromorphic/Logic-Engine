@@ -521,6 +521,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
       await assert.rejects(finalSend({
         senderRoute: 'google-ai-studio',
         endpointUrl: 'https://provider.example/generate',
+        replayIdentity: createHash('sha256').update('receiver-final-send-stale-context').digest('hex'),
         requestInit: {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
