@@ -2,8 +2,45 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildProtectedMemory } from '../index.mjs';
+import { createNpcGenerationContextHostBridge } from '../src/application/npc-generation-context-host-bridge.js';
 
 const readText = async url => (await readFile(url, 'utf8')).replace(/\r\n/g, '\n');
+
+test('production NPC Host bridge consumes a handoff once and rejects duplicate dispatch', async () => {
+  let prepareCalls = 0;
+  let consumeCalls = 0;
+  const metadata = () => Object.freeze({
+    request_id: '44444444-4444-4444-8444-444444444444',
+    generation_id: '66666666-6666-4666-8666-666666666666',
+    generation_type: 'normal',
+  });
+  const bridge = createNpcGenerationContextHostBridge({
+    createRequestMetadata: metadata,
+    runtime: {
+      async prepareForDispatch(requestMetadata) {
+        prepareCalls += 1;
+        assert.equal(requestMetadata.generation_id, '66666666-6666-4666-8666-666666666666');
+        return { status: 'ready', handoff: Object.freeze({ token: 'one-shot' }) };
+      },
+      consumeDispatchHandoff(handoff, requestMetadata) {
+        consumeCalls += 1;
+        assert.equal(handoff.token, 'one-shot');
+        assert.equal(requestMetadata.request_id, '44444444-4444-4444-8444-444444444444');
+        return { status: 'accepted', context: Object.freeze({ request_id: requestMetadata.request_id }) };
+      },
+      getLaneBDispatchEvidence() { return { status: 'ready', candidates: [], sources: [] }; },
+      revalidateLaneAForDispatch() { return { status: 'ready' }; },
+      revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'ready' }; },
+    },
+  });
+  const request = {};
+  const response = {};
+  assert.equal((await bridge.prepare(request, response)).status, 'ready');
+  assert.equal(bridge.consume(request, response).status, 'accepted');
+  assert.equal(bridge.consume(request, response).status, 'non_ready');
+  assert.equal(prepareCalls, 1);
+  assert.equal(consumeCalls, 1);
+});
 
 test('Memory-enabled native Final-Send composes the embedded Gateway and one-shot NPC bridge', async () => {
   const source = await readText(new URL('../index.mjs', import.meta.url));
