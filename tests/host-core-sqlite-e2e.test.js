@@ -320,6 +320,20 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
           : Object.getPrototypeOf(receiverEnvelope.provider_evidence_cursor) === null ? 'null' : 'other'
         : typeof receiverEnvelope?.provider_evidence_cursor,
     };
+    const receiverAdmissionDiagnostics = {
+      admitted: receiverEnvelope?.admitted,
+      candidates: receiverEnvelope?.candidates?.map(candidate => ({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        authorization_generation: candidate.authorization_generation,
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+        epistemic_kind: candidate.epistemic_kind,
+        evidence_assessment: candidate.evidence_assessment,
+        contentKeys: candidate.content && typeof candidate.content === 'object'
+          ? Reflect.ownKeys(candidate.content) : null,
+      })),
+    };
     const envelopeContractValid = receiverEnvelopeDiagnostics.keys?.length === 6
       && ['status', 'admitted', 'candidates', 'reason', 'snapshot', 'provider_evidence_cursor']
         .every(key => Object.hasOwn(receiverEnvelope, key))
@@ -334,6 +348,8 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       && /^[a-f0-9]{64}$/.test(receiverEnvelope.provider_evidence_cursor?.candidate_digest ?? '');
     assert.equal(envelopeContractValid, true,
       'actual Core Result Envelope does not satisfy Receiver schema: ' + JSON.stringify(receiverEnvelopeDiagnostics));
+    assert.equal(receiverEnvelope.admitted.length, receiverEnvelope.candidates.length,
+      'Core did not admit every supported candidate for NPC projection: ' + JSON.stringify(receiverAdmissionDiagnostics));
     const received = receiveNpcContext({
       retrieval: retrieved.payload.retrieval,
       hostContext: receiverHostContext,
