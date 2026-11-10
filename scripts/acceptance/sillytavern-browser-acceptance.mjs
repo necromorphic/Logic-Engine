@@ -45,11 +45,14 @@ async function ensureApiConnected() {
 }
 try {
   if (!profileDir || !edgeExe) throw new Error('EDGE_PROFILE_OR_EXECUTABLE_NOT_CONFIGURED');
+  console.log('[INFO] Launching Edge with isolated profile: ' + profileDir);
   context = await chromium.launchPersistentContext(profileDir, {
     executablePath: edgeExe, headless: false,
     args: ['--profile-directory=Default', '--no-first-run', '--no-default-browser-check'],
     viewport: null,
+    timeout: 60000,
   });
+  console.log('[INFO] Edge started; navigating to ' + baseUrl.href);
   page = context.pages()[0] || await context.newPage();
   page.setDefaultTimeout(15000);
   page.on('console', message => {
