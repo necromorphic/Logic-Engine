@@ -2,8 +2,8 @@
 setlocal EnableExtensions
 set "PS_SCRIPT=%TEMP%\LogicEngine-Run-PC-Acceptance.ps1"
 set "ROOT=C:\LogicEngine\Logic-Engine"
-set "PINNED_COMMIT=8a2a082e81713aab59aa02ad634b9f71a3a9aa59"
-set "EXPECTED_BLOB=6dd36acc5e16cce3bfafcc813ea653c9dc47abf7"
+set "PINNED_COMMIT=4dd0d63a4f3ebbb49d9b6d3253d2d8da35a8720a"
+set "EXPECTED_BLOB=4896edf2bca3a5130fe172c46eb5575900bc75b0"
 
 echo [INFO] Downloading the pinned acceptance runner...
 where pwsh >nul 2>nul
