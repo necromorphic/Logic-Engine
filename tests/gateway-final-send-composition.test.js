@@ -10,6 +10,7 @@ test('production NPC Host bridge consumes a handoff once and rejects duplicate d
   let prepareCalls = 0;
   let consumeCalls = 0;
   const metadata = () => Object.freeze({
+    run_id: '77777777-7777-4777-8777-777777777777',
     request_id: '44444444-4444-4444-8444-444444444444',
     generation_id: '66666666-6666-4666-8666-666666666666',
     generation_type: 'normal',
@@ -36,7 +37,9 @@ test('production NPC Host bridge consumes a handoff once and rejects duplicate d
   const request = {};
   const response = {};
   assert.equal((await bridge.prepare(request, response)).status, 'ready');
-  assert.equal(bridge.consume(request, response).status, 'accepted');
+  const consumed = bridge.consume(request, response);
+  assert.equal(consumed.status, 'accepted');
+  assert.equal(consumed.runId, '77777777-7777-4777-8777-777777777777');
   assert.equal(bridge.consume(request, response).status, 'non_ready');
   assert.equal(prepareCalls, 1);
   assert.equal(consumeCalls, 1);
