@@ -203,18 +203,31 @@ try {
             $patchSha256 = Get-FileSha256 $patchPath
             $patchText = Get-Content -LiteralPath $patchPath -Raw
             $patchTargetEvidence = @(
-                foreach ($match in [regex]::Matches($patchText, '(?m)^diff --git a/.+ b/(.+) = @(& git -C $stRoot apply --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
-            $applyCode = $LASTEXITCODE
-            if ($applyCode -eq 0) {
-                Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch applies cleanly to the discovered SillyTavern source. Check only; no files changed.'
-            } else {
-                $reverseOutput = @(& git -C $stRoot apply --reverse --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
-                $reverseCode = $LASTEXITCODE
-                if ($reverseCode -eq 0) {
-                    Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch is already applied; reverse-check confirms the exact patch footprint. No files changed.'
+                foreach ($match in [regex]::Matches($patchText, '(?m)^diff --git a/(.+) b/(.+)$')) {
+                    $relative = $match.Groups[2].Value
+                    $target = Join-Path $stRoot ($relative -replace '/', '\')
+                    [pscustomobject]@{
+                        relativePath = $relative
+                        exists = (Test-Path -LiteralPath $target -PathType Leaf)
+                        sha256 = Get-FileSha256 $target
+                    }
+                }
+            )
+            Add-Check 'Host lifecycle patch fingerprint' 'PASS' ("SHA256 {0}; {1} target files fingerprinted." -f $patchSha256, $patchTargetEvidence.Count)
+            if ($git) {
+                $applyOutput = @(& git -C $stRoot apply --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+                $applyCode = $LASTEXITCODE
+                if ($applyCode -eq 0) {
+                    Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch applies cleanly to the discovered SillyTavern source. Check only; no files changed.'
                 } else {
-                    $detail = (($applyOutput + $reverseOutput) -join ' ').Trim()
-                    Add-Check 'Host lifecycle patch compatibility' 'FAIL' ("Patch neither applies cleanly nor matches an already-applied state. " + $detail) 1
+                    $reverseOutput = @(& git -C $stRoot apply --reverse --check $patchPath 2>&1 | ForEach-Object { [string]$_ })
+                    $reverseCode = $LASTEXITCODE
+                    if ($reverseCode -eq 0) {
+                        Add-Check 'Host lifecycle patch compatibility' 'PASS' 'Patch is already applied; reverse-check confirms the exact patch footprint. No files changed.'
+                    } else {
+                        $detail = (($applyOutput + $reverseOutput) -join ' ').Trim()
+                        Add-Check 'Host lifecycle patch compatibility' 'FAIL' ("Patch neither applies cleanly nor matches an already-applied state. " + $detail) 1
+                    }
                 }
             }
         }
@@ -238,17 +251,17 @@ try {
             }
             $storage = Join-Path $vectorRoot 'vector_storage'
             if (Test-Path -LiteralPath $storage -PathType Container) {
-                foreach ($db in Get-ChildItem -LiteralPath $storage -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '\.(sqlite|sqlite3|db)(-wal|-shm)? 'PASS' ("{0} {1} at {2}" -f $vectorPkg.name, $vectorPkg.version, $vectorRoot)
-        if ($vectorPkg.scripts -and $vectorPkg.scripts.test -and $npm) {
-            [void](Invoke-ExternalCheck 'ST-VectorService test suite' 'npm' @('test','--if-present') $vectorRoot)
-        } else {
-            Add-Check 'ST-VectorService tests' 'WARN' 'No npm test script declared; service was inventoried but not executed.'
-        }
-        $vectorServer = Join-Path $vectorRoot 'server.js'
-        if (Test-Path -LiteralPath $vectorServer -PathType Leaf) {
-            Add-Check 'ST-VectorService entrypoint' 'PASS' (Get-FileSha256 $vectorServer)
-        } else { Add-Check 'ST-VectorService entrypoint' 'WARN' 'server.js not found at service root.' }
-    } elseif ($vectorCandidates.Count -gt 1) {
+                foreach ($db in Get-ChildItem -LiteralPath $storage -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '\.(sqlite|sqlite3|db)(-wal|-shm)?$' }) {
+                    [pscustomobject]@{
+                        relativePath = $db.FullName.Substring($vectorRoot.Length).TrimStart('\','/')
+                        sha256 = $null
+                        length = $db.Length
+                        modifiedUtc = $db.LastWriteTimeUtc.ToString('o')
+                        note = 'Database content not read or hashed.'
+                    }
+                }
+            }
+        )
         Add-Check 'ST-VectorService discovery' 'FAIL' ("Multiple candidates found: " + (($vectorCandidates | ForEach-Object Root) -join '; ')) 1
     } else {
         Add-Check 'ST-VectorService discovery' 'WARN' 'No local VectorService folder found. It was not modified.'
