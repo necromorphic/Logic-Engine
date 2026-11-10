@@ -94,17 +94,23 @@ function Restore-Environment {
 function Prepare-PinnedST {
     Write-Section 'PINNED SILLYTAVERN PATCH PREFLIGHT'
     New-Item -ItemType Directory -Path $script:TempRoot -Force | Out-Null
-    if(-not(Invoke-Process 'Clone pinned SillyTavern source' $script:Git @('clone','--no-checkout','--filter=blob:none','https://github.com/SillyTavern/SillyTavern.git',$script:StRoot))){return $false}
+    # A normal clone materializes the working tree. --no-checkout is unsafe
+    # here when the pinned commit equals the remote default branch: Git can
+    # leave the index populated but the working tree absent on that transition.
+    if(-not(Invoke-Process 'Clone pinned SillyTavern source' $script:Git @('clone','--filter=blob:none','https://github.com/SillyTavern/SillyTavern.git',$script:StRoot))){return $false}
     if(-not(Invoke-Process 'Fetch pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'fetch','--depth=1','origin',$script:StPin))){return $false}
-    if(-not(Invoke-Process 'Checkout pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'checkout','--detach','FETCH_HEAD'))){return $false}
+    if(-not(Invoke-Process 'Checkout pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'checkout','--force','--detach',$script:StPin))){return $false}
     $actual=(& $script:Git -C $script:StRoot rev-parse HEAD 2>&1|Out-String).Trim()
     if($LASTEXITCODE -ne 0 -or $actual -ne $script:StPin){Add-Result 'Pinned ST commit' 'FAIL' "Expected $($script:StPin), found $actual";return $false}
     Add-Result 'Pinned ST commit' 'PASS' $actual
+    if(-not(Test-Path -LiteralPath (Join-Path $script:StRoot 'package.json') -PathType Leaf)){
+        Add-Result 'Pinned ST working tree' 'FAIL' 'Commit is present but package.json was not materialized.';return $false
+    }
+    Add-Result 'Pinned ST working tree' 'PASS' 'package.json and source tree materialized'
     & $script:Git -C $script:StRoot config core.autocrlf false
     & $script:Git -C $script:StRoot config core.eol lf
-    & $script:Git -C $script:StRoot reset --hard HEAD
-    & $script:Git -C $script:StRoot checkout-index --force --all
-    if($LASTEXITCODE -ne 0){Add-Result 'Pinned ST LF normalization' 'FAIL';return $false}
+    & $script:Git -C $script:StRoot reset --hard $script:StPin
+    if($LASTEXITCODE -ne 0){Add-Result 'Pinned ST LF normalization' 'FAIL' 'git reset --hard failed';return $false}
     Add-Result 'Pinned ST LF normalization' 'PASS'
     $server=Join-Path $script:StRoot 'plugins/logic-engine-extension-gateway'
     $browser=Join-Path $script:StRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
