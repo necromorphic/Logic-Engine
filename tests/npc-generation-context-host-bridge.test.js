@@ -4,6 +4,7 @@ import { createNpcGenerationContextHostBridge } from '../src/application/npc-gen
 import { createNpcGenerationRequestMetadata } from '../host-adapter/npc-generation-request-metadata.mjs';
 
 const requestMetadata = Object.freeze({
+  run_id: '77777777-7777-4777-8777-777777777777',
   request_id: 'request-1', generation_id: 'generation-1', generation_type: 'normal',
 });
 
@@ -199,11 +200,14 @@ test('Host bridge mints fresh request metadata and ignores browser-supplied corr
     assert.match(metadata.request_id, /^[0-9a-f-]{36}$/i);
     assert.match(metadata.generation_id, /^[0-9a-f-]{36}$/i);
     assert.equal(metadata.generation_type, 'normal');
+    assert.match(metadata.run_id, /^[0-9a-f-]{36}$/i);
+    assert.notEqual(metadata.run_id, 'browser-forged-run');
     assert.notEqual(metadata.request_id, 'browser-forged-request');
     assert.notEqual(metadata.generation_id, 'browser-forged-generation');
   }
   assert.notEqual(seen[0].request_id, seen[1].request_id);
   assert.notEqual(seen[0].generation_id, seen[1].generation_id);
+  assert.notEqual(seen[0].run_id, seen[1].run_id);
 });
 
 test('Host bridge rejects cancellation before invoking Core preparation', async () => {
