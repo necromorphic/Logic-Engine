@@ -307,3 +307,17 @@ Commit:
 - `90375305b9b8710ad041b3abfe1de2ba617e89ad` — reject tampered run/digest metadata before dispatch.
 
 **Execution status:** NOT TESTED. Run the four focused suites plus the protected Final-Send suite containing the new negative-boundary test. Block 2 remains NOT YET PASS.
+
+
+### 2026-11-10 — Block 2 stale Provider evidence rejection tests added (NOT TESTED)
+
+Added two Gateway-level negative tests using the existing isolated Gateway/SQLite fixture:
+1. Provider reports the same record identity with a changed canonical `source_version` after retrieval. Dispatch must fail before `DISPATCH_STARTED`, with zero provider transport calls and no ledger row.
+2. Provider reports a changed evidence cursor (`data_version` and candidate digest) after retrieval. Dispatch must fail with `MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED`, before `DISPATCH_STARTED`, with zero provider transport calls and no ledger row.
+
+The fixture now supports controlled Provider candidate and evidence-cursor overrides. These tests exercise the Gateway's actual synchronous evidence-reader boundary, but the readers remain test doubles; this is not yet proof against the live SQLite Provider and live Core/Host composition.
+
+Commit:
+- `1380503693f1ebf04675577c50813b0cbc64497c` — test stale Provider source version and evidence cursor before dispatch.
+
+**Execution status:** NOT TESTED. Run `tests/memory-dispatch-gateway.test.js` and the four Block 2 focused suites. Block 2 remains NOT YET PASS.
