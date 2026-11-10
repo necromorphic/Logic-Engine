@@ -20,6 +20,7 @@ import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-d
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createProtectedMemoryFinalSend, PROTECTED_MEMORY_SENDER_ROUTES } from '../host-adapter/protected-memory-final-send.mjs';
+import { receiveNpcContext } from '../host-adapter/npc-context-receiver.mjs';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -404,6 +405,122 @@ test('Gateway rejects accessor, Proxy and sparse source/candidate containers bef
       transport: () => { fixture.calls.push('unexpected-sparse'); return Promise.resolve({ status: 200 }); },
     })), /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(fixture.calls.length, 0);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('immutable NPC Receiver context rejects post-prepare mutation and stale Provider evidence before model egress', async () => {
+  const fixture = await createFixture();
+  const retrieval = {
+    status: 'ready',
+    admitted: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+    }],
+    candidates: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      authorization_generation: 1,
+      source_entity_id: 'entity-42',
+      source_version: 'version-7',
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { 'attributes.public_note': 'accepted NPC context' },
+    }],
+    reason: null,
+    snapshot: { world_revision: 12, commit_sequence: 19 },
+    provider_evidence_cursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
+  };
+  const hostBinding = {
+    host_installation_id: '11111111-1111-4111-8111-111111111111',
+    authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+    host_session_id: '55555555-5555-4555-8555-555555555555',
+    conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
+    root_id: 'e'.repeat(64),
+    root_inventory_sequence: 1,
+    root_manifest_sha256: 'f'.repeat(64),
+    adapter_id: 'st-gateway',
+    world_id: 'world-1',
+    actor_id: 'npc-1',
+    actor_type: 'npc',
+  };
+  const received = receiveNpcContext({
+    retrieval,
+    hostContext: {
+      adapter_id: 'st-gateway',
+      conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
+      world_id: 'world-1',
+      actor_id: 'npc-1',
+      actor_type: 'npc',
+    },
+    hostBinding,
+    requestId: '44444444-4444-4444-8444-444444444444',
+    generationId: '66666666-6666-4666-8666-666666666666',
+    runId: '77777777-7777-4777-8777-777777777777',
+    model: 'selected-model',
+    purpose: 'recall',
+  });
+  const protectedContext = Object.freeze({
+    ...received,
+    providerEvidenceCursor: retrieval.provider_evidence_cursor,
+    laneA: Object.freeze({
+      lane: 'A',
+      purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-authorization',
+      visibility_authorization_ref: 'core-visibility-policy',
+      items: Object.freeze([]),
+    }),
+  });
+
+  const originalDigest = protectedContext.contextDigest;
+  assert.throws(() => {
+    protectedContext.contentBlocks[0].content['attributes.public_note'] = 'tampered after prepare';
+  }, TypeError);
+  assert.throws(() => {
+    protectedContext.contextDigest = '0'.repeat(64);
+  }, TypeError);
+  retrieval.candidates[0].source_version = 'version-8';
+  retrieval.candidates[0].content['attributes.public_note'] = 'mutated original Core object';
+  assert.equal(protectedContext.contentBlocks[0].content['attributes.public_note'], 'accepted NPC context');
+  assert.equal(protectedContext.contextDigest, originalDigest);
+
+  // The Provider's current record/source projection no longer matches the
+  // exact immutable Receiver projection prepared above.
+  fixture.setProviderCandidates(protectedContext.candidates.map(candidate => ({
+    ...candidate,
+    source_version: 'version-8',
+  })));
+  let upstreamCalls = 0;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: value => value,
+    fetchImpl: () => {
+      upstreamCalls += 1;
+      return Promise.resolve({ status: 200, body: 'must-not-egress' });
+    },
+  });
+  try {
+    await assert.rejects(finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] }),
+      },
+      hostRequestContext: protectedContext,
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(upstreamCalls, 0, 'stale Provider source evidence must not reach the model');
+    assert.equal(fixture.calls.length, 0, 'Gateway transport must remain unused');
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'stale Provider evidence must be rejected before durable DISPATCH_STARTED',
+    );
   } finally {
     await fixture.close();
   }
