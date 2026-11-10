@@ -25,7 +25,8 @@ function Add-Result {
     if($Status -eq 'FAIL'){$script:Failed=$true}
     if($Status -in @('SKIP','PENDING')){$script:Pending=$true}
 }
-function Write-Section([string]$Name) {
+function Write-Section {
+    param([string]$Name)
     Write-Host ''
     Write-Host ('=' * 70) -ForegroundColor DarkGray
     Write-Host $Name -ForegroundColor Cyan
