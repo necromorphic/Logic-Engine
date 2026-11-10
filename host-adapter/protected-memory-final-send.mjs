@@ -75,6 +75,9 @@ function assertProtectedContext(context) {
   if (!context || typeof context !== 'object' || Array.isArray(context)
     || typeof context.requestId !== 'string' || !context.requestId
     || typeof context.generationId !== 'string' || !context.generationId
+    || typeof context.runId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(context.runId)
+    || typeof context.contextDigest !== 'string' || !/^[a-f0-9]{64}$/.test(context.contextDigest)
+    || typeof context.coreEnvelopeDigest !== 'string' || !/^[a-f0-9]{64}$/.test(context.coreEnvelopeDigest)
     || typeof context.model !== 'string' || !context.model
     || typeof context.worldId !== 'string' || !context.worldId
     || typeof context.actorId !== 'string' || !context.actorId
