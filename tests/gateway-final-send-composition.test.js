@@ -163,7 +163,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   };
   const acceptedContext = {
     request_id: '44444444-4444-4444-8444-444444444444',
-    generation_id: 'generation-id',
+    generation_id: '66666666-6666-4666-8666-666666666666',
     world_id: 'world',
     actor_id: 'actor',
     snapshot: { world_revision: 3, commit_sequence: 9 },
@@ -188,6 +188,8 @@ test('production protected-memory projection accepts the actual prepared Host/Co
 
   const result = buildProtectedMemory({ body: { model: 'horde-model' } }, prepared, npcBridge);
   assert.equal(result.model, 'horde-model');
+  assert.equal(result.generationId, '66666666-6666-4666-8666-666666666666');
+  assert.match(result.contextDigest, /^[a-f0-9]{64}$/);
   assert.equal(result.hostContext.adapter_id, coreContext.adapter_id);
   assert.equal(result.hostContext.core_conversation_id, coreContext.conversation_id);
   assert.equal(result.hostContext.host_session_id, hostBinding.host_session_id);
