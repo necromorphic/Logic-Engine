@@ -41,7 +41,7 @@ test('native fallback is limited to a complete-empty two-lane context', async ()
   assert.match(source, /laneA\.items\.length === 0/);
   assert.match(source, /received\.sources\.length === 0/);
   assert.match(source, /received\.candidates\.length === 0/);
-  assert.match(source, /if \(laneA\.items\.length === 0 && contentBlocks\.length === 0[\s\S]*?return null/);
+  assert.match(source, /if \(laneA\.items\.length === 0 && received\.contentBlocks\.length === 0[\s\S]*?return null/);
   assert.match(source, /if \(!laneA[\s\S]*?return undefined/);
 });
 
