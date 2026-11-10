@@ -8,6 +8,7 @@ import { createEmbeddedGatewayRuntime } from './host-adapter/embedded-gateway-ru
 import { createNpcGenerationContextHostBridge } from './src/application/npc-generation-context-host-bridge.js';
 import { createNpcGenerationRequestMetadata } from './host-adapter/npc-generation-request-metadata.mjs';
 import { projectNpcGenerationContentBlocks } from './host-adapter/npc-generation-content-projection.mjs';
+import { receiveNpcContext } from './host-adapter/npc-context-receiver.mjs';
 
 const PLUGIN_OWNER = 'logic-engine-extension:host-adapter-v1';
 const PLUGIN_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -142,37 +143,73 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   // Host context envelope; it is not nested inside host.context.
   const coreContext = prepared.hostContext.coreContext;
   if (!hostBinding || !coreContext) return undefined;
-  const hostContext = Object.freeze({
-    adapter_id: coreContext.adapter_id,
-    core_conversation_id: coreContext.conversation_id,
-    world_id: context.world_id,
-    actor_id: context.actor_id,
-    actor_type: coreContext.actor_type,
-    host_installation_id: hostBinding.host_installation_id,
-    authenticated_account_id: hostBinding.authenticated_account_id,
-    host_session_id: hostBinding.host_session_id,
-    host_conversation_id: hostBinding.conversation_id,
-    conversation_uuid: hostBinding.conversation_uuid,
-    root_id: hostBinding.root_id,
-    root_inventory_sequence: hostBinding.root_inventory_sequence,
-    root_manifest_sha256: hostBinding.root_manifest_sha256,
+
+  // Route the consumed one-shot Core handoff through the strict production
+  // Receiver. The envelope is assembled only from server-owned handoff data.
+  const received = receiveNpcContext({
+    retrieval: {
+      status: 'ready',
+      admitted: accepted.laneB.candidates.map(candidate => ({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        epistemic_kind: candidate.epistemic_kind,
+        evidence_assessment: candidate.evidence_assessment,
+      })),
+      candidates: laneBContext.candidates,
+      reason: null,
+      snapshot: context.snapshot,
+      provider_evidence_cursor: accepted.laneB.provider_evidence_cursor,
+    },
+    hostContext: {
+      adapter_id: coreContext.adapter_id,
+      conversation_id: coreContext.conversation_id,
+      world_id: context.world_id,
+      actor_id: context.actor_id,
+      actor_type: coreContext.actor_type,
+    },
+    hostBinding: {
+      host_installation_id: hostBinding.host_installation_id,
+      authenticated_account_id: hostBinding.authenticated_account_id,
+      host_session_id: hostBinding.host_session_id,
+      conversation_id: hostBinding.conversation_id,
+      conversation_uuid: hostBinding.conversation_uuid,
+      root_id: hostBinding.root_id,
+      root_inventory_sequence: hostBinding.root_inventory_sequence,
+      root_manifest_sha256: hostBinding.root_manifest_sha256,
+      adapter_id: coreContext.adapter_id,
+      world_id: context.world_id,
+      actor_id: context.actor_id,
+      actor_type: coreContext.actor_type,
+    },
+    requestId: context.request_id,
+    model: resolveRequestModel(request, prepared),
+    purpose: 'npc_decision',
   });
 
+  // Preserve the existing prompt projection boundary after Receiver validation
+  // and immutable copying of admitted content.
+  let receivedContentBlocks;
+  try {
+    receivedContentBlocks = projectNpcGenerationContentBlocks(received.contentBlocks);
+  } catch {
+    return undefined;
+  }
+
   return Object.freeze({
-    requestId: context.request_id,
+    requestId: received.requestId,
     generationId: context.generation_id,
-    model: resolveRequestModel(request, prepared),
-    worldId: context.world_id,
-    actorId: context.actor_id,
-    purpose: 'npc_decision',
-    sources: accepted.laneB.sources,
-    candidates: accepted.laneB.candidates,
+    model: received.model,
+    worldId: received.worldId,
+    actorId: received.actorId,
+    purpose: received.purpose,
+    sources: received.sources,
+    candidates: received.candidates,
     providerEvidenceCursor: accepted.laneB.provider_evidence_cursor,
     laneA,
     revalidateLaneAUnderCoordinatorLease: accepted.revalidateLaneAUnderCoordinatorLease,
-    contentBlocks: Object.freeze(contentBlocks),
-    hostContext,
-    snapshot: context.snapshot,
+    contentBlocks: Object.freeze(receivedContentBlocks),
+    hostContext: received.hostContext,
+    snapshot: received.snapshot,
   });
 }
 
