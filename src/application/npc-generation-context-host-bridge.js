@@ -35,15 +35,29 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
       catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
       if (!requestMetadata || typeof requestMetadata !== 'object'
-        || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)) {
+        || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)
+        || Reflect.ownKeys(requestMetadata).length !== 4
+        || !['run_id', 'request_id', 'generation_id', 'generation_type'].every(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(requestMetadata, key);
+          return descriptor && Object.hasOwn(descriptor, 'value');
+        })
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestMetadata.run_id)) {
         return Object.freeze({ status: 'non_ready', reason: 'request_metadata_not_immutable' });
       }
       if (seenRequestMetadata.has(requestMetadata)) {
         return Object.freeze({ status: 'non_ready', reason: 'request_metadata_reused' });
       }
       seenRequestMetadata.add(requestMetadata);
+      // run_id is Host-owned correlation metadata. Keep the Core request
+      // contract exact; only the existing three-field request enters Core.
+      const runId = requestMetadata.run_id;
+      const coreRequestMetadata = Object.freeze({
+        request_id: requestMetadata.request_id,
+        generation_id: requestMetadata.generation_id,
+        generation_type: requestMetadata.generation_type,
+      });
       let prepared;
-      try { prepared = await runtime.prepareForDispatch(requestMetadata, { signal }); }
+      try { prepared = await runtime.prepareForDispatch(coreRequestMetadata, { signal }); }
       catch { return Object.freeze({ status: 'non_ready', reason: cancelled() ? 'generation_cancelled' : 'npc_context_preparation_failed' }); }
       if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
       if (prepared?.status !== 'ready' || !prepared.handoff) {
@@ -51,7 +65,8 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
       }
       preparedByRequest.set(hostRequest, Object.freeze({
         response: hostResponse,
-        requestMetadata,
+        requestMetadata: coreRequestMetadata,
+        runId,
         handoff: prepared.handoff,
       }));
       return Object.freeze({ status: 'ready', reason: null });
@@ -84,6 +99,7 @@ export function createNpcGenerationContextHostBridge({ runtime, createRequestMet
         status: 'accepted',
         context,
         laneB,
+        runId: prepared.runId,
         revalidateLaneA: () => {
           try { return runtime.revalidateLaneAForDispatch(context, requestMetadata); }
           catch { return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' }); }
