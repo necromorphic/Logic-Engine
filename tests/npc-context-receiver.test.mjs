@@ -48,7 +48,6 @@ const retrieval = (overrides = {}) => ({
   candidates: [candidate()],
   reason: null,
   snapshot: { world_revision: 12, commit_sequence: 19 },
-  provider_evidence_cursor: { data_version: 23, candidate_digest: 'c'.repeat(64) },
   ...overrides,
 });
 
