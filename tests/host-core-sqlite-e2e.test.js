@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -53,6 +54,8 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
   let store;
   let providerAdapter;
   let nonceStore;
+  let providerObserver;
+  let coreObserver;
   let server;
   try {
     const identityStore = new HostIdentityStore({ directory: identityDirectory });
@@ -71,6 +74,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     const worldId = 'host-core-sqlite-world';
     const actorId = 'host-core-sqlite-npc';
     const sourceId = 'host-core-sqlite-source';
+    const canary = 'LE_ACCEPTANCE_SECRET_' + randomUUID();
 
     engine.createWorld({
       world_id: worldId,
@@ -85,7 +89,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       expected_revision: 0,
       effects: [
         { kind: 'entity.create', entity_id: actorId, entity_type: 'character', attributes: { name: 'NPC' } },
-        { kind: 'entity.create', entity_id: sourceId, entity_type: 'character', attributes: { public_note: 'retrieved from real SQLite Provider' } },
+        { kind: 'entity.create', entity_id: sourceId, entity_type: 'character', attributes: { public_note: canary } },
       ],
     });
     new ActorBindingService(engine).bind(worldId, ADAPTER_ID, actorId);
@@ -277,9 +281,60 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.equal(retrieved.payload.retrieval.candidates.length, 1);
     assert.equal(
       retrieved.payload.retrieval.candidates[0].content['attributes.public_note'],
-      'retrieved from real SQLite Provider',
+      canary,
     );
     assert.equal(hostFetchRequests.length, 1, 'the installed Gateway adapter must perform one Core Memory HTTP request');
+
+    // Independently inspect both durable databases through separate read-only
+    // SQLite connections. The HTTP result alone is not accepted as proof that
+    // the exact canonical source and Provider record/index/grants were durable.
+    providerObserver = new DatabaseSync(providerPath, { readOnly: true });
+    coreObserver = new DatabaseSync(corePath, { readOnly: true });
+    assert.equal(providerObserver.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+    assert.equal(coreObserver.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+
+    const persistedProviderRecord = providerObserver.prepare(`
+      SELECT world_id, subject_id, purpose, record_ref, record_version,
+        source_kind, source_entity_id, source_version, lineage_json
+      FROM memory_records
+      WHERE world_id=? AND record_ref=? AND record_version=?
+    `).get(worldId, record.record_ref, record.record_version);
+    assert.ok(persistedProviderRecord, 'the exact authorized Provider record must exist on disk');
+    assert.equal(persistedProviderRecord.subject_id, actorId);
+    assert.equal(persistedProviderRecord.purpose, 'npc_decision');
+    assert.equal(persistedProviderRecord.source_entity_id, sourceId);
+    assert.equal(String(persistedProviderRecord.source_version), String(source.source_version));
+    assert.deepEqual(JSON.parse(persistedProviderRecord.lineage_json), record.lineage);
+
+    assert.equal(providerObserver.prepare(`
+      SELECT COUNT(*) AS count FROM memory_index_entries
+      WHERE world_id=? AND record_ref=? AND record_version=?
+    `).get(worldId, record.record_ref, record.record_version).count, 1,
+    'the record must have a durable index entry');
+
+    assert.equal(providerObserver.prepare(`
+      SELECT allowed FROM memory_query_grants
+      WHERE world_id=? AND subject_id=? AND purpose=?
+    `).get(worldId, actorId, 'npc_decision')?.allowed, 1,
+    'the query grant must be durably enabled');
+
+    assert.equal(providerObserver.prepare(`
+      SELECT allowed FROM memory_record_grants
+      WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?
+    `).get(worldId, actorId, 'npc_decision', record.record_ref, record.record_version)?.allowed, 1,
+    'the exact record grant must be durably enabled');
+
+    const persistedCanonicalSource = coreObserver.prepare(`
+      SELECT e.attributes_json, v.source_version
+      FROM entities e JOIN entity_source_versions v
+        ON v.world_id=e.world_id AND v.entity_id=e.entity_id
+      WHERE e.world_id=? AND e.entity_id=?
+    `).get(worldId, sourceId);
+    assert.ok(persistedCanonicalSource, 'the canonical source must independently exist in Core SQLite');
+    assert.equal(JSON.parse(persistedCanonicalSource.attributes_json).public_note, canary,
+      'the unique canary must be present in the canonical Core source on disk');
+    assert.equal(String(persistedCanonicalSource.source_version), String(source.source_version),
+      'the canonical source version must match Provider lineage');
 
     // The actual ST authentication gate rejects a session/account identity mismatch
     // before any outbound Core request is made.
@@ -359,9 +414,17 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.ok(['ready', 'non_ready'].includes(revoked.payload.retrieval.status));
     assert.deepEqual(revoked.payload.retrieval.candidates, []);
     assert.deepEqual(revoked.payload.retrieval.admitted, []);
-    assert.equal(JSON.stringify(revoked.payload).includes('retrieved from real SQLite Provider'), false);
+    assert.equal(JSON.stringify(revoked.payload).includes(canary), false);
+
+    assert.equal(providerObserver.prepare(`
+      SELECT allowed FROM memory_record_grants
+      WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?
+    `).get(worldId, actorId, 'npc_decision', record.record_ref, record.record_version)?.allowed, 0,
+    'record revocation must be durably visible to an independent SQLite connection');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
+    try { providerObserver?.close(); } catch {}
+    try { coreObserver?.close(); } catch {}
     try { nonceStore?.close(); } catch {}
     try { providerAdapter?.close(); } catch {}
     try { store?.close(); } catch {}
