@@ -90,7 +90,22 @@ try {
     for ($attempt = 0; $attempt -lt 20 -and (-not $activePort -or -not $activeWebSocketPath); $attempt++) {
         if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
             $portLines = @(Get-Content -LiteralPath $activePortFile -TotalCount 2)
-            if ($portLines.Count -ge 2 -and $portLines[0] -match '^\d+
+            if ($portLines.Count -ge 2 -and $portLines[0] -match '^\d+$' -and $portLines[1] -match '^/devtools/browser/[A-Za-z0-9-]+$') {
+                $candidatePort = [int]$portLines[0]
+                if ($candidatePort -ge 1024 -and $candidatePort -le 65535) {
+                    $activePort = $candidatePort
+                    $activeWebSocketPath = $portLines[1]
+                }
+            }
+        }
+        if (-not $activePort -or -not $activeWebSocketPath) { Start-Sleep -Milliseconds 500 }
+    }
+    if (-not $activePort -or -not $activeWebSocketPath) {
+        throw 'EDGE_REMOTE_DEBUGGING_ENDPOINT_INVALID: expected port and browser WebSocket path in DevToolsActivePort'
+    }
+    # Edge's edge://inspect debugging mode exposes the browser WebSocket but may
+    # return 404 for the HTTP /json/version discovery endpoint. Connect directly.
+    $env:ST_EDGE_CDP_ENDPOINT = 'ws://127.0.0.1:' + $activePort + $activeWebSocketPath
 
     Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
     Start-Sleep -Seconds 3
