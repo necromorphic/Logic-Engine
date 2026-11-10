@@ -231,3 +231,26 @@ Commits:
 - `e2879306fbfaab6be30678427030f95d38df9c21` — preserve valid shared JSON references while canonicalizing.
 
 **Execution status:** corrective changes are committed but NOT TESTED. Re-run both focused suites before further implementation. Block 2 remains NOT TESTED; keep Memory → NPC disabled in normal SillyTavern.
+
+
+### 2026-11-10 — Block 2 Host run correlation added (NOT TESTED)
+
+The 28/28 focused Receiver/composition test run at commit `4a9d994e` is recorded as successful. Follow-up implementation adds a distinct Host-generated `run_id` without changing Core's existing exact three-field generation request contract:
+- Host metadata now generates separate UUIDs for `run_id`, `request_id`, and `generation_id`;
+- the Host bridge validates and retains `run_id` beside the opaque one-shot Core handoff, while passing only `request_id`, `generation_id`, and `generation_type` into Core;
+- the bridge returns the Host run ID only when the matching request/response handoff is consumed;
+- the strict NPC Receiver requires `runId`, includes it in the immutable context digest, and returns it in the accepted context;
+- production projection carries `runId` into Final-Send, whose protected-context validator now requires valid run ID, context digest, and original Core envelope digest.
+
+**Contract boundary:** the existing Core Result Envelope schema has no run ID and must remain unchanged. Therefore `run_id` is a Host-owned run correlation bound to the exact one-shot handoff, not a field claimed to originate inside Core's Result Envelope. The original Core envelope is independently bound by `coreEnvelopeDigest`. This preserves the exact Core contract rather than silently extending it.
+
+Commits:
+- `e118c68e6ffe35956a77b1479c75710e59c24abc` — distinct Host run ID generation;
+- `424376c3f9262e90eb0eecfe880c28936c24e8f4` — retain run ID alongside exact Core handoff;
+- `1fa421227fd8bb11bcd384a9587f5be6ce0bafc2` — bind run ID into immutable Receiver digest/output;
+- `e2be7f7822620646e95e712d56b099007636cac8` — production projection propagation;
+- `f55175d994320c75548b3bbfff9470595172ac56` — composition assertion;
+- `ae390faec0ed9f9cae733d9afb4382b36adf119d` — Receiver run-ID digest tests;
+- `2aceb8f028f17452382b572bc6750566d1c60a9d` — one-shot bridge run-ID test.
+
+**Execution status:** NOT TESTED. Final-Send protected-context validation and new run-ID tests require a fresh focused run. Block 2 remains NOT TESTED.
