@@ -488,12 +488,8 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
   assert.equal(protectedContext.contentBlocks[0].content['attributes.public_note'], 'accepted NPC context');
   assert.equal(protectedContext.contextDigest, originalDigest);
 
-  // The Provider's current record/source projection no longer matches the
-  // exact immutable Receiver projection prepared above.
-  fixture.setProviderCandidates(protectedContext.candidates.map(candidate => ({
-    ...candidate,
-    source_version: 'version-8',
-  })));
+  // Either a changed canonical source version or a changed Provider record
+  // version must invalidate the exact immutable Receiver projection.
   let upstreamCalls = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: fixture.gateway,
@@ -504,23 +500,42 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
     },
   });
   try {
-    await assert.rejects(finalSend({
-      senderRoute: 'google-ai-studio',
-      endpointUrl: 'https://provider.example/generate',
-      requestInit: {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] }),
+    const staleVariants = [
+      {
+        label: 'source version',
+        candidates: protectedContext.candidates.map(candidate => ({
+          ...candidate,
+          source_version: 'version-8',
+        })),
       },
-      hostRequestContext: protectedContext,
-    }), /MEMORY_DISPATCH_NOT_READY/);
-    assert.equal(upstreamCalls, 0, 'stale Provider source evidence must not reach the model');
-    assert.equal(fixture.calls.length, 0, 'Gateway transport must remain unused');
-    assert.equal(
-      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
-      0,
-      'stale Provider evidence must be rejected before durable DISPATCH_STARTED',
-    );
+      {
+        label: 'record version',
+        candidates: protectedContext.candidates.map(candidate => ({
+          ...candidate,
+          record_version: 'record-version-4',
+        })),
+      },
+    ];
+    for (const variant of staleVariants) {
+      fixture.setProviderCandidates(variant.candidates);
+      await assert.rejects(finalSend({
+        senderRoute: 'google-ai-studio',
+        endpointUrl: 'https://provider.example/generate',
+        requestInit: {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] }),
+        },
+        hostRequestContext: protectedContext,
+      }), /MEMORY_DISPATCH_NOT_READY/, variant.label);
+      assert.equal(upstreamCalls, 0, variant.label + ' must not reach the model');
+      assert.equal(fixture.calls.length, 0, variant.label + ' must not invoke Gateway transport');
+      assert.equal(
+        fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+        0,
+        variant.label + ' must be rejected before durable DISPATCH_STARTED',
+      );
+    }
   } finally {
     await fixture.close();
   }
