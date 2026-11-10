@@ -133,11 +133,6 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
     return undefined;
   }
 
-  // A complete, revalidated empty Lane A + Lane B is explicitly unprotected.
-  // Any incomplete or unknown state above returns undefined and is terminal.
-  if (laneA.items.length === 0 && contentBlocks.length === 0
-    && accepted.laneB.sources.length === 0 && accepted.laneB.candidates.length === 0) return null;
-
   const hostBinding = host.context;
   // prepareHostContext stores coreContext beside host in the authenticated
   // Host context envelope; it is not nested inside host.context.
@@ -203,6 +198,11 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   } catch {
     return undefined;
   }
+
+  // Even a complete-empty result passes through the Receiver before being
+  // classified as explicitly unprotected.
+  if (laneA.items.length === 0 && received.contentBlocks.length === 0
+    && received.sources.length === 0 && received.candidates.length === 0) return null;
 
   return Object.freeze({
     requestId: received.requestId,
