@@ -8,6 +8,9 @@ import {
 const context = {
   requestId: 'host-request-1',
   generationId: 'host-generation-1',
+  runId: '77777777-7777-4777-8777-777777777777',
+  contextDigest: 'c'.repeat(64),
+  coreEnvelopeDigest: 'd'.repeat(64),
   model: 'google/gemini-test',
   worldId: 'world-1',
   actorId: 'npc-1',
