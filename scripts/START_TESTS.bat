@@ -1,18 +1,53 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 set "SCRIPT_DIR=%~dp0"
 set "PS_SCRIPT=%SCRIPT_DIR%Run-PC-Acceptance.ps1"
+set "ROOT=C:\LogicEngine\Logic-Engine"
+set "PINNED_COMMIT=ef8bdd6217c6c210c691b40520e839eafb2df0b9"
+set "EXPECTED_BLOB=071f8a710db94d00b6c0ded12e1ccdd6bb1b1526"
+
 if not exist "%PS_SCRIPT%" (
-  echo [ERROR] Missing "%PS_SCRIPT%"
-  echo Place this file in the Logic-Engine\scripts folder.
-  pause
-  exit /b 2
+  echo [INFO] Downloading the pinned acceptance runner...
+  set "PS_SCRIPT=%TEMP%\LogicEngine-Run-PC-Acceptance.ps1"
+  where pwsh >nul 2>nul
+  if %errorlevel%==0 (
+    pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/necromorphic/Logic-Engine/%PINNED_COMMIT%/scripts/Run-PC-Acceptance.ps1' -OutFile '%TEMP%\LogicEngine-Run-PC-Acceptance.ps1'"
+  ) else (
+    powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/necromorphic/Logic-Engine/%PINNED_COMMIT%/scripts/Run-PC-Acceptance.ps1' -OutFile '%TEMP%\LogicEngine-Run-PC-Acceptance.ps1'"
+  )
+  if errorlevel 1 (
+    echo [ERROR] Could not download the pinned runner. No project files were changed.
+    pause
+    exit /b 2
+  )
+  where git >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] Git is required to verify the downloaded runner.
+    pause
+    exit /b 2
+  )
+  for /f %%H in ('git hash-object "%TEMP%\LogicEngine-Run-PC-Acceptance.ps1"') do set "ACTUAL_BLOB=%%H"
+  if /I not "%ACTUAL_BLOB%"=="%EXPECTED_BLOB%" (
+    echo [ERROR] Runner integrity check failed. The downloaded file will not be executed.
+    del "%TEMP%\LogicEngine-Run-PC-Acceptance.ps1" >nul 2>nul
+    pause
+    exit /b 3
+  )
+  echo [PASS] Runner integrity verified.
 )
+
+if not exist "%ROOT%\package.json" (
+  echo [ERROR] Logic Engine checkout not found at "%ROOT%".
+  echo Edit ROOT in this BAT only if your repository is stored elsewhere.
+  pause
+  exit /b 4
+)
+
 where pwsh >nul 2>nul
 if %errorlevel%==0 (
-  pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" %*
+  pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" -LogicEngineRoot "%ROOT%"
 ) else (
-  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" %*
+  powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS_SCRIPT%" -LogicEngineRoot "%ROOT%"
 )
 set "RESULT=%errorlevel%"
 echo.
