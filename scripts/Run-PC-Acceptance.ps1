@@ -59,7 +59,7 @@ function Find-CandidateRoots {
             if ($item.Depth -ge $MaxDepth) { continue }
             try {
                 foreach ($dir in Get-ChildItem -LiteralPath $item.Path -Directory -Force -ErrorAction Stop) {
-                    if ($skip -contains $dir.Name) { continue }
+                    if (($skip -contains $dir.Name) -or ($dir.Name -match '(?i)backup|archive|old-copy|worktree-backup')) { continue }
                     $queue.Enqueue([pscustomobject]@{ Path = $dir.FullName; Depth = $item.Depth + 1 })
                 }
             } catch { }
