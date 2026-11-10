@@ -192,7 +192,8 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   assert.equal(result.hostContext.core_conversation_id, coreContext.conversation_id);
   assert.equal(result.hostContext.host_session_id, hostBinding.host_session_id);
   assert.equal(result.candidates.length, 1);
-  assert.equal(result.contentBlocks[0].content, candidate.content);
+  assert.notStrictEqual(result.contentBlocks[0].content, candidate.content);
+  assert.deepEqual(result.contentBlocks[0].content, candidate.content);
   assert.equal(result.providerEvidenceCursor.data_version, 4);
   assert.ok(Object.isFrozen(result));
   assert.ok(Object.isFrozen(result.hostContext));
