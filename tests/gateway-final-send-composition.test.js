@@ -206,7 +206,32 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     snapshot: { world_revision: 3, commit_sequence: 9 },
     lanes: {
       lane_a: { items: [] },
-      lane_b: { status: 'ready', candidates: [candidate] },
+      lane_b: {
+        status: 'ready',
+        candidates: [candidate],
+        result: {
+          status: 'ready',
+          admitted: [{
+            record_ref: candidate.record_ref,
+            record_version: candidate.record_version,
+            epistemic_kind: candidate.epistemic_kind,
+            evidence_assessment: candidate.evidence_assessment,
+          }],
+          candidates: [{
+            record_ref: candidate.record_ref,
+            record_version: candidate.record_version,
+            authorization_generation: candidate.authorization_generation,
+            source_entity_id: candidate.source_entity_id,
+            source_version: candidate.source_version,
+            epistemic_kind: candidate.epistemic_kind,
+            evidence_assessment: candidate.evidence_assessment,
+            content: candidate.content,
+          }],
+          reason: null,
+          snapshot: { world_revision: 3, commit_sequence: 9 },
+          provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
+        },
+      },
     },
   };
   const npcBridge = {
