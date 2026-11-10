@@ -8,7 +8,8 @@ const baseUrl = new URL(process.env.ST_BASE_URL || 'http://127.0.0.1:8000');
 const reportDir = process.env.ST_ACCEPTANCE_REPORT_DIR || process.cwd();
 const timeoutMs = Number(process.env.ST_ACCEPTANCE_TIMEOUT_MS || 120000);
 const skipGeneration = process.env.ST_ACCEPTANCE_SKIP_GENERATION === '1';
-const cdpEndpoint = process.env.ST_EDGE_CDP_ENDPOINT || 'http://127.0.0.1:9222';
+const profileDir = process.env.ST_EDGE_PROFILE_DIR;
+const edgeExe = process.env.ST_EDGE_EXECUTABLE;
 fs.mkdirSync(reportDir, { recursive: true });
 
 const results = [];
@@ -19,19 +20,42 @@ const record = (name, status, detail = '') => {
   console.log(prefix + ' ' + name + (detail ? ' — ' + detail : ''));
 };
 
-let browser;
+let context;
 let page;
+async function ensureApiConnected() {
+  const apiTopButton = page.locator('#api_button');
+  const connectButton = () => page.locator('button:visible').filter({ hasText: /^\\s*Connect\\s*$/i });
+  let connect = connectButton();
+  if (!await connect.count()) {
+    if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
+    await page.waitForTimeout(500);
+    connect = connectButton();
+  }
+  if (await connect.count()) {
+    const button = connect.first();
+    if (await button.isDisabled()) throw new Error('CONNECT_BUTTON_DISABLED');
+    await button.click();
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      const label = (await button.innerText().catch(() => '')).trim();
+      const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' + ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
+      if (!/^connect$/i.test(label) || /connected/i.test(state) || /disconnect/i.test(label)) return;
+      await page.waitForTimeout(500);
+    }
+    throw new Error('API_CONNECT_TIMEOUT');
+  }
+  const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' + ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
+  if (/connected/i.test(state)) return;
+  throw new Error('CONNECT_BUTTON_NOT_FOUND');
+}
 try {
-  // Attach to the user's Edge profile. Do not launch an isolated browser context:
-  // API/model selection and ST session state must come from the existing profile.
-  browser = await chromium.connectOverCDP(cdpEndpoint);
-  const contexts = browser.contexts();
-  if (!contexts.length) throw new Error('EDGE_CDP_NO_DEFAULT_CONTEXT');
-  const context = contexts[0];
-  const pages = context.pages();
-  page = pages.find(candidate => {
-    try { return new URL(candidate.url()).origin === baseUrl.origin; } catch { return false; }
-  }) || await context.newPage();
+  if (!profileDir || !edgeExe) throw new Error('EDGE_PROFILE_OR_EXECUTABLE_NOT_CONFIGURED');
+  context = await chromium.launchPersistentContext(profileDir, {
+    executablePath: edgeExe, headless: false,
+    args: ['--profile-directory=Default', '--no-first-run', '--no-default-browser-check'],
+    viewport: null,
+  });
+  page = context.pages()[0] || await context.newPage();
   page.setDefaultTimeout(15000);
   page.on('console', message => {
     if (message.type() === 'error') errors.push({ type: 'console', text: message.text() });
@@ -58,6 +82,14 @@ try {
     } catch (error) {
       record(endpoint, 'FAIL', error.message);
     }
+  }
+
+  try {
+    await ensureApiConnected();
+    record('Model/API connection', 'PASS', 'Existing model selection retained; Connect clicked automatically if required.');
+  } catch (error) {
+    record('Model/API connection', 'FAIL', error.message);
+    throw error;
   }
 
   const composer = page.locator('#send_textarea');
@@ -129,7 +161,7 @@ try {
 }
 // Intentionally do not call browser.close(): this is an attached Edge session and must remain open.
 const summary = {
-  schema_version: 2, base_url: baseUrl.href, browser: 'Microsoft Edge via local CDP', completed_at: new Date().toISOString(),
+  schema_version: 2, base_url: baseUrl.href, browser: 'Microsoft Edge launched with existing profile; no remote debugging', completed_at: new Date().toISOString(),
   results, browser_errors: errors,
   totals: {
     pass: results.filter(x => x.status === 'PASS').length,
