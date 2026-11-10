@@ -262,6 +262,17 @@ try {
                 }
             }
         )
+        Add-Check 'ST-VectorService discovery' 'PASS' ("{0} {1} at {2}" -f $vectorPkg.name, $vectorPkg.version, $vectorRoot)
+        if ($vectorPkg.scripts -and $vectorPkg.scripts.test -and $npm) {
+            [void](Invoke-ExternalCheck 'ST-VectorService test suite' 'npm' @('test','--if-present') $vectorRoot)
+        } else {
+            Add-Check 'ST-VectorService tests' 'WARN' 'No npm test script declared; service was inventoried but not executed.'
+        }
+        $vectorServer = Join-Path $vectorRoot 'server.js'
+        if (Test-Path -LiteralPath $vectorServer -PathType Leaf) {
+            Add-Check 'ST-VectorService entrypoint' 'PASS' (Get-FileSha256 $vectorServer)
+        } else { Add-Check 'ST-VectorService entrypoint' 'WARN' 'server.js not found at service root.' }
+    } elseif ($vectorCandidates.Count -gt 1) {
         Add-Check 'ST-VectorService discovery' 'FAIL' ("Multiple candidates found: " + (($vectorCandidates | ForEach-Object Root) -join '; ')) 1
     } else {
         Add-Check 'ST-VectorService discovery' 'WARN' 'No local VectorService folder found. It was not modified.'
