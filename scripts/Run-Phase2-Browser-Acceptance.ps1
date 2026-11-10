@@ -1,8 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$BaseUrl = 'http://127.0.0.1:8000',
-    [ValidateRange(15,600)][int]$TimeoutSeconds = 120,
-    [switch]$SkipGeneration
+    [string]$BaseUrl = 'http://127.0.0.1:60619',
+    [ValidateRange(15,600)][int]$TimeoutSeconds = 120
 )
 
 Set-StrictMode -Version Latest
@@ -11,18 +10,13 @@ $started = Get-Date
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if (-not $node -or -not $npm) {
-    Write-Host '[FAIL] Node.js and npm.cmd are required.' -ForegroundColor Red
-    exit 1
-}
+if (-not $node -or -not $npm) { throw 'Node.js and npm.cmd are required.' }
 
 try { $parsed = [Uri]$BaseUrl } catch { throw 'BASE_URL_INVALID' }
 if ($parsed.Scheme -notin @('http','https')) { throw 'BASE_URL_MUST_BE_HTTP_OR_HTTPS' }
 
-$edgeProcesses = @(Get-Process -Name msedge -ErrorAction SilentlyContinue)
-if ($edgeProcesses.Count -gt 0) {
-    Write-Host '[BLOCKED] Microsoft Edge is still running.' -ForegroundColor Yellow
-    Write-Host 'Save any work and close every Edge window, then run this script again.'
+if (@(Get-Process -Name msedge -ErrorAction SilentlyContinue).Count -gt 0) {
+    Write-Host '[BLOCKED] Close all Edge windows first. The test launches Edge itself with your existing profile.' -ForegroundColor Yellow
     exit 2
 }
 
@@ -37,8 +31,6 @@ $edgeExe = $edgeCandidates[0]
 
 $profileDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'
 if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) { throw 'EDGE_USER_PROFILE_NOT_FOUND' }
-$activePortFile = Join-Path $profileDir 'DevToolsActivePort'
-if (Test-Path -LiteralPath $activePortFile -PathType Leaf) { Remove-Item -LiteralPath $activePortFile -Force }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
 $tempRoot = Join-Path $env:TEMP ('LogicEngine-Browser-Acceptance-' + $runId)
@@ -46,12 +38,9 @@ $packageRoot = Join-Path $tempRoot 'playwright-runtime'
 $reportRoot = Join-Path $tempRoot 'report'
 New-Item -ItemType Directory -Path $packageRoot,$reportRoot -Force | Out-Null
 
-$oldPackageJson = [Environment]::GetEnvironmentVariable('PLAYWRIGHT_PACKAGE_JSON','Process')
-$oldBaseUrl = [Environment]::GetEnvironmentVariable('ST_BASE_URL','Process')
-$oldReport = [Environment]::GetEnvironmentVariable('ST_ACCEPTANCE_REPORT_DIR','Process')
-$oldTimeout = [Environment]::GetEnvironmentVariable('ST_ACCEPTANCE_TIMEOUT_MS','Process')
-$oldSkip = [Environment]::GetEnvironmentVariable('ST_ACCEPTANCE_SKIP_GENERATION','Process')
-$oldCdp = [Environment]::GetEnvironmentVariable('ST_EDGE_CDP_ENDPOINT','Process')
+$names = @('PLAYWRIGHT_PACKAGE_JSON','ST_BASE_URL','ST_ACCEPTANCE_REPORT_DIR','ST_ACCEPTANCE_TIMEOUT_MS','ST_EDGE_PROFILE_DIR','ST_EDGE_EXECUTABLE')
+$old = @{}
+foreach ($name in $names) { $old[$name] = [Environment]::GetEnvironmentVariable($name,'Process') }
 $exitCode = 1
 
 try {
@@ -59,13 +48,14 @@ try {
     $env:ST_BASE_URL = $BaseUrl.TrimEnd('/')
     $env:ST_ACCEPTANCE_REPORT_DIR = $reportRoot
     $env:ST_ACCEPTANCE_TIMEOUT_MS = [string]($TimeoutSeconds * 1000)
-    $env:ST_ACCEPTANCE_SKIP_GENERATION = if ($SkipGeneration) { '1' } else { '0' }
+    $env:ST_EDGE_PROFILE_DIR = $profileDir
+    $env:ST_EDGE_EXECUTABLE = $edgeExe
 
-    Write-Host '=== Logic Engine / SillyTavern Edge Browser Acceptance ===' -ForegroundColor Cyan
+    Write-Host '=== Logic Engine / SillyTavern Browser Acceptance ===' -ForegroundColor Cyan
     Write-Host ('Target: ' + $BaseUrl)
-    Write-Host ('Edge profile: ' + $profileDir)
+    Write-Host 'Browser: Edge with existing profile; no Remote Debugging or CDP.'
     Write-Host ('Diagnostics: ' + $tempRoot)
-    Write-Host 'Installing isolated Playwright runtime (no project package files are changed)...' -ForegroundColor Yellow
+    Write-Host 'Installing isolated Playwright runtime...' -ForegroundColor Yellow
 
     $previousEap = $ErrorActionPreference
     try {
@@ -76,47 +66,11 @@ try {
     } finally { $ErrorActionPreference = $previousEap }
     if ($code -ne 0) { throw ('PLAYWRIGHT_NPM_INSTALL_FAILED_' + $code) }
 
-    Write-Host ''
-    Write-Host 'Starting Microsoft Edge with your normal profile...' -ForegroundColor Cyan
-    Start-Process -FilePath $edgeExe -ArgumentList @('--new-window','edge://inspect') | Out-Null
-    Start-Sleep -Seconds 3
-    Write-Host ''
-    Write-Host 'In Edge, open the Remote debugging section and enable remote debugging for this browser instance.' -ForegroundColor Yellow
-    Write-Host 'The debugger endpoint is read from DevToolsActivePort and remains bound to localhost.'
-    [void](Read-Host 'After enabling remote debugging, press Enter to continue')
-
-    $activePort = $null
-    $activeWebSocketPath = $null
-    for ($attempt = 0; $attempt -lt 20 -and (-not $activePort -or -not $activeWebSocketPath); $attempt++) {
-        if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
-            $portLines = @(Get-Content -LiteralPath $activePortFile -TotalCount 2)
-            if ($portLines.Count -ge 2 -and $portLines[0] -match '^\d+$' -and $portLines[1] -match '^/devtools/browser/[A-Za-z0-9-]+$') {
-                $candidatePort = [int]$portLines[0]
-                if ($candidatePort -ge 1024 -and $candidatePort -le 65535) {
-                    $activePort = $candidatePort
-                    $activeWebSocketPath = $portLines[1]
-                }
-            }
-        }
-        if (-not $activePort -or -not $activeWebSocketPath) { Start-Sleep -Milliseconds 500 }
-    }
-    if (-not $activePort -or -not $activeWebSocketPath) {
-        throw 'EDGE_REMOTE_DEBUGGING_ENDPOINT_INVALID: expected port and browser WebSocket path in DevToolsActivePort'
-    }
-    # Edge's edge://inspect debugging mode exposes the browser WebSocket but may
-    # return 404 for the HTTP /json/version discovery endpoint. Connect directly.
-    $env:ST_EDGE_CDP_ENDPOINT = 'ws://127.0.0.1:' + $activePort + $activeWebSocketPath
-
-    Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
-    Start-Sleep -Seconds 3
-    Write-Host ''
-    Write-Host 'In SillyTavern, select the model and verify that the API is connected.' -ForegroundColor Yellow
-    [void](Read-Host 'After selecting the model, press Enter to run the browser acceptance')
-
     $runner = Join-Path $repoRoot 'scripts/acceptance/sillytavern-browser-acceptance.mjs'
     if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
+
     Write-Host ''
-    Write-Host 'Attaching Playwright to the existing Edge profile...' -ForegroundColor Cyan
+    Write-Host 'Starting Edge and opening SillyTavern...' -ForegroundColor Cyan
     $previousEap = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
@@ -132,14 +86,9 @@ try {
     Write-Host ('[FAIL] ' + $_.Exception.Message) -ForegroundColor Red
     $exitCode = 1
 } finally {
-    [Environment]::SetEnvironmentVariable('PLAYWRIGHT_PACKAGE_JSON',$oldPackageJson,'Process')
-    [Environment]::SetEnvironmentVariable('ST_BASE_URL',$oldBaseUrl,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_REPORT_DIR',$oldReport,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_TIMEOUT_MS',$oldTimeout,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_SKIP_GENERATION',$oldSkip,'Process')
-    [Environment]::SetEnvironmentVariable('ST_EDGE_CDP_ENDPOINT',$oldCdp,'Process')
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name,$old[$name],'Process') }
     Write-Host ''
-    Write-Host ('Edge remains open. Report directory: ' + $reportRoot) -ForegroundColor Cyan
+    Write-Host ('Report directory: ' + $reportRoot) -ForegroundColor Cyan
     Write-Host ('Elapsed: {0:N1} minutes' -f ((Get-Date)-$started).TotalMinutes)
 }
 exit $exitCode
