@@ -85,12 +85,57 @@ try {
     [void](Read-Host 'After enabling remote debugging, press Enter to continue')
 
     $activePort = $null
-    if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
-        $portLines = Get-Content -LiteralPath $activePortFile -TotalCount 2
-        if ($portLines.Count -ge 1 -and $portLines[0] -match '^\d+$') {
-            $candidatePort = [int]$portLines[0]
-            if ($candidatePort -ge 1024 -and $candidatePort -le 65535) { $activePort = $candidatePort }
+    for ($attempt = 0; $attempt -lt 20 -and -not $activePort; $attempt++) {
+        if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
+            $portLines = Get-Content -LiteralPath $activePortFile -TotalCount 2
+            if ($portLines.Count -ge 1 -and $portLines[0] -match '^\d+
+        throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable the checkbox on edge://inspect and rerun'
+    }
+    $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $activePort
+
+    # Open the target ST page in the same Edge profile so the user can choose the model.
+    Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
+    Start-Sleep -Seconds 3
+    Write-Host ''
+    Write-Host 'In SillyTavern, select the model and verify that the API is connected.' -ForegroundColor Yellow
+    [void](Read-Host 'After selecting the model, press Enter to run the browser acceptance')
+
+    $runner = Join-Path $repoRoot 'scripts/acceptance/sillytavern-browser-acceptance.mjs'
+    if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
+    Write-Host ''
+    Write-Host 'Attaching Playwright to the existing Edge profile...' -ForegroundColor Cyan
+    $previousEap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $node.Source $runner 2>&1 | ForEach-Object { Write-Host ([string]$_) }
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previousEap }
+
+    if ($null -eq $exitCode) { $exitCode = 0 }
+    if ($exitCode -eq 0) { Write-Host 'RESULT: BROWSER ACCEPTANCE PASS' -ForegroundColor Green }
+    elseif ($exitCode -eq 2) { Write-Host 'RESULT: INCOMPLETE — one or more checks were blocked.' -ForegroundColor Yellow }
+    else { Write-Host 'RESULT: BROWSER ACCEPTANCE FAIL' -ForegroundColor Red }
+} catch {
+    Write-Host ('[FAIL] ' + $_.Exception.Message) -ForegroundColor Red
+    $exitCode = 1
+} finally {
+    [Environment]::SetEnvironmentVariable('PLAYWRIGHT_PACKAGE_JSON',$oldPackageJson,'Process')
+    [Environment]::SetEnvironmentVariable('ST_BASE_URL',$oldBaseUrl,'Process')
+    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_REPORT_DIR',$oldReport,'Process')
+    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_TIMEOUT_MS',$oldTimeout,'Process')
+    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_SKIP_GENERATION',$oldSkip,'Process')
+    [Environment]::SetEnvironmentVariable('ST_EDGE_CDP_ENDPOINT',$oldCdp,'Process')
+    Write-Host ''
+    Write-Host ('Edge remains open. Report directory: ' + $reportRoot) -ForegroundColor Cyan
+    Write-Host ('Elapsed: {0:N1} minutes' -f ((Get-Date)-$started).TotalMinutes)
+}
+exit $exitCode
+) {
+                $candidatePort = [int]$portLines[0]
+                if ($candidatePort -ge 1024 -and $candidatePort -le 65535) { $activePort = $candidatePort }
+            }
         }
+        if (-not $activePort) { Start-Sleep -Milliseconds 500 }
     }
     if (-not $activePort) {
         throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable the checkbox on edge://inspect and rerun'
