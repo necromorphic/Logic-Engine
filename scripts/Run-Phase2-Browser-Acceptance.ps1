@@ -16,8 +16,9 @@ if (-not $node -or -not $npm) {
     exit 1
 }
 
-$parsed = [Uri]$BaseUrl
+try { $parsed = [Uri]$BaseUrl } catch { throw 'BASE_URL_INVALID' }
 if ($parsed.Scheme -notin @('http','https')) { throw 'BASE_URL_MUST_BE_HTTP_OR_HTTPS' }
+
 $edgeProcesses = @(Get-Process -Name msedge -ErrorAction SilentlyContinue)
 if ($edgeProcesses.Count -gt 0) {
     Write-Host '[BLOCKED] Microsoft Edge is still running.' -ForegroundColor Yellow
@@ -25,19 +26,19 @@ if ($edgeProcesses.Count -gt 0) {
     exit 2
 }
 
-$edgeCandidates = @(
-    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }
-if (-not $edgeCandidates) { throw 'MICROSOFT_EDGE_EXECUTABLE_NOT_FOUND' }
+$edgeCandidates = @()
+if ($env:ProgramFiles) { $edgeCandidates += Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe' }
+$programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+if ($programFilesX86) { $edgeCandidates += Join-Path $programFilesX86 'Microsoft\Edge\Application\msedge.exe' }
+if ($env:LOCALAPPDATA) { $edgeCandidates += Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe' }
+$edgeCandidates = @($edgeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+if ($edgeCandidates.Count -eq 0) { throw 'MICROSOFT_EDGE_EXECUTABLE_NOT_FOUND' }
 $edgeExe = $edgeCandidates[0]
+
 $profileDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'
 if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) { throw 'EDGE_USER_PROFILE_NOT_FOUND' }
 $activePortFile = Join-Path $profileDir 'DevToolsActivePort'
-if (Test-Path -LiteralPath $activePortFile) {
-    Remove-Item -LiteralPath $activePortFile -Force
-}
+if (Test-Path -LiteralPath $activePortFile -PathType Leaf) { Remove-Item -LiteralPath $activePortFile -Force }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
 $tempRoot = Join-Path $env:TEMP ('LogicEngine-Browser-Acceptance-' + $runId)
@@ -80,69 +81,24 @@ try {
     Start-Process -FilePath $edgeExe -ArgumentList @('--new-window','edge://inspect') | Out-Null
     Start-Sleep -Seconds 3
     Write-Host ''
-    Write-Host 'In Edge: select "Remote debugging" on the left, then enable "Allow remote debugging for this browser instance".' -ForegroundColor Yellow
-    Write-Host 'This uses Edge built-in remote-debugging permission; it does not copy your profile or expose a network interface.'
+    Write-Host 'In Edge, open the Remote debugging section and enable remote debugging for this browser instance.' -ForegroundColor Yellow
+    Write-Host 'The debugger endpoint is read from DevToolsActivePort and remains bound to localhost.'
     [void](Read-Host 'After enabling remote debugging, press Enter to continue')
 
     $activePort = $null
     for ($attempt = 0; $attempt -lt 20 -and -not $activePort; $attempt++) {
         if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
-            $portLines = Get-Content -LiteralPath $activePortFile -TotalCount 2
-            if ($portLines.Count -ge 1 -and $portLines[0] -match '^\d+
-        throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable the checkbox on edge://inspect and rerun'
-    }
-    $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $activePort
-
-    # Open the target ST page in the same Edge profile so the user can choose the model.
-    Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
-    Start-Sleep -Seconds 3
-    Write-Host ''
-    Write-Host 'In SillyTavern, select the model and verify that the API is connected.' -ForegroundColor Yellow
-    [void](Read-Host 'After selecting the model, press Enter to run the browser acceptance')
-
-    $runner = Join-Path $repoRoot 'scripts/acceptance/sillytavern-browser-acceptance.mjs'
-    if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
-    Write-Host ''
-    Write-Host 'Attaching Playwright to the existing Edge profile...' -ForegroundColor Cyan
-    $previousEap = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        & $node.Source $runner 2>&1 | ForEach-Object { Write-Host ([string]$_) }
-        $exitCode = $LASTEXITCODE
-    } finally { $ErrorActionPreference = $previousEap }
-
-    if ($null -eq $exitCode) { $exitCode = 0 }
-    if ($exitCode -eq 0) { Write-Host 'RESULT: BROWSER ACCEPTANCE PASS' -ForegroundColor Green }
-    elseif ($exitCode -eq 2) { Write-Host 'RESULT: INCOMPLETE — one or more checks were blocked.' -ForegroundColor Yellow }
-    else { Write-Host 'RESULT: BROWSER ACCEPTANCE FAIL' -ForegroundColor Red }
-} catch {
-    Write-Host ('[FAIL] ' + $_.Exception.Message) -ForegroundColor Red
-    $exitCode = 1
-} finally {
-    [Environment]::SetEnvironmentVariable('PLAYWRIGHT_PACKAGE_JSON',$oldPackageJson,'Process')
-    [Environment]::SetEnvironmentVariable('ST_BASE_URL',$oldBaseUrl,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_REPORT_DIR',$oldReport,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_TIMEOUT_MS',$oldTimeout,'Process')
-    [Environment]::SetEnvironmentVariable('ST_ACCEPTANCE_SKIP_GENERATION',$oldSkip,'Process')
-    [Environment]::SetEnvironmentVariable('ST_EDGE_CDP_ENDPOINT',$oldCdp,'Process')
-    Write-Host ''
-    Write-Host ('Edge remains open. Report directory: ' + $reportRoot) -ForegroundColor Cyan
-    Write-Host ('Elapsed: {0:N1} minutes' -f ((Get-Date)-$started).TotalMinutes)
-}
-exit $exitCode
-) {
+            $portLines = @(Get-Content -LiteralPath $activePortFile -TotalCount 2)
+            if ($portLines.Count -ge 1 -and $portLines[0] -match '^\d+$') {
                 $candidatePort = [int]$portLines[0]
                 if ($candidatePort -ge 1024 -and $candidatePort -le 65535) { $activePort = $candidatePort }
             }
         }
         if (-not $activePort) { Start-Sleep -Milliseconds 500 }
     }
-    if (-not $activePort) {
-        throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable the checkbox on edge://inspect and rerun'
-    }
+    if (-not $activePort) { throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable remote debugging on edge://inspect and rerun' }
     $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $activePort
 
-    # Open the target ST page in the same Edge profile so the user can choose the model.
     Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
     Start-Sleep -Seconds 3
     Write-Host ''
