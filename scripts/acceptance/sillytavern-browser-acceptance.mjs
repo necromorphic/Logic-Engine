@@ -63,10 +63,11 @@ try {
   const composer = page.locator('#send_textarea');
   const sendButton = page.locator('#send_but');
   const placeholder = await composer.getAttribute('placeholder') || '';
-  const sendVisible = await sendButton.isVisible().catch(() => false);
-  const connected = !/not connected to api/i.test(placeholder) && sendVisible;
+  // SillyTavern hides #send_but while the composer is empty (displayNone).
+  // Therefore button visibility before typing is not a valid API-readiness signal.
+  const connected = !/not connected to api/i.test(placeholder);
   if (!connected) {
-    record('Model/API readiness', 'BLOCKED', 'No active API connection or send control is hidden; select a model and verify API connection in Edge.');
+    record('Model/API readiness', 'BLOCKED', 'Composer reports no API connection (placeholder: ' + (placeholder || '<empty>') + ').');
   } else if (skipGeneration) {
     record('Generation and chat persistence', 'BLOCKED', 'Skipped by -SkipGeneration.');
   } else {
