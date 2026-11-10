@@ -215,3 +215,19 @@ Commits:
 `runId` is still absent from the current Host/Core request metadata contract; only `request_id` and `generation_id` are currently generated. It remains a separate implementation task and must not be inferred from `generation_id`.
 
 **Execution status:** New original-envelope digest changes and tests are NOT TESTED. Block 2 remains NOT TESTED; Memory → NPC must remain disabled in normal SillyTavern.
+
+
+### 2026-11-10 — Block 2 failed run triage and corrective changes (NOT TESTED)
+
+User executed the focused suites at `c250a6abd964d9e808aec2192df5426a3ce2f1f2`: 26 passed, 2 failed.
+
+Failures:
+- Production composition fixture omitted the exact Core Result Envelope at `context.lanes.lane_b.result`. The production code correctly passes that original envelope to the Receiver; the fixture was stale and produced `NPC_CONTEXT_NON_READY`. Updated the fixture to supply the exact ready envelope shape, including admitted records, candidates, snapshot, reason, and Provider cursor.
+- Safe digest canonicalization accessed object properties directly before candidate descriptor validation, allowing an accessor getter to execute. Reworked canonicalization to reject Proxy objects, accessors, unsupported prototypes, cycles, sparse arrays, and invalid values using property descriptors without invoking getters. The test continues to require `NPC_CONTEXT_CANDIDATE_INVALID`.
+
+Commits:
+- `a6caceedd839f38fd3869e16251584d5cdd791ab` — safe canonicalization rejects accessor/Proxy objects without executing getters;
+- `d939bd888ef3566d7bd4fc60fab37b9e58088d93` — composition fixture supplies the original Core Result Envelope;
+- `e2879306fbfaab6be30678427030f95d38df9c21` — preserve valid shared JSON references while canonicalizing.
+
+**Execution status:** corrective changes are committed but NOT TESTED. Re-run both focused suites before further implementation. Block 2 remains NOT TESTED; keep Memory → NPC disabled in normal SillyTavern.
