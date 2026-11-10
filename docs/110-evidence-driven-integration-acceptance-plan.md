@@ -379,3 +379,18 @@ It also reran the Receiver, Host one-shot bridge, Final-Send composition, protec
 **Disposition:** Block 2 automated regression/integration tests PASS. This is not the full Block 2 production acceptance: Provider evidence is still controlled by the Gateway fixture in the new stale-context test, and there is still no live Host → Core HTTP → real SQLite Provider → Receiver → production Gateway → observed model-boundary request proving the complete chain. The Host inventory/root authority caveat from Block 1 also remains: its targeted E2E uses explicit inventory/root-proof fixtures.
 
 **Next implementation target:** build the disposable acceptance composition using the existing real file-backed Core/Provider E2E fixture, attach the real Receiver and production Final-Send/Gateway, and expose a deterministic local fake provider as the outbound-body observer. Keep Memory → NPC disabled in the normal SillyTavern installation.
+
+### 2026-11-10 — Live Host/Core/SQLite retrieval now feeds the real NPC Receiver (NOT TESTED)
+
+Extended the existing `tests/host-core-sqlite-e2e.test.js` rather than creating a parallel mock route. After the real Host Adapter dispatches through Core HTTP and the file-backed SQLite Provider returns the unique canary, the test now:
+- obtains the same authenticated Host context through the Host Adapter authentication gate;
+- passes the exact returned `host_context` and `retrieval` objects into the production `receiveNpcContext()`;
+- checks the canary, record reference/version, canonical source ID/version, exact Core envelope digest, immutable context digest, and frozen accepted content;
+- keeps Host root inventory and source-attestation inputs explicitly fixture-backed, as already documented.
+
+The Provider E2E record assessment is now `supported` so Core can issue a matching admission proof; the Receiver still independently rejects any candidate not admitted by the exact Core result.
+
+Commit:
+- `dba1d3a79317816a056a549b9280696516091cc2` — connect real Host/Core/SQLite retrieval E2E to the production NPC Receiver.
+
+**Execution status:** NOT TESTED. This is the next focused run. A pass will establish live retrieval-to-Receiver continuity with real Core/Provider persistence, but not production Host authority or model egress; the root inventory remains fixture-backed and the test does not yet run the production Final-Send/Gateway transport.
