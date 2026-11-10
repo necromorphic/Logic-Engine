@@ -104,17 +104,29 @@ These blockers must be resolved by implementation and evidence, not waived by ch
 
 ## Progress log
 
-### 2026-11-10 — Block 1 evidence instrumentation added, execution pending
+### 2026-11-10 — Block 1 targeted E2E executed successfully
 
 The Host-Core-SQLite E2E test was extended to:
 - seed a per-run unique canary in the canonical Core entity;
 - retrieve it through the Host Adapter → Core HTTP → MemoryNpcConsumer → file-backed SQLite Provider route;
 - open the Core and Provider databases independently in read-only mode;
 - verify SQLite integrity, canonical entity content/source version, Provider record metadata/lineage, index entry, and query/record grants;
-- revoke the record grant and then the query grant, verifying both durable grant state and absence of the canary from retrieval output.
+- revoke the record grant and then the query grant, verifying both durable grant state and absence of the canary from retrieval output;
+- reject mismatched Host session identity and incomplete inventory before another Core retrieval request;
+- reject tampered, expired, and replayed signed assertions.
 
-**Execution status:** NOT TESTED. The code changes have not yet been run locally. GitHub Actions run for this candidate was cancelled before the targeted test executed. Do not mark Block 1 PASS until the targeted test passes on the candidate commit and its output is reviewed.
+The first local run exposed a test assertion that compared the canonical source version token (`core-entity-v1:1`) directly with the raw SQLite integer (`1`). Core intentionally exposes the prefixed token while persisting the integer. The assertion was corrected to verify the exact mapping.
 
-## First execution target
+**Execution evidence:** User ran the targeted test on branch `integration/host-core-v1`, commit `33f9dc049c991778418e2b06f2e660504894f06f`, using Node 22.18.0 on Windows:
+- 1 test, 1 pass, 0 fail, 0 skipped;
+- test: `Host dispatch proxy retrieves a real SQLite Provider record through Core HTTP and MemoryNpcConsumer`;
+- duration: 495.57 ms (reported test duration);
+- independent Core and Provider SQLite integrity checks and record/lineage/grant assertions completed;
+- record and query grant revocation checks completed;
+- identity mismatch, incomplete inventory, invalid HMAC, expired assertion, and replay rejection checks completed.
 
-Work only on Block 1 until its evidence requirements pass. Do not enable Memory → NPC in the user's normal SillyTavern installation. Continue using disposable local test data and loopback-only services.
+**Disposition:** Block 1 PASS for the targeted fixture-backed integration E2E. Host inventory enumeration, Root Inventory persistence, and authority resolver are explicit test fixtures; this is not proof of production Host authority or production Memory → NPC enablement. Keep Memory → NPC disabled in the normal SillyTavern installation.
+
+## Next execution target
+
+Proceed to Block 2 — NPC Context Receiver. Preserve the fixture limitations above and do not claim production readiness. Continue using disposable local test data and loopback-only services.
