@@ -20,22 +20,57 @@ jobs:
         with:
           node-version: 22
       - name: Check Gateway source and server-plugin packaging
-        shell: bash
+        shell: powershell
         run: |
-          node --check host-adapter/extension-gateway/index.js
-          node --check host-adapter/extension-gateway/host-context.mjs
-          node --check host-adapter/extension-gateway/gateway-policy.mjs
-          node --check host-adapter/extension-gateway/server-plugin/index.mjs
-          node --check host-adapter/extension-gateway/server-plugin/host-adapter.mjs
-          node --check host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs
-          node --check host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs
-          node --check host-adapter/extension-gateway/server-plugin/fs-inventory.js
-          node --check src/application/host-session-context.js
-          node --check src/application/host-session-context.test.js
-          grep -F "id: 'logic-engine-extension-gateway'" host-adapter/extension-gateway/server-plugin/index.mjs
-          ! grep -R -n --include='*.mjs' --include='*.js' '/api/logic-engine' host-adapter/extension-gateway
-          ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-          ! grep -n '/api/logic-engine' host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
-          grep -F "installation_id:account_id:conversation_uuid" host-adapter/extension-gateway/README.md
-          grep -F "router.post('/host-lifecycle/events', hostAdapter.lifecycleEvents)" host-adapter/extension-gateway/server-plugin/index.mjs
-          grep -F "router.get('/host-lifecycle/status', hostAdapter.lifecycleStatus)" host-adapter/extension-gateway/server-plugin/index.mjs
+          $ErrorActionPreference = 'Stop'
+
+          $nodeChecks = @(
+            'host-adapter/extension-gateway/index.js',
+            'host-adapter/extension-gateway/host-context.mjs',
+            'host-adapter/extension-gateway/gateway-policy.mjs',
+            'host-adapter/extension-gateway/server-plugin/index.mjs',
+            'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs',
+            'host-adapter/extension-gateway/server-plugin/fs-inventory.js',
+            'src/application/host-session-context.js',
+            'src/application/host-session-context.test.js'
+          )
+
+          foreach ($file in $nodeChecks) {
+            & node --check $file
+            if ($LASTEXITCODE -ne 0) {
+              throw "node --check failed for $file (exit $LASTEXITCODE)"
+            }
+          }
+
+          $pluginIndex = 'host-adapter/extension-gateway/server-plugin/index.mjs'
+          if (-not (Select-String -LiteralPath $pluginIndex -SimpleMatch -Pattern "id: 'logic-engine-extension-gateway'" -Quiet)) {
+            throw "Gateway server-plugin id declaration is missing"
+          }
+
+          $gatewayFiles = Get-ChildItem -Path 'host-adapter/extension-gateway' -Recurse -File |
+            Where-Object { $_.Extension -in @('.mjs', '.js') }
+          $legacyRouteMatches = $gatewayFiles | Select-String -SimpleMatch -Pattern '/api/logic-engine'
+          if ($legacyRouteMatches) {
+            $legacyRouteMatches | ForEach-Object { Write-Host $_.ToString() }
+            throw "Legacy /api/logic-engine route found in Gateway source"
+          }
+
+          $lifecyclePatch = 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'
+          if (Select-String -LiteralPath $lifecyclePatch -SimpleMatch -Pattern '/api/logic-engine' -Quiet) {
+            throw "Legacy /api/logic-engine route found in the lifecycle patch"
+          }
+
+          $gatewayReadme = 'host-adapter/extension-gateway/README.md'
+          if (-not (Select-String -LiteralPath $gatewayReadme -SimpleMatch -Pattern 'installation_id:account_id:conversation_uuid' -Quiet)) {
+            throw "Gateway identity binding documentation is missing"
+          }
+
+          if (-not (Select-String -LiteralPath $pluginIndex -SimpleMatch -Pattern "router.post('/host-lifecycle/events', hostAdapter.lifecycleEvents)" -Quiet)) {
+            throw "Host lifecycle events route is missing"
+          }
+
+          if (-not (Select-String -LiteralPath $pluginIndex -SimpleMatch -Pattern "router.get('/host-lifecycle/status', hostAdapter.lifecycleStatus)" -Quiet)) {
+            throw "Host lifecycle status route is missing"
+          }
