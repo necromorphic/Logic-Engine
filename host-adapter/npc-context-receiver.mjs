@@ -28,14 +28,39 @@ function exactDataRecord(value, keys) {
   });
 }
 
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === 'object') {
-    const output = Object.create(null);
-    for (const key of Object.keys(value).sort()) output[key] = canonicalJson(value[key]);
-    return output;
+function canonicalJson(value, seen = new WeakSet()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object' || utilTypes.isProxy(value) || seen.has(value)) {
+    throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
   }
-  return value;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype || !denseArray(value, 50)) {
+      throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+    }
+    return value.map((item, index) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+      }
+      return canonicalJson(descriptor.value, seen);
+    });
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.some(key => typeof key !== 'string')) throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+  const output = Object.create(null);
+  for (const key of keys.sort()) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
+    }
+    output[key] = canonicalJson(descriptor.value, seen);
+  }
+  return output;
 }
 
 function validProviderEvidenceCursor(value) {
