@@ -26,8 +26,8 @@ The temporary browser runtime is retained with the report for diagnostics. Subse
 ## Checks
 
 - SillyTavern page loads and the message composer renders.
-- Same-origin `GET /session` returns HTTP 200.
-- Same-origin `GET /identity` returns HTTP 200.
+- Same-origin `GET /api/plugins/logic-engine-extension-gateway/session` returns HTTP 200.
+- Same-origin `GET /api/plugins/logic-engine-extension-gateway/identity` returns HTTP 200.
 - If an API connection is active, the runner opens a fresh chat, enters a unique acceptance message, sends it, waits for a stable assistant response, reloads the page, and verifies both messages remain visible.
 - Browser console/network warnings and uncaught page errors are recorded.
 
