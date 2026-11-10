@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
  */
 export function createNpcGenerationRequestMetadata() {
   return Object.freeze({
+    run_id: randomUUID(),
     request_id: randomUUID(),
     generation_id: randomUUID(),
     generation_type: 'normal',
