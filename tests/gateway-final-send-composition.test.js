@@ -58,6 +58,7 @@ test('production NPC correlation IDs are Host-generated and never read from brow
   assert.match(source, /createRequestMetadata: \(\) => createNpcGenerationRequestMetadata\(\)/);
   assert.match(source, /import \{ createNpcGenerationRequestMetadata \}/);
   assert.doesNotMatch(source, /function generationBody\(request\)/);
+  assert.match(metadata, /run_id: randomUUID\(\)/);
   assert.match(metadata, /request_id: randomUUID\(\)/);
   assert.match(metadata, /generation_id: randomUUID\(\)/);
   assert.match(metadata, /generation_type: 'normal'/);
@@ -250,6 +251,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
 
   const result = buildProtectedMemory({ body: { model: 'horde-model' } }, prepared, npcBridge);
   assert.equal(result.model, 'horde-model');
+  assert.equal(result.runId, '77777777-7777-4777-8777-777777777777');
   assert.equal(result.generationId, '66666666-6666-4666-8666-666666666666');
   assert.match(result.contextDigest, /^[a-f0-9]{64}$/);
   assert.match(result.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
