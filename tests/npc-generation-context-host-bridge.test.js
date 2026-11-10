@@ -173,6 +173,7 @@ test('Host bridge rejects reuse of one frozen request-metadata object across Hos
 
 test('Host bridge mints fresh request metadata and ignores browser-supplied correlation fields', async () => {
   const seen = [];
+  const hostMetadata = [];
   const handoff = Object.freeze({});
   const bridge = createNpcGenerationContextHostBridge({
     runtime: {
@@ -185,7 +186,11 @@ test('Host bridge mints fresh request metadata and ignores browser-supplied corr
       revalidateLaneAForDispatch() { return { status: 'non_ready' }; },
       revalidateLaneAForDispatchUnderCoordinatorLease() { return { status: 'non_ready' }; },
     },
-    createRequestMetadata: () => createNpcGenerationRequestMetadata(),
+    createRequestMetadata: () => {
+      const metadata = createNpcGenerationRequestMetadata();
+      hostMetadata.push(metadata);
+      return metadata;
+    },
   });
   const firstRequest = {
     body: {
@@ -203,14 +208,16 @@ test('Host bridge mints fresh request metadata and ignores browser-supplied corr
     assert.match(metadata.request_id, /^[0-9a-f-]{36}$/i);
     assert.match(metadata.generation_id, /^[0-9a-f-]{36}$/i);
     assert.equal(metadata.generation_type, 'normal');
-    assert.match(metadata.run_id, /^[0-9a-f-]{36}$/i);
-    assert.notEqual(metadata.run_id, 'browser-forged-run');
+    assert.deepEqual(Object.keys(metadata).sort(), ['generation_id', 'generation_type', 'request_id']);
     assert.notEqual(metadata.request_id, 'browser-forged-request');
     assert.notEqual(metadata.generation_id, 'browser-forged-generation');
   }
   assert.notEqual(seen[0].request_id, seen[1].request_id);
   assert.notEqual(seen[0].generation_id, seen[1].generation_id);
-  assert.notEqual(seen[0].run_id, seen[1].run_id);
+  assert.equal(hostMetadata.length, 2);
+  assert.match(hostMetadata[0].run_id, /^[0-9a-f-]{36}$/i);
+  assert.match(hostMetadata[1].run_id, /^[0-9a-f-]{36}$/i);
+  assert.notEqual(hostMetadata[0].run_id, hostMetadata[1].run_id);
 });
 
 test('Host bridge rejects cancellation before invoking Core preparation', async () => {
