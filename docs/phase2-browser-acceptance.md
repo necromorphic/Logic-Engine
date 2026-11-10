@@ -2,52 +2,48 @@
 
 ## Purpose
 
-Run a real Chromium browser against an already-running SillyTavern instance and verify the Host Gateway from the browser session.
-
-The launcher is separate from the server/deployment smoke launcher. Start the intended SillyTavern instance first, then point this runner at its loopback URL.
+Run a browser acceptance check against an already-running SillyTavern instance, using the user's existing Microsoft Edge profile. This preserves the ST session and API/model settings rather than starting an isolated Chromium profile.
 
 ## Run on Windows
 
-From the Logic-Engine repository root:
+Save work and close **all** Microsoft Edge windows first. From the Logic-Engine repository root:
 
 ```powershell
 git pull --ff-only origin integration/host-core-v1
-.\scripts\Run-Phase2-Browser-Acceptance.ps1 -BaseUrl http://127.0.0.1:8000
+.\scripts\Run-Phase2-Browser-Acceptance.ps1 -BaseUrl http://127.0.0.1:55728
 ```
 
 Use the exact loopback port printed by the deployment smoke harness when it selected a dynamic port.
 
-## Downloads and isolation
+The script will start Edge with the existing profile and a loopback-only DevTools endpoint on port 9222. When Edge opens, select the SillyTavern API/model and make sure it is connected, then return to PowerShell and press Enter. Playwright attaches to that Edge session, runs the checks, and leaves Edge open afterward.
 
-No manual download or global installation is required. On first run the script installs pinned Playwright 1.56.1 and Chromium into a timestamped directory under `%TEMP%\LogicEngine-Browser-Acceptance-*`. It does not modify the Logic-Engine package manifest, lockfile, global Node packages, or the SillyTavern installation.
+## Safety and isolation
 
-The temporary browser runtime is retained with the report for diagnostics. Subsequent runs currently reuse no cached runtime; each run is self-contained.
+- The script refuses to start if any Edge process is still running; it does not forcibly terminate Edge.
+- It uses the existing profile at `%LOCALAPPDATA%\Microsoft\Edge\User Data`.
+- Remote debugging listens on `127.0.0.1` only. Do not change the CDP binding to a network interface.
+- Playwright 1.56.1 is installed in a timestamped directory under `%TEMP%\LogicEngine-Browser-Acceptance-*`; no global install or project package manifest changes.
+- The runner attaches to the existing Edge context and does not close the browser when finished.
+- The runner starts a new ST chat before sending the unique acceptance message. It does not send into the previously open chat.
 
 ## Checks
 
 - SillyTavern page loads and the message composer renders.
 - Same-origin `GET /api/plugins/logic-engine-extension-gateway/session` returns HTTP 200.
 - Same-origin `GET /api/plugins/logic-engine-extension-gateway/identity` returns HTTP 200.
-- If an API connection is active, the runner opens a fresh chat, enters a unique acceptance message, sends it, waits for a stable assistant response, reloads the page, and verifies both messages remain visible.
+- If the API/model connection is active, the runner sends a unique acceptance message, waits for a stable assistant response, reloads the page, and verifies both messages remain visible.
 - Browser console/network warnings and uncaught page errors are recorded.
 
-If no model/API connection is active, or no active character/chat is available, generation is reported as BLOCKED rather than being represented as a pass.
+If no API/model connection is active, or no active character/chat is available, generation is reported as BLOCKED rather than being represented as a pass.
 
 ## Options
 
 - `-SkipGeneration`: check page and identity endpoints without sending a message.
-- `-ShowBrowser`: show Chromium instead of running headless.
 - `-TimeoutSeconds 180`: change the response wait timeout (15–600 seconds).
-
-Generation mode starts a new chat and leaves the acceptance conversation in SillyTavern so the result can be inspected. It does not send into the previously open chat.
+- `-CdpPort 9222`: change the local Edge DevTools port if required.
 
 ## Reports
 
-The runner prints a summary and writes:
+The runner prints a summary and writes `browser-acceptance.json` and `browser-acceptance.png` (or a failure screenshot) under the timestamped report directory.
 
-- `browser-acceptance.json`
-- `browser-acceptance.png` (or failure screenshot)
-
-under the timestamped report directory printed at the end.
-
-Exit codes: 0 = all executed checks passed; 1 = failure; 2 = at least one check was blocked by environment readiness.
+Exit codes: 0 = all executed checks passed; 1 = failure; 2 = blocked by environment readiness.
