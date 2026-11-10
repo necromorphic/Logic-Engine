@@ -188,3 +188,8 @@ Commits:
 **Important boundary:** `contextDigest` is calculated by the Receiver over the immutable accepted projection. It is not yet proven to be the digest of the original Core Result Envelope from Block 1. Exact original-envelope digest continuity and run-ID continuity remain open. The bridge's one-shot lifecycle slot provides a replay barrier, but duplicate/replay behavior at the integrated production Receiver boundary still requires an explicit test.
 
 **Execution status:** The prior 25/25 run predates these generation/digest changes. New code and tests are NOT TESTED. Block 2 remains NOT TESTED; do not enable Memory → NPC in normal SillyTavern.
+
+
+The follow-up also adds an explicit test of the production Host bridge's one-shot lifecycle: one prepared request can be consumed once; a second dispatch for the same request is rejected before a second Core handoff consumption. This test is committed but not yet executed.
+
+- `8f915b5f35854a0be784efbae6072537b72c68e5` — one-shot bridge duplicate-dispatch test.
