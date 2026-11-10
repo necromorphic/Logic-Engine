@@ -297,3 +297,13 @@ This verifies the current automated contracts for:
 - protected sender routing, exactly one transport handoff in tested path, and fail-closed unsupported/invalid cases.
 
 **Status remains:** Block 2 automated focused suites PASS; full Block 2 acceptance NOT YET PASS. The tests are unit/composition-level evidence, not a real end-to-end run through live Host → Core HTTP → Provider → NPC Receiver → production Gateway → model transport. Remaining acceptance work includes exercising the real installed production composition with an explicitly enabled disposable acceptance fixture, proving immutable context and digest continuity at runtime, tamper/stale-source/duplicate-handoff rejection at the actual boundary, and verifying no model egress for rejected contexts. Do not enable Memory → NPC in the normal SillyTavern installation.
+
+
+### 2026-11-10 — Final-Send tamper rejection coverage added (NOT TESTED)
+
+Added a negative-boundary test that supplies six malformed protected contexts: missing or malformed Host `runId`, missing or malformed `contextDigest`, and missing or malformed `coreEnvelopeDigest`. Each must fail with `MEMORY_DISPATCH_NOT_READY` before Gateway dispatch or provider fetch. The test asserts zero Gateway calls and zero provider calls across all cases.
+
+Commit:
+- `90375305b9b8710ad041b3abfe1de2ba617e89ad` — reject tampered run/digest metadata before dispatch.
+
+**Execution status:** NOT TESTED. Run the four focused suites plus the protected Final-Send suite containing the new negative-boundary test. Block 2 remains NOT YET PASS.
