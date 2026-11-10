@@ -36,16 +36,18 @@ function canonicalJson(value, seen = new WeakSet()) {
   }
   seen.add(value);
   if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype || !denseArray(value, 50)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype || !denseArray(value, 64)) {
       throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
     }
-    return value.map((item, index) => {
+    const output = value.map((item, index) => {
       const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
       if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
         throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
       }
       return canonicalJson(descriptor.value, seen);
     });
+    seen.delete(value);
+    return output;
   }
   if (Object.getPrototypeOf(value) !== Object.prototype) {
     throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
@@ -60,6 +62,7 @@ function canonicalJson(value, seen = new WeakSet()) {
     }
     output[key] = canonicalJson(descriptor.value, seen);
   }
+  seen.delete(value);
   return output;
 }
 
