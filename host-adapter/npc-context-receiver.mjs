@@ -1,4 +1,5 @@
 import { types as utilTypes } from 'node:util';
+import { createHash } from 'node:crypto';
 
 const ID = value => typeof value === 'string'
   && value === value.trim()
@@ -25,6 +26,16 @@ function exactDataRecord(value, keys) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     return descriptor && Object.hasOwn(descriptor, 'value');
   });
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    const output = Object.create(null);
+    for (const key of Object.keys(value).sort()) output[key] = canonicalJson(value[key]);
+    return output;
+  }
+  return value;
 }
 
 function validProviderEvidenceCursor(value) {
@@ -108,10 +119,11 @@ export function receiveNpcContext({
   hostContext,
   hostBinding,
   requestId,
+  generationId,
   model,
   purpose = 'npc_decision',
 } = {}) {
-  if (!UUID(requestId) || !ID(model) || !ID(purpose)
+  if (!UUID(requestId) || !UUID(generationId) || !ID(model) || !ID(purpose)
     || !exactDataRecord(hostContext, ['adapter_id', 'conversation_id', 'world_id', 'actor_id', 'actor_type'])
     || !ID(hostContext.adapter_id) || !ID(hostContext.conversation_id)
     || !ID(hostContext.world_id) || !ID(hostContext.actor_id) || !ID(hostContext.actor_type)
@@ -236,8 +248,47 @@ export function receiveNpcContext({
 
   const sources = [...sourcesByIdentity.values()];
   if (sources.length === 0 && candidates.length !== 0) throw new Error('NPC_CONTEXT_SOURCE_SET_INVALID');
+  const immutableEvidence = {
+    requestId,
+    generationId,
+    model,
+    purpose,
+    worldId: hostContext.world_id,
+    actorId: hostContext.actor_id,
+    sources,
+    candidates,
+    contentBlocks,
+    snapshot: {
+      world_revision: retrieval.snapshot.world_revision,
+      commit_sequence: retrieval.snapshot.commit_sequence,
+    },
+    providerEvidenceCursor: {
+      data_version: retrieval.provider_evidence_cursor.data_version,
+      candidate_digest: retrieval.provider_evidence_cursor.candidate_digest,
+    },
+    hostContext: {
+      adapter_id: hostContext.adapter_id,
+      core_conversation_id: hostContext.conversation_id,
+      world_id: hostContext.world_id,
+      actor_id: hostContext.actor_id,
+      actor_type: hostContext.actor_type,
+      host_installation_id: hostBinding.host_installation_id,
+      authenticated_account_id: hostBinding.authenticated_account_id,
+      host_session_id: hostBinding.host_session_id,
+      host_conversation_id: hostBinding.conversation_id,
+      conversation_uuid: hostBinding.conversation_uuid,
+      root_id: hostBinding.root_id,
+      root_inventory_sequence: hostBinding.root_inventory_sequence,
+      root_manifest_sha256: hostBinding.root_manifest_sha256,
+    },
+  };
+  const contextDigest = createHash('sha256')
+    .update(JSON.stringify(canonicalJson(immutableEvidence)), 'utf8')
+    .digest('hex');
   return Object.freeze({
     requestId,
+    generationId,
+    contextDigest,
     model,
     worldId: hostContext.world_id,
     actorId: hostContext.actor_id,
