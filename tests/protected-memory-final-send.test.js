@@ -478,6 +478,42 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   assert.match(prompt, /Lane B evidence/);
 });
 
+test('Final-Send rejects missing or malformed run and context digests before Gateway or provider egress', () => {
+  const invalidContexts = [
+    { ...context, runId: 'not-a-uuid' },
+    { ...context, runId: undefined },
+    { ...context, contextDigest: 'not-a-sha256' },
+    { ...context, contextDigest: undefined },
+    { ...context, coreEnvelopeDigest: 'not-a-sha256' },
+    { ...context, coreEnvelopeDigest: undefined },
+  ];
+  let gatewayCalls = 0;
+  let providerCalls = 0;
+  for (const invalidContext of invalidContexts) {
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: {
+        dispatchProtectedRequest() {
+          gatewayCalls += 1;
+          throw new Error('invalid context reached Gateway');
+        },
+      },
+      resolveProtectedMemory: () => invalidContext,
+      fetchImpl: async () => {
+        providerCalls += 1;
+        throw new Error('invalid context reached provider');
+      },
+    });
+    assert.throws(() => finalSend({
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(),
+      hostRequestContext,
+    }), /MEMORY_DISPATCH_NOT_READY/);
+  }
+  assert.equal(gatewayCalls, 0);
+  assert.equal(providerCalls, 0);
+});
+
 test('Final-Send rejects top-level and Lane A accessors without executing them', () => {
   let topLevelCalls = 0;
   let laneCalls = 0;
