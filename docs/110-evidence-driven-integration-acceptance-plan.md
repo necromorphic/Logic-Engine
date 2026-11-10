@@ -193,3 +193,25 @@ Commits:
 The follow-up also adds an explicit test of the production Host bridge's one-shot lifecycle: one prepared request can be consumed once; a second dispatch for the same request is rejected before a second Core handoff consumption. This test is committed but not yet executed.
 
 - `8f915b5f35854a0be784efbae6072537b72c68e5` — one-shot bridge duplicate-dispatch test.
+
+
+### 2026-11-10 — Block 2 original Core envelope digest wired (NOT TESTED)
+
+User ran the focused Receiver and Gateway composition suites at `f7d60c57f7d925848fc1542efbe66f1aeed1d3db`: 28 tests passed, 0 failed. This confirms the generation identity/context digest and one-shot bridge tests added before that run.
+
+Follow-up implementation now:
+- passes the original immutable Core Lane B Result Envelope (`laneBContext.result`) directly into `receiveNpcContext`, instead of rebuilding a lookalike envelope from separately projected candidate arrays;
+- calculates `coreEnvelopeDigest` as SHA-256 over canonical JSON of that exact envelope before Receiver projection;
+- includes the Core envelope digest in the Receiver's immutable evidence digest and output;
+- propagates `coreEnvelopeDigest` into the Final-Send protected-memory projection;
+- adds assertions that the original-envelope digest exists, changes when the envelope content changes, and reaches Final-Send.
+
+Commits:
+- `a0685a1fa099b56d246fb221d83077a93363988b` — exact Core envelope digest in Receiver;
+- `1a01dfd7782b3362e60b1f8c629368ece86df42d` — pass original Core result and propagate digest;
+- `55bc9cf16f26fedf8bf718c88bbde55541f5290b` — Receiver envelope digest assertions;
+- `ff4e5611a6aa0a8c79fb86f8ed471122ab4a079a` — Final-Send digest assertion.
+
+`runId` is still absent from the current Host/Core request metadata contract; only `request_id` and `generation_id` are currently generated. It remains a separate implementation task and must not be inferred from `generation_id`.
+
+**Execution status:** New original-envelope digest changes and tests are NOT TESTED. Block 2 remains NOT TESTED; Memory → NPC must remain disabled in normal SillyTavern.
