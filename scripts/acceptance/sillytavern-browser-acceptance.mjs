@@ -90,7 +90,7 @@ try {
       let stablePolls = 0;
       const deadline = Date.now() + timeoutMs;
       while (Date.now() < deadline) {
-        const assistantMessages = page.locator('#chat .mes:not(.is_user) .mes_text');
+        const assistantMessages = page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text');
         if (await assistantMessages.count() > 0) {
           const currentText = (await assistantMessages.last().innerText().catch(() => '')).trim();
           const stopVisible = await page.locator('#mes_stop').isVisible().catch(() => false);
@@ -105,13 +105,13 @@ try {
         record('Model generation', 'FAIL', 'No assistant response within ' + timeoutMs + ' ms; inspect browser/server logs.');
       } else {
         record('Model generation', 'PASS', 'Assistant response received (' + assistantText.length + ' characters).');
-        const userMessage = page.locator('#chat .mes.is_user .mes_text').filter({ hasText: marker });
+        const userMessage = page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker });
         if (await userMessage.count() === 0) record('User message rendered', 'FAIL', 'Unique test marker not found in chat.');
         else record('User message rendered', 'PASS', 'Unique test marker found.');
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
         await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
-        const persisted = await page.locator('#chat .mes.is_user .mes_text').filter({ hasText: marker }).count();
-        const persistedAssistant = await page.locator('#chat .mes:not(.is_user) .mes_text').count();
+        const persisted = await page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker }).count();
+        const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').count();
         if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'Test user message and assistant response remain visible.');
         else record('Chat persistence after reload', 'FAIL', 'One or both test messages were not restored.');
       }
