@@ -421,6 +421,21 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?
     `).get(worldId, actorId, 'npc_decision', record.record_ref, record.record_version)?.allowed, 0,
     'record revocation must be durably visible to an independent SQLite connection');
+
+    // Restore the record grant, then revoke the broader query grant. A valid
+    // record grant must not bypass a revoked query grant.
+    providerAdapter.provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    providerAdapter.provider.grantQuery(scope, false);
+    const queryRevoked = await invoke();
+    assert.equal(queryRevoked.statusCode, 200);
+    assert.deepEqual(queryRevoked.payload.retrieval.candidates, []);
+    assert.deepEqual(queryRevoked.payload.retrieval.admitted, []);
+    assert.equal(JSON.stringify(queryRevoked.payload).includes(canary), false);
+    assert.equal(providerObserver.prepare(`
+      SELECT allowed FROM memory_query_grants
+      WHERE world_id=? AND subject_id=? AND purpose=?
+    `).get(worldId, actorId, 'npc_decision')?.allowed, 0,
+    'query revocation must be durably visible to an independent SQLite connection');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
     try { providerObserver?.close(); } catch {}
