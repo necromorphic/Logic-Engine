@@ -164,6 +164,10 @@ export function receiveNpcContext({
     throw new Error('NPC_CONTEXT_NON_READY');
   }
 
+  const coreEnvelopeDigest = createHash('sha256')
+    .update(JSON.stringify(canonicalJson(retrieval)), 'utf8')
+    .digest('hex');
+
   const admittedByIdentity = new Map();
   for (const admitted of retrieval.admitted) {
     if (!exactDataRecord(admitted, ['record_ref', 'record_version', 'epistemic_kind', 'evidence_assessment'])
@@ -251,6 +255,7 @@ export function receiveNpcContext({
   const immutableEvidence = {
     requestId,
     generationId,
+    coreEnvelopeDigest,
     model,
     purpose,
     worldId: hostContext.world_id,
@@ -289,6 +294,7 @@ export function receiveNpcContext({
     requestId,
     generationId,
     contextDigest,
+    coreEnvelopeDigest,
     model,
     worldId: hostContext.world_id,
     actorId: hostContext.actor_id,
