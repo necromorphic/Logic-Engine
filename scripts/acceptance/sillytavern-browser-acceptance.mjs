@@ -31,6 +31,21 @@ async function ensureApiConnected() {
     await page.waitForTimeout(500);
     connect = connectButton();
   }
+  if (!await connect.count()) {
+    const textConnect = page.getByText('Connect', { exact: true }).first();
+    if (await textConnect.count() && await textConnect.isVisible().catch(() => false)) {
+      await textConnect.click();
+      const deadline = Date.now() + 45000;
+      while (Date.now() < deadline) {
+        const label = (await textConnect.innerText().catch(() => '')).trim();
+        const state = ((await apiTopButton.getAttribute('class').catch(() => '')) || '') + ' ' +
+          ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
+        if (!/^connect$/i.test(label) || /connected/i.test(state)) return;
+        await page.waitForTimeout(500);
+      }
+      throw new Error('API_CONNECT_TIMEOUT');
+    }
+  }
   if (await connect.count()) {
     const button = connect.first();
     if (await button.isDisabled()) throw new Error('CONNECT_BUTTON_DISABLED');
