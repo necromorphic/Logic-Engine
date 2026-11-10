@@ -39,8 +39,8 @@ test('Lane A and Lane B remain distinct in the provider projection', async () =>
 test('native fallback is limited to a complete-empty two-lane context', async () => {
   const source = await readText(new URL('../index.mjs', import.meta.url));
   assert.match(source, /laneA\.items\.length === 0/);
-  assert.match(source, /accepted\.laneB\.sources\.length === 0/);
-  assert.match(source, /accepted\.laneB\.candidates\.length === 0/);
+  assert.match(source, /received\.sources\.length === 0/);
+  assert.match(source, /received\.candidates\.length === 0/);
   assert.match(source, /if \(laneA\.items\.length === 0 && contentBlocks\.length === 0[\s\S]*?return null/);
   assert.match(source, /if \(!laneA[\s\S]*?return undefined/);
 });
@@ -142,7 +142,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     authenticated_account_id: '22222222-2222-4222-8222-222222222222',
     host_session_id: '55555555-5555-4555-8555-555555555555',
     conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
-    conversation_uuid: '11111111-1111-4111-8111-111111111111',
+    conversation_uuid: '33333333-3333-4333-8333-333333333333',
     root_id: 'a'.repeat(64),
     root_inventory_sequence: 7,
     root_manifest_sha256: 'a'.repeat(64),
