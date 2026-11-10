@@ -15,11 +15,6 @@ if (-not $node -or -not $npm) { throw 'Node.js and npm.cmd are required.' }
 try { $parsed = [Uri]$BaseUrl } catch { throw 'BASE_URL_INVALID' }
 if ($parsed.Scheme -notin @('http','https')) { throw 'BASE_URL_MUST_BE_HTTP_OR_HTTPS' }
 
-if (@(Get-Process -Name msedge -ErrorAction SilentlyContinue).Count -gt 0) {
-    Write-Host '[BLOCKED] Close all Edge windows first. The test launches Edge itself with your existing profile.' -ForegroundColor Yellow
-    exit 2
-}
-
 $edgeCandidates = @()
 if ($env:ProgramFiles) { $edgeCandidates += Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe' }
 $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
@@ -29,14 +24,33 @@ $edgeCandidates = @($edgeCandidates | Where-Object { Test-Path -LiteralPath $_ -
 if ($edgeCandidates.Count -eq 0) { throw 'MICROSOFT_EDGE_EXECUTABLE_NOT_FOUND' }
 $edgeExe = $edgeCandidates[0]
 
-$profileDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'
-if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) { throw 'EDGE_USER_PROFILE_NOT_FOUND' }
+$sourceProfile = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'
+if (-not (Test-Path -LiteralPath $sourceProfile -PathType Container)) { throw 'EDGE_USER_PROFILE_NOT_FOUND' }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
 $tempRoot = Join-Path $env:TEMP ('LogicEngine-Browser-Acceptance-' + $runId)
 $packageRoot = Join-Path $tempRoot 'playwright-runtime'
 $reportRoot = Join-Path $tempRoot 'report'
-New-Item -ItemType Directory -Path $packageRoot,$reportRoot -Force | Out-Null
+$profileDir = Join-Path $tempRoot 'edge-profile'
+New-Item -ItemType Directory -Path $packageRoot,$reportRoot,$profileDir -Force | Out-Null
+
+# Copy the browser state used by SillyTavern into an isolated profile.
+# This avoids locking the user's normal Edge profile or enabling CDP.
+$sourceDefault = Join-Path $sourceProfile 'Default'
+$targetDefault = Join-Path $profileDir 'Default'
+if (-not (Test-Path -LiteralPath $sourceDefault -PathType Container)) { throw 'EDGE_DEFAULT_PROFILE_NOT_FOUND' }
+New-Item -ItemType Directory -Path $targetDefault -Force | Out-Null
+$localState = Join-Path $sourceProfile 'Local State'
+if (Test-Path -LiteralPath $localState -PathType Leaf) {
+    Copy-Item -LiteralPath $localState -Destination $profileDir -Force
+}
+$copyItems = @('Preferences','Secure Preferences','Local Storage','IndexedDB','Session Storage','WebStorage','Network','Service Worker')
+foreach ($item in $copyItems) {
+    $source = Join-Path $sourceDefault $item
+    if (Test-Path -LiteralPath $source) {
+        Copy-Item -LiteralPath $source -Destination $targetDefault -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 $names = @('PLAYWRIGHT_PACKAGE_JSON','ST_BASE_URL','ST_ACCEPTANCE_REPORT_DIR','ST_ACCEPTANCE_TIMEOUT_MS','ST_EDGE_PROFILE_DIR','ST_EDGE_EXECUTABLE')
 $old = @{}
@@ -53,7 +67,7 @@ try {
 
     Write-Host '=== Logic Engine / SillyTavern Browser Acceptance ===' -ForegroundColor Cyan
     Write-Host ('Target: ' + $BaseUrl)
-    Write-Host 'Browser: Edge with existing profile; no Remote Debugging or CDP.'
+    Write-Host 'Browser: isolated Edge profile cloned from your ST settings; no Remote Debugging or CDP.'
     Write-Host ('Diagnostics: ' + $tempRoot)
     Write-Host 'Installing isolated Playwright runtime...' -ForegroundColor Yellow
 
@@ -70,7 +84,7 @@ try {
     if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
 
     Write-Host ''
-    Write-Host 'Starting Edge and opening SillyTavern...' -ForegroundColor Cyan
+    Write-Host 'Starting Edge with a temporary profile and opening SillyTavern...' -ForegroundColor Cyan
     $previousEap = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
