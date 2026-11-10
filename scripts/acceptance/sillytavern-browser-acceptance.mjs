@@ -28,25 +28,11 @@ async function ensureApiConnected() {
     ((await apiTopButton.getAttribute('title').catch(() => '')) || '');
   if (/connected/i.test(await state())) return 'already-connected';
 
-  const connectButton = () => page.locator('button:visible, [role="button"]:visible, .menu_button:visible')
-    .filter({ hasText: /^\\s*Connect\\s*$/i });
-  let connect = connectButton();
-  if (!await connect.count()) {
-    if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
-    await page.waitForTimeout(500);
-    connect = connectButton();
-  }
-  if (await connect.count()) {
-    const button = connect.first();
-    if (await button.isDisabled()) throw new Error('CONNECT_BUTTON_DISABLED');
-    await button.click();
-    await page.waitForTimeout(1500);
-    return 'connect-clicked';
-  }
-
-  const textConnect = page.getByText('Connect', { exact: true }).first();
-  if (await textConnect.count() && await textConnect.isVisible().catch(() => false)) {
-    await textConnect.click();
+  if (await apiTopButton.count()) await apiTopButton.first().click().catch(() => {});
+  await page.waitForTimeout(500);
+  const connectText = page.getByText('Connect', { exact: true }).first();
+  if (await connectText.count() && await connectText.isVisible().catch(() => false)) {
+    await connectText.click();
     await page.waitForTimeout(1500);
     return 'connect-clicked';
   }
