@@ -146,6 +146,30 @@ test('authorized complete-empty result is preserved as an empty ready context', 
   assert.deepEqual(result.contentBlocks, []);
 });
 
+test('receiver accepts the public five-field envelope and rejects the private Provider cursor', () => {
+  const publicResult = receiveNpcContext({
+    retrieval: retrieval(),
+    hostContext,
+    hostBinding,
+    requestId,
+    generationId,
+    runId,
+    model: 'google/gemini-test',
+  });
+  assert.match(publicResult.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
+  assert.throws(() => receiveNpcContext({
+    retrieval: retrieval({
+      provider_evidence_cursor: { data_version: 23, candidate_digest: 'c'.repeat(64) },
+    }),
+    hostContext,
+    hostBinding,
+    requestId,
+    generationId,
+    runId,
+    model: 'google/gemini-test',
+  }), /NPC_CONTEXT_NON_READY/);
+});
+
 test('NON_READY and malformed result envelopes are rejected', () => {
   assert.throws(() => receiveNpcContext({
     retrieval: { status: 'non_ready', admitted: [], candidates: [], reason: 'provider_unavailable' },
