@@ -97,6 +97,13 @@ try {
     }
     $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $activePort
 
+    # Open the target ST page in the same Edge profile so the user can choose the model.
+    Start-Process -FilePath $edgeExe -ArgumentList @($BaseUrl) | Out-Null
+    Start-Sleep -Seconds 3
+    Write-Host ''
+    Write-Host 'In SillyTavern, select the model and verify that the API is connected.' -ForegroundColor Yellow
+    [void](Read-Host 'After selecting the model, press Enter to run the browser acceptance')
+
     $runner = Join-Path $repoRoot 'scripts/acceptance/sillytavern-browser-acceptance.mjs'
     if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
     Write-Host ''
