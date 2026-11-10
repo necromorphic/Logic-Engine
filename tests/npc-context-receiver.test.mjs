@@ -68,6 +68,8 @@ test('receiver digest is stable for the same accepted context and changes when a
   });
   assert.equal(first.contextDigest, repeated.contextDigest);
   assert.notEqual(first.contextDigest, changed.contextDigest);
+  assert.match(first.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
+  assert.notEqual(first.coreEnvelopeDigest, changed.coreEnvelopeDigest);
 });
 
 test('receiver rejects missing or malformed generation identity', () => {
@@ -92,6 +94,7 @@ test('receiver converts only matching Core-admitted candidates into Gateway meta
   });
   assert.equal(result.generationId, generationId);
   assert.match(result.contextDigest, /^[a-f0-9]{64}$/);
+  assert.match(result.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
   assert.equal(result.worldId, 'world-main');
   assert.equal(result.actorId, 'actor-npc');
   assert.equal(result.purpose, 'npc_decision');
