@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Run a browser acceptance check against an already-running SillyTavern instance, using the user's existing Microsoft Edge profile. This preserves the ST session and API/model settings rather than starting an isolated Chromium profile.
+Run browser acceptance against SillyTavern using the user's existing Microsoft Edge profile. This preserves the ST session and API/model settings rather than starting an isolated Chromium profile.
 
 ## Run on Windows
 
@@ -15,13 +15,13 @@ git pull --ff-only origin integration/host-core-v1
 
 Use the exact loopback port printed by the deployment smoke harness when it selected a dynamic port.
 
-The script will start Edge with the existing profile and a loopback-only DevTools endpoint on port 9222. When Edge opens, select the SillyTavern API/model and make sure it is connected, then return to PowerShell and press Enter. Playwright attaches to that Edge session, runs the checks, and leaves Edge open afterward.
+The script starts Edge normally with the existing profile and opens `edge://inspect`. In Edge, select **Remote debugging** in the left navigation and enable **Allow remote debugging for this browser instance**. Return to PowerShell and press Enter. The script reads the local DevTools port created by Edge and Playwright attaches to that same profile. Edge remains open after the test.
 
 ## Safety and isolation
 
 - The script refuses to start if any Edge process is still running; it does not forcibly terminate Edge.
 - It uses the existing profile at `%LOCALAPPDATA%\Microsoft\Edge\User Data`.
-- Remote debugging listens on `127.0.0.1` only. Do not change the CDP binding to a network interface.
+- It uses Edge's built-in per-instance remote-debugging permission. It does not launch Edge with remote-debugging flags against the protected default profile, copy the profile, or bind debugging to a network interface.
 - Playwright 1.56.1 is installed in a timestamped directory under `%TEMP%\LogicEngine-Browser-Acceptance-*`; no global install or project package manifest changes.
 - The runner attaches to the existing Edge context and does not close the browser when finished.
 - The runner starts a new ST chat before sending the unique acceptance message. It does not send into the previously open chat.
@@ -40,7 +40,6 @@ If no API/model connection is active, or no active character/chat is available, 
 
 - `-SkipGeneration`: check page and identity endpoints without sending a message.
 - `-TimeoutSeconds 180`: change the response wait timeout (15–600 seconds).
-- `-CdpPort 9222`: change the local Edge DevTools port if required.
 
 ## Reports
 
