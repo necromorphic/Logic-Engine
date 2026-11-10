@@ -321,3 +321,11 @@ Commit:
 - `1380503693f1ebf04675577c50813b0cbc64497c` — test stale Provider source version and evidence cursor before dispatch.
 
 **Execution status:** NOT TESTED. Run `tests/memory-dispatch-gateway.test.js` and the four Block 2 focused suites. Block 2 remains NOT YET PASS.
+
+### 2026-11-10 — Gateway regression suite follow-up
+
+At commit `14daae320`, the expanded focused run reported 109/113 passing. Three failures were stale Final-Send fixtures that no longer supplied the mandatory Host Receiver bindings (`runId`, `contextDigest`, and `coreEnvelopeDigest`). The fourth assertion expected the internal Provider cursor diagnostic as the outward error, while the Gateway intentionally exposes the generic fail-closed `MEMORY_DISPATCH_NOT_READY` and retains `MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED` as its cause.
+
+Test-only correction committed as `662edfe763b607658c0dc27a4dfed85690cc1c56`: shared valid-request fixtures now carry valid immutable-context bindings; the sender-family fixture carries its own bindings; the cursor test checks both the public fail-closed error and its internal cause. No production authorization or validation was weakened.
+
+Status: **NOT TESTED** until the user runs the expanded suite at the new commit.
