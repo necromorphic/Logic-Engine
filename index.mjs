@@ -166,6 +166,7 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
       actor_id: context.actor_id,
       actor_type: coreContext.actor_type,
     },
+    runId: accepted.runId,
     requestId: context.request_id,
     generationId: context.generation_id,
     model: resolveRequestModel(request, prepared),
@@ -187,6 +188,7 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
     && received.sources.length === 0 && received.candidates.length === 0) return null;
 
   return Object.freeze({
+    runId: received.runId,
     requestId: received.requestId,
     generationId: received.generationId,
     contextDigest: received.contextDigest,
