@@ -329,3 +329,11 @@ At commit `14daae320`, the expanded focused run reported 109/113 passing. Three 
 Test-only correction committed as `662edfe763b607658c0dc27a4dfed85690cc1c56`: shared valid-request fixtures now carry valid immutable-context bindings; the sender-family fixture carries its own bindings; the cursor test checks both the public fail-closed error and its internal cause. No production authorization or validation was weakened.
 
 Status: **NOT TESTED** until the user runs the expanded suite at the new commit.
+
+### 2026-11-10 — Expanded Block 2/Final-Send regression run
+
+User executed the five focused suites at commit `163abd7e1`: **113 tests passed, 0 failed, 0 skipped**. This includes the real Gateway test harness for source-version/cursor changes, revocation before/during dispatch and before response release, streamed-write revalidation, all registered protected sender families with exactly one upstream call each, ambiguous transport recovery to UNKNOWN, and cross-process Core/Provider ordering scenarios.
+
+This is a strong automated integration result, but it does not by itself establish the full Block 2 production acceptance: the test harness still does not substitute for a live Host → Core → NPC receiver run with a real accepted source and independently verified outbound model request.
+
+Next acceptance work remains: perform the production-composition scenario with changed source/context between Receiver preparation and Final-Send, prove rejection before model egress, then complete live Receiver binding and exact outbound body evidence. Status remains **BLOCKED / NOT YET ACCEPTED** for the full Block 2 until that evidence exists.
