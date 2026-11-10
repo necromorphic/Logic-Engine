@@ -94,12 +94,12 @@ function Restore-Environment {
 function Prepare-PinnedST {
     Write-Section 'PINNED SILLYTAVERN PATCH PREFLIGHT'
     New-Item -ItemType Directory -Path $script:TempRoot -Force | Out-Null
-    # A normal clone materializes the working tree. --no-checkout is unsafe
-    # here when the pinned commit equals the remote default branch: Git can
-    # leave the index populated but the working tree absent on that transition.
-    if(-not(Invoke-Process 'Clone pinned SillyTavern source' $script:Git @('clone','--filter=blob:none','https://github.com/SillyTavern/SillyTavern.git',$script:StRoot))){return $false}
+    # Initialize an empty disposable repository and fetch only the exact pin.
+    # This avoids clone's partial/no-checkout state when the pin matches HEAD.
+    if(-not(Invoke-Process 'Initialize pinned SillyTavern repository' $script:Git @('init',$script:StRoot))){return $false}
+    if(-not(Invoke-Process 'Add pinned SillyTavern remote' $script:Git @('-C',$script:StRoot,'remote','add','origin','https://github.com/SillyTavern/SillyTavern.git'))){return $false}
     if(-not(Invoke-Process 'Fetch pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'fetch','--depth=1','origin',$script:StPin))){return $false}
-    if(-not(Invoke-Process 'Checkout pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'checkout','--force','--detach',$script:StPin))){return $false}
+    if(-not(Invoke-Process 'Checkout pinned SillyTavern commit' $script:Git @('-C',$script:StRoot,'checkout','--force','--detach','FETCH_HEAD'))){return $false}
     $actual=(& $script:Git -C $script:StRoot rev-parse HEAD 2>&1|Out-String).Trim()
     if($LASTEXITCODE -ne 0 -or $actual -ne $script:StPin){Add-Result 'Pinned ST commit' 'FAIL' "Expected $($script:StPin), found $actual";return $false}
     Add-Result 'Pinned ST commit' 'PASS' $actual
