@@ -241,6 +241,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   const npcBridge = {
     consume: () => ({
       status: 'accepted',
+      runId: '77777777-7777-4777-8777-777777777777',
       context: acceptedContext,
       laneB: {
         status: 'ready',
