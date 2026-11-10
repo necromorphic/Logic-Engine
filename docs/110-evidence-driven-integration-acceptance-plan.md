@@ -394,3 +394,26 @@ Commit:
 - `dba1d3a79317816a056a549b9280696516091cc2` — connect real Host/Core/SQLite retrieval E2E to the production NPC Receiver.
 
 **Execution status:** NOT TESTED. This is the next focused run. A pass will establish live retrieval-to-Receiver continuity with real Core/Provider persistence, but not production Host authority or model egress; the root inventory remains fixture-backed and the test does not yet run the production Final-Send/Gateway transport.
+
+
+### 2026-11-10 — Align Receiver with the public Core retrieval envelope (NOT TESTED)
+
+The first live Host → Core HTTP → SQLite → Receiver run failed at the Receiver schema gate. Diagnostics showed a valid ready envelope with one admitted candidate and one candidate, but no provider_evidence_cursor.
+
+The mismatch was traced to the Core HTTP route: src/api/server.js intentionally removes provider_evidence_cursor before returning the public memory-npc-result/v1 response because that cursor is internal Provider dispatch evidence. The Receiver had incorrectly required the internal six-field Consumer object even though Host receives the public five-field HTTP envelope.
+
+Correction:
+- Receiver now accepts only the exact public five-field envelope: status, admitted, candidates, reason, and snapshot;
+- the Receiver digest binds the exact public envelope and no longer attempts to include an internal Provider cursor unavailable at this boundary;
+- an unexpected provider_evidence_cursor is rejected, preserving the public/internal boundary;
+- the live E2E schema assertion now verifies the five-field public contract.
+
+The Core HTTP route and its internal Provider cursor handling were not changed. No authorization checks were weakened.
+
+Commits:
+- 35b2a69cdf5b134c1098b2d158b8525f9bcff443 — Receiver consumes public Core retrieval envelope;
+- cce127fcc602246971be3b5a4b66587c754f772b — unit fixture aligned with public envelope;
+- 0cd266a1272c2c65d70e297641f2f8697c71a78c — live E2E validates public envelope;
+- 2ff7b9d4bf73204058aa551753b6245f3ce5be07 — explicit regression test rejects the private cursor at the public Receiver boundary.
+
+Execution status: NOT TESTED. The next run must execute the Receiver unit suite and the live Host/Core/SQLite E2E. A pass would prove the public retrieval envelope can be consumed by the production Receiver in this fixture-backed Host authority scenario; it would not establish production Root Inventory authority or model egress.
