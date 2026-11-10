@@ -202,6 +202,9 @@ async function dispatchAndRelease(gateway, request) {
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   generationId: 'generation-' + requestId,
+  runId: '66666666-6666-4666-8666-666666666666',
+  contextDigest: '1'.repeat(64),
+  coreEnvelopeDigest: '2'.repeat(64),
   replayIdentity: createHash('sha256').update('original-host-prompt-' + requestId, 'utf8').digest('hex'),
   route: 'host-selected-chat-generation',
   senderRoute: 'google-ai-studio',
@@ -436,7 +439,11 @@ test('Provider evidence cursor change after retrieval blocks dispatch before mod
     fixture.setProviderCursor({ data_version: 8, candidate_digest: 'e'.repeat(64) });
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(request),
-      /MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED/,
+      (error) => {
+        assert.equal(error?.message, 'MEMORY_DISPATCH_NOT_READY');
+        assert.equal(error?.cause?.message, 'MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED');
+        return true;
+      },
     );
     assert.equal(fixture.calls.length, 0, 'changed provider cursor must not reach the model');
     assert.equal(
@@ -1006,6 +1013,9 @@ test('all protected sender families share one real Gateway and each causes exact
   let upstreamCalls = 0;
   const prepared = {
     model: 'selected-model',
+    runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: '3'.repeat(64),
+    coreEnvelopeDigest: '4'.repeat(64),
     worldId: 'world-1',
     actorId: 'npc-1',
     purpose: 'recall',
