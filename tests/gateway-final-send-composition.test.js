@@ -227,6 +227,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
   assert.equal(result.model, 'horde-model');
   assert.equal(result.generationId, '66666666-6666-4666-8666-666666666666');
   assert.match(result.contextDigest, /^[a-f0-9]{64}$/);
+  assert.match(result.coreEnvelopeDigest, /^[a-f0-9]{64}$/);
   assert.equal(result.hostContext.adapter_id, coreContext.adapter_id);
   assert.equal(result.hostContext.core_conversation_id, coreContext.conversation_id);
   assert.equal(result.hostContext.host_session_id, hostBinding.host_session_id);
