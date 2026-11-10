@@ -2,8 +2,7 @@
 param(
     [string]$BaseUrl = 'http://127.0.0.1:8000',
     [ValidateRange(15,600)][int]$TimeoutSeconds = 120,
-    [switch]$SkipGeneration,
-    [ValidateRange(1024,65535)][int]$CdpPort = 9222
+    [switch]$SkipGeneration
 )
 
 Set-StrictMode -Version Latest
@@ -35,14 +34,9 @@ if (-not $edgeCandidates) { throw 'MICROSOFT_EDGE_EXECUTABLE_NOT_FOUND' }
 $edgeExe = $edgeCandidates[0]
 $profileDir = Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'
 if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) { throw 'EDGE_USER_PROFILE_NOT_FOUND' }
-
-$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback,$CdpPort)
-try {
-    $listener.Start()
-    $listener.Stop()
-} catch {
-    try { $listener.Stop() } catch {}
-    throw ('CDP_PORT_ALREADY_IN_USE_' + $CdpPort)
+$activePortFile = Join-Path $profileDir 'DevToolsActivePort'
+if (Test-Path -LiteralPath $activePortFile) {
+    Remove-Item -LiteralPath $activePortFile -Force
 }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -51,7 +45,6 @@ $packageRoot = Join-Path $tempRoot 'playwright-runtime'
 $reportRoot = Join-Path $tempRoot 'report'
 New-Item -ItemType Directory -Path $packageRoot,$reportRoot -Force | Out-Null
 
-$oldBrowserPath = [Environment]::GetEnvironmentVariable('PLAYWRIGHT_BROWSERS_PATH','Process')
 $oldPackageJson = [Environment]::GetEnvironmentVariable('PLAYWRIGHT_PACKAGE_JSON','Process')
 $oldBaseUrl = [Environment]::GetEnvironmentVariable('ST_BASE_URL','Process')
 $oldReport = [Environment]::GetEnvironmentVariable('ST_ACCEPTANCE_REPORT_DIR','Process')
@@ -66,7 +59,6 @@ try {
     $env:ST_ACCEPTANCE_REPORT_DIR = $reportRoot
     $env:ST_ACCEPTANCE_TIMEOUT_MS = [string]($TimeoutSeconds * 1000)
     $env:ST_ACCEPTANCE_SKIP_GENERATION = if ($SkipGeneration) { '1' } else { '0' }
-    $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $CdpPort
 
     Write-Host '=== Logic Engine / SillyTavern Edge Browser Acceptance ===' -ForegroundColor Cyan
     Write-Host ('Target: ' + $BaseUrl)
@@ -84,36 +76,31 @@ try {
     if ($code -ne 0) { throw ('PLAYWRIGHT_NPM_INSTALL_FAILED_' + $code) }
 
     Write-Host ''
-    Write-Host 'Starting Microsoft Edge with your existing profile and localhost-only CDP...' -ForegroundColor Cyan
-    $edgeArgs = @(
-        "--remote-debugging-port=$CdpPort",
-        '--remote-allow-origins=*',
-        "--user-data-dir=`"$profileDir`"",
-        '--no-first-run',
-        '--new-window',
-        $BaseUrl
-    )
-    Start-Process -FilePath $edgeExe -ArgumentList $edgeArgs | Out-Null
-
-    $cdpReady = $false
-    for ($i = 0; $i -lt 40; $i++) {
-        Start-Sleep -Milliseconds 500
-        try {
-            $version = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $CdpPort + '/json/version') -TimeoutSec 2
-            if ($version.webSocketDebuggerUrl) { $cdpReady = $true; break }
-        } catch {}
-    }
-    if (-not $cdpReady) { throw 'EDGE_CDP_START_TIMEOUT_CHECK_EDGE_STARTUP' }
-
+    Write-Host 'Starting Microsoft Edge with your normal profile...' -ForegroundColor Cyan
+    Start-Process -FilePath $edgeExe -ArgumentList @('--new-window','edge://inspect') | Out-Null
+    Start-Sleep -Seconds 3
     Write-Host ''
-    Write-Host 'Edge is open. Select your SillyTavern API/model and confirm that it is connected.' -ForegroundColor Yellow
-    Write-Host 'The test will use this same Edge profile and will not close Edge when finished.'
-    [void](Read-Host 'After selecting the model, press Enter to run the browser acceptance')
+    Write-Host 'In Edge: select "Remote debugging" on the left, then enable "Allow remote debugging for this browser instance".' -ForegroundColor Yellow
+    Write-Host 'This uses Edge built-in remote-debugging permission; it does not copy your profile or expose a network interface.'
+    [void](Read-Host 'After enabling remote debugging, press Enter to continue')
+
+    $activePort = $null
+    if (Test-Path -LiteralPath $activePortFile -PathType Leaf) {
+        $portLines = Get-Content -LiteralPath $activePortFile -TotalCount 2
+        if ($portLines.Count -ge 1 -and $portLines[0] -match '^\d+$') {
+            $candidatePort = [int]$portLines[0]
+            if ($candidatePort -ge 1024 -and $candidatePort -le 65535) { $activePort = $candidatePort }
+        }
+    }
+    if (-not $activePort) {
+        throw 'EDGE_REMOTE_DEBUGGING_NOT_ENABLED: enable the checkbox on edge://inspect and rerun'
+    }
+    $env:ST_EDGE_CDP_ENDPOINT = 'http://127.0.0.1:' + $activePort
 
     $runner = Join-Path $repoRoot 'scripts/acceptance/sillytavern-browser-acceptance.mjs'
     if (-not (Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'BROWSER_ACCEPTANCE_RUNNER_MISSING' }
     Write-Host ''
-    Write-Host 'Attaching Playwright to the existing Edge session...' -ForegroundColor Cyan
+    Write-Host 'Attaching Playwright to the existing Edge profile...' -ForegroundColor Cyan
     $previousEap = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
