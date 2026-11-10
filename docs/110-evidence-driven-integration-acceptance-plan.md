@@ -164,3 +164,27 @@ User ran `npc-context-receiver.test.mjs` and `gateway-final-send-composition.tes
 Fix commits: `72e8a5ac91412eac3be66bc114a9d49c09f21a21` and `98e0b563e75259a40b503ad5e704aa847750a89c`.
 
 **Execution status:** fixes are committed but NOT TESTED. Block 2 remains NOT TESTED. No claim of production acceptance is made.
+
+
+### 2026-11-10 — Block 2 Receiver composition tests pass; generation digest work added (NOT TESTED)
+
+The user executed the focused Receiver and Gateway composition suites after the null-prototype assertion correction:
+- 25 tests, 25 passed, 0 failed, 0 skipped;
+- this verifies the Receiver's existing strict candidate/scope/content checks and its composition into the prepared Host/Core Final-Send path at that tested commit.
+
+Follow-up implementation adds:
+- mandatory UUID `generationId` input to the Receiver;
+- deterministic SHA-256 `contextDigest` over the immutable accepted projection, including request/generation IDs, model/purpose, world/actor, source and record metadata, copied content blocks, snapshot, Provider evidence cursor, and Host binding;
+- propagation of `generationId` and `contextDigest` from Receiver output into the Final-Send protected-memory projection;
+- unit coverage for stable digest on equivalent input, digest change on admitted content change, and rejection of missing/malformed generation identity;
+- composition assertions for generation ID and digest.
+
+Commits:
+- `20f5f00fbfa27385aaef1095dacd50091c160d6d` — Receiver generation identity and deterministic context digest;
+- `82b2b155fa220501079ca12c643a92f7c31a446a` — preserve Receiver generation/digest into Final-Send;
+- `28eb7bff0af7e5d355d19c715f1371f892adf626` — Receiver digest and generation identity tests;
+- `84ad9e2dfeaafa58c217b1114188533c9a61520e` — composition assertions.
+
+**Important boundary:** `contextDigest` is calculated by the Receiver over the immutable accepted projection. It is not yet proven to be the digest of the original Core Result Envelope from Block 1. Exact original-envelope digest continuity and run-ID continuity remain open. The bridge's one-shot lifecycle slot provides a replay barrier, but duplicate/replay behavior at the integrated production Receiver boundary still requires an explicit test.
+
+**Execution status:** The prior 25/25 run predates these generation/digest changes. New code and tests are NOT TESTED. Block 2 remains NOT TESTED; do not enable Memory → NPC in normal SillyTavern.
