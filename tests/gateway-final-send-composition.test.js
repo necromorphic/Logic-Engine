@@ -135,7 +135,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     source_version: 'core-entity-v1:2',
     epistemic_kind: 'acquired_report',
     evidence_assessment: 'supported',
-    content: 'A verified memory candidate',
+    content: { 'attributes.public_note': 'A verified memory candidate' },
   };
   const hostBinding = {
     host_installation_id: '11111111-1111-4111-8111-111111111111',
@@ -143,7 +143,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
     host_session_id: '55555555-5555-4555-8555-555555555555',
     conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
     conversation_uuid: '11111111-1111-4111-8111-111111111111',
-    root_id: 'root',
+    root_id: 'a'.repeat(64),
     root_inventory_sequence: 7,
     root_manifest_sha256: 'a'.repeat(64),
   };
@@ -231,7 +231,7 @@ test('production protected-memory projection rejects Lane B content without a ma
         host_session_id: '55555555-5555-4555-8555-555555555555',
         conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
         conversation_uuid: '11111111-1111-4111-8111-111111111111',
-        root_id: 'root',
+        root_id: 'a'.repeat(64),
         root_inventory_sequence: 7,
         root_manifest_sha256: 'a'.repeat(64),
       } },
@@ -280,7 +280,7 @@ test('production protected-memory projection rejects same-count Lane B candidate
       host_installation_id: '11111111-1111-4111-8111-111111111111', authenticated_account_id: '22222222-2222-4222-8222-222222222222',
       host_session_id: '55555555-5555-4555-8555-555555555555', conversation_id: '11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222:33333333-3333-4333-8333-333333333333',
       conversation_uuid: '11111111-1111-4111-8111-111111111111',
-      root_id: 'root', root_inventory_sequence: 7, root_manifest_sha256: 'a'.repeat(64),
+      root_id: 'a'.repeat(64), root_inventory_sequence: 7, root_manifest_sha256: 'a'.repeat(64),
     } }, coreContext: { adapter_id: 'adapter', conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333', actor_type: 'character' } },
   }, { consume: () => ({
     status: 'accepted',
