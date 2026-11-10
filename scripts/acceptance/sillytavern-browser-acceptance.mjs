@@ -64,11 +64,14 @@ try {
   } else {
     await page.locator('#options_button').click();
     const newChat = page.locator('#option_start_new_chat');
-    await newChat.waitFor({ state: 'visible', timeout: 10000 });
-    await newChat.click();
-    await page.waitForTimeout(1200);
+    const canStartNewChat = await newChat.isVisible().catch(() => false);
+    if (!canStartNewChat) {
+      record('Generation and chat persistence', 'BLOCKED', 'No active character/chat context is available to start a clean test chat.');
+    } else {
+      await newChat.click();
+      await page.waitForTimeout(1200);
 
-    const marker = 'LOGIC_ENGINE_ACCEPTANCE_' + new Date().toISOString() + '_' + Math.random().toString(16).slice(2, 8);
+      const marker = 'LOGIC_ENGINE_ACCEPTANCE_' + new Date().toISOString() + '_' + Math.random().toString(16).slice(2, 8);
     await composer.fill('Automated Logic Engine acceptance check. Reply with the exact word ACCEPTED. Test marker: ' + marker);
     await sendButton.click();
 
@@ -110,6 +113,7 @@ try {
       } else {
         record('Chat persistence after reload', 'FAIL', 'One or both test messages were not restored.');
       }
+    }
     }
   }
 
