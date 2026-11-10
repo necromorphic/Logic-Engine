@@ -127,6 +127,30 @@ The first local run exposed a test assertion that compared the canonical source 
 
 **Disposition:** Block 1 PASS for the targeted fixture-backed integration E2E. Host inventory enumeration, Root Inventory persistence, and authority resolver are explicit test fixtures; this is not proof of production Host authority or production Memory → NPC enablement. Keep Memory → NPC disabled in the normal SillyTavern installation.
 
+### 2026-11-10 — Block 2 production Receiver wiring (implementation added, NOT TESTED)
+
+The production `index.mjs` path now imports and invokes `receiveNpcContext()` after consuming the one-shot Core dispatch handoff and validating Lane B admission/source correspondence.
+
+Implementation changes:
+- builds the Receiver input only from the consumed server-side Core context, Lane B candidates, admitted candidate metadata, snapshot, provider evidence cursor, and authenticated Host/Core bindings;
+- normalizes candidate fields to the Receiver's exact data-record contract;
+- keeps the existing content projection after Receiver validation and immutable copying;
+- sources the Final-Send metadata, source list, candidate list, host binding and snapshot from the Receiver output;
+- routes complete-empty results through the Receiver before classifying them as explicitly unprotected;
+- updates production-composition fixtures to use valid Host identity/conversation bindings and asserts that the handed-off context and nested collections are frozen.
+
+Commits:
+- `12d4d28f5054b6dba7718024e4c65f4c3bcaff7d` — wire strict NPC Context Receiver into production Final-Send path;
+- `3b8a2beb586908f46c586294308de8b44e112f69` — normalize trusted Core candidates for strict NPC receiver;
+- `7bed12237fec6aed35d6c300c8e67fa6869133c6` — align composition fixtures with Host identity contract;
+- `7f3ce764c36b68356293aa4b0b7d4bc1db2e0e98` — make Receiver fixtures satisfy immutable context contract;
+- `b56cdf68b90b0dcb04bf2f735c9743f85726accf` — assert immutable NPC context at production projection boundary;
+- `dce25ee0052762bb1cec0e22b2149e96ebef0d49` — route complete-empty results through Receiver.
+
+**Execution status:** NOT TESTED. No local Node test run has been performed for these commits.
+
+**Remaining Block 2 evidence gaps:** The current Receiver output does not carry an envelope digest or explicit run ID, and the production handoff path still needs a test proving exact request/generation/record/source continuity plus duplicate/replay rejection at the actual Receiver boundary. These are required before Block 2 can pass. Do not enable Memory → NPC in normal SillyTavern.
+
 ## Next execution target
 
 Proceed to Block 2 — NPC Context Receiver. Preserve the fixture limitations above and do not claim production readiness. Continue using disposable local test data and loopback-only services.
