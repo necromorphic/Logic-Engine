@@ -41,7 +41,13 @@ function Invoke-Process {
     Write-Host ''
     Write-Host ">>> $Name" -ForegroundColor Cyan
     Push-Location -LiteralPath $Cwd
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
+        # Windows PowerShell 5.1 promotes native stderr lines to ErrorRecords.
+        # Git commonly writes progress/status lines (for example "From https://...")
+        # to stderr even when the process exits successfully. Do not treat those
+        # lines as a PowerShell exception; the native exit code is authoritative.
+        $ErrorActionPreference = 'Continue'
         & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host ([string]$_) }
         $code=$LASTEXITCODE
         if($null -eq $code){$code=0}
@@ -50,6 +56,7 @@ function Invoke-Process {
     } catch {
         Add-Result $Name 'FAIL' $_.Exception.Message;return $false
     } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         Pop-Location
         foreach($key in $Environment.Keys){[Environment]::SetEnvironmentVariable($key,$old[$key],'Process')}
     }
