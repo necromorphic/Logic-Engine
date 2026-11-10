@@ -108,6 +108,15 @@ try {
     else record('User message rendered', 'PASS', 'Unique test marker found.');
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.locator('#send_textarea').waitFor({ state: 'visible', timeout: 45000 });
+    console.log('');
+    console.log('[ACTION REQUIRED] The page has reloaded. Reopen the SAME character and SAME chat used for the test.');
+    console.log('Do not start a new chat. Once the previous conversation is visible, return here and press Enter.');
+    if (!stdin.isTTY) throw new Error('INTERACTIVE_TERMINAL_REQUIRED_FOR_CHAT_REOPEN_STEP');
+    const reopenPrompt = createInterface({ input: stdin, output: stdout });
+    try { await reopenPrompt.question('Press Enter after reopening the original chat... '); }
+    finally { reopenPrompt.close(); }
+    record('Original chat reopened after reload', 'PASS', 'User confirmed the original character/chat was reopened.');
+
     const persisted = await page.locator('#chat .mes[is_user="true"] .mes_text').filter({ hasText: marker }).count();
     const persistedAssistant = await page.locator('#chat .mes[is_user="false"][is_system="false"] .mes_text').filter({ hasText: assistantText }).count();
     if (persisted > 0 && persistedAssistant > 0) record('Chat persistence after reload', 'PASS', 'The exact test marker and assistant response were restored.');
@@ -125,7 +134,7 @@ try {
 }
 if (context) await context.close().catch(() => {});
 const summary = {
-  schema_version: 4, base_url: baseUrl.href, browser: 'Microsoft Edge launched with an isolated profile cloned from user settings; no remote debugging', completed_at: new Date().toISOString(),
+  schema_version: 5, base_url: baseUrl.href, browser: 'Microsoft Edge launched with an isolated profile cloned from user settings; no remote debugging', completed_at: new Date().toISOString(),
   results, browser_errors: errors,
   totals: {
     pass: results.filter(x => x.status === 'PASS').length,
