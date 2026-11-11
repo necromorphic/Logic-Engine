@@ -137,7 +137,6 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     };
     for (const path of Object.values(directories)) mkdirSync(path, { recursive: true });
 
-    store = new SQLiteStore(corePath);
     const npcAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
       store,
       adapterIds: [ADAPTER_ID],
