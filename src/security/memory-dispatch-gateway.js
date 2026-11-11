@@ -804,8 +804,6 @@ export class MemoryDispatchGateway {
             COMMIT;
           `);
         }
-        // Upgrade older ledgers
-        }
         // Upgrade older ledgers without discarding their content-free history.
         // Historical rows retain NULL correlation fields; new dispatches always
         // persist the complete Host/Receiver identity tuple.
