@@ -243,7 +243,12 @@ export function createSillyTavernFinalSendAdapter({
           }
           protectedMemory = null;
         } else {
-          requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
+          requestIdByResponse.set(args.response, {
+            requestId: protectedMemory.requestId,
+            state: 'pending',
+            hostRequest: args.request,
+            coreConversationId: prepared?.hostContext?.coreConversationId ?? null,
+          });
         }
       }
 
@@ -370,7 +375,13 @@ export function createSillyTavernFinalSendAdapter({
           if (typeof gateway?.authorizeResponseWrite !== 'function') {
             throw new Error('MEMORY_DISPATCH_RELEASE_AUTHORITY_UNAVAILABLE');
           }
-          const result = gateway.authorizeResponseWrite(release.requestId, write, { final: final === true });
+          const authorize = () => gateway.authorizeResponseWrite(
+            release.requestId, write, { final: final === true },
+          );
+          const result = runWithAuthenticatedHostSession
+            && release.hostRequest && typeof release.coreConversationId === 'string'
+            ? runWithAuthenticatedHostSession(release.hostRequest, release.coreConversationId, authorize)
+            : authorize();
           if (final === true) release.state = 'completed';
           return result;
         } catch (error) {
