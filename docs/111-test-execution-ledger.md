@@ -228,3 +228,21 @@ Commit:
 - `94544adf6a307c589943a63fe245d77b7800c389` — align streaming adapter contract with SillyTavern source.
 
 **Execution status:** NOT TESTED. This remains an adapter composition test using fixture-backed Host/Core/Provider evidence readers and a deterministic fake transport. It is source-backed at the request-shape boundary, not a live installed SillyTavern test and not proof of full production composition. Run the focused command recorded in the current task handoff before accepting this correction.
+
+
+### 2026-11-11 — Source-backed SillyTavern OpenAI streaming adapter test (PASS)
+
+Environment: Windows PowerShell, Node.js (project runtime).
+
+Command:
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="SillyTavern OpenAI-compatible streaming request carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+Result: **1 test passed, 0 failed, 0 cancelled, 0 skipped** (873.62 ms total; subtest 790.1515 ms). SQLite emitted Node's ExperimentalWarning; it did not affect the result.
+
+The source-backed test verifies the distinct ST Host `generate_data` and OpenAI provider request-body shapes, Receiver context insertion, preservation of prompt and supported generation fields, exclusion of ST-only routing fields, and per-chunk Host release through final SSE completion.
+
+Scope limitation: this is still an adapter-level composition test with fixture-backed evidence readers and deterministic fake provider transport. It is not a live installed SillyTavern / real provider integration test, and it does not establish full production acceptance.
+
+Tested commit: `afe9bdcdf7e0b98a2b527db6ce2185194568742d`.
