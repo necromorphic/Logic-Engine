@@ -98,7 +98,7 @@ jobs:
       - name: Test Windows broker, metadata store and sidecar adapter contracts
         run: node --test tests/windows-broker-service-host.test.js
       - name: Build and exercise Windows durable manifest and sidecar adapters
-        shell: pwsh
+        shell: powershell
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
@@ -108,7 +108,7 @@ jobs:
           cmd /c $command
           if ($LASTEXITCODE -ne 0) { throw 'Windows durable manifest and sidecar smoke test failed' }
       - name: Compile Windows broker service host
-        shell: pwsh
+        shell: powershell
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
@@ -118,7 +118,7 @@ jobs:
           cmd /c $command
           if ($LASTEXITCODE -ne 0) { throw 'Windows broker service host compilation failed' }
       - name: Parse and test Windows service installer path guards
-        shell: pwsh
+        shell: powershell
         run: |
           $tokens = $null
           $errors = $null
@@ -144,7 +144,7 @@ jobs:
             throw 'Drive-root containment was not detected'
           }
       - name: Verify Windows installer WhatIf has no filesystem or service side effects
-        shell: pwsh
+        shell: powershell
         run: |
           $root = Join-Path $env:RUNNER_TEMP ('logic-engine-installer-whatif-' + [guid]::NewGuid().ToString('N'))
           $install = Join-Path $root 'install'
@@ -200,7 +200,7 @@ jobs:
             Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
           }
       - name: Build VFS registration probe
-        shell: pwsh
+        shell: powershell
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
@@ -214,15 +214,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
       - name: Stop MSVC background helper processes
         if: always()
-        shell: pwsh
+        shell: powershell
         run: |
           $helpers = Get-Process -Name vctip -ErrorAction SilentlyContinue
           if ($helpers) { $helpers | Stop-Process -Force -ErrorAction SilentlyContinue }
       - name: Verify Windows handle-relative directory anchoring
-        shell: pwsh
+        shell: powershell
         run: native/secure-vfs-probe/windows_relative_open_test.exe
       - name: Verify persistent VFS registration through node:sqlite
-        shell: pwsh
+        shell: powershell
         env:
           LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.dll
         run: node --test tests/security-vfs-extension-bootstrap.test.js
