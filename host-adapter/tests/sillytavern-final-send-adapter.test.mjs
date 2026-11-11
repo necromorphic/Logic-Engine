@@ -60,7 +60,10 @@ test('unregistered SillyTavern sender remains native for explicitly unprotected 
 test('unregistered SillyTavern sender bypasses Memory and keeps native generation available', async () => {
   let handoffs = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => ({
-    requestId: 'request-1', generationId: 'generation-request-1', model: 'test-model',
+    requestId: 'request-1', generationId: 'generation-request-1', runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: 'a'.repeat(64),
+    coreEnvelopeDigest: 'b'.repeat(64),
+    model: 'test-model',
     worldId: 'world-1', actorId: 'actor-1', purpose: 'npc_decision',
     sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
@@ -80,6 +83,9 @@ test('unknown native route remains unregistered and uses native transport withou
   let handoffs = 0;
   const adapter = createAdapter({ resolveProtectedMemory: () => ({
     requestId: 'request-non-chat', generationId: 'generation-request-non-chat',
+    runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: 'a'.repeat(64),
+    coreEnvelopeDigest: 'b'.repeat(64),
     model: 'test-model', worldId: 'world-1', actorId: 'actor-1', purpose: 'npc_decision',
     sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'v1' }],
     candidates: [{ record_ref: 'record-1', record_version: 'v1', authorization_generation: 1,
@@ -102,7 +108,10 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
     resolveProtectedMemory: () => ({
       requestId: 'request-routes',
     generationId: 'generation-request-routes',
-      model: 'test-model',
+      runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: 'a'.repeat(64),
+    coreEnvelopeDigest: 'b'.repeat(64),
+    model: 'test-model',
       worldId: 'world-1',
       actorId: 'actor-1',
       purpose: 'npc_decision',
@@ -153,6 +162,9 @@ test('registered protected sender is delegated to the Core Gateway', () => {
   const protectedContext = {
     requestId: 'request-2',
     generationId: 'generation-request-2',
+    runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: 'a'.repeat(64),
+    coreEnvelopeDigest: 'b'.repeat(64),
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
@@ -493,6 +505,9 @@ test('Host preparation snapshots replay identity before native sender mutation',
   const protectedContext = {
     requestId: 'request-ingress-snapshot',
     generationId: 'generation-ingress-snapshot',
+    runId: '77777777-7777-4777-8777-777777777777',
+    contextDigest: 'a'.repeat(64),
+    coreEnvelopeDigest: 'b'.repeat(64),
     model: 'test-model',
     worldId: 'world-1',
     actorId: 'actor-1',
