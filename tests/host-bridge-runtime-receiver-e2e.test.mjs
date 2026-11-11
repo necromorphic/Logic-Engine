@@ -487,6 +487,12 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       },
       readProviderEvidence: input => {
         const evidence = observerAdapter.readProviderEvidenceSync(input);
+        assert.ok(Array.isArray(evidence.sources));
+        for (const source of evidence.sources) {
+          assert.deepEqual(Object.keys(source).sort(),
+            ['source_entity_id', 'source_kind', 'source_version'],
+            'Provider dispatch sources must use the Gateway canonical source_entity_id contract');
+        }
         dispatchEvidence.provider.push(evidence);
         return evidence;
       },
