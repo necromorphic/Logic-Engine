@@ -384,3 +384,19 @@ The user also reported no Console errors. Requests showing HTTP 304 are normal c
 **Limits:** Network 200/304 responses do not independently prove successful module evaluation, completion of browser initialization, actual listener registration, or server Gateway/Host identity exchange. The absence of reported Console errors is useful supporting evidence but does not prove those behaviors. Server Gateway communication and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
 
 **Next check:** verify the runtime identity endpoints from the same live ST session, then verify a real supported generation path without enabling Memory → NPC.
+
+
+### 2026-11-11 — Live SillyTavern session endpoint observed during generation (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; Windows workstation. Exact Edge version, ST root/build, and generation backend were not included in the observation.
+
+**User-provided Network rows with Network filter `session`:**
+- `session` — HTTP 200, Fetch, initiator `script.js:1599`, 871 B, 4 ms.
+- `session` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 871 B, 3 ms.
+- `session` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 871 B, 6 ms.
+
+**Result:** PASS for successful HTTP responses from the Gateway `/session` endpoint during the observed generation. Three successful requests were visible. The source resolver performs `/session` followed by `/identity`; this observation does not yet establish that `/identity` completed successfully, nor does the status alone validate the response identity fields.
+
+**Limits:** The three rows do not by themselves establish whether calls correspond to separate generation events, multiple loaded extension paths, or an unnecessary duplicate. No conclusion about duplicate registration is drawn from this data alone. Full Host conversation identity resolution, listener behavior, Core retrieval, NPC context injection, and Final-Send remain unverified by this observation. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** filter Network by `identity` after the same generation and capture the status, initiator, and count of matching rows.
