@@ -112,47 +112,15 @@ jobs:
       - name: Generate complete Patch Manager manifest from pinned source
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node scripts/generate-sillytavern-patch-manager-manifest.mjs
+        run: |
+          node scripts/generate-sillytavern-patch-manager-manifest.mjs
+          git diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
       - name: Verify generated bundle manifest contract
         run: node --test tests/sillytavern-final-send-patch-artifact.test.js
       - name: Create pristine pinned source worktree for Patch Manager
         run: git -C SillyTavern worktree add --detach "$PWD/SillyTavern-manager" 06bde939fb1e9c4c8d8641d810f0a916b5bce127
       - name: Upgrade v1 Final-Send-only install to the complete v2 bundle and roll back
-        run: |
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { lstat } from 'node:fs/promises';
-          import { execFileSync } from 'node:child_process';
-          import { resolve } from 'node:path';
-          import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
-          const stRoot = resolve('SillyTavern-manager');
-          const extensionRoot = process.cwd();
-          const legacy = new SillyTavernPatchManager({
-            extensionRoot,
-            stRoot,
-            manifestPath: resolve('tests/fixtures/sillytavern-final-send-v1.manifest.json'),
-          });
-          assert.equal((await legacy.execute('preflight')).status, 'PREFLIGHT_OK');
-          assert.equal((await legacy.execute('install')).status, 'INSTALLED');
-          assert.equal((await legacy.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
-          const manager = new SillyTavernPatchManager({ extensionRoot, stRoot });
-          assert.equal((await manager.execute('update')).status, 'INSTALLED');
-          const inspection = await manager.inspectInstalledReadOnly();
-          assert.equal(inspection.status, 'INSTALLED_AND_BACKUPS_VERIFIED');
-          assert.ok(inspection.verifiedBackupCount > 0);
-          assert.equal((await manager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
-          assert.equal((await manager.execute('uninstall')).status, 'ROLLED_BACK');
-          for (const [relativePath, pin] of Object.entries(manager.manifest.sourceFiles)) {
-            const expected = typeof pin === 'string' ? pin : pin.before;
-            assert.equal(await manager.hashAt(relativePath), expected, 'rollback baseline: ' + relativePath);
-          }
-          for (const relativePath of Object.keys(manager.manifest.createdFiles)) {
-            await assert.rejects(lstat(resolve(stRoot, relativePath)), { code: 'ENOENT' });
-          }
-          const diff = execFileSync('git', ['-C', stRoot, 'diff', '--name-only'], { encoding: 'utf8' }).trim();
-          assert.equal(diff, '', 'upgrade and uninstall must restore the complete tracked SillyTavern tree');
-          process.stdout.write('PASS: v1-to-v2 upgrade, backup inspection, verify and rollback\n');
-          NODE
+        run: node scripts/verify-sillytavern-patch-manager-bundle.mjs SillyTavern-manager tests/fixtures/sillytavern-final-send-v1.manifest.json
       - name: Remove pristine Patch Manager worktree
         if: always()
         run: git -C SillyTavern worktree remove --force "$PWD/SillyTavern-manager" || true
