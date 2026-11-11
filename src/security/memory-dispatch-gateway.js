@@ -8,7 +8,8 @@ import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 
 function snapshotSignatureInput(request) {
   const keys = [
-    'requestId', 'route', 'senderRoute', 'model', 'stream', 'body',
+    'requestId', 'runId', 'generationId', 'contextDigest', 'coreEnvelopeDigest',
+    'route', 'senderRoute', 'model', 'stream', 'body',
     'worldId', 'actorId', 'purpose', 'sources', 'candidates', 'hostContext',
   ];
   if (!request || typeof request !== 'object' || Array.isArray(request) || utilTypes.isProxy(request)) {
@@ -37,7 +38,13 @@ export function createDispatchRequestSignature(secret, request) {
     throw new TypeError('Invalid signed dispatch request.');
   }
   const input = snapshotSignatureInput(request);
-  if (!arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, input.senderRoute)
+  if (!validText(input.requestId, 200)
+    || typeof input.runId !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.runId)
+    || !validText(input.generationId, 200)
+    || !/^[a-f0-9]{64}$/.test(input.contextDigest ?? '')
+    || !/^[a-f0-9]{64}$/.test(input.coreEnvelopeDigest ?? '')
+    || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, input.senderRoute)
     || typeof input.body !== 'string' || typeof input.stream !== 'boolean') {
     throw new TypeError('Invalid signed dispatch request.');
   }
@@ -48,6 +55,10 @@ export function createDispatchRequestSignature(secret, request) {
   const bodyDigest = createHash('sha256').update(input.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
     request_id: input.requestId,
+    run_id: input.runId,
+    generation_id: input.generationId,
+    context_digest: input.contextDigest,
+    core_envelope_digest: input.coreEnvelopeDigest,
     route: input.route,
     sender_route: input.senderRoute,
     model: input.model,
@@ -401,7 +412,8 @@ function assertSameProviderEvidenceCursor(current, expected) {
 
 function readDispatchInput(value) {
   const required = [
-    'requestId', 'generationId', 'replayIdentity', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
+    'requestId', 'runId', 'generationId', 'contextDigest', 'coreEnvelopeDigest',
+    'replayIdentity', 'route', 'senderRoute', 'model', 'stream', 'body', 'worldId',
     'actorId', 'purpose', 'sources', 'candidates', 'providerEvidenceCursor',
     'laneA', 'hostContext', 'transport',
   ];
@@ -694,6 +706,10 @@ export class MemoryDispatchGateway {
             purpose TEXT NOT NULL,
             sources_json TEXT NOT NULL,
             candidates_json TEXT NOT NULL,
+            run_id TEXT,
+            generation_id TEXT,
+            context_digest TEXT,
+            core_envelope_digest TEXT,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
             policy_authority_id TEXT NOT NULL,
@@ -755,6 +771,10 @@ export class MemoryDispatchGateway {
               purpose TEXT NOT NULL,
               sources_json TEXT NOT NULL,
               candidates_json TEXT NOT NULL,
+            run_id TEXT,
+            generation_id TEXT,
+            context_digest TEXT,
+            core_envelope_digest TEXT,
               core_head INTEGER NOT NULL CHECK(core_head > 0),
               provider_head INTEGER NOT NULL CHECK(provider_head > 0),
               policy_authority_id TEXT NOT NULL,
@@ -765,8 +785,12 @@ export class MemoryDispatchGateway {
               started_at TEXT NOT NULL,
               finished_at TEXT
             );
-            INSERT INTO dispatch_ledger SELECT
+            INSERT INTO dispatch_ledger(
               request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
+              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
+              policy_fingerprint,status,outcome_code,started_at,finished_at
+            )
+            SELECT request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
               sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
               policy_fingerprint,status,outcome_code,started_at,finished_at
             FROM dispatch_ledger_legacy;
@@ -776,6 +800,13 @@ export class MemoryDispatchGateway {
               ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
             COMMIT;
           `);
+        }
+        // Upgrade older ledgers without discarding their content-free history.
+        // Historical rows retain NULL correlation fields; new dispatches always
+        // persist the complete Host/Receiver identity tuple.
+        const currentColumns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map(row => row.name));
+        for (const column of ['run_id', 'generation_id', 'context_digest', 'core_envelope_digest']) {
+          if (!currentColumns.has(column)) this.db.exec('ALTER TABLE dispatch_ledger ADD COLUMN ' + column + ' TEXT');
         }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
@@ -798,11 +829,17 @@ export class MemoryDispatchGateway {
 
   async dispatchProtectedRequest(input) {
     const {
-      requestId, generationId, replayIdentity, route, senderRoute, model, stream, body, worldId, actorId, purpose,
+      requestId, runId, generationId, contextDigest, coreEnvelopeDigest,
+      replayIdentity, route, senderRoute, model, stream, body, worldId, actorId, purpose,
       sources, candidates, providerEvidenceCursor, laneA, revalidateLaneA, hostContext,
       transport, forwardResponse, hostTransformsStream = false, signal,
     } = readDispatchInput(input);
-    if (!validText(requestId, 200) || !validText(generationId, 200)
+    if (!validText(requestId, 200)
+      || typeof runId !== 'string'
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(runId)
+      || !validText(generationId, 200)
+      || !/^[a-f0-9]{64}$/.test(contextDigest ?? '')
+      || !/^[a-f0-9]{64}$/.test(coreEnvelopeDigest ?? '')
       || typeof replayIdentity !== 'string' || !/^[a-f0-9]{64}$/.test(replayIdentity)
       || !arrayContains(SUPPORTED_PROTECTED_MEMORY_ROUTES, route)
       || !arrayContains(PROTECTED_MEMORY_SENDER_ROUTES, senderRoute)
@@ -959,8 +996,9 @@ export class MemoryDispatchGateway {
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            run_id,generation_id,context_digest,core_envelope_digest,
             core_head,provider_head,policy_authority_id,policy_generation,policy_fingerprint,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
@@ -973,6 +1011,10 @@ export class MemoryDispatchGateway {
           purpose,
           JSON.stringify(sourceSet),
           JSON.stringify(candidateSet),
+          runId,
+          generationId,
+          contextDigest,
+          coreEnvelopeDigest,
           coreHead,
           providerHead,
           policyAuthority.authority_id,
