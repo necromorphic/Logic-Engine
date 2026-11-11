@@ -252,3 +252,68 @@ test('root inventory proxy accepts scanner code-point ordering independent of IC
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].body.entries.map(entry => entry.path), ['A/file.json', 'a/file.json']);
 });
+
+
+test('root inventory proxy propagates generation cancellation to Core requests', async t => {
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = path.resolve(tmpdir(), 'logic-engine-global-data-root');
+  t.after(() => {
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
+  });
+  const controller = new AbortController();
+  let requestSignal;
+  let callCount = 0;
+  const env = {
+    LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:8080',
+    LOGIC_ENGINE_API_TOKEN: 'core-api-token-at-least-16',
+    LOGIC_ENGINE_ADAPTER_ID: 'test-adapter',
+    LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-secret-at-least-16',
+  };
+  const persist = createHostRootInventoryPersistence({
+    env,
+    identityStore: {
+      assertOutsideRoot: async () => {},
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: '11111111-1111-4111-8111-111111111111',
+        authenticated_account_id: '22222222-2222-4222-8222-222222222222',
+      }),
+    },
+    fetchImpl: async (_url, options) => {
+      callCount++;
+      requestSignal = options.signal;
+      controller.abort(new Error('generation cancelled'));
+      return fakeResponse(200, { inventory_status: 'REVIEW_ONLY', reconciliation: {
+        status: 'BASELINED_REVIEW_ONLY',
+        integrity_status: 'INTEGRITY_OK',
+        sequence: 1,
+        manifest_sha256: 'a'.repeat(64),
+        journal_head_sha256: 'b'.repeat(64),
+        lifecycle_sequence: 0,
+        lifecycle_head_sha256: '0'.repeat(64),
+      } });
+    },
+  });
+  const result = await persist({
+    userHandle: 'alice',
+    rootPath: path.resolve(tmpdir(), 'st-account-data'),
+    entries: [{
+      path: 'data/file.json',
+      identity: { dev: '1', ino: '2', mode: 33188, size: 4, mtimeMs: 1, ctimeMs: 1 },
+      sha256: 'c'.repeat(64),
+    }],
+    snapshotAlignment: 'SHARED_VSS_SNAPSHOT',
+    snapshotSha256: 'd'.repeat(64),
+    sourceIdentity: {
+      status: 'CURRENT_IDENTITIES_VERIFIED',
+      patch_blob_sha: PINNED_PATCH_BUNDLE_SHA256,
+      host_handler_blob_sha: PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+      manifest_sha256: 'e'.repeat(64),
+    },
+    signal: controller.signal,
+  });
+  assert.equal(callCount, 1, 'cancellation must stop before the attestation request');
+  assert.equal(requestSignal?.aborted, true, 'Core request must receive the generation cancellation signal');
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.reason, 'HOST_GENERATION_CANCELLED');
+});
