@@ -184,6 +184,7 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     const authoritativeInventory = {
       filesystem: {
         status: 'complete', entries: [], snapshot_id: 'sqlite-e2e-vss-snapshot',
+        snapshot_sha256: 'c'.repeat(64),
       },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
@@ -222,6 +223,17 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       },
       enumerate: async () => structuredClone(authoritativeInventory),
       fetchImpl: hostFetch,
+      // Test-only proof fixture; production must use real lifecycle runtime evidence.
+      verifyMutationRuntimeAcceptance: async proof => ({
+        status: 'VERIFIED',
+        source_commit: proof.pinnedHostCommit,
+        snapshot_sha256: proof.snapshotSha256,
+        snapshot_id: proof.snapshotId,
+        root_id: proof.rootId,
+        source_manifest_sha256: proof.sourceIdentity.manifest_sha256,
+        mutation_coverage_manifest_sha256: proof.mutationCoverage.coverage_manifest_sha256,
+        evidence_sha256: 'e'.repeat(64),
+      }),
       verifyMutationCoverage: async () => ({
         status: 'VERIFIED',
         source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',

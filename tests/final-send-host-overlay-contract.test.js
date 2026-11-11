@@ -37,5 +37,5 @@ test('Host Bundle accepts only an exact reproduced Host overlay on reinstall', (
 test('Host Bundle installs and pins the updated Patch Manager in the Core plugin', () => {
   assert.match(installer, /plugins\/logic-engine\/scripts\/sillytavern-patch-manager\.mjs/);
   assert.match(installer, /Update this[\s\S]*single managed file transactionally/);
-  assert.match(attestation, /'scripts\/sillytavern-patch-manager\.mjs': '2a65a46db18bedded829036b3693f7125dd21788'/);
+  assert.match(attestation, /'scripts\/sillytavern-patch-manager\.mjs': '14324a1a0b177a5f4c9d0e7cfd5a7c51f6f8d2a0'/);
 });
