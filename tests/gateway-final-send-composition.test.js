@@ -245,6 +245,26 @@ test('production protected-memory projection accepts the actual prepared Host/Co
       context: acceptedContext,
       laneB: {
         status: 'ready',
+        publicResult: {
+          status: 'ready',
+          admitted: [{
+            record_ref: candidate.record_ref,
+            record_version: candidate.record_version,
+            epistemic_kind: candidate.epistemic_kind,
+            evidence_assessment: candidate.evidence_assessment,
+          }],
+          candidates: [{
+            record_ref: candidate.record_ref,
+            record_version: candidate.record_version,
+            authorization_generation: candidate.authorization_generation,
+            source_entity_id: candidate.source_entity_id,
+            epistemic_kind: candidate.epistemic_kind,
+            evidence_assessment: candidate.evidence_assessment,
+            content: candidate.content,
+          }],
+          reason: null,
+          snapshot: { world_revision: 3, commit_sequence: 9 },
+        },
         sources: [{ source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2' }],
         candidates: [{ record_ref: 'record-1', record_version: 'version-1', authorization_generation: 3, source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
         provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
