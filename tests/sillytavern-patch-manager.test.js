@@ -309,8 +309,8 @@ test('Patch Manager applies an ordered patch bundle in one backup and rollback t
   const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
   const secondHash = hash(Buffer.from(secondPatch, 'utf8'));
   const artifacts = [
-    { path: 'patches/test.patch', sha256: firstHash },
-    { path: 'patches/lifecycle.patch', sha256: secondHash },
+    { path: 'patches/test.patch', sha256: firstHash, allowUnidiffZero: false },
+    { path: 'patches/lifecycle.patch', sha256: secondHash, allowUnidiffZero: false },
   ];
   manifest.patch.path = 'patches/test.patch';
   manifest.patch.sha256 = firstHash;
@@ -348,8 +348,8 @@ test('Patch Manager rejects a patch bundle with a path escape before reading art
   const patchBytes = await readFile(manager.patchPath);
   const patchHash = hash(patchBytes);
   const artifacts = [
-    { path: 'patches/test.patch', sha256: patchHash },
-    { path: '../outside.patch', sha256: 'a'.repeat(64) },
+    { path: 'patches/test.patch', sha256: patchHash, allowUnidiffZero: false },
+    { path: '../outside.patch', sha256: 'a'.repeat(64), allowUnidiffZero: false },
   ];
   manifest.patch.artifacts = artifacts;
   manifest.patch.bundleSha256 = hash(Buffer.from(JSON.stringify(artifacts), 'utf8'));
