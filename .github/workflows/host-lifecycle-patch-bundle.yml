@@ -82,9 +82,9 @@ jobs:
           const actual = new Set((changed + '\n' + untracked).split(/\r?\n/).filter(Boolean));
           assert.deepEqual([...actual].sort(), [...expected].sort(), 'patched SillyTavern file set must exactly match all three pinned artifacts');
           for (const file of actual) {
-            if (/\.(?:mjs|js)$/.test(file)) execFileSync('node', ['--check', \`SillyTavern/\${file}\`], { stdio: 'inherit' });
+            if (/\.(?:mjs|js)$/.test(file)) execFileSync('node', ['--check', 'SillyTavern/' + file], { stdio: 'inherit' });
           }
-          process.stdout.write(\`PASS: \${actual.size} exact patched files syntax-checked\n\`);
+          process.stdout.write('PASS: ' + actual.size + ' exact patched files syntax-checked\\n');
           NODE
       - name: Test transactional Patch Manager and Final-Send artifact
         run: |
