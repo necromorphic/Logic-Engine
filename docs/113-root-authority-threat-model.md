@@ -219,8 +219,8 @@ The external service is not the local journal and MUST NOT replace the local jou
 Facade semantics:
 
 - `readTip()` delegates to the local adapter and returns the locally stored `installation_id`, `sequence`, and `tip_hash`.
-- `commitTip(sequence, tip_hash)` commits locally and returns only after the local commit outcome is known. It does not wait for network confirmation. If an external adapter is configured, the facade records a durable pending-confirmation item for asynchronous reconciliation; it does not put the external request in the chat/generation hot path.
-- `verifyTip(expected_sequence, expected_tip_hash)` always calls local `checkLocal`; when an external adapter is configured it also calls `verifyExternal`. The result reports local and external outcomes separately. No-argument verification is forbidden.
+- `commitTip(sequence, tip_hash)` commits the tip and, when an external adapter is configured, an outbox/pending-confirmation record in one local transaction where the storage design permits. The outbox is retry metadata only; it is not independent rollback evidence. It does not wait for network confirmation. A worker retries pending items with idempotent requests. Crash recovery must distinguish committed-but-unconfirmed from confirmed. The external request is not part of ordinary chat/generation hot paths.
+- `verifyTip(expected_sequence, expected_tip_hash)` always calls local `checkLocal`; when an external adapter is configured it also calls `verifyExternal`. Each result is a status (`match | mismatch | unavailable | unsupported | error`), not a boolean, so an I/O failure cannot be misreported as a mismatch or a successful comparison. No-argument verification is forbidden.
 - `confirm(sequence, tip_hash, idempotency_key, ancestry_proof)` exists only on the facade when an external adapter is configured. Without one, the capability is explicitly absent; there are no `not_supported` stubs masquerading as successful adapters.
 - `getStatus()` returns the facade's normalized combined state, current local tip, local descriptor, optional external descriptor, and optional structured last error.
 
