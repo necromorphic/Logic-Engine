@@ -173,3 +173,16 @@ node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-na
 **Correction preceding the passing run:** the first run at `91dea2eb87fba777a1f951943bb0ec9f3d9cf61b` failed with `NPC_CONTEXT_SCOPE_INVALID` at the Receiver call. The test fixture omitted the required Host binding scope fields (`adapter_id`, `world_id`, `actor_id`, `actor_type`) and used a source version outside the canonical `core-entity-v1:<n>` format. Commit `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b` corrected those fixture inputs. The failure is retained as superseded history, not counted as a pass.
 
 **Evidence limitation:** Core, Provider, and Host evidence readers remain fixture-backed. The model transport is a deterministic in-process fake, not an installed SillyTavern outbound provider. This run does not establish production root authority, production Host inventory, live model API connectivity, or full Windows acceptance. It is not a full Block 3 or Block 4 PASS. Memory → NPC remains disabled in the normal SillyTavern installation.
+
+
+## 11. Final-Send duplicate-dispatch guard extension — NOT TESTED
+
+**Implementation commit:** `30efb64a244b7edde334be1c9c7f3bc6e6444f91`
+
+The previously passing production-adapter egress test was extended to attempt a second dispatch using the same Host request/response after the first dispatch completed. It now requires:
+- second dispatch rejected with `MEMORY_DISPATCH_DUPLICATE_HOST_SEND`;
+- no second model transport invocation;
+- response release after duplicate denial rejected with `MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED`;
+- no second Host response write.
+
+The 1/1 PASS in section 10 applies to the earlier test version at `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b`; it does not cover these newly added duplicate-dispatch assertions. The extended test is **NOT TESTED** until rerun on Windows. Fixture-backed evidence limitations from section 10 remain unchanged.
