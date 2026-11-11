@@ -1,26 +1,6 @@
 name: SillyTavern Final-Send Patch Manager
 
 on:
-  push:
-    branches: [integration/host-core-v1]
-    paths:
-      - "index.mjs"
-      - "host-adapter/patches/**"
-      - "host-adapter/patch-manager/**"
-      - "host-adapter/protected-memory-final-send.mjs"
-      - "host-adapter/sillytavern-final-send-adapter.mjs"
-      - "host-adapter/sillytavern-generation-bridge.mjs"
-      - "tests/sillytavern-final-send-adapter.test.js"
-      - "tests/protected-memory-final-send.test.js"
-      - "tests/sillytavern-server-plugin-bootstrap.test.js"
-      - "scripts/install-logic-engine-extension.mjs"
-      - "scripts/sillytavern-patch-manager.mjs"
-      - "manifest.json"
-      - "tests/sillytavern-patch-manager.test.js"
-      - "tests/sillytavern-final-send-patch-artifact.test.js"
-      - "host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs"
-      - ".github/workflows/final-send-patch-manager.yml"
-      - ".github/workflows/provider-blocker3.yml"
   pull_request:
     paths:
       - "index.mjs"
@@ -46,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -71,9 +51,12 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
       - name: Verify pinned source revision
-        shell: bash
+        shell: powershell
         run: |
-          test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {
+            throw "Pinned SillyTavern revision mismatch: $actual"
+          }
       - name: Check server-plugin bootstrap syntax
         run: node --check index.mjs
       - name: Test unified Patch Manager and Final-Send contracts against exact Host source
