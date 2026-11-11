@@ -54,7 +54,7 @@ The independently protected tip consists of:
 - `sequence`: monotonic integer;
 - `tip_hash`: digest of the canonical journal head.
 
-The journal may remain in SQLite. A local journal hash chain detects record tampering/reordering but does not detect rollback of the entire database if the tip is rolled back with it.
+The journal may remain in SQLite. A local journal hash chain detects record tampering/reordering but does not detect rollback of the entire database if the tip is rolled back with it. A local adapter whose tip shares that rollback domain MUST report `monotonic_tip: none` (or the precisely evidenced weaker class); it MUST NOT claim rollback detection merely because `checkLocal()` can compare two values.
 
 Candidate tip stores are not selected yet:
 - TPM NV counter/index, only if a Windows implementation is demonstrated to work on target machines without elevation and with understood provisioning/clear behavior;
@@ -211,7 +211,7 @@ This section supersedes any earlier implication that a single platform adapter m
 
 The Core depends on one `RootAuthorityFacade`, composed from:
 
-- required `PlatformAdapter`: owns the local independently protected tip mechanism and implements `readTip()`, `commitTip()`, and `checkLocal(expected_sequence, expected_tip_hash)`;
+- required `PlatformAdapter`: owns the local tip mechanism and implements `readTip()`, `commitTip()`, and `checkLocal(expected_sequence, expected_tip_hash)`. It may claim rollback resistance only when the tip is demonstrably outside the journal's rollback domain;
 - optional `ExternalAdapter`: owns communication with an independent anchor and implements `confirm(...)` and `verifyExternal(...)`.
 
 The external service is not the local journal and MUST NOT replace the local journal commit. The platform adapter MUST NOT provide a fake or stub external confirmation.
@@ -251,7 +251,7 @@ Platform descriptor schema (protocol v1):
 }
 ```
 
-External descriptor uses `adapter_role: "external"`; it reports its actual independent durability/authority properties and MUST NOT claim to be a platform key store or local journal. Capability enums are fixed:
+External descriptor uses `adapter_role: "external"` and the same required top-level fields and capability keys; it reports its actual independent durability/authority properties and MUST NOT claim to be a platform key store or local journal. For an external adapter, `key_protection` is `none` (the service's credential protection is described separately), `monotonic_tip` may be `external` only when the service has a demonstrated monotonic accepted head, and `external_independence` is true only when its storage, credentials and operational control are outside the local installation's rollback domain. Capability enums are fixed:
 
 - `key_protection`: `none | os_user | os_admin | hardware`;
 - `monotonic_tip`: `none | os_restricted | tpm_nv | external`;
@@ -265,13 +265,13 @@ These fields are claims bounded by the adapter's documented threat model and evi
 
 ```json
 {
-  "local_match": true,
-  "external_match": true,
+  "local": "match",
+  "external": "match",
   "reason": "ok"
 }
 ```
 
-`external_match` is omitted when no external adapter is configured. `reason` is one of `ok | local_mismatch | external_mismatch | external_unavailable | incompatible_adapter | malformed_result`. A local mismatch is never masked by a matching external result.
+`external` is omitted when no external adapter is configured. Each check is one of `match | mismatch | unavailable | unsupported | error`. `reason` is one of `ok | local_mismatch | external_mismatch | local_unavailable | external_unavailable | incompatible_adapter | malformed_result`. A mismatch is distinct from an unavailable store/service; neither is converted to `match`. A local mismatch is never masked by a matching external result. The local adapter's `checkLocal()` must document what independent evidence it compares against; comparison against a caller-supplied expected value alone does not establish rollback resistance.
 
 `getStatus()` returns a single normalized shape:
 
@@ -289,7 +289,7 @@ These fields are claims bounded by the adapter's documented threat model and evi
 }
 ```
 
-Allowed facade states: `in_sync | local_ahead | stale_detected | degraded | uninitialized`. `external_capabilities` and `last_error` are omitted when not applicable. `degraded` means local operation remains available but the configured external guarantee is not currently confirmed. Transport/service unavailability is represented as a structured error, never converted to `in_sync`. The `message` is diagnostic only; policy decisions use the stable `code`.
+Allowed facade states: `in_sync | local_ahead | stale_detected | degraded | unavailable | uninitialized`. `external_capabilities` and `last_error` are omitted when not applicable. `degraded` means local operation remains available but the configured external guarantee is not currently confirmed. `unavailable` means the local tip mechanism itself cannot be read or verified; it is not equivalent to `degraded`. External transport/service unavailability is represented as a structured error, never converted to `in_sync`. The `message` is diagnostic only; policy decisions use the stable `code`.
 
 ### 13.4 Offline operation policy and per-operation anchor requirement
 
@@ -319,14 +319,15 @@ The contract is common; platform adapters are independently evaluated:
 
 No platform-specific hardware facility is a Core dependency. A platform may expose weaker capabilities or no hardware-backed capability; this is a valid descriptor, not an initialization failure for ordinary local Engine operation.
 
-## 12. Implementation gates and non-regression constraints
+## 14. Implementation gates and non-regression constraints
 
 1. Complete the threat model and obtain review.
-2. Run and record the Windows TPM NV counter spike on the target machine.
-3. Finalize the contract, including tip location, ancestry proof format, freshness window, retry policy and credential protection.
-4. Select the tip store based on measured results.
-5. Implement the smallest adapter/store with only demonstrated guarantees.
-6. Run the required tests and record environment and exact commit.
-7. Keep `verifyInventorySnapshot: async () => false` unchanged until independent tip authority and production evidence are actually available.
+2. Freeze the platform-neutral adapter contract and capability descriptor.
+3. Run and record non-destructive Windows and Android capability research; neither platform's hardware feature is assumed available.
+4. Finalize the contract, including tip location, ancestry proof format, freshness window, retry policy, outbox recovery and credential protection.
+5. Select each platform tip store based on measured results.
+6. Implement the smallest adapter/store with only demonstrated guarantees.
+7. Run the required tests and record environment and exact commit.
+8. Keep `verifyInventorySnapshot: async () => false` unchanged until independent tip authority and production evidence are actually available.
 
 Do not enable Memory → NPC. Do not promote Root Inventory candidate state to authoritative/READY. Do not change Mechanics, Host Lifecycle or migration readiness as a side effect of this work.
