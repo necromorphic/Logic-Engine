@@ -390,6 +390,8 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
     const hostPrepared = await hostAdapter.prepareGenerationContext(request, 'chat-completions');
     assert.equal(hostPrepared.status, 'READY', 'Host prepare: ' + JSON.stringify(hostPrepared));
     assert.equal(hostAdapter.resolveCoreConversationId(request), coreConversationId);
+    const hostPreparationByRequest = new WeakMap();
+    hostPreparationByRequest.set(request, { host: hostPrepared, coreConversationId });
 
     const requestMetadata = [];
     const coreMetadata = [];
@@ -523,16 +525,31 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       requireProtectedMemory: true,
       resolveProtectedMemory: () => result,
       chatCompletionSources: CHAT_COMPLETION_SOURCES,
-      prepareHostContext: async () => ({
-        status: 'READY',
-        coreConversationId,
-        host: { context: hostPrepared.context },
-        coreContext: {
-          adapter_id: result.hostContext.adapter_id,
-          conversation_id: result.hostContext.core_conversation_id,
-          actor_type: result.hostContext.actor_type,
-        },
-      }),
+      prepareHostContext: async hostRequest => {
+        let preparation = hostPreparationByRequest.get(hostRequest);
+        if (!preparation) {
+          const host = await hostAdapter.prepareGenerationContext(hostRequest, 'chat-completions');
+          if (host?.status !== 'READY') return host;
+          preparation = {
+            host,
+            coreConversationId: hostAdapter.resolveCoreConversationId(hostRequest),
+          };
+          hostPreparationByRequest.set(hostRequest, preparation);
+        }
+        if (typeof preparation.coreConversationId !== 'string' || !preparation.coreConversationId) {
+          return { status: 'NON_READY', code: 'HOST_CORE_CONVERSATION_UNAVAILABLE' };
+        }
+        return {
+          status: 'READY',
+          coreConversationId: preparation.coreConversationId,
+          host: { context: preparation.host.context },
+          coreContext: {
+            adapter_id: result.hostContext.adapter_id,
+            conversation_id: result.hostContext.core_conversation_id,
+            actor_type: result.hostContext.actor_type,
+          },
+        };
+      },
       runWithAuthenticatedHostSession: (hostRequest, conversationId, callback) =>
         providerAdapter.runWithAuthenticatedHostSession(hostRequest, conversationId, callback),
       nativeForwardFetchResponse: async () => {},
