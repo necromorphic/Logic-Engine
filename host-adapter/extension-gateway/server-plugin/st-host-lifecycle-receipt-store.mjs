@@ -7,7 +7,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DIGEST = /^[a-f0-9]{64}$/;
 const OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe',
-  'select-swipe', 'delete-swipe', 'delete-message', 'edit-message',
+  'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
 ]);
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const canonical = value => Array.isArray(value)
@@ -148,6 +148,16 @@ function validOperationTransition(operation, before, after) {
       && oldMessage.versions.some((version, index) =>
         version.version_id !== newMessage.versions[index].version_id
         && version.content_sha256 !== newMessage.versions[index].content_sha256));
+  }
+  if (operation === 'rename-chat') {
+    return before.target_locator !== after.target_locator
+      && before.target_path !== after.target_path
+      && before.target_file_identity === after.target_file_identity
+      && before.target_content_sha256 === after.target_content_sha256
+      && canonical(before.logical_identity) === canonical(after.logical_identity)
+      && before.other_root_entries_sha256 === after.other_root_entries_sha256
+      && before.other_source_files_sha256 === after.other_source_files_sha256
+      && canonical(before.backup_entries) === canonical(after.backup_entries);
   }
   return false;
 }
