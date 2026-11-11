@@ -90,8 +90,9 @@ These are static source observations, not runtime acceptance claims:
 - `src/index.js` defaults the Core HTTP listener to `127.0.0.1`. A non-loopback bind is rejected unless `ENGINE_ALLOW_REMOTE=true` is explicitly set.
 - `scripts/security/run-accepted-head-authority.js` binds the local authority to `127.0.0.1` and requires a file-backed local SQLite path plus distinct Core, Provider, and read tokens.
 - `host-adapter/extension-gateway/server-plugin/index.mjs` registers the ST-facing session, identity, inventory, lifecycle, and Host version-ledger routes. It does not register a browser-facing Memory dispatch route.
-- `host-adapter/embedded-gateway-runtime.mjs` exports a composition factory intended for the SillyTavern server process. Its presence does not prove that the current ST production entrypoint loads it; that exact composition-root linkage remains to be verified.
+- The production ST plugin entrypoint `index.mjs` imports and invokes `createEmbeddedGatewayRuntime()` from `host-adapter/embedded-gateway-runtime.mjs`; the pinned-source workflow copies both into `plugins/logic-engine`. The entrypoint registers the native Final-Send adapter against the embedded runtime when its feature flag is enabled. This confirms static composition linkage, not successful runtime loading or live model-egress interception.
 - `src/index.js` still supplies `verifyInventorySnapshot: async () => false`. This remains an intentional fail-closed Host inventory gate.
+- The Host generation authentication gate now separately requires an injected runtime mutation-acceptance verifier bound to the pinned ST commit, current VSS snapshot digest, source-manifest digest and mutation-coverage manifest. No production verifier is currently composed, so protected generation returns `HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED` before Core root attestation/context resolution. The positive verifier used by the integration test is explicitly test-only.
 
 Therefore the local-first architecture is the selected product direction, but the complete ST → Logic-Engine → model transport integration is not established by these source observations alone.
 
