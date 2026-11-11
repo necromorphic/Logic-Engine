@@ -44,7 +44,7 @@ Manager state, transaction journal and byte-exact backups are stored under `data
 
 ## Lifecycle patch bundle promotion status
 
-The production manifest at this revision still declares only the Final-Send artifact. The lifecycle-hooks and root-mutation-guards patches remain under `host-adapter/prototype/patches/` and are **not installed** by the production Patch Manager. Ordered bundle support is installation infrastructure only; it does not activate those prototype hooks. Promotion requires a generated manifest pinning the complete combined before/after file set, then exact pinned install, verify, uninstall and interrupted-rollback acceptance against SillyTavern 1.19.0.
+The production manifest is now version 2.0.0 and declares three ordered artifacts: Final-Send, lifecycle-hooks and root-mutation-guards. The latter two remain stored under `host-adapter/prototype/patches/` as a legacy source location, but are pinned production inputs. The generated manifest covers 44 source files and six created files. Self-hosted CI applied the complete bundle to pinned SillyTavern 1.19.0, passed preflight/install/backup inspection/verify/uninstall, checked every source file returned to its baseline SHA-256, and confirmed all created files were removed. This does not yet prove upgrade from an already-installed v1.0 Final-Send-only state; that migration is the next acceptance case.
 
 ## Current patch coverage
 
