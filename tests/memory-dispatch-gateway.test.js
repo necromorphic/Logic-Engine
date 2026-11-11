@@ -685,11 +685,19 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
     assert.equal(observedBodies[0].includes(canary), true, 'the exact Receiver canary must reach the outbound provider body');
     assert.equal(observedBodies[0].includes('Continue the scene.'), true, 'the original Host prompt must remain in the outbound body');
     assert.equal(observedBodies[0].includes('LE_PRODUCTION_FINAL_SEND_EGRESS_'), true);
-    assert.equal(
-      fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(received.requestId)?.status,
-      'DISPATCH_STARTED',
-      'the durable dispatch start must exist before Host response release',
-    );
+    const dispatchRow = fixture.gateway.db.prepare(
+      'SELECT status,run_id,generation_id,context_digest,core_envelope_digest FROM dispatch_ledger WHERE request_id=?',
+    ).get(received.requestId);
+    assert.equal(dispatchRow?.status, 'DISPATCH_STARTED',
+      'the durable dispatch start must exist before Host response release');
+    assert.equal(dispatchRow.run_id, received.runId,
+      'the exact Host run identity must be durably correlated at Gateway dispatch-start');
+    assert.equal(dispatchRow.generation_id, received.generationId,
+      'the exact generation identity must be durably correlated at Gateway dispatch-start');
+    assert.equal(dispatchRow.context_digest, received.contextDigest,
+      'the immutable Receiver context digest must reach the Gateway ledger');
+    assert.equal(dispatchRow.core_envelope_digest, received.coreEnvelopeDigest,
+      'the original Core Result Envelope digest must reach the Gateway ledger');
 
     adapter.authorizeResponseWrite(response, () => {
       responseWrites += 1;
@@ -1181,6 +1189,10 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, hostContext: { ...hostContext, root_manifest_sha256: '0'.repeat(64) } }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], authorization_generation: 2 }] }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, runId: '77777777-7777-4777-8777-777777777778' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, generationId: 'generation-tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, contextDigest: '0'.repeat(64) }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, coreEnvelopeDigest: '0'.repeat(64) }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
