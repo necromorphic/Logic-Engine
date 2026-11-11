@@ -1664,6 +1664,10 @@ test('Gateway migrates sender constraints to the complete registry without losin
           purpose TEXT NOT NULL,
           sources_json TEXT NOT NULL,
           candidates_json TEXT NOT NULL,
+          run_id TEXT,
+          generation_id TEXT,
+          context_digest TEXT,
+          core_envelope_digest TEXT,
           core_head INTEGER NOT NULL CHECK(core_head > 0),
           provider_head INTEGER NOT NULL CHECK(provider_head > 0),
           policy_authority_id TEXT NOT NULL,
@@ -1691,6 +1695,13 @@ test('Gateway migrates sender constraints to the complete registry without losin
     ).get(legacyRequest.requestId);
     assert.equal(history.sender_route, 'horde-text');
     assert.equal(history.status, 'COMPLETED');
+    const migratedCorrelation = fixture.gateway.db.prepare(
+      'SELECT run_id,generation_id,context_digest,core_envelope_digest FROM dispatch_ledger WHERE request_id=?',
+    ).get(legacyRequest.requestId);
+    assert.equal(migratedCorrelation.run_id, legacyRequest.runId);
+    assert.equal(migratedCorrelation.generation_id, legacyRequest.generationId);
+    assert.equal(migratedCorrelation.context_digest, legacyRequest.contextDigest);
+    assert.equal(migratedCorrelation.core_envelope_digest, legacyRequest.coreEnvelopeDigest);
 
     const expandedRequest = validRequest('cometapi-after-sender-migration', {
       senderRoute: 'cometapi',
