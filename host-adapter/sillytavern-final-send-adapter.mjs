@@ -112,9 +112,11 @@ export function createSillyTavernFinalSendAdapter({
   nativeForwardFetchResponse,
   prepareHostContext = async () => null,
   runWithAuthenticatedHostSession = null,
+  requireProtectedMemory = false,
 }) {
   if (typeof nativeForwardFetchResponse !== 'function'
     || typeof prepareHostContext !== 'function'
+    || typeof requireProtectedMemory !== 'boolean'
     || (runWithAuthenticatedHostSession !== null && typeof runWithAuthenticatedHostSession !== 'function')) {
     throw new TypeError('Native SillyTavern response writer and trusted Host preparation callback are required.');
   }
@@ -208,28 +210,37 @@ export function createSillyTavernFinalSendAdapter({
         && (preparedCandidate.hostRoute ?? 'chat-completions') === dispatchHostRoute
         && preparedCandidate.response === args.response
         ? preparedCandidate : null;
+      const denyBeforeGateway = error => {
+        if (args.response && typeof args.response === 'object') {
+          requestIdByResponse.set(args.response, { requestId: null, state: 'denied' });
+        }
+        throw terminalError(error instanceof Error ? error : new Error('MEMORY_DISPATCH_NOT_READY'));
+      };
       const execute = () => {
       let protectedMemory = null;
+      let resolutionInvalid = false;
       try {
         const candidate = resolveProtectedMemory(
           args.request,
           preparedContextByRequest.get(args.request),
         );
-        // Only a complete, synchronously resolved trusted context is eligible
-        // for injection. Every other state means native generation without
-        // Memory, never a failed generation.
-        if (candidate !== undefined && candidate !== null
-          && !(candidate && typeof candidate.then === 'function')) {
+        if (candidate === undefined || (candidate && typeof candidate.then === 'function')) {
+          resolutionInvalid = true;
+        } else {
           protectedMemory = candidate;
         }
       } catch {
-        protectedMemory = null;
+        resolutionInvalid = true;
+      }
+      if (resolutionInvalid && requireProtectedMemory) {
+        return denyBeforeGateway(new Error('MEMORY_DISPATCH_NOT_READY'));
       }
       if (protectedMemory !== null) {
         if (!args.response || typeof args.response !== 'object'
           || typeof protectedMemory.requestId !== 'string' || !protectedMemory.requestId) {
-          // Invalid optional Memory metadata is not a reason to deny the
-          // native provider request. Drop enrichment and use ST transport.
+          if (requireProtectedMemory) {
+            return denyBeforeGateway(new Error('MEMORY_DISPATCH_NOT_READY'));
+          }
           protectedMemory = null;
         } else {
           requestIdByResponse.set(args.response, { requestId: protectedMemory.requestId, state: 'pending' });
@@ -252,8 +263,11 @@ export function createSillyTavernFinalSendAdapter({
       }
 
       const hostRoute = dispatchHostRoute;
-      if (protectedMemory !== null && prepared
-        && !/^[a-f0-9]{64}$/.test(prepared.replayIdentity ?? '')) {
+      if (protectedMemory !== null && (!prepared
+        || !/^[a-f0-9]{64}$/.test(prepared.replayIdentity ?? ''))) {
+        if (requireProtectedMemory) {
+          return deny(new Error('MEMORY_DISPATCH_REPLAY_IDENTITY_UNAVAILABLE'));
+        }
         protectedMemory = null;
         if (release) release.state = 'native';
       }
@@ -263,9 +277,10 @@ export function createSillyTavernFinalSendAdapter({
       if (expectedRoute
         ? expectedRoute !== args.senderRoute
         : args.senderRoute !== UNREGISTERED_SENDER_ROUTE) {
-        // A route mismatch is an ordinary native SillyTavern request, not a
-        // protected Memory dispatch. Do not leave a phantom Gateway release
-        // capability attached to its response.
+        if (protectedMemory !== null && requireProtectedMemory) {
+          return deny(new Error('MEMORY_DISPATCH_ROUTE_MISMATCH'));
+        }
+        // An explicitly unprotected native request may use its native sender.
         if (release) release.state = 'native';
         providerTransportInvoked = true;
         return args.transport(args.endpointUrl, args.requestInit);
@@ -297,24 +312,33 @@ export function createSillyTavernFinalSendAdapter({
           protectedMemoryOverride: protectedMemory,
           hostTransformsStream: args.hostTransformsStream === true,
         });
-      } catch {
+      } catch (error) {
+        if (requireProtectedMemory && protectedMemory !== null) return deny(error);
         return continueNatively();
       }
       if (result && typeof result.then === 'function') {
         return result.catch(error => {
-          if (!providerTransportInvoked) return continueNatively();
+          if (!providerTransportInvoked) {
+            if (requireProtectedMemory && protectedMemory !== null) return deny(error);
+            return continueNatively();
+          }
           return deny(error);
         });
       }
       return result;
       };
       const coreConversationId = prepared?.hostContext?.coreConversationId;
+      if (requireProtectedMemory && (!runWithAuthenticatedHostSession
+        || typeof coreConversationId !== 'string' || !coreConversationId)) {
+        return denyBeforeGateway(new Error('MEMORY_DISPATCH_HOST_SESSION_UNAVAILABLE'));
+      }
       if (runWithAuthenticatedHostSession && coreConversationId) {
         let result;
         try {
           result = runWithAuthenticatedHostSession(args.request, coreConversationId, execute);
         } catch (error) {
           if (providerTransportInvoked) throw error;
+          if (requireProtectedMemory) return denyBeforeGateway(error);
           const pendingRelease = args.response ? requestIdByResponse.get(args.response) : null;
           if (pendingRelease?.state === 'pending') pendingRelease.state = 'native';
           providerTransportInvoked = true;
@@ -322,9 +346,8 @@ export function createSillyTavernFinalSendAdapter({
         }
         if (result && typeof result.then === 'function') {
           return result.catch(error => {
-            // If the callback already handed off to the provider, the result
-            // is ambiguous and must never be retried. Otherwise use ST transport.
             if (providerTransportInvoked) throw error;
+            if (requireProtectedMemory) return denyBeforeGateway(error);
             const pendingRelease = args.response ? requestIdByResponse.get(args.response) : null;
             if (pendingRelease?.state === 'pending') pendingRelease.state = 'native';
             providerTransportInvoked = true;
