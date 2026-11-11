@@ -311,14 +311,18 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     const receiverAdmissionDiagnostics = {
       admitted: receiverEnvelope?.admitted,
       candidates: receiverEnvelope?.candidates?.map(candidate => ({
-        record_ref: candidate.record_ref,
-        record_version: candidate.record_version,
-        authorization_generation: candidate.authorization_generation,
-        source_entity_id: candidate.source_entity_id,
-        source_version: candidate.source_version,
-        epistemic_kind: candidate.epistemic_kind,
-        evidence_assessment: candidate.evidence_assessment,
-        contentKeys: candidate.content && typeof candidate.content === 'object'
+        keys: candidate && typeof candidate === 'object' ? Reflect.ownKeys(candidate) : null,
+        prototype: candidate && typeof candidate === 'object'
+          ? Object.getPrototypeOf(candidate) === Object.prototype ? 'Object.prototype' : String(Object.getPrototypeOf(candidate))
+          : typeof candidate,
+        record_ref: candidate?.record_ref,
+        record_version: candidate?.record_version,
+        authorization_generation: candidate?.authorization_generation,
+        source_entity_id: candidate?.source_entity_id,
+        source_version: candidate?.source_version,
+        epistemic_kind: candidate?.epistemic_kind,
+        evidence_assessment: candidate?.evidence_assessment,
+        contentKeys: candidate?.content && typeof candidate.content === 'object'
           ? Reflect.ownKeys(candidate.content) : null,
       })),
     };
@@ -336,6 +340,12 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
       'actual Core public Result Envelope does not satisfy memory-npc-result/v1: ' + JSON.stringify(receiverEnvelopeDiagnostics));
     assert.equal(receiverEnvelope.admitted.length, receiverEnvelope.candidates.length,
       'Core did not admit every supported candidate for NPC projection: ' + JSON.stringify(receiverAdmissionDiagnostics));
+    assert.deepEqual(
+      receiverAdmissionDiagnostics.candidates?.[0]?.keys,
+      ['record_ref', 'record_version', 'authorization_generation', 'source_entity_id',
+        'source_version', 'epistemic_kind', 'evidence_assessment', 'content'],
+      'Core candidate shape differs from the Receiver contract: ' + JSON.stringify(receiverAdmissionDiagnostics),
+    );
     const received = receiveNpcContext({
       retrieval: retrieved.payload.retrieval,
       hostContext: receiverHostContext,
