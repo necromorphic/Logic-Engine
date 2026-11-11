@@ -212,3 +212,19 @@ Added an adapter-level streaming composition test using the actual Receiver, Sil
 The test asserts one provider handoff, exact prompt preservation, Receiver canary insertion, streaming flags/options preservation, per-chunk authorization, and COMPLETED only after the final authorized write.
 
 **Evidence boundary:** this is an OpenAI-compatible protocol fixture, not a live installed SillyTavern process or a captured request from the supplied ST release archive. Gateway evidence readers remain fixture-backed. It is NOT TESTED until executed on Windows.
+
+
+### 2026-11-11 — SillyTavern source-backed OpenAI streaming contract correction (NOT TESTED)
+
+Corrected the streaming Final-Send adapter test to match the supplied SillyTavern release source instead of a hand-invented provider payload.
+
+Source contract inspected:
+- `public/scripts/openai.js`: `createGenerationParameters()` builds the Host `generate_data` object posted to `/api/backends/chat-completions/generate`. It includes ST-specific fields such as `type`, `chat_completion_source`, user/character metadata, generation settings, and `stream`.
+- `src/endpoints/backends/chat-completions.js`: the OpenAI branch separately constructs the outbound `requestBody` from `messages`, `model`, `temperature`, `max_tokens`, `stream`, penalties, `top_p`, `seed`, and supported optional parameters. ST routing fields are not forwarded. The pinned backend does not add or forward `stream_options` in this path.
+
+The revised test now supplies a source-shaped Host `generate_data` body and a distinct source-derived OpenAI provider body. It asserts that the adapter injects Receiver context into the provider `messages`, preserves the original user prompt and supported generation fields, does not leak ST-only routing fields, and does not assume `stream_options` is forwarded. The SSE write/release assertions remain.
+
+Commit:
+- `94544adf6a307c589943a63fe245d77b7800c389` — align streaming adapter contract with SillyTavern source.
+
+**Execution status:** NOT TESTED. This remains an adapter composition test using fixture-backed Host/Core/Provider evidence readers and a deterministic fake transport. It is source-backed at the request-shape boundary, not a live installed SillyTavern test and not proof of full production composition. Run the focused command recorded in the current task handoff before accepting this correction.
