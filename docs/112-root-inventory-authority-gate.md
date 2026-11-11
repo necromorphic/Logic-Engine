@@ -1,48 +1,57 @@
-# Root Inventory Authority — implementation gate
+# Root Inventory — local-first implementation gate
 
 **Branch:** `integration/host-core-v1`  
-**Status:** BLOCKED ON TRUST-BOUNDARY DECISION / DEPLOYMENT AUTHORITY  
-**Date:** 2026-11-11
+**Status:** BLOCKED ON HOST INVENTORY COMPLETENESS / LIFECYCLE EVIDENCE  
+**Date:** 2026-11-11  
+**Architecture decision:** [Local-first deployment and trust boundary](113-local-first-deployment-and-trust-boundary.md)
+
+## Decision context
+
+Logic-Engine is a local engine. A VPS, cloud database, or remote accepted-head service is not required. Core and Memory Provider use Logic-Engine-owned local SQLite storage. The repository's accepted-head authority is a local loopback service with its own SQLite database; it is not an external service.
+
+The local accepted-head service protects Core/Provider mutation consistency and can detect a partial or coordinated Core+Provider restore only while its own accepted state is preserved outside that restore. It does not protect against a full-device rollback that also restores the authority database. The project explicitly does not claim that guarantee.
+
+This decision does not remove the Host inventory completeness requirement. Host inventory completeness, Core/Provider accepted-head consistency, and final outbound dispatch authorization are separate gates.
 
 ## Current verified state
 
-1. `tests/host-source-inventory.test.js` ran on Windows PowerShell / Node.js 22.18.0: 17 passed, 0 failed, 1 skipped. The suite includes the audited Windows VSS point-in-time snapshot path. It validates a bounded scanner candidate, not an authoritative production inventory.
+1. The user ran `tests/host-source-inventory.test.js` on Windows PowerShell / Node.js 22.18.0: 17 passed, 0 failed, 1 skipped. The suite includes the audited Windows VSS point-in-time snapshot path. It validates a bounded scanner candidate, not an authoritative production inventory.
 2. The scanner's own disposition remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`.
 3. `src/index.js` constructs `HostVersionDigestLedger` with `verifyInventorySnapshot: async () => false`. This is an intentional production deny-only gate. It must not be replaced by a permissive callback or a test fixture.
-4. `HostLifecycleJournal` stores append-only root inventory baseline/delta records and validates signed attestations. Its root inventory endpoints remain review-only unless the trusted authority checks succeed.
-5. `ENGINE_HOST_ROOT_IDENTITIES` is a deployment-owned allowlist for adapter, installation, account, root and pinned source-manifest digest. It is identity configuration, not by itself an independent monotonic accepted-head authority.
-6. A signed HMAC attestation under an adapter secret proves possession of that shared secret. It does not, by itself, prove that the signer is outside the Host/Core joint restore domain or that an old Host+Core+Provider backup cannot roll the entire state back together.
+4. `HostLifecycleJournal` stores append-only root inventory baseline/delta records and validates signed attestations. These records do not independently prove complete coverage of all supported SillyTavern data and lifecycle paths.
+5. `ENGINE_HOST_ROOT_IDENTITIES` is a deployment-owned allowlist for adapter, installation, account, root and pinned source-manifest digest. It is identity configuration, not proof that the complete Host source inventory was captured.
+6. A signed HMAC attestation under an adapter secret proves possession of that shared secret. It does not prove inventory completeness or protect against compromise of the local host.
+7. The local accepted-head service in `scripts/security/run-accepted-head-authority.js` maintains separate Core and Provider heads. It does not currently attest the complete Host inventory and must not be described as doing so.
 
-## Why implementation must stop at this boundary
+## Why the production gate remains closed
 
-The accepted-head contract in `docs/architecture/core-restore-resistant-accepted-head-contract.md` explicitly requires an independent authority outside the joint Host/Core/Provider restore domain. It must maintain a monotonic accepted generation/head and support independent backup, restore, access control, monitoring and authorized recovery.
+The scanner is still non-authoritative and the production verifier is deny-only. The missing proof is not a remote server. The missing proof is a complete, pinned Host inventory/lifecycle contract and a production verifier that consumes that exact evidence safely.
 
-No such deployed authority endpoint, durable service, trust anchor, operational owner or recovery procedure is currently identified in the repository configuration. Implementing a local SQLite table, another HMAC callback, or a boolean verifier inside Core would only create a second copy inside the same trust/restore domain and would falsely label the inventory authoritative.
+Known Host coverage gaps must be closed or explicitly excluded from the product guarantee, including unsupported destructive/import/restore operations, branch/copy lineage, pre-enrollment history, external filesystem changes, and any extension/plugin route that can mutate relevant data outside the audited lifecycle.
 
 Therefore do not:
-- change the production verifier from deny-only to allow;
-- treat the current VSS snapshot, source-manifest pin, local journal hash chain or HMAC alone as independent accepted-head authority;
+- change the production verifier from deny-only to allow without a real completeness verifier and exact integration tests;
+- treat the current VSS snapshot, source-manifest pin, local journal hash chain, or HMAC alone as proof of complete inventory;
 - promote `DOUBLE_SCAN_CANDIDATE` to `READY`;
+- claim protection against full-device rollback or local-administrator compromise;
+- add a mandatory VPS, cloud database, or remote authority as a prerequisite;
 - enable Memory → NPC.
 
 ## Smallest safe next implementation block
 
-After a deployment-owned independent authority is selected and provisioned:
+1. Freeze the supported SillyTavern source roots and lifecycle operations for the pinned build. For every operation, identify the authoritative persisted source, mutation route, identity/lineage effect, and how unsupported paths fail closed.
+2. Complete the Host inventory envelope so it represents the supported set atomically and binds it to the authenticated installation/account/root and Core conversation/world binding.
+3. Implement the production verifier only against that complete contract. It must reject partial scans, missing roots, stale or conflicting generations, malformed identities, incomplete lifecycle evidence, and verifier errors.
+4. Use the existing local accepted-head service only for the Core/Provider mutation and partial-restore guarantees it actually provides. Keep its database outside routine Core/Provider backups, under a separate local service identity/ACL, and document recovery. Do not claim it detects a full-device rollback that includes its database.
+5. Prove that the pinned SillyTavern production composition routes protected Memory disclosure through the approved Gateway and final revalidation before the sole model transport. Host inventory readiness alone is not dispatch authorization.
+6. Add file-backed tests for complete/incomplete inventory, stale replay, mutation during scan, restart/recovery, local authority outage/mismatch, and zero-egress denial. Run the exact Windows Host/Core/SQLite/Gateway acceptance path on one exact candidate.
 
-1. Define its authenticated request/response contract for `(adapter_id, installation_id, account_id, root_id, inventory_sequence, inventory_head_sha256, source_manifest_sha256, lifecycle_sequence, lifecycle_head_sha256)`.
-2. The authority atomically accepts only a complete, strictly increasing generation; exact replay is idempotent, conflicting replay and rollback are rejected.
-3. Core reads and verifies the accepted head through an authenticated client; unavailable, stale, conflicting, malformed or unauthenticated responses remain NON_READY.
-4. Core's `verifyInventorySnapshot` implementation compares the complete submitted snapshot against that authority's accepted head. It must not trust caller-provided `complete=true`, a local journal head, or the attestation's own digest.
-5. Add file-backed integration tests using the real authority implementation for normal advancement, stale replay, Core-only restore, Provider-only restore, coordinated restore, authority outage, concurrent mutation, restart and explicit recovery.
-6. Re-run the exact Windows Host Source Inventory + Host/Core/SQLite E2E sequence on one exact candidate and retain independent evidence.
+## Acceptance and release conditions
 
-## Required deployment input
+- Host inventory: complete for the declared supported surface, or unsupported paths explicitly rejected and documented.
+- Core/Provider consistency: local accepted-head protocol passes its real file-backed restart, mutation, pending-operation, and partial-restore tests.
+- Recovery: the authority database and Core/Provider databases have explicit local backup/restore rules; uncertain authority lineage remains NON_READY.
+- Final dispatch: revocation or readiness loss before durable dispatch-start produces zero outbound calls; the actual pinned Host route cannot bypass the Gateway.
+- Full-device rollback and local-administrator compromise remain outside the stated guarantee unless a separate hardware-backed trust design is approved.
 
-Implementation cannot be completed safely until the deployment provides:
-- the selected authority service/process and its operational owner;
-- proof that its storage and backups are outside the Host/Core/Provider joint restore domain;
-- its endpoint or local IPC boundary and authentication/trust-anchor mechanism;
-- durability/backup/restore and monotonic-generation guarantees;
-- an authorized recovery procedure.
-
-Until then the correct implementation is to preserve the fail-closed production gate. This is a dependency blocker, not a failing test.
+Until the Host inventory, authorization, lifecycle, and sole-egress gates pass, production Memory → NPC remains **DISABLED / FAIL-CLOSED**. This is a product safety gate, not a reason to provision external infrastructure.
