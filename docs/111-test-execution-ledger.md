@@ -97,3 +97,35 @@ For every new run, record:
 - what the run proves and what it does not prove.
 
 Never combine test counts from different commits into one synthetic run. Never call queued CI checks PASS. Preserve failed runs as failed/superseded history; append new entries rather than rewriting old evidence.
+
+
+## 7. Windows Host Source Inventory run — 2026-11-11
+
+**Branch:** `integration/host-core-v1`  
+**Code candidate:** `540bdf05d174e451c2c4d399c125715cbcee137` (documentation-only ledger commit; inventory code unchanged from its parent candidate)  
+**Environment:** Windows PowerShell, Node.js 22.18.0, local worktree `C:\LogicEngine\Phase2-Acceptance\Logic-Engine`.  
+**Exact command:**
+
+```powershell
+node --test ./tests/host-source-inventory.test.js
+```
+
+**Raw summary:** 18 tests, 17 passed, 0 failed, 1 skipped, duration 39045.5727 ms.
+
+The skipped test was:
+`rejects symbolic links in enumerated roots` — skipped with the explicit reason that the VSS integration test separately verifies rejection of Windows reparse points.
+
+Passed coverage reported:
+- root, character and group chat file enumeration as a non-authoritative double-scan candidate;
+- extraction of current conversation/message/swipe IDs and digests without raw message text;
+- legacy records remain incomplete; no synthesized identity;
+- persisted swipe and active edit revision digest mismatch rejection;
+- edit revisions not represented as native swipe alternatives;
+- duplicate conversation UUID rejection;
+- pinned SillyTavern build enforcement;
+- orphan/missing group chat rejection;
+- hard-link alias, unknown entry, aliased root and bounded append-during-read rejection;
+- current swipe identity and active selection verification;
+- Windows pinned-source inventory uses an audited VSS point-in-time snapshot.
+
+**Interpretation:** test suite PASS (17/17 executed, 0 failures; 1 intentional skip). The test confirms the tested Windows VSS snapshot path and inventory scanner behavior. It does not establish an authoritative production inventory, deployment-owned accepted-root authority, complete lifecycle history, or production Host→Core readiness. The scanner's documented state remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. The skipped symlink test is not counted as a pass.
