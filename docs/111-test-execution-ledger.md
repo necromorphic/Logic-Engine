@@ -246,3 +246,10 @@ The source-backed test verifies the distinct ST Host `generate_data` and OpenAI 
 Scope limitation: this is still an adapter-level composition test with fixture-backed evidence readers and deterministic fake provider transport. It is not a live installed SillyTavern / real provider integration test, and it does not establish full production acceptance.
 
 Tested commit: `afe9bdcdf7e0b98a2b527db6ce2185194568742d`.
+
+
+### Source-contract precision correction — 2026-11-11
+
+A second line-by-line pass over the pinned SillyTavern archive found that the prior test fixture overstated the OpenAI frontend fields: `createGenerationParameters()` does not populate `seed` in its common `generate_data` object. The OpenAI backend's provider body includes `stop` (when non-empty) and omits undefined optional values; it does not forward ST-only routing metadata. Corrected the fixture accordingly: removed the fabricated seed value/assertion and included a source-shaped stop sequence. This correction is **NOT TESTED** pending the next Windows run.
+
+Correction commit: `534e246e429c8399f7bbe50bcb5f4361114d6e51`.
