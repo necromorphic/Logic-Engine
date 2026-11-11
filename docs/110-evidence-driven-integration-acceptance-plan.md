@@ -441,3 +441,10 @@ The first duplicate-dispatch regression failed: dispatch replaced the existing r
 The corrected focused test passed on Windows at code HEAD `0aa7e2ebcf6e61f3413a700aa5a81b98290d038a`: 1/1 pass, 0 failures or skips. It verifies one observed fake-model egress, synchronous denial of a second dispatch for the same Host response, no additional transport call, and denial of response release after the duplicate attempt. The durable execution record is in `docs/111-test-execution-ledger.md`.
 
 **Boundary:** this is a focused adapter composition test using fixture-backed evidence readers and deterministic fake transport. It does not establish live installed SillyTavern composition, independent production Root Authority/Host Inventory, or completion of acceptance Blocks 1–4.
+
+
+### 2026-11-11 — Streaming Final-Send adapter composition added (NOT TESTED)
+
+A focused test now exercises the Receiver → SillyTavern Final-Send adapter → protected serializer → Gateway → deterministic streaming transport path. It models the SillyTavern chat-completions Host request and OpenAI-compatible provider body, captures the exact outbound body, and routes each simulated SSE chunk plus the terminal event through the adapter's response-write authorization. It asserts one upstream handoff and durable completion only after the final authorized write.
+
+This is a protocol-shaped test fixture, not evidence from a live installed SillyTavern process or a captured request from the supplied release archive. Production Root Authority and Host Inventory readers are still not wired into this fixture. Execution status: NOT TESTED.
