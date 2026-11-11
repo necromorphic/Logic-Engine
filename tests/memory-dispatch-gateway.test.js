@@ -1219,6 +1219,36 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   );
 });
 
+test('Gateway requires complete Host run and Receiver digest identity before egress', async () => {
+  const fixture = await createFixture();
+  const variants = [
+    { label: 'missing run ID', mutate: request => { delete request.runId; } },
+    { label: 'malformed run ID', mutate: request => { request.runId = 'not-a-uuid'; } },
+    { label: 'missing generation ID', mutate: request => { delete request.generationId; } },
+    { label: 'malformed context digest', mutate: request => { request.contextDigest = 'not-a-digest'; } },
+    { label: 'missing Core envelope digest', mutate: request => { delete request.coreEnvelopeDigest; } },
+  ];
+  try {
+    for (const variant of variants) {
+      const request = validRequest('correlation-' + variant.label.replaceAll(' ', '-'));
+      variant.mutate(request);
+      await assert.rejects(
+        fixture.gateway.dispatchProtectedRequest(request),
+        /MEMORY_DISPATCH_NOT_READY/,
+        variant.label,
+      );
+    }
+    assert.equal(fixture.calls.length, 0, 'invalid correlation metadata must never reach transport');
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count,
+      0,
+      'invalid correlation metadata must not create a dispatch ledger row',
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('read-only Gateway SQLite connection can read committed WAL state without write access', () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-gateway-readonly-wal-'));
   const path = join(directory, 'core.sqlite');
