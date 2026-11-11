@@ -510,14 +510,11 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       prepareHostContext: async () => ({
         status: 'READY',
         coreConversationId,
-        hostContext: {
-          status: 'READY',
-          host: { context: hostPrepared.context },
-          coreContext: {
-            adapter_id: result.hostContext.adapter_id,
-            conversation_id: result.hostContext.core_conversation_id,
-            actor_type: result.hostContext.actor_type,
-          },
+        host: { context: hostPrepared.context },
+        coreContext: {
+          adapter_id: result.hostContext.adapter_id,
+          conversation_id: result.hostContext.core_conversation_id,
+          actor_type: result.hostContext.actor_type,
         },
       }),
       runWithAuthenticatedHostSession: (hostRequest, conversationId, callback) =>
