@@ -54,6 +54,8 @@ concurrency:
 
 jobs:
   linux-x64:
+    # This job runs repository-controlled test code as root; never execute it for fork PRs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 25
     steps:
@@ -103,8 +105,12 @@ jobs:
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe_strict.so
         run: |
           python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
+          if ! sudo -n true; then
+            echo "::error::The self-hosted Linux runner must have non-interactive sudo for the isolated cross-UID broker test."
+            exit 1
+          fi
           NODE_BINARY="$(command -v node)"
-          sudo env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
+          sudo -n env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
 
   windows-x64:
     runs-on: [self-hosted, Windows, X64]
