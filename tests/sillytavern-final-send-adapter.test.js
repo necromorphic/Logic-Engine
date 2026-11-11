@@ -263,9 +263,13 @@ test('Gateway response revalidation failure blocks only the Memory-enriched resp
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] },
+  };
+  await adapter.prepare(request, response);
   await adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
-    response, senderRoute: 'google-ai-studio',
+    request, response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false, transport: async () => ({ status: 200 }),
@@ -286,11 +290,13 @@ test('Gateway failure before provider handoff falls back to native transport exa
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] },
+  };
+  await adapter.prepare(request, response);
   const result = await adapter.dispatch({
-    request: {
-      originalUrl: '/api/backends/chat-completions/generate',
-      body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] },
-    },
+    request,
     response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body: JSON.stringify(request.body) }, stream: false,
@@ -314,8 +320,13 @@ test('Gateway failure after provider handoff is never retried', async () => {
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] },
+  };
+  await adapter.prepare(request, response);
   await assert.rejects(adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] } },
+    request,
     response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body: JSON.stringify(request.body) }, stream: false,
