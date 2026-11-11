@@ -289,6 +289,7 @@ test('real adapter composes file-backed SQLite Provider with Core query and cano
         assert.equal(received.status, 'accepted');
 
         const bridgeRequest = Object.freeze({
+          run_id: '66666666-6666-4666-8666-666666666666',
           request_id: 'real-adapter-generation-request-2',
           generation_id: 'real-adapter-generation-2',
           generation_type: 'normal',
