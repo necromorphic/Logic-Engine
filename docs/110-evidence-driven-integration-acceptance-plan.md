@@ -483,3 +483,25 @@ The focused Receiver suite additionally verifies generation/run identity validat
 A new focused integration test now composes the real Host Adapter, Host-authenticated Core NPC runtime, file-backed SQLite Provider, production Host one-shot bridge, `buildProtectedMemory()` and NPC Receiver in one execution. It checks continuity of Host-owned `run_id`, Core's exact three-field generation metadata, request/generation identity, Provider record/version, canonical source/version, both digests, and duplicate handoff rejection. The test is added but **NOT TESTED** yet. It is an embedded in-process Core/Provider path, consistent with production composition; the HTTP server is used only for Host→Core conversation binding resolution.
 
 This does not yet prove Gateway/Final-Send/model egress on the same run, nor production Root Inventory authority. Block 2 remains **NOT ACCEPTED** until the test passes and the same Receiver result is carried into the production Gateway/Final-Send egress path with replay and zero-egress denial checks. Keep Memory → NPC disabled in normal SillyTavern.
+
+
+### 2026-11-11 — Required protected-Memory mode now denies native fallback (NOT TESTED)
+
+Review of the integrated Final-Send call path found a fail-open behavior: when Memory was enabled but Host preparation, Receiver projection, or Gateway dispatch failed before provider handoff, the adapter could continue through the ordinary native provider transport. This contradicted Block 3's zero-egress requirement for unavailable or invalid protected evidence.
+
+Implementation changes:
+- added the explicit `requireProtectedMemory` mode to the SillyTavern Final-Send adapter;
+- enabled it only when `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true`;
+- in required mode, NON_READY Host context, missing/async/throwing Receiver projection, missing Host session capability, route mismatch for a protected payload, and pre-handoff Gateway failure are terminal and do not invoke native transport;
+- retained native transport only for an explicit trusted `null` result, which represents a successfully authorized complete-empty two-lane context;
+- added `tests/protected-memory-required-final-send.test.mjs` for zero-egress denial and the complete-empty one-call exception;
+- added the regression file to both Windows and Linux jobs in `.github/workflows/npc-generation-context.yml`.
+
+Commits:
+- `5ab06acc60b5512c508a212102ce48e965d55732` — fail closed when protected Memory is required;
+- `6e90112686f40e5f63ddc6a5e31c85e700e691bf` — require protected context when Memory NPC is enabled;
+- `f62caf7b5be6b9674fc85046964b8c4e08a99f18` — required-mode regression tests;
+- `2b0ef550d8f5191e6961f05ac9b2edfa2dda23f3` and `08f0603e21c9a3b4dc2ea364edbdb9677129f79b` — CI path and command wiring;
+- `404c7590f56246827d4b17c351cb4bc37fd24e96` — integration contract documentation.
+
+**Execution status:** NOT TESTED at this exact head. This correction does not prove Block 3 transport acceptance. Run the regression tests on Windows and Linux, then extend the live Core/Provider/Receiver test through the real Gateway's synchronous evidence readers and a deterministic fake provider transport. Host root inventory in the current E2E remains fixture-backed and must not be represented as production authority. Keep Memory → NPC disabled in normal SillyTavern.
