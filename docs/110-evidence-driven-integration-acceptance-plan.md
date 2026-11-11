@@ -434,3 +434,10 @@ Extended the adapter-level egress test to attempt a second send with the same Ho
 ### 2026-11-11 — Duplicate Final-Send guard corrected after failing regression (NOT TESTED)
 
 The first duplicate-dispatch regression failed: dispatch replaced the existing response release state before consulting its duplicate-send guard. The adapter now checks the response WeakSet before context resolution and before resetting release state, and marks the prior release denied. The corrected behavior remains NOT TESTED until the user reruns the focused Windows test.
+
+
+### 2026-11-11 — Duplicate Final-Send regression: Windows PASS
+
+The corrected focused test passed on Windows at code HEAD `0aa7e2ebcf6e61f3413a700aa5a81b98290d038a`: 1/1 pass, 0 failures or skips. It verifies one observed fake-model egress, synchronous denial of a second dispatch for the same Host response, no additional transport call, and denial of response release after the duplicate attempt. The durable execution record is in `docs/111-test-execution-ledger.md`.
+
+**Boundary:** this is a focused adapter composition test using fixture-backed evidence readers and deterministic fake transport. It does not establish live installed SillyTavern composition, independent production Root Authority/Host Inventory, or completion of acceptance Blocks 1–4.
