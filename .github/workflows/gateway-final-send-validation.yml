@@ -28,7 +28,7 @@ permissions:
 # Preserve an active exact-head validation run when newer commits are pushed.
 # GitHub may replace an older pending run, but must not cancel the running job.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
