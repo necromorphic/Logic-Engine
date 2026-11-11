@@ -483,6 +483,7 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
     verifySourceIdentity: testSourceIdentity,
+    verifyMutationRuntimeAcceptance: testOnlyMutationRuntimeAcceptance,
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
