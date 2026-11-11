@@ -5,6 +5,13 @@ on:
     paths:
       - "index.mjs"
       - "host-adapter/patches/**"
+      - "host-adapter/prototype/patches/**"
+      - "host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs"
+      - "host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs"
+      - "scripts/generate-sillytavern-patch-manager-manifest.mjs"
+      - "scripts/verify-sillytavern-patch-manager-bundle.mjs"
+      - "tests/fixtures/sillytavern-final-send-v1.manifest.json"
+      - ".github/workflows/host-lifecycle-patch-bundle.yml"
       - "host-adapter/patch-manager/**"
       - "host-adapter/protected-memory-final-send.mjs"
       - "host-adapter/sillytavern-final-send-adapter.mjs"
@@ -63,3 +70,30 @@ jobs:
         env:
           SILLYTAVERN_DIR: SillyTavern
         run: node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js tests/sillytavern-final-send-adapter.test.js tests/protected-memory-final-send.test.js tests/sillytavern-generation-bridge.test.js tests/sillytavern-server-plugin-bootstrap.test.js host-adapter/patch-manager/manager.test.mjs host-adapter/patch-manager/logic-engine-final-send-hook.test.mjs
+      - name: Generate and verify the committed full-bundle manifest
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        shell: powershell
+        run: |
+          node scripts/generate-sillytavern-patch-manager-manifest.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Create pristine pinned source worktree for bundle upgrade
+        shell: powershell
+        run: |
+          git -C SillyTavern worktree add --detach "$PWD\SillyTavern-manager" 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify v1-to-v2 Patch Manager upgrade on Windows
+        shell: powershell
+        run: |
+          node scripts/verify-sillytavern-patch-manager-bundle.mjs SillyTavern-manager tests/fixtures/sillytavern-final-send-v1.manifest.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove pristine Patch Manager worktree
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path 'SillyTavern-manager') {
+            git -C SillyTavern worktree remove --force "$PWD\SillyTavern-manager"
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'Patch Manager worktree cleanup failed.' }
+          }
