@@ -149,7 +149,7 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
       senderRoute: adapter.resolveSenderRoute(request, hostRoute),
       hostRoute,
       endpointUrl: 'https://provider.example/generate',
-      requestInit,
+      requestInit: { ...requestInit, body: JSON.stringify(body) },
       stream: false,
       transport: async () => ({ status: 200 }),
     });
@@ -158,7 +158,7 @@ test('all four protected non-Chat-Completions routes dispatch through Core Gatew
   assert.deepEqual(calls, routes);
 });
 
-test('registered protected sender is delegated to the Core Gateway', () => {
+test('registered protected sender is delegated to the Core Gateway', async () => {
   const protectedContext = {
     requestId: 'request-2',
     generationId: 'generation-request-2',
@@ -188,16 +188,20 @@ test('registered protected sender is delegated to the Core Gateway', () => {
     },
   };
   const adapter = createAdapter({ resolveProtectedMemory: () => protectedContext, gateway });
-  const request = { body: { chat_completion_source: 'OPENAI', stream: false,
-    messages: [{ role: 'user', content: 'original prompt' }] } };
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'OPENAI', stream: false,
+      messages: [{ role: 'user', content: 'original prompt' }] },
+  };
   const response = {};
+  await adapter.prepare(request, response);
 
-  assert.equal(adapter.dispatch({
+  assert.equal(await adapter.dispatch({
     request,
     response,
     senderRoute: adapter.resolveSenderRoute(request),
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit,
+    requestInit: { ...requestInit, body: JSON.stringify(request.body) },
     stream: false,
     transport: async () => ({ status: 200 }),
   }), 'gateway-result');
