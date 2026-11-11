@@ -474,31 +474,41 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
     // MemoryDispatchGateway and a deterministic fake model transport. Core and
     // Provider evidence readers are the production observer-only adapter;
     // Host lifecycle and Root Inventory evidence remain fixture-backed here.
+    const dispatchEvidence = { core: [], provider: [], host: [] };
     gateway = new MemoryDispatchGateway({
       ledgerPath: join(directory, 'dispatch-ledger.sqlite'),
       coordinatorPath,
       authorityPort,
       readToken: ACCEPTED_READ_TOKEN,
-      readCoreEvidence: input => observerAdapter.readCoreEvidenceSync(input),
-      readProviderEvidence: input => observerAdapter.readProviderEvidenceSync(input),
+      readCoreEvidence: input => {
+        const evidence = observerAdapter.readCoreEvidenceSync(input);
+        dispatchEvidence.core.push(evidence);
+        return evidence;
+      },
+      readProviderEvidence: input => {
+        const evidence = observerAdapter.readProviderEvidenceSync(input);
+        dispatchEvidence.provider.push(evidence);
+        return evidence;
+      },
       readHostEvidence: ({ hostContext: binding, worldId: evidenceWorldId, actorId: evidenceActorId }) => {
-        if (!binding || binding.adapter_id !== ADAPTER_ID
+        const evidence = !binding || binding.adapter_id !== ADAPTER_ID
           || binding.world_id !== evidenceWorldId || binding.actor_id !== evidenceActorId
           || typeof binding.root_id !== 'string'
           || !Number.isSafeInteger(binding.root_inventory_sequence)
-          || typeof binding.root_manifest_sha256 !== 'string') {
-          return Object.freeze({ status: 'NON_READY' });
-        }
-        return Object.freeze({
-          status: 'READY',
-          adapter_id: binding.adapter_id,
-          core_conversation_id: binding.core_conversation_id,
-          world_id: evidenceWorldId,
-          actor_id: evidenceActorId,
-          root_id: binding.root_id,
-          root_inventory_sequence: binding.root_inventory_sequence,
-          root_manifest_sha256: binding.root_manifest_sha256,
-        });
+          || typeof binding.root_manifest_sha256 !== 'string'
+          ? Object.freeze({ status: 'NON_READY' })
+          : Object.freeze({
+            status: 'READY',
+            adapter_id: binding.adapter_id,
+            core_conversation_id: binding.core_conversation_id,
+            world_id: evidenceWorldId,
+            actor_id: evidenceActorId,
+            root_id: binding.root_id,
+            root_inventory_sequence: binding.root_inventory_sequence,
+            root_manifest_sha256: binding.root_manifest_sha256,
+          });
+        dispatchEvidence.host.push(evidence);
+        return evidence;
       },
     });
 
@@ -549,7 +559,8 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       for (let depth = 0; current && depth < 5; depth += 1, current = current.cause) {
         causes.push(current.message || String(current));
       }
-      throw new Error('Integrated protected dispatch failed: ' + causes.join(' <- '), { cause: error });
+      throw new Error('Integrated protected dispatch failed: ' + causes.join(' <- ')
+        + ' | evidence=' + JSON.stringify(dispatchEvidence), { cause: error });
     }
     assert.equal(finalResponseValue.status, 200);
     assert.equal(upstreamCalls.length, 1, 'the real Gateway must invoke the fake model transport exactly once');
