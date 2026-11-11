@@ -3,6 +3,7 @@
   "loading_order": 10,
   "requires": [],
   "optional": [],
+  "js": "host-adapter/extension-gateway/index.js",
   "author": "necromorphic",
   "version": "0.2.0",
   "homePage": "https://github.com/necromorphic/Logic-Engine",
