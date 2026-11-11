@@ -106,6 +106,7 @@ jobs:
         run: |
           python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
           NODE_BINARY="$(command -v node)"
+          export NODE_BINARY
           if ! sudo -n /usr/bin/python3 "$GITHUB_WORKSPACE/tests/run_better_sqlite3_cross_uid.py"; then
             echo "::error::The isolated cross-UID test needs the runner's exact NOPASSWD Python command; see the required runner setup."
             exit 1
