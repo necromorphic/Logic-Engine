@@ -166,8 +166,9 @@ try {
     createdFiles[relativePath] = await hashExpectedFile(expectedRoot, relativePath);
   }
 
-  const orderedSourceFiles = Object.fromEntries(Object.entries(sourceFiles).sort(([a], [b]) => a.localeCompare(b)));
-  const orderedCreatedFiles = Object.fromEntries(Object.entries(createdFiles).sort(([a], [b]) => a.localeCompare(b)));
+  const comparePath = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+  const orderedSourceFiles = Object.fromEntries(Object.entries(sourceFiles).sort(([a], [b]) => comparePath(a, b)));
+  const orderedCreatedFiles = Object.fromEntries(Object.entries(createdFiles).sort(([a], [b]) => comparePath(a, b)));
   const bundleSha256 = sha256(Buffer.from(JSON.stringify(artifacts), 'utf8'));
   const manifest = {
     ...baseManifest,
