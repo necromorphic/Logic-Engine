@@ -134,3 +134,22 @@ Passed coverage reported:
 ## 8. Ledger metadata correction
 
 The 2026-11-11 Host Source Inventory run was executed after the user fast-forwarded the local worktree to documentation commit `540bdf05d174e451c2c4d399c125715cbcee137`. The inventory implementation under test was unchanged by that documentation-only commit. The ledger update itself is committed separately; do not attribute the test run to the ledger-update commit.
+
+
+## 9. Production Final-Send egress composition added — NOT TESTED
+
+**Implementation commit:** `389583dcfd667b240420850ebfc755f3f3b99de7`  
+**Test:** `tests/memory-dispatch-gateway.test.js` — `production SillyTavern Final-Send adapter carries the immutable Receiver canary to one observed model egress`.
+
+The new test composes:
+- the actual `receiveNpcContext()` implementation and its immutable accepted projection;
+- the actual `createSillyTavernFinalSendAdapter()` used by the SillyTavern Final-Send integration;
+- the actual `createProtectedMemoryFinalSend()` and `MemoryDispatchGateway`;
+- a deterministic in-process fake model transport that captures the exact serialized outbound HTTP body;
+- the Gateway dispatch ledger and Host response-release authorization.
+
+Assertions require the unique Receiver canary and original user prompt in the captured outbound body, exactly one model transport invocation, a durable `DISPATCH_STARTED` before Host response release, and `COMPLETED` only after the authorized response write.
+
+**Evidence limitation:** this is a production-adapter/transport composition test, but its Core, Provider, and Host evidence readers are controlled by the existing Gateway test fixture. It does not prove production accepted-head authority, production Host root inventory, or full installed SillyTavern composition. It does not replace Blocks 1 or 4.
+
+**Execution status:** NOT TESTED. No result is claimed until the user runs the focused command on Windows and supplies the raw output. Keep Memory → NPC disabled in the normal SillyTavern installation.
