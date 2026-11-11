@@ -162,7 +162,7 @@ export function createSillyTavernFinalSendAdapter({
           const candidate = await prepareHostContext(request, response, hostRoute, signal);
           if (signal?.aborted !== true && candidate && candidate.status !== 'NON_READY') hostContext = candidate;
         } catch {
-          // Native SillyTavern generation continues without Logic Engine context.
+          // Keep the missing capability absent; required mode denies it at dispatch.
         }
       }
       preparedContextByRequest.set(request, Object.freeze({ request, response, hostContext, hostRoute, replayIdentity }));
@@ -204,8 +204,8 @@ export function createSillyTavernFinalSendAdapter({
         ? preparedContextByRequest.get(args.request) : null;
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
       let providerTransportInvoked = false;
-      // A missing or mismatched Host capability disables only Memory enrichment.
-      // It must not disable the native provider request.
+      // In optional mode a missing Host capability permits native generation.
+      // Required mode below treats the same condition as a terminal denial.
       const prepared = preparedCandidate
         && (preparedCandidate.hostRoute ?? 'chat-completions') === dispatchHostRoute
         && preparedCandidate.response === args.response
