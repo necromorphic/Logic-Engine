@@ -189,3 +189,17 @@ The 1/1 PASS in section 10 applies to the earlier test version at `2f991c681ec2d
 
 
 **Failure analysis and correction — 2026-11-11:** the first extended run at `24937d4e12f3cd7e0f6cfb54dd7b904d2f691e52` failed because `dispatch()` replaced the response's existing `COMPLETED` release state with a new `pending` entry before checking the duplicate-response WeakSet. The test correctly detected that the duplicate attempt was not synchronously rejected. Commit `3628593a737fd1607535e1e25b154e07709dea7a` moves the duplicate check to the beginning of dispatch, before context resolution or response-capability replacement, and marks the existing release state denied. The corrected implementation and extended test are **NOT TESTED** pending a new Windows run.
+
+
+## Duplicate Final-Send regression — Windows PASS
+
+- **Date:** 2026-11-11
+- **Branch:** `integration/host-core-v1`
+- **Tested HEAD:** `0aa7e2ebcf6e61f3413a700aa5a81b98290d038a`
+- **Environment:** Windows PowerShell, Node.js 22.18.0
+- **Command:**
+  `node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="production SillyTavern Final-Send adapter carries" ./tests/memory-dispatch-gateway.test.js`
+- **Result:** 1 test, 1 pass, 0 fail, 0 cancelled, 0 skipped; duration 661.7026 ms.
+- **Verified:** immutable Receiver canary reaches one observed model egress; a second dispatch using the same Host response is synchronously denied; no second model transport call occurs; response release after duplicate denial is rejected.
+- **Scope limitation:** fixture-backed Core/Provider/Host evidence readers and deterministic in-process fake model transport. This does not prove live installed SillyTavern composition, independent production Root Authority/Host Inventory, or full acceptance Blocks 1–4.
+- **SQLite ExperimentalWarning:** informational; test passed.
