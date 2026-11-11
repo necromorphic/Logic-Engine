@@ -89,6 +89,26 @@ jobs:
       - name: Test transactional Patch Manager and Final-Send artifact
         run: |
           node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
+      - name: Verify pinned lifecycle patch bundle digest
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const gitBlobSha = bytes => createHash('sha1')
+            .update(Buffer.from('blob ' + bytes.length + '\0', 'utf8'))
+            .update(bytes)
+            .digest('hex');
+          const lifecycle = readFileSync('host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
+          const rootGuards = readFileSync('host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch');
+          const actual = createHash('sha256')
+            .update([gitBlobSha(lifecycle), gitBlobSha(rootGuards)].join('\n'), 'utf8')
+            .digest('hex');
+          const attestation = readFileSync('host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs', 'utf8');
+          const pinned = attestation.match(/PINNED_PATCH_BUNDLE_SHA256 = '([a-f0-9]{64})'/)?.[1];
+          process.stdout.write('actual=' + actual + ' pinned=' + pinned + String.fromCharCode(10));
+          assert.equal(actual, pinned, 'Host source attestation must pin the exact lifecycle and root-mutation patch bundle');
+          NODE
       - name: Audit pinned lifecycle route anchors
         env:
           SILLYTAVERN_SOURCE_ROOT: SillyTavern
