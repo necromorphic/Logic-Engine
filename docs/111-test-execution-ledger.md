@@ -499,3 +499,34 @@ The user had previously supplied the `/identity` response. The `host_session_id`
 **Limits:** request payload inspection does not prove the server accepted the envelope, that Host authentication returned READY, that Core binding/retrieval succeeded, that the SQLite provider returned authorized records, that the NPC Receiver accepted/injected context, or that Final-Send used that context. No opaque UUIDs or request secrets are stored. Memory → NPC remains disabled/fail-closed.
 
 **Next stage:** verify server-side generation preparation and the real Host→Core retrieval path using existing integrated tests/log evidence first. Ask the user for another browser action only if a specific server-side result cannot be established from repository tests or available logs; do not add another redundant manual check of the same payload fields.
+
+
+### 2026-11-11 — Block 2 protected-memory projection and Gateway/Final-Send composition (PASS)
+
+**Tested code candidate:** `e1f3092479c57b12ab252f052b3902f077ff29c6` (`integration/host-core-v1`).  
+**Environment:** Windows PowerShell, user worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`; Node.js version not restated in this run.  
+**Exact command** (as recorded in the preceding execution instructions):
+
+```powershell
+node --import ./tests/configure-test-env.js --test `
+  ./tests/gateway-final-send-composition.test.js `
+  ./tests/memory-dispatch-gateway.test.js
+```
+
+**User-provided raw summary:** 76 tests, 76 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 38,420.9741 ms. Node emitted the expected experimental SQLite warning; the process exited with the complete test summary.
+
+Notable passed checks include:
+- production protected-memory projection accepts the actual prepared Host/Core envelope;
+- projection fails closed when Host envelope is not READY or Lane B content lacks a matching admitted candidate;
+- same-count Lane B candidate substitution is rejected;
+- immutable Receiver context rejects post-prepare mutation and stale Provider evidence before model egress;
+- production SillyTavern Final-Send adapter carries the Receiver canary to one observed model egress;
+- OpenAI-compatible streaming carries Receiver context through per-chunk Host release;
+- Provider source-version/evidence-cursor changes and revocations block dispatch or response release;
+- sender families share the Gateway and each produce exactly one upstream call;
+- ambiguous transport outcomes and crash recovery become UNKNOWN and prevent replay;
+- cross-process Core source mutation and Gateway dispatch-start share one ordering boundary.
+
+**Disposition:** PASS for these two automated test suites at the exact candidate above. This run verifies the regression fix that joins public admission metadata from `accepted.laneB.publicResult.admitted` with strict source-lineage records from `accepted.laneB.candidates`. It does not establish full live SillyTavern → production Host authority → Core/Provider → Receiver → production model transport acceptance. The Root Inventory verifier remains production deny-only; Memory → NPC must remain disabled in the normal SillyTavern installation.
+
+**Next execution target:** run the focused NPC Receiver suite together with the relevant Host/Core SQLite E2E suite on this same candidate, then reconcile any remaining Block 2 identity-continuity gaps before claiming Block 2 complete.
