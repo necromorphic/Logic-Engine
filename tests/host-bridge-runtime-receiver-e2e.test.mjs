@@ -219,7 +219,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
         host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
         scope: 'PINNED_SILLYTAVERN_CHAT_DATA_ROOTS',
         historical_boundary: 'CURRENT_FILE_SET_ONLY_ENROLLMENT_BASELINE_REQUIRED',
-        logical_identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+        logical_identity_status: 'CURRENT_FILE_IDENTITIES_VERIFIED',
         files: [{
           logical_identity: {
             conversation_uuid: CONVERSATION,
