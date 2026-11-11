@@ -62,7 +62,7 @@ const scope = overrides => ({
 function inventory(state) {
   const target = {
     kind: 'root-chat',
-    locator: 'main.jsonl',
+    locator: state.locator ?? 'main.jsonl',
     file_identity: '1:' + state.fileIdentity,
     content_sha256: digest(state.content),
     logical_identity: {
@@ -73,7 +73,7 @@ function inventory(state) {
     },
   };
   const entries = [{
-    path: 'chats/main.jsonl',
+    path: 'chats/' + (state.locator ?? 'main.jsonl'),
     identity: {
       dev: '1', ino: state.fileIdentity,
       mode: 33188, size: 100, mtimeMs: state.fileIdentity === '101' ? 1 : 2, ctimeMs: 1,
@@ -140,6 +140,43 @@ test('server receipt store persists prepare and verifies a real logical create-m
   assert.equal(committed.status, 'appended');
   assert.match(committed.receipt_digest, /^[a-f0-9]{64}$/);
   assert.equal(committed.occurred_at, '2026-10-31T00:00:01.000Z');
+});
+
+test('server receipt store accepts only an identity-preserving chat locator rename', async t => {
+  const before = {
+    fileIdentity: '501',
+    content: 'same-chat-bytes',
+    locator: 'old-name.jsonl',
+    messages: [message('m1', 'same-message', 'v1')],
+  };
+  const after = { ...before, locator: 'new-name.jsonl' };
+  const f = fixture(t, [before, after]);
+  const prepared = await f.store.prepare(scope({ operation: 'rename-chat' }), directories);
+  assert.equal(prepared.status, 'appended');
+  const committed = await f.store.commit(scope({
+    operation: 'rename-chat',
+    event_id: TERMINAL_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories);
+  assert.equal(committed.status, 'appended');
+  assert.match(committed.receipt_digest, /^[a-f0-9]{64}$/);
+});
+
+test('server receipt store rejects chat rename when bytes, file identity or logical identity change', async t => {
+  const before = {
+    fileIdentity: '601',
+    content: 'same-chat-bytes',
+    locator: 'old-name.jsonl',
+    messages: [message('m1', 'same-message', 'v1')],
+  };
+  const changed = { ...before, locator: 'new-name.jsonl', fileIdentity: '602' };
+  const f = fixture(t, [before, changed]);
+  await f.store.prepare(scope({ operation: 'rename-chat' }), directories);
+  await assert.rejects(f.store.commit(scope({
+    operation: 'rename-chat',
+    event_id: TERMINAL_EVENT,
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  }), directories), /HOST_LIFECYCLE_PERSISTED_STATE_MISMATCH/);
 });
 
 test('server receipt store survives restart and exact terminal retry returns the same receipt', async t => {
