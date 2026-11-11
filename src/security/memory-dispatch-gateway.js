@@ -754,6 +754,16 @@ export class MemoryDispatchGateway {
         if (PROTECTED_MEMORY_SENDER_ROUTES.some(route => tableSql.indexOf("'" + route + "'") === -1)) {
           // Expand the exact sender CHECK constraint without discarding durable
           // dispatch history. Migration is serialized by the shared Coordinator.
+          const legacyColumns = [
+            'request_id', 'request_digest', 'route', 'sender_route', 'model', 'stream',
+            'world_id', 'actor_id', 'purpose', 'sources_json', 'candidates_json',
+            'core_head', 'provider_head', 'policy_authority_id', 'policy_generation',
+            'policy_fingerprint', 'status', 'outcome_code', 'started_at', 'finished_at',
+          ];
+          const correlationColumns = ['run_id', 'generation_id', 'context_digest', 'core_envelope_digest']
+            .filter(column => columns.has(column));
+          const preservedColumns = [...legacyColumns, ...correlationColumns];
+          const preservedColumnSql = preservedColumns.join(',');
           this.db.exec(`
             BEGIN IMMEDIATE;
             DROP INDEX IF EXISTS dispatch_ledger_status_started;
@@ -771,10 +781,10 @@ export class MemoryDispatchGateway {
               purpose TEXT NOT NULL,
               sources_json TEXT NOT NULL,
               candidates_json TEXT NOT NULL,
-            run_id TEXT,
-            generation_id TEXT,
-            context_digest TEXT,
-            core_envelope_digest TEXT,
+              run_id TEXT,
+              generation_id TEXT,
+              context_digest TEXT,
+              core_envelope_digest TEXT,
               core_head INTEGER NOT NULL CHECK(core_head > 0),
               provider_head INTEGER NOT NULL CHECK(provider_head > 0),
               policy_authority_id TEXT NOT NULL,
@@ -785,21 +795,16 @@ export class MemoryDispatchGateway {
               started_at TEXT NOT NULL,
               finished_at TEXT
             );
-            INSERT INTO dispatch_ledger(
-              request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
-              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
-              policy_fingerprint,status,outcome_code,started_at,finished_at
-            )
-            SELECT request_id,request_digest,route,sender_route,model,stream,world_id,actor_id,purpose,
-              sources_json,candidates_json,core_head,provider_head,policy_authority_id,policy_generation,
-              policy_fingerprint,status,outcome_code,started_at,finished_at
-            FROM dispatch_ledger_legacy;
+            INSERT INTO dispatch_ledger(${preservedColumnSql})
+              SELECT ${preservedColumnSql} FROM dispatch_ledger_legacy;
             DROP TABLE dispatch_ledger_legacy;
             CREATE INDEX dispatch_ledger_status_started ON dispatch_ledger(status, started_at);
             CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
               ON dispatch_ledger(request_digest) WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
             COMMIT;
           `);
+        }
+        // Upgrade older ledgers
         }
         // Upgrade older ledgers without discarding their content-free history.
         // Historical rows retain NULL correlation fields; new dispatches always
