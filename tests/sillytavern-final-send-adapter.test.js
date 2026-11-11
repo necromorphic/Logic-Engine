@@ -59,9 +59,15 @@ test('adapter sends exact native transport through Core Gateway for protected co
     nativeForwardFetchResponse: async () => {},
   });
   const body = JSON.stringify({ messages: [{ role: 'user', content: 'protected' }] });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] },
+  };
+  const responseContext = {};
+  await adapter.prepare(request, responseContext);
   const response = await adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
-    response: {},
+    request,
+    response: responseContext,
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
     requestInit: { method: 'POST', body },
@@ -86,12 +92,17 @@ test('Horde text route is admitted through the protected Gateway sender registry
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
-  const request = { body: { stream: false, messages: [{ role: 'user', content: 'original host prompt' }], prompt: 'original host prompt', input: 'original host prompt', params: { prompt: 'original host prompt' } } };
+  const request = {
+    originalUrl: '/api/horde/generate-text',
+    body: { stream: false, messages: [{ role: 'user', content: 'original host prompt' }], prompt: 'original host prompt', input: 'original host prompt', params: { prompt: 'original host prompt' } },
+  };
+  const responseContext = {};
+  await adapter.prepare(request, responseContext);
   assert.equal(adapter.resolveSenderRoute(request, 'horde-text'), 'horde-text');
   const result = await adapter.dispatch({
-    request, response: {}, senderRoute: 'horde-text', hostRoute: 'horde-text',
+    request, response: responseContext, senderRoute: 'horde-text', hostRoute: 'horde-text',
     endpointUrl: 'https://provider.example/generate',
-    requestInit: { method: 'POST', body: '{"model":"test"}' },
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false, transport: async () => ({ status: 200 }),
   });
   assert.equal(result.status, 200);
@@ -111,15 +122,26 @@ test('all registered non-Chat-Completions generation routes enter the shared Gat
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const pathByRoute = {
+    'text-completions': '/api/backends/text-completions/generate',
+    kobold: '/api/backends/kobold/generate',
+    'novelai-text': '/api/novelai/generate',
+    'horde-text': '/api/horde/generate-text',
+  };
   for (const route of routes) {
-    const request = { body: { stream: false, messages: [{ role: 'user', content: 'original host prompt' }], prompt: 'original host prompt', input: 'original host prompt', params: { prompt: 'original host prompt' } } };
+    const request = {
+      originalUrl: pathByRoute[route],
+      body: { stream: false, messages: [{ role: 'user', content: 'original host prompt' }], prompt: 'original host prompt', input: 'original host prompt', params: { prompt: 'original host prompt' } },
+    };
+    const responseContext = {};
+    await adapter.prepare(request, responseContext);
     const result = await adapter.dispatch({
       request,
-      response: {},
+      response: responseContext,
       senderRoute: adapter.resolveSenderRoute(request, route),
       hostRoute: route,
       endpointUrl: 'https://provider.example/generate',
-      requestInit: { method: 'POST', body: '{"model":"test"}' },
+      requestInit: { method: 'POST', body: JSON.stringify(request.body) },
       stream: false,
       transport: async () => ({ status: 200, route }),
     });
@@ -139,11 +161,16 @@ test('protected route mismatch falls back to native provider transport', async (
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/kobold/generate',
+    body: { prompt: 'original host prompt' },
+  };
+  await adapter.prepare(request, response);
   const result = await adapter.dispatch({
-    request: { body: {} }, response,
+    request, response,
     senderRoute: 'text-completions', hostRoute: 'kobold',
     endpointUrl: 'https://provider.example/generate',
-    requestInit: { method: 'POST', body: '{}' }, stream: false,
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) }, stream: false,
     transport: async () => { transportCalls += 1; return { status: 200 }; },
   });
   assert.equal(result.status, 200);
@@ -194,12 +221,17 @@ test('protected response stays terminal after final write and cannot be written 
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] },
+  };
+  await adapter.prepare(request, response);
   await adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
+    request,
     response,
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false,
     transport: async () => ({ status: 200 }),
   });
@@ -235,7 +267,7 @@ test('Gateway response revalidation failure blocks only the Memory-enriched resp
     request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
     response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false, transport: async () => ({ status: 200 }),
   });
   assert.throws(
@@ -255,10 +287,13 @@ test('Gateway failure before provider handoff falls back to native transport exa
     nativeForwardFetchResponse: async () => {},
   });
   const result = await adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] } },
+    request: {
+      originalUrl: '/api/backends/chat-completions/generate',
+      body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] },
+    },
     response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' }, stream: false,
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) }, stream: false,
     transport: async () => { nativeCalls += 1; return { status: 200 }; },
   });
   assert.equal(result.status, 200);
@@ -283,7 +318,7 @@ test('Gateway failure after provider handoff is never retried', async () => {
     request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'prompt' }] } },
     response, senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' }, stream: false,
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) }, stream: false,
     transport: async () => { nativeCalls += 1; return { status: 200 }; },
   }), /response forwarding failed after egress/);
   assert.equal(nativeCalls, 1);
@@ -307,8 +342,13 @@ test('one protected Host response cannot dispatch the model twice after a comple
     chatCompletionSources: sources,
     nativeForwardFetchResponse: async () => {},
   });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] },
+  };
+  await adapter.prepare(request, response);
   const dispatch = () => adapter.dispatch({
-    request: { body: { chat_completion_source: 'makersuite', stream: false, messages: [{ role: 'user', content: 'original host prompt' }] } },
+    request,
     response,
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
@@ -364,7 +404,7 @@ test('authenticated Host session remains active across async provider handoff an
     response,
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false,
     transport: async () => new Promise(resolve => {
       setImmediate(() => {
@@ -418,7 +458,7 @@ test('authenticated Host session remains active across async provider handoff an
     response,
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/v1/chat/completions',
-    requestInit: { method: 'POST', body: '{"messages":[]}' },
+    requestInit: { method: 'POST', body: JSON.stringify(request.body) },
     stream: false,
     transport: async () => new Promise(resolve => {
       setImmediate(() => {
