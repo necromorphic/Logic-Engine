@@ -804,6 +804,8 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
       top_p: 1,
       max_tokens: 512,
       stream: true,
+      logit_bias: undefined,
+      stop: ['<|stop|>'],
       chat_completion_source: 'openai',
       user_name: 'User',
       char_name: 'Character',
@@ -816,7 +818,6 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
       request_image_aspect_ratio: '1:1',
       custom_prompt_post_processing: null,
       verbosity: 'medium',
-      seed: 42,
     },
   };
   const response = {};
@@ -836,7 +837,7 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
       presence_penalty: request.body.presence_penalty,
       frequency_penalty: request.body.frequency_penalty,
       top_p: request.body.top_p,
-      seed: request.body.seed,
+      stop: request.body.stop,
     }),
   };
 
@@ -873,7 +874,9 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     assert.equal(outbound.model, 'gpt-4o-mini');
     assert.equal(outbound.temperature, 0.7);
     assert.equal(outbound.max_tokens, 512);
-    assert.equal(outbound.seed, 42);
+    assert.deepEqual(outbound.stop, ['<|stop|>']);
+    assert.equal(Object.hasOwn(outbound, 'seed'), false,
+      'the pinned ST createGenerationParameters() does not populate seed for this OpenAI request');
     assert.equal(Object.hasOwn(outbound, 'chat_completion_source'), false,
       'ST routing metadata must not leak into the provider request body');
     assert.equal(Object.hasOwn(outbound, 'type'), false,
