@@ -23,7 +23,7 @@ permissions:
 
 # Keep active exact-head source audit running across newer integration commits.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
       - name: Verify exact source revision
-        shell: pwsh
+        shell: powershell
         run: |
           $actual = (git -C SillyTavern rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {
