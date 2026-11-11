@@ -25,10 +25,22 @@ function hostContext(){
 const response=(status,payload)=>({ok:status>=200&&status<300,status,json:async()=>payload});
 test('Gateway resolves stable installation/account/conversation identity with session kept separate',async()=>{
   const calls=[];
+  const sessionPayload = Object.freeze({
+    host_session_id: sessionId,
+    host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+  });
+  const identityPayload = Object.freeze({
+    host_session_id: sessionId,
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    identity_source: 'SERVER_PERSISTED_OPAQUE_IDENTITY',
+  });
   const fetchImpl=async(url,options={})=>{
     calls.push({url,options});
-    if(url.endsWith('/session')) return response(200,{host_session_id:sessionId,host_session_identity:'SIGNED_AUTHENTICATED_ST_SESSION'});
-    return response(200,{host_session_id:sessionId,host_installation_id:installationId,authenticated_account_id:accountId,identity_source:'SERVER_PERSISTED_OPAQUE_IDENTITY'});
+    const pathname = new URL(String(url), 'http://localhost').pathname;
+    if(pathname.endsWith('/session')) return response(200,sessionPayload);
+    if(pathname.endsWith('/identity')) return response(200,identityPayload);
+    throw new Error('UNEXPECTED_GATEWAY_TEST_PATH');
   };
   const resolved=await resolveGatewayHostContext({fetchImpl,getHostContext:hostContext(),storage:new MemoryStorage(),cryptoProvider:{randomUUID:()=>conversationUuid}});
   assert.equal(resolved.conversationId,installationId+':'+accountId+':'+conversationUuid);
