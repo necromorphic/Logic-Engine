@@ -324,3 +324,12 @@ Commits:
 - `b5617aa64ba6f3075a7d0c4f9edaf99921c11404` — installation boundary documentation update.
 
 **Execution status: NOT TESTED.** Run `node --test .\tests\sillytavern-extension-manager.test.mjs` on the Windows worktree before the real Extension Manager install. The duplicate guard is a code-level mitigation, not evidence that both installation layouts load successfully in a live browser.
+
+
+Follow-up hardening: the shared pending promise now resolves to the same wrapped unregister callback for concurrent imports, not the raw listener-removal callback. The regression test now uses `Promise.all` to exercise concurrent initialization rather than only sequential reuse.
+
+Commits:
+- `579111e610e3d0ab21f356fa3b25476b9609993b` — share the completed registration promise.
+- `60b38aba328afba8f2c8d3bcbe05514b40467dde` — concurrent initialization test.
+
+Execution remains **NOT TESTED** pending the Windows command above.
