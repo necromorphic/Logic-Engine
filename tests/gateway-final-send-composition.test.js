@@ -52,6 +52,7 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
   assert.match(source, /npcBridge\.prepare\(request, response, signal\)/);
   assert.match(source, /npcBridge\.consume\(request, prepared\.response\)/);
   assert.match(source, /gateway: memoryEnabled \? registeredRuntime\.gateway : unavailableGateway/);
+  assert.match(source, /requireProtectedMemory: memoryEnabled/);
   assert.match(source, /runWithAuthenticatedHostSession: memoryEnabled/);
 });
 
