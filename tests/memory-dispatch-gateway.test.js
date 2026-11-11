@@ -693,6 +693,26 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
       'COMPLETED',
       'the durable dispatch must complete only after the protected response release',
     );
+
+    assert.throws(() => adapter.dispatch({
+      request,
+      response,
+      senderRoute,
+      endpointUrl: 'http://127.0.0.1:9/fake-model',
+      requestInit,
+      transport: async (_url, init) => {
+        observedBodies.push(init.body);
+        return { status: 200, body: 'duplicate-must-not-send' };
+      },
+    }), /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/,
+    'a second dispatch attempt for the same Host response must be denied');
+    assert.equal(observedBodies.length, 1, 'duplicate dispatch must not invoke a second model transport');
+    assert.throws(() => adapter.authorizeResponseWrite(response, () => {
+      responseWrites += 1;
+      return upstream;
+    }, true), /MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED/,
+    'a denied duplicate must not release another Host response');
+    assert.equal(responseWrites, 1, 'duplicate denial must not write another Host response');
     assert.equal(fixture.calls.length, 0, 'the fixture transport hook must not be bypassed by a second native send');
   } finally {
     await fixture.close();
