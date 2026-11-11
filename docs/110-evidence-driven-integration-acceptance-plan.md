@@ -424,3 +424,8 @@ Execution status: NOT TESTED. The next run must execute the Receiver unit suite 
 Added a focused test that drives an immutable NPC Receiver result through the actual SillyTavern Final-Send adapter, actual protected Final-Send serializer, and actual MemoryDispatchGateway into a deterministic fake model transport. It captures the exact outbound body and checks the canary, original prompt, one upstream call, durable `DISPATCH_STARTED`, and authorized response release before `COMPLETED`.
 
 The evidence readers remain controlled by the Gateway test fixture. This advances the Block 3 transport-observation harness but does not satisfy the Block 3 requirement for production evidence readers, and does not establish Blocks 1 or 4. The test is NOT TESTED until executed on Windows. Normal SillyTavern Memory → NPC remains disabled.
+
+
+### 2026-11-11 — Final-Send duplicate-dispatch denial added (NOT TESTED)
+
+Extended the adapter-level egress test to attempt a second send with the same Host response after the first dispatch completed. The expected behavior is a terminal duplicate-send denial, zero additional model transport calls, and no second response release. This regression is NOT TESTED. It does not change the production evidence-reader limitation or the open acceptance status of Blocks 1, 3, and 4.
