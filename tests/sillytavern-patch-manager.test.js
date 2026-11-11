@@ -284,3 +284,81 @@ test('Patch Manager recovers an interrupted restore after the Host files were al
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
   await assert.rejects(readFile(join(managerDir, 'transaction.json')), { code: 'ENOENT' });
 });
+
+
+test('Patch Manager applies an ordered patch bundle in one backup and rollback transaction', async (t) => {
+  const { manager, stRoot, extensionRoot, original } = await fixture(t);
+  const firstPatch = await readFile(manager.patchPath, 'utf8');
+  const firstHash = hash(Buffer.from(firstPatch, 'utf8'));
+  const finalHost = "export const host = 'lifecycle-patched';\n";
+  const lifecycleHook = "export const lifecycleHook = true;\n";
+  const secondPatch = [
+    '--- a/src/host.js',
+    '+++ b/src/host.js',
+    '@@ -1 +1 @@',
+    "-export const host = 'patched';",
+    "+export const host = 'lifecycle-patched';",
+    '--- /dev/null',
+    '+++ b/src/lifecycle-hook.js',
+    '@@ -0,0 +1 @@',
+    '+export const lifecycleHook = true;',
+    '',
+  ].join('\n');
+  const secondPath = join(extensionRoot, 'patches', 'lifecycle.patch');
+  await writeFile(secondPath, secondPatch, 'utf8');
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  const secondHash = hash(Buffer.from(secondPatch, 'utf8'));
+  const artifacts = [
+    { path: 'patches/test.patch', sha256: firstHash },
+    { path: 'patches/lifecycle.patch', sha256: secondHash },
+  ];
+  manifest.patch.path = 'patches/test.patch';
+  manifest.patch.sha256 = firstHash;
+  manifest.patch.bundleSha256 = hash(Buffer.from(JSON.stringify(artifacts), 'utf8'));
+  manifest.patch.artifacts = artifacts;
+  manifest.patch.version = 'bundle-test';
+  manifest.sourceFiles['src/host.js'].after = hash(Buffer.from(finalHost, 'utf8'));
+  manifest.createdFiles['src/lifecycle-hook.js'] = hash(Buffer.from(lifecycleHook, 'utf8'));
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+  const bundled = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath: manager.patchPath,
+  });
+
+  assert.equal((await bundled.execute('preflight')).status, 'PREFLIGHT_OK');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original,
+    'preflight must not mutate the installed source');
+  assert.equal((await bundled.execute('install')).status, 'INSTALLED');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), finalHost);
+  assert.equal(await readFile(join(stRoot, 'src/hook.js'), 'utf8'), "export const finalSendHook = true;\n");
+  assert.equal(await readFile(join(stRoot, 'src/lifecycle-hook.js'), 'utf8'), lifecycleHook);
+  assert.equal((await bundled.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
+  assert.equal((await bundled.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
+  assert.equal((await bundled.execute('uninstall')).status, 'ROLLED_BACK');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
+  await assert.rejects(readFile(join(stRoot, 'src/hook.js')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(stRoot, 'src/lifecycle-hook.js')), { code: 'ENOENT' });
+});
+
+test('Patch Manager rejects a patch bundle with a path escape before reading artifacts', async (t) => {
+  const { manager, extensionRoot, stRoot } = await fixture(t);
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  const patchBytes = await readFile(manager.patchPath);
+  const patchHash = hash(patchBytes);
+  const artifacts = [
+    { path: 'patches/test.patch', sha256: patchHash },
+    { path: '../outside.patch', sha256: 'a'.repeat(64) },
+  ];
+  manifest.patch.artifacts = artifacts;
+  manifest.patch.bundleSha256 = hash(Buffer.from(JSON.stringify(artifacts), 'utf8'));
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+  const bundled = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath: manager.patchPath,
+  });
+  await assert.rejects(bundled.execute('preflight'), /PATCH_ARTIFACT_BUNDLE_INVALID/);
+});
