@@ -1,8 +1,9 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
 import { createSignedRootInventoryAttestation } from './st-source-attestation.mjs';
+import { signHostMutationReceipt } from './st-host-mutation-receipt-signature.mjs';
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
@@ -634,23 +635,11 @@ export function createHostLifecycleJournalProxy({
         ...body,
       } : null;
       if (outgoingBody?.receipt_digest) {
-        const proof = {
-          protocol_version: 1,
-          adapter_id: target.adapterId,
-          host_installation_id: outgoingBody.host_installation_id,
-          authenticated_account_id: outgoingBody.authenticated_account_id,
-          host_session_id: outgoingBody.host_session_id,
-          conversation_uuid: outgoingBody.conversation_uuid,
-          event_id: outgoingBody.event_id,
-          event_type: outgoingBody.event_type,
-          mutation_id: outgoingBody.mutation_id,
-          operation: outgoingBody.operation,
-          mutation_digest: outgoingBody.mutation_digest,
-          receipt_digest: outgoingBody.receipt_digest,
-          occurred_at: outgoingBody.occurred_at,
-        };
-        outgoingBody.receipt_signature = createHmac('sha256', target.adapterToken)
-          .update(canonical(proof), 'utf8').digest('hex');
+        outgoingBody.receipt_signature = signHostMutationReceipt({
+          adapterId: target.adapterId,
+          adapterToken: target.adapterToken,
+          event: outgoingBody,
+        });
       }
       const response = await fetchImpl(target.url, {
         method,
