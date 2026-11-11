@@ -505,3 +505,28 @@ Commits:
 - `404c7590f56246827d4b17c351cb4bc37fd24e96` — integration contract documentation.
 
 **Execution status:** NOT TESTED at this exact head. This correction does not prove Block 3 transport acceptance. Run the regression tests on Windows and Linux, then extend the live Core/Provider/Receiver test through the real Gateway's synchronous evidence readers and a deterministic fake provider transport. Host root inventory in the current E2E remains fixture-backed and must not be represented as production authority. Keep Memory → NPC disabled in normal SillyTavern.
+
+
+### 2026-11-11 — Gateway now retains Host run and Receiver digest correlation (NOT TESTED)
+
+Code review found that the Final-Send projection carried `runId`, `generationId`, `contextDigest`, and `coreEnvelopeDigest`, but `MemoryDispatchGateway.readDispatchInput()` discarded them and the durable dispatch ledger did not retain them. The previous Receiver-to-Gateway tests therefore could not prove exact same-run correlation at the dispatch-start boundary.
+
+Implementation changes:
+- made all four correlation values mandatory in the Gateway in-process request envelope;
+- validates Host `runId` as UUID and both Receiver/Core digests as SHA-256 hex;
+- includes the values in the signed dispatch request canonical payload;
+- persists the values in the same durable, content-free `DISPATCH_STARTED` ledger row;
+- adds additive ledger migration for existing installations, retaining NULL only for historical rows that predate this correlation contract;
+- preserves correlation values through the existing sender-registry ledger rebuild migration;
+- adds tamper-signature tests, malformed/missing identity zero-egress tests, dispatch-ledger continuity assertions, and migration-preservation assertions;
+- updates the older Final-Send adapter test fixture to supply the already-required Receiver identity/digests.
+
+Commits:
+- `203c59bdb06d184aeb33532bc301059cd77ea2e8` — Gateway contract and ledger fields;
+- `f8ff7e8602fd835be7eaf96eba991d9699e6f027` — Final-Send adapter fixture;
+- `768c87728ef71e57e81d710acce8dede6077abd0` — correlation signature and egress assertions;
+- `0c132370cef9194350c0fe7757064929acfb5a05` — missing/malformed correlation rejection;
+- `865c362ee5cd7de2d26cffcd1352a0dd8c982250` and `ef052b3f1933942255b0fd8e14e2943e2715a0f6` — ledger migration compatibility and preservation;
+- `837e16cfd252ce75c76bc4bbfbd9744e3ee9fda5` — integration contract documentation.
+
+**Execution status:** NOT TESTED at this exact head. The dispatch ledger remains content-free; the added fields are correlation metadata only. Exact same-run persistence must pass the Windows Gateway Final-Send suite and Linux/Windows NPC suite before this check can be marked PASS. Keep Memory → NPC disabled in normal SillyTavern.
