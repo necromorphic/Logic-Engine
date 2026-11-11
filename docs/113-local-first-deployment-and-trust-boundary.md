@@ -83,6 +83,18 @@ Memory retrieval, NPC context admission, and model dispatch remain separate auth
 
 The standalone application should embed or launch the same local Logic-Engine runtime and use the same local canonical storage and policy boundaries. Its UI replaces SillyTavern as the Host. The language model remains a provider integration: local model or remote API. A remote model connection must not move the engine's canonical state or Memory database to the provider.
 
+## 8. Current code observations on `integration/host-core-v1`
+
+These are static source observations, not runtime acceptance claims:
+
+- `src/index.js` defaults the Core HTTP listener to `127.0.0.1`. A non-loopback bind is rejected unless `ENGINE_ALLOW_REMOTE=true` is explicitly set.
+- `scripts/security/run-accepted-head-authority.js` binds the local authority to `127.0.0.1` and requires a file-backed local SQLite path plus distinct Core, Provider, and read tokens.
+- `host-adapter/extension-gateway/server-plugin/index.mjs` registers the ST-facing session, identity, inventory, lifecycle, and Host version-ledger routes. It does not register a browser-facing Memory dispatch route.
+- `host-adapter/embedded-gateway-runtime.mjs` exports a composition factory intended for the SillyTavern server process. Its presence does not prove that the current ST production entrypoint loads it; that exact composition-root linkage remains to be verified.
+- `src/index.js` still supplies `verifyInventorySnapshot: async () => false`. This remains an intentional fail-closed Host inventory gate.
+
+Therefore the local-first architecture is the selected product direction, but the complete ST → Logic-Engine → model transport integration is not established by these source observations alone.
+
 ## 7. Next engineering block
 
 The next work is not provisioning infrastructure. It is:
