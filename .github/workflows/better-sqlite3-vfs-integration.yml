@@ -4,7 +4,7 @@ name: better-sqlite3 default VFS integration
 
 on:
   push:
-    branches: ['security/**', 'integration/host-core-v1']
+    branches: ['security/**']
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
@@ -47,7 +47,7 @@ permissions:
   contents: read
 # Keep active exact-head VFS validation running across newer integration commits.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
