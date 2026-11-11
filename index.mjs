@@ -142,9 +142,17 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
   // Route the consumed one-shot Core handoff through the strict production
   // Receiver. The envelope is assembled only from server-owned handoff data.
   const received = receiveNpcContext({
-    // Pass the exact immutable Core-produced Lane B Result Envelope into
-    // the Receiver; do not reconstruct a lookalike from projected metadata.
-    retrieval: laneBContext.result,
+    // Preserve the exact public Core envelope as the digest input. Canonical
+    // source versions are supplied separately by Runtime's one-shot Lane B
+    // dispatch evidence and joined by Provider record identity in the Receiver.
+    retrieval: {
+      status: laneBContext.status,
+      admitted: laneBContext.admitted,
+      candidates: laneBContext.candidates,
+      reason: laneBContext.reason,
+      snapshot: laneBContext.snapshot,
+    },
+    sourceLineage: accepted.laneB.candidates,
     hostContext: {
       adapter_id: coreContext.adapter_id,
       conversation_id: coreContext.conversation_id,
