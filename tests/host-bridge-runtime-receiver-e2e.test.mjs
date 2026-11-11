@@ -8,10 +8,14 @@ import { join, resolve } from 'node:path';
 
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { initializeMemoryProviderSchema, createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
+import { MemoryDispatchGateway } from '../src/security/memory-dispatch-gateway.js';
+import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from '../src/security/accepted-head-authority.js';
+import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
+import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-final-send-adapter.mjs';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
-import { createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
 import { createNpcGenerationContextHostBridge } from '../src/application/npc-generation-context-host-bridge.js';
 import { createNpcGenerationRequestMetadata } from '../host-adapter/npc-generation-request-metadata.mjs';
 import { buildProtectedMemory } from '../index.mjs';
@@ -26,6 +30,24 @@ import {
 
 const API_TOKEN = 'host-bridge-runtime-api-token-long-enough';
 const ADAPTER_TOKEN = 'host-bridge-runtime-adapter-token-long-enough';
+const ACCEPTED_CORE_TOKEN = 'host-bridge-runtime-accepted-core-token-000000000001';
+const ACCEPTED_PROVIDER_TOKEN = 'host-bridge-runtime-accepted-provider-token-000000000002';
+const ACCEPTED_READ_TOKEN = 'host-bridge-runtime-accepted-read-token-000000000003';
+const CHAT_COMPLETION_SOURCES = Object.freeze({
+  CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertexai',
+  MISTRALAI: 'mistral', COHERE: 'cohere', COMETAPI: 'cometapi', DEEPSEEK: 'deepseek',
+  AIMLAPI: 'aimlapi', XAI: 'xai', CHUTES: 'chutes', MINIMAX: 'minimax',
+  ELECTRONHUB: 'electronhub', AZURE_OPENAI: 'azure-openai', OPENAI: 'openai',
+  OPENROUTER: 'openrouter', CUSTOM: 'custom', PERPLEXITY: 'perplexity', GROQ: 'groq',
+  FIREWORKS: 'fireworks', NANOGPT: 'nanogpt', POLLINATIONS: 'pollinations',
+  MOONSHOT: 'moonshot', ZAI: 'zai', SILICONFLOW: 'siliconflow', WORKERS_AI: 'workers-ai',
+});
+const ACCEPTED_HEAD_ENV_KEYS = [
+  'LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED',
+  'LOGIC_ENGINE_ACCEPTED_HEAD_PORT',
+  'LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN',
+  'LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN',
+];
 const ADAPTER_ID = 'st-host-bridge-runtime-e2e';
 const SESSION = '33333333-3333-4333-8333-333333333333';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
@@ -48,17 +70,61 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
   const coordinatorPath = resolve(join(directory, 'coordinator.sqlite'));
   const previousCoordinator = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
   const previousDataRoot = globalThis.DATA_ROOT;
+  const previousAcceptedHeadEnv = Object.fromEntries(ACCEPTED_HEAD_ENV_KEYS.map(key => [key, process.env[key]]));
   const dataRoot = join(directory, 'st-data');
   const identityDirectory = join(directory, 'host-identity');
   mkdirSync(dataRoot, { recursive: true });
   process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
   globalThis.DATA_ROOT = dataRoot;
+  for (const key of ACCEPTED_HEAD_ENV_KEYS) delete process.env[key];
 
   let store;
   let providerAdapter;
+  let observerAdapter;
   let nonceStore;
   let server;
+  let authority;
+  let authorityServer;
+  let gateway;
+  let finalSendAdapter;
   try {
+    authority = new AcceptedHeadAuthority({
+      path: join(directory, 'accepted-head-authority.sqlite'),
+      installationId: 'host-bridge-runtime-e2e-installation',
+    });
+    authorityServer = createAcceptedHeadAuthorityServer({
+      authority,
+      coreToken: ACCEPTED_CORE_TOKEN,
+      providerToken: ACCEPTED_PROVIDER_TOKEN,
+      readToken: ACCEPTED_READ_TOKEN,
+    });
+    authorityServer.listen(0, '127.0.0.1');
+    await once(authorityServer, 'listening');
+    const authorityPort = authorityServer.address().port;
+
+    // Bootstrap empty Core and Provider schemas first, then perform explicit
+    // test-only accepted-head baseline enrollment before reopening them in
+    // authoritative mode. This mirrors the deployment lifecycle without
+    // treating the Host Root Inventory fixture as production authority.
+    store = new SQLiteStore(corePath);
+    store.close();
+    store = null;
+    initializeMemoryProviderSchema({ providerPath, coordinatorPath });
+    const baselineDigest = '9'.repeat(64);
+    enrollAcceptedHeadDomain({
+      domain: 'core', databasePath: corePath, coordinatorPath, port: authorityPort,
+      token: ACCEPTED_CORE_TOKEN, approvalId: 'host-bridge-runtime-core-baseline', baselineDigest,
+    });
+    enrollAcceptedHeadDomain({
+      domain: 'provider', databasePath: providerPath, coordinatorPath, port: authorityPort,
+      token: ACCEPTED_PROVIDER_TOKEN, approvalId: 'host-bridge-runtime-provider-baseline', baselineDigest,
+    });
+    process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED = '1';
+    process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT = String(authorityPort);
+    process.env.LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN = ACCEPTED_CORE_TOKEN;
+    process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN = ACCEPTED_PROVIDER_TOKEN;
+    store = new SQLiteStore(corePath);
+
     const identityStore = new HostIdentityStore({ directory: identityDirectory });
     const hostIdentity = await identityStore.resolveAuthenticatedAccount('bridge-e2e-user');
     const coreConversationId = SESSION + ':' + hostIdentity.host_installation_id + ':' + CONVERSATION;
@@ -155,6 +221,18 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     providerAdapter.provider.grantQuery(scope, true);
     providerAdapter.provider.grantRecord(scope, record.record_ref, record.record_version, true);
     assert.equal((await providerAdapter.prepareWorld(worldId)).status, 'current');
+
+    observerAdapter = createMemoryNpcProviderAdapter({
+      engine,
+      providerPath,
+      coordinatorPath,
+      adapterId: ADAPTER_ID,
+      trustedInitialKnowledgeSources: [],
+      fieldPolicy: (_context, _entity, field) =>
+        field === 'entity_id' || field === 'attributes.public_note',
+      contentFields: ['attributes.public_note'],
+      observerOnly: true,
+    });
 
     nonceStore = new HostAssertionNonceStore({
       path: join(directory, 'host-assertion-nonces.sqlite'),
@@ -270,7 +348,10 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
         logicEngineSessionId: SESSION,
         logicEngineSessionHandle: 'bridge-e2e-user',
       },
+      originalUrl: '/api/backends/chat-completions/generate',
       body: {
+        chat_completion_source: 'makersuite',
+        messages: [{ role: 'user', content: 'Generate a response using relevant memories.' }],
         logic_engine_conversation_uuid: CONVERSATION,
         logic_engine_request_id: randomUUID(),
         logic_engine_generation_id: randomUUID(),
