@@ -9,6 +9,7 @@ on:
       - "host-adapter/npc-generation-content-projection.mjs"
       - "host-adapter/npc-context-receiver.mjs"
       - "tests/npc-context-receiver.test.mjs"
+      - "tests/host-bridge-runtime-receiver-e2e.test.mjs"
       - "tests/npc-memory-candidate-eligibility.test.js"
       - "tests/memory-provider-core-integration.test.js"
       - "tests/npc-generation-context*.test.js"
@@ -26,6 +27,7 @@ on:
       - "host-adapter/npc-generation-content-projection.mjs"
       - "host-adapter/npc-context-receiver.mjs"
       - "tests/npc-context-receiver.test.mjs"
+      - "tests/host-bridge-runtime-receiver-e2e.test.mjs"
       - "tests/npc-memory-candidate-eligibility.test.js"
       - "tests/memory-provider-core-integration.test.js"
       - "tests/npc-generation-context*.test.js"
@@ -57,6 +59,7 @@ jobs:
           tests/npc-generation-context-runtime.test.js
           tests/npc-generation-context-host-bridge.test.js
           tests/npc-context-receiver.test.mjs
+          tests/host-bridge-runtime-receiver-e2e.test.mjs
           tests/npc-memory-candidate-eligibility.test.js
           tests/memory-provider-core-integration.test.js
           tests/memory-npc-consumer.test.js
