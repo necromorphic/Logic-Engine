@@ -535,7 +535,17 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
         return { status: 200, body: 'fake-model-accepted' };
       },
     };
-    const finalResponseValue = await finalSendAdapter.dispatch(dispatchArgs);
+    let finalResponseValue;
+    try {
+      finalResponseValue = await finalSendAdapter.dispatch(dispatchArgs);
+    } catch (error) {
+      const causes = [];
+      let current = error;
+      for (let depth = 0; current && depth < 5; depth += 1, current = current.cause) {
+        causes.push(current.message || String(current));
+      }
+      throw new Error('Integrated protected dispatch failed: ' + causes.join(' <- '), { cause: error });
+    }
     assert.equal(finalResponseValue.status, 200);
     assert.equal(upstreamCalls.length, 1, 'the real Gateway must invoke the fake model transport exactly once');
     assert.ok(upstreamCalls[0].body.includes(canary),
