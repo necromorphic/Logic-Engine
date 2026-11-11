@@ -938,7 +938,7 @@ test('Core lifecycle journal accepts only Host terminal receipts signed by the c
     occurred_at: '2026-10-31T00:00:00.000Z',
     event_type: 'MUTATION_PREPARED',
     mutation_id: '00000000-0000-4000-8000-000000000072',
-    operation: 'edit-message',
+    operation: 'rename-chat',
     mutation_digest: digest('signed-intent'),
   };
   assert.equal(journal.append(prepared).status, 'appended');
