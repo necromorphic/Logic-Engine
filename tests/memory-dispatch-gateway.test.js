@@ -941,6 +941,20 @@ test('Provider source-version change after retrieval blocks dispatch before mode
   }
 });
 
+test('Provider evidence cursor ignores connection-local data_version when candidate digest is unchanged', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('provider-cursor-connection-local-version');
+    fixture.setProviderCursor({ data_version: 8, candidate_digest: 'f'.repeat(64) });
+    const response = await dispatchAndRelease(fixture.gateway, request);
+    assert.equal(response.status, 200);
+    assert.equal(fixture.calls.length, 1,
+      'an unchanged canonical candidate digest remains current across independent SQLite connections');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Provider evidence cursor change after retrieval blocks dispatch before model egress', async () => {
   const fixture = await createFixture();
   try {
