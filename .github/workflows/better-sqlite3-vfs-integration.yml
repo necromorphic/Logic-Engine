@@ -160,7 +160,8 @@ jobs:
       - name: Verify Node-API 10 and archived Windows prebuild identity
         shell: powershell
         run: |
-          node -e 'const napi = Number(process.versions.napi); console.log("Node", process.version, "Node-API", napi); if (napi < 10) throw new Error("better-sqlite3 13.0.3 requires Node-API 10")'
+          $napi = [int](node -p "Number(process.versions.napi)")
+          if ($LASTEXITCODE -ne 0 -or $napi -lt 10) { throw "better-sqlite3 13.0.3 requires Node-API 10; detected $napi" }
           $binary = "$env:RUNNER_TEMP\better-sqlite3\package\prebuilds\win32-x64.node"
           $actual = (Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne 'e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a') {
