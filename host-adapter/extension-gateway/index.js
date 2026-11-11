@@ -34,6 +34,8 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
     return data;
 }
 
+const REGISTRATION_KEY = Symbol.for('logic-engine.host-generation-identity.registration.v1');
+
 export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
     const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
@@ -52,7 +54,29 @@ export async function registerHostGenerationIdentity(context = null, { resolveHo
     };
 }
 
+export async function registerHostGenerationIdentityOnce(context = null, options = {}) {
+    const existing = globalThis[REGISTRATION_KEY];
+    if (existing) return await existing;
+
+    const pending = registerHostGenerationIdentity(context, options);
+    globalThis[REGISTRATION_KEY] = pending;
+    try {
+        const removeListeners = await pending;
+        const unregister = () => {
+            removeListeners();
+            if (globalThis[REGISTRATION_KEY] === unregister) {
+                delete globalThis[REGISTRATION_KEY];
+            }
+        };
+        globalThis[REGISTRATION_KEY] = unregister;
+        globalThis.addEventListener?.('pagehide', unregister, { once: true });
+        return unregister;
+    } catch (error) {
+        if (globalThis[REGISTRATION_KEY] === pending) delete globalThis[REGISTRATION_KEY];
+        throw error;
+    }
+}
+
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-    const unregister = await registerHostGenerationIdentity();
-    globalThis.addEventListener?.('pagehide', unregister, { once: true });
+    await registerHostGenerationIdentityOnce();
 }
