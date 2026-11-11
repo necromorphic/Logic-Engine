@@ -268,8 +268,8 @@ export function createSillyTavernHostAdapter({
         }
 
         // Static route presence is not runtime acceptance. The production
-        // adapter has no runtime-acceptance verifier yet, so it must not mint
-        // or consume an authoritative root proof until operation receipts and
+        // adapter has no runtime-acceptance verifier yet, so it must not acquire a
+        // Host context from an authoritative root proof until operation receipts and
         // real-file before/after/restart evidence are verified for this exact
         // pinned source and snapshot.
         if (typeof injectedVerifyMutationRuntimeAcceptance !== 'function') {
