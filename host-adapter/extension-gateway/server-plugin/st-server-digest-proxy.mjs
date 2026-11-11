@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import pathModule from 'node:path';
 import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
 import { resolveHostDataDirectories } from './st-host-inventory-handler.mjs';
