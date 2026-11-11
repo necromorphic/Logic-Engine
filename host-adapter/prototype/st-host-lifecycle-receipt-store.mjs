@@ -79,6 +79,10 @@ function exactlyOneChanged(before, after, predicate) {
 }
 
 function validOperationTransition(operation, before, after) {
+  // A chat rename changes only the file locator. The caller has already
+  // verified the filesystem identity, bytes, backups and unrelated inventory;
+  // the logical conversation identity must remain exactly unchanged.
+  if (operation === 'rename-chat') return canonical(before) === canonical(after);
   const left = before.messages.map(normalizedMessage);
   const right = after.messages.map(normalizedMessage);
   if (operation === 'create-message' || operation === 'message-send' || operation === 'message-receive') {
@@ -148,16 +152,6 @@ function validOperationTransition(operation, before, after) {
       && oldMessage.versions.some((version, index) =>
         version.version_id !== newMessage.versions[index].version_id
         && version.content_sha256 !== newMessage.versions[index].content_sha256));
-  }
-  if (operation === 'rename-chat') {
-    return before.target_locator !== after.target_locator
-      && before.target_path !== after.target_path
-      && before.target_file_identity === after.target_file_identity
-      && before.target_content_sha256 === after.target_content_sha256
-      && canonical(before.logical_identity) === canonical(after.logical_identity)
-      && before.other_root_entries_sha256 === after.other_root_entries_sha256
-      && before.other_source_files_sha256 === after.other_source_files_sha256
-      && canonical(before.backup_entries) === canonical(after.backup_entries);
   }
   return false;
 }
@@ -458,7 +452,7 @@ export class HostLifecycleReceiptStore {
               : after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256 ? 'UNRELATED_ROOT_ENTRY_CHANGED'
                 : after.other_source_files_sha256 !== prepared.before.other_source_files_sha256 ? 'UNRELATED_SOURCE_FILE_CHANGED'
                   : !validBackupTransition(prepared.before, after) ? 'BACKUP_TRANSITION_INVALID'
-                    : !validOperationTransition(scope.operation, prepared.before, after)
+                    : !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)
                       ? 'LOGICAL_OPERATION_TRANSITION_INVALID' : null
       : after.target_path !== prepared.before.target_path ? 'TARGET_PATH_CHANGED'
         : after.target_locator !== prepared.before.target_locator ? 'TARGET_LOCATOR_CHANGED'
