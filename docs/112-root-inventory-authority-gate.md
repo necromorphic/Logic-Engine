@@ -50,6 +50,12 @@ Therefore do not:
 6. Prove that the pinned SillyTavern production composition routes protected Memory disclosure through the approved Gateway and final revalidation before the sole model transport. Host inventory readiness alone is not dispatch authorization.
 7. Add file-backed tests for complete/incomplete inventory, stale replay, mutation during scan, restart/recovery, local authority outage/mismatch, and zero-egress denial. Run the exact Windows Host/Core/SQLite/Gateway acceptance path on one exact candidate.
 
+## Current receipt-backed mutation boundary
+
+The Host/Core terminal receipt contract now includes `rename-chat` in addition to the eight existing message lifecycle operations. A rename receipt is valid only when the same logical conversation, file identity and content bytes remain intact; only its locator/path may change, with no unrelated root/source or backup changes. The ST patch, Host proxy allowlist, server receipt store and Core journal allowlist must stay aligned.
+
+The static 89-route mutation inventory is not equivalent to 89 operation-specific receipts. Only these nine operations currently have the narrow terminal receipt contract: `create-message`, `message-send`, `message-receive`, `create-swipe`, `select-swipe`, `delete-swipe`, `delete-message`, `edit-message`, `rename-chat`. Other ST mutation routes remain unsupported for authoritative generation acceptance. The account-mutation receipt store has recovery checks in production composition but its prepare/commit protocol is not yet connected around native account mutation routes; do not count those routes as receipt-backed.
+
 ## Acceptance and release conditions
 
 - Host inventory: complete for the declared supported surface, or unsupported paths explicitly rejected and documented.
