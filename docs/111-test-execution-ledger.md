@@ -530,3 +530,33 @@ Notable passed checks include:
 **Disposition:** PASS for these two automated test suites at the exact candidate above. This run verifies the regression fix that joins public admission metadata from `accepted.laneB.publicResult.admitted` with strict source-lineage records from `accepted.laneB.candidates`. It does not establish full live SillyTavern → production Host authority → Core/Provider → Receiver → production model transport acceptance. The Root Inventory verifier remains production deny-only; Memory → NPC must remain disabled in the normal SillyTavern installation.
 
 **Next execution target:** run the focused NPC Receiver suite together with the relevant Host/Core SQLite E2E suite on this same candidate, then reconcile any remaining Block 2 identity-continuity gaps before claiming Block 2 complete.
+
+
+### 2026-11-11 — NPC Context Receiver and Host/Core/SQLite E2E (PASS)
+
+**Tested source candidate:** `e1f3092479c57b12ab252f052b3902f077ff29c6` on `integration/host-core-v1`. The worktree was then fast-forwarded to `bcb0f16af703aa09f84769f2a62cac9446c00a19`, which adds the preceding test-ledger entry only; no source changes were included in that documentation commit.
+
+**Environment:** Windows PowerShell, worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`; Node.js version not restated.
+
+**Exact command:**
+
+```powershell
+node --import ./tests/configure-test-env.js --test `
+  ./tests/npc-context-receiver.test.mjs `
+  ./tests/host-core-sqlite-e2e.test.js
+```
+
+**User-provided raw summary:** 12 tests, 12 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 549.2608 ms. Node emitted the experimental SQLite warning.
+
+Passed checks:
+- Host dispatch proxy retrieves a real SQLite Provider record through Core HTTP and MemoryNpcConsumer;
+- Receiver digest is stable for identical accepted context and changes when admitted content changes;
+- missing/malformed generation and run identities are rejected;
+- only Core-admitted candidates are converted into Gateway metadata/content;
+- authorized complete-empty result remains an empty ready context;
+- public five-field envelope is accepted while private Provider cursor is rejected;
+- NON_READY/malformed envelopes, unassessed/disputed/insufficient evidence, unadmitted evidence, source-version/admission/scope mismatches, accessors, Proxy objects, excessive nesting and oversized content are rejected.
+
+**Disposition:** PASS for the focused Receiver suite and the targeted Host→Core HTTP→MemoryNpcConsumer→SQLite Provider E2E at the tested source candidate. The E2E uses explicit Host inventory/root-proof fixtures as documented in the acceptance plan; it is not production Root Inventory authority evidence. This run does not prove full live SillyTavern production Memory→NPC transport or authorize enabling Memory → NPC in the normal installation.
+
+**Next target:** reconcile the Block 2 acceptance criteria against the current production wiring and evidence, then identify any remaining integration test gap. Keep the production Root Inventory verifier deny-only.
