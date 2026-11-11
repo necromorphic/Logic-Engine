@@ -343,11 +343,19 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.deepEqual(
       [...(receiverAdmissionDiagnostics.candidates?.[0]?.keys ?? [])].sort(),
       ['authorization_generation', 'content', 'epistemic_kind', 'evidence_assessment',
-        'record_ref', 'record_version', 'source_entity_id', 'source_version'].sort(),
+        'record_ref', 'record_version', 'source_entity_id'].sort(),
       'Core candidate shape differs from the Receiver contract: ' + JSON.stringify(receiverAdmissionDiagnostics),
     );
     const received = receiveNpcContext({
       retrieval: retrieved.payload.retrieval,
+      sourceLineage: [{
+        record_ref: retrieved.payload.retrieval.candidates[0].record_ref,
+        record_version: retrieved.payload.retrieval.candidates[0].record_version,
+        authorization_generation: retrieved.payload.retrieval.candidates[0].authorization_generation,
+        source_kind: 'canonical_entity',
+        source_entity_id: sourceId,
+        source_version: source.source_version,
+      }],
       hostContext: receiverHostContext,
       hostBinding: {
         ...authenticatedHost.context,
