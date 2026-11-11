@@ -583,6 +583,10 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
     root_id: hostContext.root_id,
     root_inventory_sequence: hostContext.root_inventory_sequence,
     root_manifest_sha256: hostContext.root_manifest_sha256,
+    adapter_id: hostContext.adapter_id,
+    world_id: hostContext.world_id,
+    actor_id: hostContext.actor_id,
+    actor_type: hostContext.actor_type,
   };
   const received = receiveNpcContext({
     retrieval,
@@ -592,7 +596,7 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
       authorization_generation: 1,
       source_kind: 'canonical_entity',
       source_entity_id: 'entity-42',
-      source_version: 'version-7',
+      source_version: 'core-entity-v1:7',
     }],
     hostContext: receiverHostContext,
     hostBinding,
