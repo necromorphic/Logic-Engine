@@ -35,7 +35,7 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
 }
 
 export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
-    const hostContext = context ?? (await import('../../../st-context.js')).getContext();
+    const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
         throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
     }
