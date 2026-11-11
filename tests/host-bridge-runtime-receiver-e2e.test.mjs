@@ -16,6 +16,7 @@ import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-f
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
+import { createProcessScopedMechanicPolicyAuthority } from '../src/application/mechanic-policy-authority.js';
 import { createNpcGenerationContextHostBridge } from '../src/application/npc-generation-context-host-bridge.js';
 import { createNpcGenerationRequestMetadata } from '../host-adapter/npc-generation-request-metadata.mjs';
 import { buildProtectedMemory } from '../index.mjs';
@@ -169,6 +170,12 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       npcKnowledgeReadAuthorizer: npcAuthorizers.readAuthorizer,
       npcKnowledgeVisibilityAuthorizer: npcAuthorizers.visibilityAuthorizer,
     });
+    const mechanicPolicyAuthority = createProcessScopedMechanicPolicyAuthority({
+      authorityId: 'host-bridge-runtime-e2e-policy',
+      generation: 1,
+      fieldPolicy: (_context, _entity, field) =>
+        field === 'entity_id' || field === 'attributes.public_note',
+    });
 
     const worldId = 'host-bridge-runtime-world';
     const actorId = 'host-bridge-runtime-npc';
@@ -204,8 +211,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       coordinatorPath,
       adapterId: ADAPTER_ID,
       trustedInitialKnowledgeSources: [],
-      fieldPolicy: (_context, _entity, field) =>
-        field === 'entity_id' || field === 'attributes.public_note',
+      fieldPolicy: mechanicPolicyAuthority,
       contentFields: ['attributes.public_note'],
       isAuthenticatedHostRequest: request => hostAdapter?.isAuthenticatedHostRequest(request) === true,
       resolveHostConversationId: request => hostAdapter?.resolveCoreConversationId(request) ?? null,
@@ -249,8 +255,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       coordinatorPath,
       adapterId: ADAPTER_ID,
       trustedInitialKnowledgeSources: [],
-      fieldPolicy: (_context, _entity, field) =>
-        field === 'entity_id' || field === 'attributes.public_note',
+      fieldPolicy: mechanicPolicyAuthority,
       contentFields: ['attributes.public_note'],
       observerOnly: true,
     });
