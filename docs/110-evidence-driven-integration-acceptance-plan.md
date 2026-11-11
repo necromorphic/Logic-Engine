@@ -448,3 +448,8 @@ The corrected focused test passed on Windows at code HEAD `0aa7e2ebcf6e61f3413a7
 A focused test now exercises the Receiver → SillyTavern Final-Send adapter → protected serializer → Gateway → deterministic streaming transport path. It models the SillyTavern chat-completions Host request and OpenAI-compatible provider body, captures the exact outbound body, and routes each simulated SSE chunk plus the terminal event through the adapter's response-write authorization. It asserts one upstream handoff and durable completion only after the final authorized write.
 
 This is a protocol-shaped test fixture, not evidence from a live installed SillyTavern process or a captured request from the supplied release archive. Production Root Authority and Host Inventory readers are still not wired into this fixture. Execution status: NOT TESTED.
+
+
+### SillyTavern request-contract alignment — 2026-11-11
+
+The Final-Send streaming adapter test now follows the supplied SillyTavern source contract: frontend `createGenerationParameters()` Host payload and backend OpenAI provider `requestBody` are modeled separately. The test must not treat an arbitrary OpenAI body as the ST Host request, nor assume ST-only fields such as `chat_completion_source`, `type`, or `stream_options` reach the provider. The focused test remains NOT TESTED until a Windows run. Even after it passes, live installed ST composition and production evidence-reader acceptance remain outstanding.
