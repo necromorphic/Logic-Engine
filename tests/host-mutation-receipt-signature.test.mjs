@@ -30,6 +30,18 @@ test('Host terminal mutation receipt signature verifies the exact signed envelop
   assert.equal(verifyHostMutationReceiptSignature({ adapterId, adapterToken, event: signed }), true);
 });
 
+test('Host aborted mutation receipts use the same terminal signature contract', () => {
+  const aborted = { ...event, event_type: 'MUTATION_ABORTED' };
+  const signed = {
+    ...aborted,
+    receipt_signature: signHostMutationReceipt({ adapterId, adapterToken, event: aborted }),
+  };
+  assert.equal(verifyHostMutationReceiptSignature({ adapterId, adapterToken, event: signed }), true);
+  assert.equal(verifyHostMutationReceiptSignature({
+    adapterId: 'different-host-adapter', adapterToken, event: signed,
+  }), false);
+});
+
 test('Host terminal mutation receipt signature rejects changed identity, scope, operation and receipt', () => {
   const signed = {
     ...event,
