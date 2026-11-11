@@ -547,6 +547,16 @@ export function createCoreNpcGenerationContextRuntime({
       || laneB.candidates.length > 50 || laneB.admitted.length > laneB.candidates.length) {
       return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_unavailable' });
     }
+    // Convert the immutable null-prototype Lane B snapshot into the exact
+    // public five-field Core envelope expected by the Host NPC Receiver.
+    // Keep Provider cursor private; source lineage is returned separately below.
+    const publicResult = Object.freeze({
+      status: laneB.status,
+      admitted: toPlainData(laneB.admitted),
+      candidates: toPlainData(laneB.candidates),
+      reason: laneB.reason,
+      snapshot: toPlainData(laneB.snapshot),
+    });
     const admittedByIdentity = new Map();
     for (let index = 0; index < laneB.admitted.length; index += 1) {
       const descriptor = Object.getOwnPropertyDescriptor(laneB.admitted, String(index));
@@ -632,6 +642,7 @@ export function createCoreNpcGenerationContextRuntime({
       core_purpose: PURPOSE,
       provider_purpose: 'npc_decision',
       snapshot: context.snapshot,
+      publicResult,
       provider_evidence_cursor: laneB.provider_evidence_cursor,
       sources: Object.freeze(sources),
       candidates: Object.freeze(candidates),
