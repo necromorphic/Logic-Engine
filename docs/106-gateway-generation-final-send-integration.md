@@ -20,7 +20,7 @@ For non-empty results, the Final-Send serializer injects the admitted content in
 - NovelAI text: the input field.
 - Horde text: the prompt field.
 
-Host-only correlation fields are removed from the outbound provider JSON. The exact post-injection body is passed to the Gateway and its digest is bound to the dispatch record. Content itself is not written to the durable dispatch ledger.
+Host-only correlation fields are removed from the outbound provider JSON. The exact post-injection body is passed to the Gateway and its digest is bound to the dispatch record. The Gateway also requires and durably records the Host `run_id`, Core `generation_id`, immutable Receiver `contextDigest`, and original Core `coreEnvelopeDigest` in the same content-free dispatch-start row. These correlation values are included in the signed dispatch snapshot. Content itself is not written to the durable dispatch ledger.
 
 An authorized complete-empty result contains no protected content and can use the ordinary native path. A non-ready result, malformed envelope, missing identity, unknown route or non-empty protected result without a real Gateway must never fall through to native transport.
 
