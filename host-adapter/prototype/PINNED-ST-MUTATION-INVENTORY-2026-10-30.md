@@ -41,10 +41,24 @@ This is a static source inventory of server routes and file mutation sites inspe
 - Recursive deletion, import/export, copy/move/duplicate, backup restore, group metadata migration, data cleanup, user reset, vector purge and extension lifecycle need explicit before/after/restart acceptance. Browser message events do not prove these server-side operations.
 - VSS provides a shared Windows point-in-time file view, not an application-level SillyTavern transaction. The Windows result retains `NO_APPLICATION_LEVEL_ATOMIC_SNAPSHOT`.
 
+## Runtime acceptance status on the current candidate
+
+The current pinned mutation-route contract covers 89 route declarations and checks that the expected middleware names appear in the patched ST source. It hashes the reviewed source files. This is a static source-coverage check only.
+
+The corresponding middleware implementations are currently non-blocking seams:
+- `createHostUnsupportedMutationGuard` delegates directly to `next()`;
+- `createHostBulkMutationGuard` delegates directly to `next()`;
+- `createHostLifecycleSaveGuard` delegates directly to `next()`;
+- `createHostAccountMutationMiddleware` delegates directly to `next()`.
+
+This is intentional: Host does not veto native SillyTavern mutations. The presence of those middleware names is not evidence of a persisted operation receipt, an after-write verification, or restart recovery. The message lifecycle bridge and the account mutation receipt store cover narrower operation classes; they do not establish acceptance for all 89 routes.
+
+The generation authentication path therefore requires a separate runtime-acceptance verifier bound to the exact pinned source commit, current VSS snapshot digest, source-manifest digest and mutation-route manifest. No production verifier is currently composed. Until it is, generation authentication must stop with `HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED` before Core root attestation or context resolution. Test-only verifier fixtures do not count as production acceptance.
+
 ## Required next acceptance work
 
-1. Turn this static list into a pinned, machine-checked route inventory so changes to the approved SillyTavern source fail the audit until reviewed.
+1. Keep the pinned, machine-checked route inventory as a source-change detector, but do not treat its 89-route result as runtime acceptance.
 2. Map each route to the exact per-user/global files it can create, rewrite, copy, move or delete.
-3. Add real-file before/after tests for each operation class, including recursive cascades, imports/exports, restore/migration and user reset.
+3. Add a production-composed runtime-acceptance verifier and real-file before/after tests for each supported operation class, including recursive cascades, imports/exports, restore/migration and user reset.
 4. Prove persistence and identity after process restart, then compare the full-root manifest against the durable lifecycle journal. Any unexplained delta must remain NON_READY.
 5. Keep READY disabled until every mutation route is either covered by a verified event contract or explicitly excluded with a fail-closed rule.
