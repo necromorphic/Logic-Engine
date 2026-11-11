@@ -476,3 +476,10 @@ The focused Receiver suite additionally verifies generation/run identity validat
 **Disposition:** these checks close the previously unexecuted retrieval-to-Receiver test and focused Receiver unit-test items. They do not yet prove a single live integrated Host one-shot bridge → real Core HTTP/SQLite retrieval → Receiver → production Gateway/model transport execution with the same independently correlated run/request/record/source evidence. The separate production-composition and Gateway suites provide adjacent boundary coverage, but must not be represented as that one end-to-end proof. Root Inventory authority remains fixture-backed/deny-only in production.
 
 **Block 2 status:** targeted subchecks PASS; full Block 2 acceptance remains NOT ACCEPTED pending the integrated same-run continuity/replay proof at the production composition boundary. Keep Memory → NPC disabled in normal SillyTavern.
+
+
+### Host one-shot bridge continuity implementation — 2026-11-11
+
+A new focused integration test now composes the real Host Adapter, Host-authenticated Core NPC runtime, file-backed SQLite Provider, production Host one-shot bridge, `buildProtectedMemory()` and NPC Receiver in one execution. It checks continuity of Host-owned `run_id`, Core's exact three-field generation metadata, request/generation identity, Provider record/version, canonical source/version, both digests, and duplicate handoff rejection. The test is added but **NOT TESTED** yet. It is an embedded in-process Core/Provider path, consistent with production composition; the HTTP server is used only for Host→Core conversation binding resolution.
+
+This does not yet prove Gateway/Final-Send/model egress on the same run, nor production Root Inventory authority. Block 2 remains **NOT ACCEPTED** until the test passes and the same Receiver result is carried into the production Gateway/Final-Send egress path with replay and zero-egress denial checks. Keep Memory → NPC disabled in normal SillyTavern.
