@@ -719,6 +719,145 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
   }
 });
 
+
+test('SillyTavern OpenAI-compatible streaming request carries Receiver context through per-chunk Host release', async () => {
+  const fixture = await createFixture();
+  const canary = 'LE_ST_STREAM_EGRESS_' + 'b'.repeat(24);
+  const retrieval = {
+    status: 'ready',
+    admitted: [{ record_ref: 'record-42', record_version: 'record-version-3', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
+    candidates: [{
+      record_ref: 'record-42', record_version: 'record-version-3', authorization_generation: 1,
+      source_entity_id: 'entity-42', epistemic_kind: 'acquired_report', evidence_assessment: 'supported',
+      content: { 'attributes.public_note': canary },
+    }],
+    reason: null, snapshot: { world_revision: 12, commit_sequence: 19 },
+  };
+  const receiverHostContext = {
+    adapter_id: hostContext.adapter_id, conversation_id: hostContext.core_conversation_id,
+    world_id: hostContext.world_id, actor_id: hostContext.actor_id, actor_type: hostContext.actor_type,
+  };
+  const hostBinding = {
+    host_installation_id: hostContext.host_installation_id,
+    authenticated_account_id: hostContext.authenticated_account_id,
+    host_session_id: hostContext.host_session_id,
+    conversation_id: hostContext.host_conversation_id,
+    conversation_uuid: hostContext.conversation_uuid,
+    root_id: hostContext.root_id,
+    root_inventory_sequence: hostContext.root_inventory_sequence,
+    root_manifest_sha256: hostContext.root_manifest_sha256,
+    adapter_id: hostContext.adapter_id, world_id: hostContext.world_id,
+    actor_id: hostContext.actor_id, actor_type: hostContext.actor_type,
+  };
+  const received = receiveNpcContext({
+    retrieval,
+    sourceLineage: [{
+      record_ref: 'record-42', record_version: 'record-version-3', authorization_generation: 1,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-42', source_version: 'core-entity-v1:7',
+    }],
+    hostContext: receiverHostContext, hostBinding,
+    requestId: '88888888-8888-4888-8888-888888888888',
+    generationId: '99999999-9999-4999-8999-999999999999',
+    runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    model: 'gpt-4o-mini', purpose: 'recall',
+  });
+  const protectedMemory = Object.freeze({
+    ...received,
+    providerEvidenceCursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
+    laneA: Object.freeze({
+      lane: 'A', purpose: 'npc_turn_context', authorization_ref: 'core-read-authorization',
+      visibility_authorization_ref: 'core-visibility-policy', items: Object.freeze([]),
+    }),
+  });
+  const sourceKeys = {
+    CLAUDE: 'claude', AI21: 'ai21', MAKERSUITE: 'makersuite', VERTEXAI: 'vertexai',
+    MISTRALAI: 'mistral', COHERE: 'cohere', COMETAPI: 'cometapi', DEEPSEEK: 'deepseek',
+    AIMLAPI: 'aimlapi', XAI: 'xai', CHUTES: 'chutes', MINIMAX: 'minimax',
+    ELECTRONHUB: 'electronhub', AZURE_OPENAI: 'azure_openai', OPENAI: 'openai',
+    OPENROUTER: 'openrouter', CUSTOM: 'custom', PERPLEXITY: 'perplexity', GROQ: 'groq',
+    FIREWORKS: 'fireworks', NANOGPT: 'nanogpt', POLLINATIONS: 'pollinations',
+    MOONSHOT: 'moonshot', ZAI: 'zai', SILICONFLOW: 'siliconflow', WORKERS_AI: 'workers_ai',
+  };
+  const observedBodies = [];
+  const hostChunks = [];
+  let adapter;
+  adapter = createSillyTavernFinalSendAdapter({
+    gateway: fixture.gateway, resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sourceKeys,
+    nativeForwardFetchResponse: (_upstream, response) => response,
+    prepareHostContext: async () => ({ status: 'READY', coreConversationId: hostContext.core_conversation_id }),
+    runWithAuthenticatedHostSession: (_request, _conversationId, execute) => execute(),
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: {
+      chat_completion_source: 'openai',
+      messages: [{ role: 'user', content: 'Continue the scene.' }],
+      stream: true,
+    },
+  };
+  const response = {};
+  const requestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer test-provider-token' },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: request.body.messages,
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+  };
+
+  try {
+    await adapter.prepare(request, response);
+    const senderRoute = adapter.resolveSenderRoute(request);
+    assert.equal(senderRoute, 'openai');
+    const upstream = await adapter.dispatch({
+      request, response, senderRoute,
+      endpointUrl: 'https://api.openai.test/v1/chat/completions',
+      requestInit, stream: true,
+      transport: async (_url, init) => {
+        observedBodies.push(init.body);
+        return { status: 200, headers: { 'content-type': 'text/event-stream' }, body: 'fake-stream' };
+      },
+      forwardResponse: async (upstreamResponse) => {
+        assert.equal(upstreamResponse.status, 200);
+        adapter.authorizeResponseWrite(response, () => {
+          hostChunks.push('data: {"choices":[{"delta":{"content":"part-1"}}]}');
+        });
+        adapter.authorizeResponseWrite(response, () => {
+          hostChunks.push('data: {"choices":[{"delta":{"content":"part-2"}}]}');
+        });
+        adapter.authorizeResponseWrite(response, () => {
+          hostChunks.push('data: [DONE]');
+        }, true);
+      },
+    });
+
+    assert.equal(upstream.status, 200);
+    assert.equal(observedBodies.length, 1, 'streaming must hand off to the provider exactly once');
+    const outbound = JSON.parse(observedBodies[0]);
+    assert.equal(outbound.stream, true);
+    assert.deepEqual(outbound.stream_options, { include_usage: true });
+    assert.equal(outbound.messages[0].role, 'system');
+    assert.equal(outbound.messages[0].content.includes(canary), true);
+    assert.deepEqual(outbound.messages.at(-1), { role: 'user', content: 'Continue the scene.' });
+    assert.deepEqual(hostChunks, [
+      'data: {"choices":[{"delta":{"content":"part-1"}}]}',
+      'data: {"choices":[{"delta":{"content":"part-2"}}]}',
+      'data: [DONE]',
+    ]);
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(received.requestId)?.status,
+      'COMPLETED',
+      'stream completion must be recorded only after the final authorized Host write',
+    );
+    assert.equal(fixture.calls.length, 0, 'the observed transport must not bypass the Gateway fixture hook');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('Provider source-version change after retrieval blocks dispatch before model egress', async () => {
   const fixture = await createFixture();
   try {
