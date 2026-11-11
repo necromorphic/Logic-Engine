@@ -126,10 +126,10 @@ test('required Memory does not fall back to native egress when Gateway rejects b
   const response = {};
   await adapter.prepare(req, response);
   await assert.rejects(
-    dispatch(adapter, req, response, async () => {
+    Promise.resolve().then(() => dispatch(adapter, req, response, async () => {
       upstreamCalls += 1;
       return { status: 200 };
-    }),
+    })),
     /MEMORY_DISPATCH_NOT_READY/,
   );
   assert.equal(gatewayCalls, 1);
