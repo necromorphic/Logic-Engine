@@ -167,6 +167,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       adapterTokens: { [ADAPTER_ID]: ADAPTER_TOKEN },
       memoryNpcConsumers: { [ADAPTER_ID]: providerAdapter.consumer },
       hostAssertionNonceStore: nonceStore,
+      defaultHostWorldId: worldId,
       resolveHostLifecycleIdentity: input => ({
         authorized: true,
         adapter_id: ADAPTER_ID,
@@ -275,6 +276,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
         logic_engine_generation_id: randomUUID(),
         logic_engine_context_size: 4096,
         logic_engine_generation_type: 'normal',
+        logic_engine_run_id: '77777777-7777-4777-8777-777777777777',
         model: 'acceptance-fake-provider',
       },
     };
@@ -335,6 +337,8 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     assert.equal(Object.hasOwn(coreMetadata[0], 'run_id'), false,
       'Host run_id must not be added to the exact Core three-field contract');
     assert.equal(result.runId, requestMetadata[0].run_id);
+    assert.notEqual(result.runId, request.body.logic_engine_run_id,
+      'browser-supplied run identity must not select the Host one-shot run');
     assert.equal(result.requestId, requestMetadata[0].request_id);
     assert.equal(result.generationId, requestMetadata[0].generation_id);
     assert.equal(result.candidates.length, 1);
