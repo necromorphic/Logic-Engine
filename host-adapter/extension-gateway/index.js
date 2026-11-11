@@ -58,10 +58,8 @@ export async function registerHostGenerationIdentityOnce(context = null, options
     const existing = globalThis[REGISTRATION_KEY];
     if (existing) return await existing;
 
-    const pending = registerHostGenerationIdentity(context, options);
-    globalThis[REGISTRATION_KEY] = pending;
-    try {
-        const removeListeners = await pending;
+    const pending = (async () => {
+        const removeListeners = await registerHostGenerationIdentity(context, options);
         const unregister = () => {
             removeListeners();
             if (globalThis[REGISTRATION_KEY] === unregister) {
@@ -71,6 +69,10 @@ export async function registerHostGenerationIdentityOnce(context = null, options
         globalThis[REGISTRATION_KEY] = unregister;
         globalThis.addEventListener?.('pagehide', unregister, { once: true });
         return unregister;
+    })();
+    globalThis[REGISTRATION_KEY] = pending;
+    try {
+        return await pending;
     } catch (error) {
         if (globalThis[REGISTRATION_KEY] === pending) delete globalThis[REGISTRATION_KEY];
         throw error;
