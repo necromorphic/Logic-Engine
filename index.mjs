@@ -281,6 +281,7 @@ export async function init(router) {
 
     registeredAdapter = createSillyTavernFinalSendAdapter({
       gateway: memoryEnabled ? registeredRuntime.gateway : unavailableGateway,
+      requireProtectedMemory: memoryEnabled,
       chatCompletionSources: nativeConstants.CHAT_COMPLETION_SOURCES,
       nativeForwardFetchResponse: nativeUtil.forwardFetchResponse,
       runWithAuthenticatedHostSession: memoryEnabled
