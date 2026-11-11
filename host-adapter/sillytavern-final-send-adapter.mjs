@@ -382,6 +382,15 @@ export function createSillyTavernFinalSendAdapter({
             && release.hostRequest && typeof release.coreConversationId === 'string'
             ? runWithAuthenticatedHostSession(release.hostRequest, release.coreConversationId, authorize)
             : authorize();
+          if (result && typeof result.then === 'function') {
+            return Promise.resolve(result).then(value => {
+              if (final === true) release.state = 'completed';
+              return value;
+            }, error => {
+              release.state = 'denied';
+              throw terminalError(error);
+            });
+          }
           if (final === true) release.state = 'completed';
           return result;
         } catch (error) {
