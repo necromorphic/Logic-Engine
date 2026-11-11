@@ -153,3 +153,23 @@ Assertions require the unique Receiver canary and original user prompt in the ca
 **Evidence limitation:** this is a production-adapter/transport composition test, but its Core, Provider, and Host evidence readers are controlled by the existing Gateway test fixture. It does not prove production accepted-head authority, production Host root inventory, or full installed SillyTavern composition. It does not replace Blocks 1 or 4.
 
 **Execution status:** NOT TESTED. No result is claimed until the user runs the focused command on Windows and supplies the raw output. Keep Memory → NPC disabled in the normal SillyTavern installation.
+
+
+## 10. Windows production Final-Send adapter egress test — 2026-11-11
+
+**Branch:** `integration/host-core-v1`  
+**Execution commit:** `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b`  
+**Environment:** Windows PowerShell, Node.js 22.18.0, local worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`.  
+**Exact command:**
+
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="production SillyTavern Final-Send adapter carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+**Raw summary:** 1 test, 1 passed, 0 failed, 0 cancelled, 0 skipped, duration 654.7485 ms.
+
+**Result:** PASS for this focused automated composition test. The actual Receiver accepted the supplied Host scope and canonical source lineage; the production SillyTavern Final-Send adapter carried the immutable Receiver canary and original Host prompt into the captured outbound body; exactly one fake model transport call occurred; the durable dispatch ledger was `DISPATCH_STARTED` before response release and `COMPLETED` after authorized response write.
+
+**Correction preceding the passing run:** the first run at `91dea2eb87fba777a1f951943bb0ec9f3d9cf61b` failed with `NPC_CONTEXT_SCOPE_INVALID` at the Receiver call. The test fixture omitted the required Host binding scope fields (`adapter_id`, `world_id`, `actor_id`, `actor_type`) and used a source version outside the canonical `core-entity-v1:<n>` format. Commit `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b` corrected those fixture inputs. The failure is retained as superseded history, not counted as a pass.
+
+**Evidence limitation:** Core, Provider, and Host evidence readers remain fixture-backed. The model transport is a deterministic in-process fake, not an installed SillyTavern outbound provider. This run does not establish production root authority, production Host inventory, live model API connectivity, or full Windows acceptance. It is not a full Block 3 or Block 4 PASS. Memory → NPC remains disabled in the normal SillyTavern installation.
