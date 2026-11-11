@@ -127,11 +127,13 @@ export function createSillyTavernHostAdapter({
   persistRootInventory: injectedPersistRootInventory = null,
   verifySourceIdentity: injectedVerifySourceIdentity = verifySourceIdentity,
   verifyMutationCoverage: injectedVerifyMutationCoverage = null,
+  verifyMutationRuntimeAcceptance: injectedVerifyMutationRuntimeAcceptance = null,
 } = {}) {
   if (!env || typeof env !== 'object' || typeof enumerate !== 'function'
     || typeof fetchImpl !== 'function'
     || typeof injectedVerifySourceIdentity !== 'function'
     || (injectedVerifyMutationCoverage !== null && injectedVerifyMutationCoverage !== undefined && typeof injectedVerifyMutationCoverage !== 'function')
+    || (injectedVerifyMutationRuntimeAcceptance !== null && typeof injectedVerifyMutationRuntimeAcceptance !== 'function')
     || (injectedPersistRootInventory !== null && typeof injectedPersistRootInventory !== 'function')) {
     throw new TypeError('SillyTavern Host Adapter configuration is invalid.');
   }
@@ -260,6 +262,40 @@ export function createSillyTavernHostAdapter({
         try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions, signal }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
         if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+
+        // Static route presence is not runtime acceptance. The production
+        // adapter has no runtime-acceptance verifier yet, so it must not mint
+        // or consume an authoritative root proof until operation receipts and
+        // real-file before/after/restart evidence are verified for this exact
+        // pinned source and snapshot.
+        if (typeof injectedVerifyMutationRuntimeAcceptance !== 'function') {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+        let mutationRuntimeAcceptance;
+        try {
+          mutationRuntimeAcceptance = await injectedVerifyMutationRuntimeAcceptance({
+            pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
+            rootPath: directories.root,
+            entries: hostInventory.filesystem.entries,
+            snapshotAlignment: hostInventory.snapshot_alignment,
+            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            sourceIdentity,
+            mutationCoverage,
+            signal,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+        if (mutationRuntimeAcceptance?.status !== 'VERIFIED'
+          || mutationRuntimeAcceptance.source_commit !== PINNED_SILLYTAVERN_COMMIT
+          || mutationRuntimeAcceptance.snapshot_sha256 !== hostInventory.filesystem.snapshot_sha256
+          || mutationRuntimeAcceptance.source_manifest_sha256 !== sourceIdentity.manifest_sha256
+          || mutationRuntimeAcceptance.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
+          || !/^[a-f0-9]{64}$/.test(mutationRuntimeAcceptance.evidence_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+
         let rootProof;
         try {
           if (typeof persistRootInventory !== 'function') {
