@@ -333,3 +333,31 @@ Commits:
 - `60b38aba328afba8f2c8d3bcbe05514b40467dde` — concurrent initialization test.
 
 Execution remains **NOT TESTED** pending the Windows command above.
+
+
+### 2026-11-11 — Extension Manager entrypoint test and installation (PASS)
+
+**Tested code candidate:** `3b6f306aab5ac6afeace448f43e3b79fcab379b1` (`integration/host-core-v1`).  
+**Environment:** Windows PowerShell, local worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`, Node.js (version not restated in this report; prior workstation baseline is Node.js 22.18.0).  
+**Exact command:**
+
+```powershell
+node --test .\\tests\\sillytavern-extension-manager.test.mjs
+```
+
+**User-provided raw summary:** 3 tests, 3 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 55.1795 ms.
+
+Passed tests:
+- root manifest exposes the browser entrypoint required by SillyTavern Extension Manager;
+- browser entrypoint resolves ST context through the stable public script URL;
+- Extension Manager entrypoint registers and removes only its two Host identity listeners.
+
+**Installation evidence:** the user confirmed that SillyTavern Extensions lists both:
+- `Logic Engine Extension Gateway 0.2.0`
+- `Logic Engine necromorphic 0.2.0 (integration/host-core-v1-3b6f306)`
+
+This confirms that Extension Manager installation is present and the package is listed in the ST Extensions UI. It does not by itself prove browser module execution without console errors, successful runtime listener registration, or communication with the server Gateway.
+
+**Status:** package contract test PASS; Extension Manager installation/listing PASS. Browser runtime load, console state, server Gateway communication, Final-Send installation and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
+
+**Next verification:** inspect the browser Console for errors referencing Logic Engine and verify the browser runtime's expected Host identity registration and server Gateway endpoints independently. Do not infer full integration from the extension list alone.
