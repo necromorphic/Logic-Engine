@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { registerHostGenerationIdentity } from '../host-adapter/extension-gateway/index.js';
+import { registerHostGenerationIdentityOnce } from '../host-adapter/extension-gateway/index.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -40,9 +40,12 @@ test('Extension Manager entrypoint registers and removes only its two Host ident
       GENERATE_AFTER_DATA: 'GENERATE_AFTER_DATA',
     },
   };
-  const unregister = await registerHostGenerationIdentity(context, {
+  const options = {
     resolveHostContext: async () => ({ conversationUuid: '11111111-1111-4111-8111-111111111111' }),
-  });
+  };
+  const unregister = await registerHostGenerationIdentityOnce(context, options);
+  const duplicateUnregister = await registerHostGenerationIdentityOnce(context, options);
+  assert.equal(duplicateUnregister, unregister);
   assert.deepEqual([...listeners.keys()].sort(), [
     'CHAT_COMPLETION_SETTINGS_READY',
     'GENERATE_AFTER_DATA',
