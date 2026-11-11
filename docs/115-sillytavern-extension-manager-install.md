@@ -20,6 +20,7 @@ Those components retain their existing dedicated installation and verification f
 ## Safety constraints
 
 - The extension only attaches Host conversation/request correlation metadata to SillyTavern generation events.
+- Registration is guarded by a shared global symbol, so the Extension Manager copy and the separately installed Gateway browser copy cannot register duplicate listeners in the same page.
 - It does not enable Memory → NPC.
 - It does not add a browser-facing Memory dispatch route.
 - Server-side Host authentication, identity, inventory and Core authorization remain authoritative.
