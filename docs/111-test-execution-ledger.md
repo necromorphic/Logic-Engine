@@ -312,3 +312,15 @@ The new tests cover root manifest entrypoint declaration, existence of local imp
 **Execution status: NOT TESTED.** No Windows test execution or real Extension Manager installation has been observed for these commits. The source contract is aligned with SillyTavern's documented requirements that the root manifest declare a `js` entrypoint and that custom Git installation can specify a branch. This does not prove that the current branch installs and loads successfully in the user's SillyTavern instance.
 
 **Boundary:** Extension Manager installs only the browser extension. Core runtime, server Gateway, Final-Send patch, and Host lifecycle/root inventory components remain separately installed and verified. Memory → NPC remains disabled/fail-closed.
+
+
+### 2026-11-11 — Duplicate Extension Manager / managed Gateway registration guard (NOT TESTED)
+
+A follow-up review found that installing the repository through Extension Manager alongside the existing managed browser Gateway copy could load the same generation listeners twice. Added a shared `Symbol.for('logic-engine.host-generation-identity.registration.v1')` registration guard. Concurrent/duplicate module loads reuse one pending registration; unregister clears the shared guard. The regression test now invokes the registration twice and asserts one listener pair and one shared unregister function.
+
+Commits:
+- `0470e42e4b57c7fe291caad664f79cf33a2c02f9` — idempotent registration guard.
+- `9e6f66ec968b522e784f311bec967cb4e81c9a50` — duplicate-registration regression assertion.
+- `b5617aa64ba6f3075a7d0c4f9edaf99921c11404` — installation boundary documentation update.
+
+**Execution status: NOT TESTED.** Run `node --test .\tests\sillytavern-extension-manager.test.mjs` on the Windows worktree before the real Extension Manager install. The duplicate guard is a code-level mitigation, not evidence that both installation layouts load successfully in a live browser.
