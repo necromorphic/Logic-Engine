@@ -99,8 +99,8 @@ Therefore the local-first architecture is the selected product direction, but th
 ## 7. Next engineering block
 
 The next work is not provisioning infrastructure. It is:
-1. complete the Host source/lifecycle inventory contract for the pinned SillyTavern build;
-2. identify the exact production composition root and prove the Host → Core/Provider → Receiver → Gateway → sole model transport path;
+1. implement a production runtime-acceptance verifier for the pinned SillyTavern mutation surface, using real persisted before/after/restart evidence and binding it to the current VSS snapshot, source manifest and route manifest;
+2. verify runtime loading of the statically linked ST composition and prove the Host → Core/Provider → Receiver → Gateway → sole model transport path;
 3. keep the local accepted-head protocol limited to the Core/Provider consistency and partial-restore guarantees it actually provides;
 4. document and test the local backup/restore and recovery procedure;
 5. preserve fail-closed behavior until those gates have evidence.
