@@ -242,6 +242,11 @@ test('receiver rejects source-version, admission and scope mismatches', () => {
     generationId, runId, model: 'google/gemini-test',
   }), /NPC_CONTEXT_SOURCE_LINEAGE_INVALID/);
   assert.throws(() => receive({
+    retrieval: retrieval(), sourceLineage: [],
+    hostContext, hostBinding, requestId,
+    generationId, runId, model: 'google/gemini-test',
+  }), /NPC_CONTEXT_SOURCE_LINEAGE_MISMATCH/);
+  assert.throws(() => receive({
     retrieval: retrieval({ admitted: [] }),
     hostContext, hostBinding, requestId,
     generationId, runId, model: 'google/gemini-test',
@@ -267,7 +272,7 @@ test('receiver rejects accessor, Proxy, excessive nesting and oversized content 
     sourceLineage: [accessor],
     hostContext, hostBinding, requestId,
     generationId, runId, model: 'google/gemini-test',
-  }), /NPC_CONTEXT_CANDIDATE_INVALID/);
+  }), /NPC_CONTEXT_SOURCE_LINEAGE_INVALID/);
   assert.throws(() => receive({
     retrieval: new Proxy(retrieval(), {}),
     hostContext, hostBinding, requestId,
