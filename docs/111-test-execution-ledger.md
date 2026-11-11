@@ -560,3 +560,27 @@ Passed checks:
 **Disposition:** PASS for the focused Receiver suite and the targeted Host→Core HTTP→MemoryNpcConsumer→SQLite Provider E2E at the tested source candidate. The E2E uses explicit Host inventory/root-proof fixtures as documented in the acceptance plan; it is not production Root Inventory authority evidence. This run does not prove full live SillyTavern production Memory→NPC transport or authorize enabling Memory → NPC in the normal installation.
 
 **Next target:** reconcile the Block 2 acceptance criteria against the current production wiring and evidence, then identify any remaining integration test gap. Keep the production Root Inventory verifier deny-only.
+
+
+### 2026-11-11 — Host one-shot bridge to live embedded Core/SQLite/Receiver composition added (NOT TESTED)
+
+Added `tests/host-bridge-runtime-receiver-e2e.test.mjs`. This is a single composition test for the production embedded generation path:
+- creates the real Host Adapter and authenticates a disposable ST-shaped generation request with fixture-backed Host inventory/root evidence;
+- constructs the actual Core NPC runtime, MemoryNpcConsumer and file-backed SQLite Provider, with the Host request-authentication capability wired into the Provider adapter;
+- calls the production `createNpcGenerationContextHostBridge.prepare()` and `consume()` under the branded authenticated Host session;
+- passes the consumed one-shot handoff through production `buildProtectedMemory()` and `receiveNpcContext()`;
+- asserts one Host-generated `run_id` remains bound to the same `request_id`, `generation_id`, Provider record/version, canonical source/version, Core envelope digest and immutable Receiver context digest;
+- asserts Core receives exactly the existing three metadata keys and never receives Host `run_id`; a browser-supplied `logic_engine_run_id` cannot select the Host run;
+- asserts a consumed handoff cannot be consumed or prepared again.
+
+This test uses the production embedded in-process Core/Provider architecture. The small HTTP server is used only for Host→Core conversation binding resolution; Memory retrieval itself uses the actual embedded Core consumer and file-backed SQLite Provider. It does not yet exercise production Gateway/Final-Send/model egress, and Host root inventory remains fixture-backed. It therefore closes the same-run continuity gap through Receiver only, not full Block 2 or overall production acceptance.
+
+Code commits: `c77ede54afe53b42e4ba1ed34ba3fba2c77cbfb6`, `6f6cb794692417959d825eb6e715618c00e50024`, `80457fd8d2b3069476137e46f56a672d7312e14b`.
+
+Execution status: **NOT TESTED**. Required command on the self-hosted Windows runner:
+
+```powershell
+node --import ./tests/configure-test-env.js --test ./tests/host-bridge-runtime-receiver-e2e.test.mjs
+```
+
+Do not accept Block 2 until this test passes and the separate production Gateway/Final-Send egress composition is connected to the same run identity. Memory → NPC remains disabled in the normal SillyTavern installation.
