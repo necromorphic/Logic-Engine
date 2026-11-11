@@ -550,13 +550,25 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       'a replayed Host response must not produce a second model transport call');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
+    try { finalSendAdapter?.close?.(); } catch {}
+    try { gateway?.close(); } catch {}
+    try { observerAdapter?.close(); } catch {}
     try { nonceStore?.close(); } catch {}
     try { providerAdapter?.close(); } catch {}
     try { store?.close(); } catch {}
+    if (authorityServer?.listening) {
+      await new Promise(resolveClose => authorityServer.close(resolveClose));
+    }
+    try { authority?.close(); } catch {}
     if (previousCoordinator === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinator;
     if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
     else globalThis.DATA_ROOT = previousDataRoot;
+    for (const key of ACCEPTED_HEAD_ENV_KEYS) {
+      const value = previousAcceptedHeadEnv[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     rmSync(directory, { recursive: true, force: true });
   }
 });
