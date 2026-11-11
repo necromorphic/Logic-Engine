@@ -953,13 +953,20 @@ test('Core lifecycle journal accepts only Host terminal receipts signed by the c
   terminal.receipt_signature = signHostMutationReceipt({ adapterId, adapterToken, event: terminal });
   assert.equal(journal.append(terminal).status, 'appended');
 
+  const secondContext = setupLifecycle(t);
+  secondContext.journal.verifyMutationReceipt = ({ event: candidate }) => verifyHostMutationReceiptSignature({
+    adapterId,
+    adapterToken,
+    event: candidate,
+  });
   const secondPrepared = {
     ...prepared,
     event_id: '00000000-0000-4000-8000-000000000074',
     mutation_id: '00000000-0000-4000-8000-000000000075',
     mutation_digest: digest('second-signed-intent'),
+    ...authority,
   };
-  assert.equal(journal.append(secondPrepared).status, 'appended');
+  assert.equal(secondContext.journal.append(secondPrepared).status, 'appended');
   const forgedTerminal = {
     ...secondPrepared,
     event_id: '00000000-0000-4000-8000-000000000076',
@@ -968,7 +975,7 @@ test('Core lifecycle journal accepts only Host terminal receipts signed by the c
     occurred_at: '2026-10-31T00:00:02.000Z',
     receipt_signature: terminal.receipt_signature,
   };
-  assert.throws(() => journal.append(forgedTerminal), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
+  assert.throws(() => secondContext.journal.append(forgedTerminal), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
 });
 
 test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
