@@ -563,7 +563,7 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
     assert.equal(gatewayRow.core_envelope_digest, result.coreEnvelopeDigest);
 
     assert.equal(
-      finalSendAdapter.authorizeResponseWrite(finalResponse, () => 'released-model-response', true),
+      await finalSendAdapter.authorizeResponseWrite(finalResponse, () => 'released-model-response', true),
       'released-model-response',
     );
     assert.equal(
@@ -580,7 +580,7 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
           return { status: 200 };
         },
       })),
-      /MEMORY_DISPATCH_DUPLICATE_PROTECTED_SEND/,
+      /MEMORY_DISPATCH_DUPLICATE_HOST_SEND/,
     );
     assert.equal(upstreamCalls.length, 1,
       'a replayed Host response must not produce a second model transport call');
