@@ -452,3 +452,18 @@ The user had previously supplied the `/identity` response. The `host_session_id`
 **Result:** PASS for the observed session response schema and the cross-endpoint session binding (`/identity.host_session_id === /session.host_session_id`). Combined with the prior observed HTTP 200 responses, this confirms successful browser-side retrieval of both endpoints and a matching session identifier in their returned JSON.
 
 **Limits:** This does not prove stable conversation identity enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
+
+
+### 2026-11-11 — Stable Host conversation metadata survives page reload (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and browser profile not captured.
+
+**Procedure reported by user:** read `getContext().chatMetadata.logic_engine_conversation_id` in the active chat, reload SillyTavern, reopen the same chat, and read the field again.
+
+**User result:** the value repeats after reload (the same value was observed again). The opaque UUID is intentionally not retained in this ledger.
+
+**Result:** PASS for persistence of the stable conversation UUID in the active chat metadata across a page reload, within this observed chat/browser profile.
+
+**Limits:** this is a user-observed browser check; no raw console transcript or independent metadata-file inspection was supplied. It does not prove cross-chat uniqueness, rename/restore behavior, storage corruption handling, multi-tab races, authoritative Host inventory enrollment, Core authorization, NPC context injection, or Final-Send. The identity contract remains documented as `NON_AUTHORITATIVE`; Memory → NPC remains disabled/fail-closed.
+
+**Next check:** verify that a second, different chat receives a different stable UUID and that returning to the first chat restores its original UUID. Report only whether both conditions hold; do not share UUID values.
