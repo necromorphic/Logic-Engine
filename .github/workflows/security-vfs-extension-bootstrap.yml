@@ -51,7 +51,7 @@ permissions:
 
 # Keep active exact-head VFS bootstrap probes running across newer integration commits.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
