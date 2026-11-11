@@ -198,7 +198,7 @@ export class SillyTavernPatchManager {
         }
         const bytes = await readFile(artifactPath);
         if (!isUtf8(bytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID: ' + descriptor.path);
-        const canonicalBytes = Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+        const canonicalBytes = Buffer.from(bytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8');
         if (sha256(canonicalBytes) !== descriptor.sha256) {
           throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH: ' + descriptor.path);
         }
@@ -209,7 +209,7 @@ export class SillyTavernPatchManager {
           allowUnidiffZero: descriptor.allowUnidiffZero === true,
         });
       }
-      const bundleIdentity = this.patchArtifacts.map(item => item.path + '\\0' + item.sha256).join('\\n');
+      const bundleIdentity = JSON.stringify(this.patchArtifacts.map(({ path, sha256 }) => ({ path, sha256 })));
       this.patchSha256 = sha256(Buffer.from(bundleIdentity, 'utf8'));
       if (this.manifest.patch.bundleSha256 !== this.patchSha256) {
         throw new Error('PATCH_ARTIFACT_BUNDLE_INTEGRITY_MISMATCH');
@@ -224,7 +224,7 @@ export class SillyTavernPatchManager {
       if (!isUtf8(this.patchBytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID');
       // Git may materialize text patches with CRLF on Windows. The manifest
       // pins canonical UTF-8/LF bytes so the same artifact verifies on every OS.
-      const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+      const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\r\n?/g, '\n'), 'utf8');
       this.canonicalPatchBytes = canonicalPatchBytes;
       if (sha256(canonicalPatchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
       this.patchArtifacts.push({
