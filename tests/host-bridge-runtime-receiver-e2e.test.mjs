@@ -443,6 +443,111 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
       'a Host request object must not be prepared twice');
     assert.equal(requestMetadata.length, 1,
       'a duplicate prepare must not mint another Host generation identity');
+
+    // Continue this exact Host/Receiver result through the real
+    // MemoryDispatchGateway and a deterministic fake model transport. Core and
+    // Provider evidence readers are the production observer-only adapter;
+    // only the Host Root Inventory authority remains fixture-backed here.
+    gateway = new MemoryDispatchGateway({
+      ledgerPath: join(directory, 'dispatch-ledger.sqlite'),
+      coordinatorPath,
+      authorityPort: authorityServer.address().port,
+      readToken: ACCEPTED_READ_TOKEN,
+      readCoreEvidence: input => observerAdapter.readCoreEvidenceSync(input),
+      readProviderEvidence: input => observerAdapter.readProviderEvidenceSync(input),
+      readHostEvidence: ({ hostContext: binding, worldId: evidenceWorldId, actorId: evidenceActorId }) => {
+        if (!binding || binding.adapter_id !== ADAPTER_ID
+          || binding.world_id !== evidenceWorldId || binding.actor_id !== evidenceActorId
+          || typeof binding.root_id !== 'string'
+          || !Number.isSafeInteger(binding.root_inventory_sequence)
+          || typeof binding.root_manifest_sha256 !== 'string') {
+          return Object.freeze({ status: 'NON_READY' });
+        }
+        return Object.freeze({
+          status: 'READY',
+          adapter_id: binding.adapter_id,
+          core_conversation_id: binding.core_conversation_id,
+          world_id: evidenceWorldId,
+          actor_id: evidenceActorId,
+          root_id: binding.root_id,
+          root_inventory_sequence: binding.root_inventory_sequence,
+          root_manifest_sha256: binding.root_manifest_sha256,
+        });
+      },
+    });
+
+    finalSendAdapter = createSillyTavernFinalSendAdapter({
+      gateway,
+      requireProtectedMemory: true,
+      resolveProtectedMemory: () => result,
+      chatCompletionSources: CHAT_COMPLETION_SOURCES,
+      prepareHostContext: async () => ({
+        status: 'READY',
+        coreConversationId,
+        hostContext: hostPrepared.context,
+      }),
+      runWithAuthenticatedHostSession: (hostRequest, conversationId, callback) =>
+        providerAdapter.runWithAuthenticatedHostSession(hostRequest, conversationId, callback),
+      nativeForwardFetchResponse: async () => {},
+    });
+    const finalResponse = responseRecorder();
+    await finalSendAdapter.prepare(request, finalResponse);
+    const upstreamCalls = [];
+    const dispatchArgs = {
+      request,
+      response: finalResponse,
+      senderRoute: 'google-ai-studio',
+      endpointUrl: 'http://127.0.0.1:1/fake-model',
+      requestInit: {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request.body),
+      },
+      stream: false,
+      transport: async (url, init) => {
+        upstreamCalls.push({ url, body: init.body });
+        return { status: 200, body: 'fake-model-accepted' };
+      },
+    };
+    const finalResponseValue = await finalSendAdapter.dispatch(dispatchArgs);
+    assert.equal(finalResponseValue.status, 200);
+    assert.equal(upstreamCalls.length, 1, 'the real Gateway must invoke the fake model transport exactly once');
+    assert.ok(upstreamCalls[0].body.includes(canary),
+      'the exact Receiver-approved canary must survive serialization to the model boundary');
+    assert.equal(upstreamCalls[0].body.includes(hostIdentity.host_installation_id), false,
+      'Host identity locators must not be serialized to the model');
+
+    const gatewayRow = gateway.db.prepare(
+      'SELECT status,run_id,generation_id,context_digest,core_envelope_digest FROM dispatch_ledger WHERE request_id=?',
+    ).get(result.requestId);
+    assert.equal(gatewayRow.status, 'DISPATCH_STARTED');
+    assert.equal(gatewayRow.run_id, result.runId);
+    assert.equal(gatewayRow.generation_id, result.generationId);
+    assert.equal(gatewayRow.context_digest, result.contextDigest);
+    assert.equal(gatewayRow.core_envelope_digest, result.coreEnvelopeDigest);
+
+    assert.equal(
+      finalSendAdapter.authorizeResponseWrite(finalResponse, () => 'released-model-response', true),
+      'released-model-response',
+    );
+    assert.equal(
+      gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(result.requestId)?.status,
+      'COMPLETED',
+      'the same protected dispatch must reach terminal completion after response revalidation',
+    );
+
+    await assert.rejects(
+      Promise.resolve().then(() => finalSendAdapter.dispatch({
+        ...dispatchArgs,
+        transport: async () => {
+          upstreamCalls.push({ url: 'duplicate', body: '' });
+          return { status: 200 };
+        },
+      })),
+      /MEMORY_DISPATCH_DUPLICATE_PROTECTED_SEND/,
+    );
+    assert.equal(upstreamCalls.length, 1,
+      'a replayed Host response must not produce a second model transport call');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
     try { nonceStore?.close(); } catch {}
