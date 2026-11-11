@@ -1,4 +1,3 @@
-const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -6,6 +5,7 @@ const path = require('node:path');
 if (!process.env.BETTER_SQLITE3_PACKAGE_DIR) {
   throw new Error('BETTER_SQLITE3_PACKAGE_DIR is required');
 }
+const Database = require(process.env.BETTER_SQLITE3_PACKAGE_DIR);
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'st-vectorservice-sqlite-'));
 const databasePath = path.join(directory, 'vectors.sqlite');
