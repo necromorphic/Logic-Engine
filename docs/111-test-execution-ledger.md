@@ -417,3 +417,22 @@ The user also reported no Console errors. Requests showing HTTP 304 are normal c
 **Limits:** Network status and response sizes do not validate the JSON identity fields or prove that the client accepted them. The repeated endpoint requests are recorded as observed; their cause (separate initialization/generation paths versus redundant calls) is NOT VERIFIED. Successful stable conversation enrollment/persistence, Host inventory authorization, Core retrieval, Receiver acceptance, NPC context injection, and Final-Send are not established by this Network evidence. Memory → NPC remains disabled/fail-closed.
 
 **Next check:** inspect the actual `identity` response JSON in Edge Network → select an `identity` request → Response. Confirm only that the response contains the expected identity fields and that `host_session_id` matches the corresponding `/session` response. Do not paste opaque IDs or other sensitive values; report whether the fields match and whether the response includes an error.
+
+
+### 2026-11-11 — Live SillyTavern /identity response schema inspected (PASS; session binding NOT VERIFIED)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+**User-provided response fields (opaque UUID values intentionally not retained in this ledger):**
+- `host_installation_id` — present and populated with a UUID.
+- `authenticated_account_id` — present and populated with a UUID.
+- `identity_source` — exact value `SERVER_PERSISTED_OPAQUE_IDENTITY`.
+- `host_session_id` — present and populated with a UUID.
+
+**Result:** PASS for the observed `/identity` JSON response shape and populated required fields, consistent with the browser resolver's contract.
+
+**NOT VERIFIED:** equality of `/identity.host_session_id` with the `/session.host_session_id` from the corresponding response. The user has not yet supplied or confirmed that comparison. No opaque identifier values are stored in this ledger.
+
+**Limits:** This verifies the observed identity response schema only. It does not prove stable conversation enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** compare the `host_session_id` values in the two Network response bodies locally and report only whether they match; do not share the UUID values.
