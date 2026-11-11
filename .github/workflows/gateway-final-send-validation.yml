@@ -22,32 +22,6 @@ on:
       - 'tests/protected-memory-required-final-send.test.mjs'
       - '.github/workflows/gateway-final-send-validation.yml'
       - '.github/workflows/provider-blocker3.yml'
-  push:
-    branches: [integration/host-core-v1]
-    paths:
-      - 'src/security/memory-dispatch-gateway.js'
-      - 'src/storage/coordinator-lock.js'
-      - 'src/application/memory-npc-consumer.js'
-      - 'src/application/memory-npc-provider-adapter.js'
-      - 'src/application/sqlite-memory-provider.js'
-      - 'src/application/host-lifecycle-journal.js'
-      - 'src/application/host-assertion-nonce-store.js'
-      - 'host-adapter/embedded-gateway-runtime.mjs'
-      - 'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'
-      - 'host-adapter/protected-memory-final-send.mjs'
-      - 'host-adapter/sillytavern-final-send-adapter.mjs'
-      - 'host-adapter/npc-generation-request-metadata.mjs'
-      - 'index.mjs'
-      - 'tests/memory-dispatch-gateway.test.js'
-      - 'tests/protected-memory-final-send.test.js'
-      - 'tests/sillytavern-final-send-adapter.test.js'
-      - 'tests/gateway-final-send-composition.test.js'
-      - 'tests/protected-memory-required-final-send.test.mjs'
-      - 'host-adapter/tests/npc-generation-request-metadata.test.mjs'
-      - '.github/workflows/gateway-final-send-validation.yml'
-      - '.github/workflows/provider-blocker3.yml'
-  workflow_dispatch:
-
 permissions:
   contents: read
 
