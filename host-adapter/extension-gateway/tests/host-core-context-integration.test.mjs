@@ -343,6 +343,41 @@ test('Host Adapter requires Core root proof before context resolution and binds 
     'without runtime acceptance, production must not call Core or create a completeness attestation');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
+  let mismatchedProofPersistenceCalls = 0;
+  let mismatchedProofCoreCalls = 0;
+  const mismatchedRuntimeAdapter = createSillyTavernHostAdapter({
+    env,
+    enumerate: authoritativeFixture,
+    verifySourceIdentity: testSourceIdentity,
+    verifyMutationCoverage: async () => ({
+      status: 'VERIFIED',
+      source_commit: PINNED_HOST_COMMIT,
+      coverage_manifest_sha256: PINNED_ST_MUTATION_COVERAGE_SHA256,
+      route_count: PINNED_ST_MUTATION_ROUTE_COUNT,
+      source_files_sha256: 'b'.repeat(64),
+    }),
+    verifyMutationRuntimeAcceptance: async input => ({
+      status: 'VERIFIED',
+      source_commit: PINNED_HOST_COMMIT,
+      snapshot_sha256: '0'.repeat(64),
+      source_manifest_sha256: input.sourceIdentity.manifest_sha256,
+      mutation_coverage_manifest_sha256: input.mutationCoverage.coverage_manifest_sha256,
+      evidence_sha256: 'a'.repeat(64),
+    }),
+    persistRootInventory: async () => { mismatchedProofPersistenceCalls++; },
+    fetchImpl: async (...args) => { mismatchedProofCoreCalls++; return fetch(...args); },
+  });
+  const mismatchedRequest = { ...productionRequest, session: {} };
+  mismatchedRuntimeAdapter.session(mismatchedRequest, responseRecorder());
+  const mismatchedGateResponse = responseRecorder();
+  let mismatchedGatePassed = false;
+  await mismatchedRuntimeAdapter.dispatchMiddleware(mismatchedRequest, mismatchedGateResponse, () => { mismatchedGatePassed = true; });
+  assert.equal(mismatchedGatePassed, false);
+  assert.equal(mismatchedGateResponse.statusCode, 503);
+  assert.equal(mismatchedGateResponse.payload.code, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED');
+  assert.equal(mismatchedProofPersistenceCalls, 0, 'a runtime proof for another snapshot must not create a Core root attestation');
+  assert.equal(mismatchedProofCoreCalls, 0);
+
   const sessionResponse = responseRecorder();
   adapter.session(request, sessionResponse);
   assert.equal(sessionResponse.statusCode, 200);
