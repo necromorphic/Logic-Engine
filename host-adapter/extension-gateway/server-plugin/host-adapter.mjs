@@ -262,6 +262,10 @@ export function createSillyTavernHostAdapter({
         try { sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories.extensions, signal }); }
         catch { return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' }; }
         if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+        if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' };
+        }
 
         // Static route presence is not runtime acceptance. The production
         // adapter has no runtime-acceptance verifier yet, so it must not mint
@@ -279,6 +283,8 @@ export function createSillyTavernHostAdapter({
             entries: hostInventory.filesystem.entries,
             snapshotAlignment: hostInventory.snapshot_alignment,
             snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            snapshotId: hostInventory.filesystem.snapshot_id,
+            rootId: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
             sourceIdentity,
             mutationCoverage,
             signal,
@@ -290,6 +296,8 @@ export function createSillyTavernHostAdapter({
         if (mutationRuntimeAcceptance?.status !== 'VERIFIED'
           || mutationRuntimeAcceptance.source_commit !== PINNED_SILLYTAVERN_COMMIT
           || mutationRuntimeAcceptance.snapshot_sha256 !== hostInventory.filesystem.snapshot_sha256
+          || mutationRuntimeAcceptance.snapshot_id !== hostInventory.filesystem.snapshot_id
+          || mutationRuntimeAcceptance.root_id !== createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex')
           || mutationRuntimeAcceptance.source_manifest_sha256 !== sourceIdentity.manifest_sha256
           || mutationRuntimeAcceptance.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
           || !/^[a-f0-9]{64}$/.test(mutationRuntimeAcceptance.evidence_sha256 ?? '')) {
