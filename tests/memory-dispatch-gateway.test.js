@@ -20,6 +20,7 @@ import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-d
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createProtectedMemoryFinalSend, PROTECTED_MEMORY_SENDER_ROUTES } from '../host-adapter/protected-memory-final-send.mjs';
+import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-final-send-adapter.mjs';
 import { receiveNpcContext } from '../host-adapter/npc-context-receiver.mjs';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
@@ -537,6 +538,158 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
         variant.label + ' must be rejected before durable DISPATCH_STARTED',
       );
     }
+  } finally {
+    await fixture.close();
+  }
+});
+
+
+test('production SillyTavern Final-Send adapter carries the immutable Receiver canary to one observed model egress', async () => {
+  const fixture = await createFixture();
+  const canary = 'LE_PRODUCTION_FINAL_SEND_EGRESS_' + 'a'.repeat(24);
+  const retrieval = {
+    status: 'ready',
+    admitted: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+    }],
+    candidates: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      authorization_generation: 1,
+      source_entity_id: 'entity-42',
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { 'attributes.public_note': canary },
+    }],
+    reason: null,
+    snapshot: { world_revision: 12, commit_sequence: 19 },
+  };
+  const receiverHostContext = {
+    adapter_id: hostContext.adapter_id,
+    conversation_id: hostContext.core_conversation_id,
+    world_id: hostContext.world_id,
+    actor_id: hostContext.actor_id,
+    actor_type: hostContext.actor_type,
+  };
+  const hostBinding = {
+    host_installation_id: hostContext.host_installation_id,
+    authenticated_account_id: hostContext.authenticated_account_id,
+    host_session_id: hostContext.host_session_id,
+    conversation_id: hostContext.host_conversation_id,
+    conversation_uuid: hostContext.conversation_uuid,
+    root_id: hostContext.root_id,
+    root_inventory_sequence: hostContext.root_inventory_sequence,
+    root_manifest_sha256: hostContext.root_manifest_sha256,
+  };
+  const received = receiveNpcContext({
+    retrieval,
+    sourceLineage: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      authorization_generation: 1,
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-42',
+      source_version: 'version-7',
+    }],
+    hostContext: receiverHostContext,
+    hostBinding,
+    requestId: '44444444-4444-4444-8444-444444444444',
+    generationId: '66666666-6666-4666-8666-666666666666',
+    runId: '77777777-7777-4777-8777-777777777777',
+    model: 'selected-model',
+    purpose: 'recall',
+  });
+  const protectedMemory = Object.freeze({
+    ...received,
+    providerEvidenceCursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
+    laneA: Object.freeze({
+      lane: 'A',
+      purpose: 'npc_turn_context',
+      authorization_ref: 'core-read-authorization',
+      visibility_authorization_ref: 'core-visibility-policy',
+      items: Object.freeze([]),
+    }),
+  });
+
+  const sourceKeys = {
+    CLAUDE: 'claude-source', AI21: 'ai21-source', MAKERSUITE: 'makersuite',
+    VERTEXAI: 'vertex-source', MISTRALAI: 'mistral-source', COHERE: 'cohere-source',
+    COMETAPI: 'cometapi-source', DEEPSEEK: 'deepseek-source', AIMLAPI: 'aimlapi-source',
+    XAI: 'xai-source', CHUTES: 'chutes-source', MINIMAX: 'minimax-source',
+    ELECTRONHUB: 'electronhub-source', AZURE_OPENAI: 'azure-openai-source',
+    OPENAI: 'openai-source', OPENROUTER: 'openrouter-source', CUSTOM: 'custom-source',
+    PERPLEXITY: 'perplexity-source', GROQ: 'groq-source', FIREWORKS: 'fireworks-source',
+    NANOGPT: 'nanogpt-source', POLLINATIONS: 'pollinations-source', MOONSHOT: 'moonshot-source',
+    ZAI: 'zai-source', SILICONFLOW: 'siliconflow-source', WORKERS_AI: 'workers-ai-source',
+  };
+  const observedBodies = [];
+  let responseWrites = 0;
+  const adapter = createSillyTavernFinalSendAdapter({
+    gateway: fixture.gateway,
+    resolveProtectedMemory: () => protectedMemory,
+    chatCompletionSources: sourceKeys,
+    nativeForwardFetchResponse: (_upstream, response) => response,
+    prepareHostContext: async () => ({
+      status: 'READY',
+      coreConversationId: hostContext.core_conversation_id,
+    }),
+    runWithAuthenticatedHostSession: (_request, _conversationId, execute) => execute(),
+  });
+  const request = {
+    originalUrl: '/api/backends/chat-completions/generate',
+    body: {
+      chat_completion_source: 'makersuite',
+      messages: [{ role: 'user', content: 'Continue the scene.' }],
+    },
+  };
+  const response = {};
+  const requestInit = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ messages: request.body.messages }),
+  };
+
+  try {
+    await adapter.prepare(request, response);
+    const senderRoute = adapter.resolveSenderRoute(request);
+    assert.equal(senderRoute, 'google-ai-studio');
+    const upstream = await adapter.dispatch({
+      request,
+      response,
+      senderRoute,
+      endpointUrl: 'http://127.0.0.1:9/fake-model',
+      requestInit,
+      transport: async (_url, init) => {
+        observedBodies.push(init.body);
+        return { status: 200, body: 'fake-provider-accepted' };
+      },
+    });
+
+    assert.equal(upstream.status, 200);
+    assert.equal(observedBodies.length, 1, 'the production adapter must invoke exactly one model transport');
+    assert.equal(observedBodies[0].includes(canary), true, 'the exact Receiver canary must reach the outbound provider body');
+    assert.equal(observedBodies[0].includes('Continue the scene.'), true, 'the original Host prompt must remain in the outbound body');
+    assert.equal(observedBodies[0].includes('LE_PRODUCTION_FINAL_SEND_EGRESS_'), true);
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(received.requestId)?.status,
+      'DISPATCH_STARTED',
+      'the durable dispatch start must exist before Host response release',
+    );
+
+    adapter.authorizeResponseWrite(response, () => {
+      responseWrites += 1;
+      return upstream;
+    }, true);
+    assert.equal(responseWrites, 1);
+    assert.equal(
+      fixture.gateway.db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(received.requestId)?.status,
+      'COMPLETED',
+      'the durable dispatch must complete only after the protected response release',
+    );
+    assert.equal(fixture.calls.length, 0, 'the fixture transport hook must not be bypassed by a second native send');
   } finally {
     await fixture.close();
   }
