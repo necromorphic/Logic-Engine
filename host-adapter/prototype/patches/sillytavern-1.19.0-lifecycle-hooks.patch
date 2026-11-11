@@ -1238,7 +1238,7 @@ new file mode 100644
 +++ b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 @@ -0,0 +1,365 @@
 +// Generation start/stop signals do not independently mutate persisted chat files; their resulting messages are covered by message-send/receive receipts.
-+const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','rename-chat','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
++const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 +const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 +const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
 +const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
@@ -1602,6 +1602,7 @@ new file mode 100644
 +  return digest({ sourceLocator: sourceLocator ?? null, projection });
 +}
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
+
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
 --- /dev/null
@@ -1619,7 +1620,7 @@ new file mode 100644
 +  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
 +    .map(value => value.toString(16).padStart(2, '0')).join('');
 +}
-+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat', 'clear-chat']);
++const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
 +const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering', 'copy-branch', 'create-branch']);
 +const newId = () => {
 +  if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -2254,7 +2255,7 @@ new file mode 100644
 +    // Save native state before advancing the journal checkpoint. If save or the
 +    // subsequent append fails, the journal remains behind and the next pre-hook
 +    // rejects the fingerprint mismatch instead of silently claiming completeness.
-+    if (operation !== 'rename-chat') await saveChat();
++    await saveChat();
 +    const changes = chat.map((message, messageIndex) => ({
 +      messageId: message._logicEngineLifecycle.messageId,
 +      messageIndex,
@@ -2645,6 +2646,7 @@ new file mode 100644
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
+
 diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
 new file mode 100644
 --- /dev/null
