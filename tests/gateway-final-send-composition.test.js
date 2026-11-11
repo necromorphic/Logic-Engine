@@ -266,7 +266,7 @@ test('production protected-memory projection accepts the actual prepared Host/Co
           snapshot: { world_revision: 3, commit_sequence: 9 },
         },
         sources: [{ record_ref: 'record-1', record_version: 'version-1', authorization_generation: 3, source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2' }],
-        candidates: [{ record_ref: 'record-1', record_version: 'version-1', authorization_generation: 3, source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2', epistemic_kind: 'acquired_report', evidence_assessment: 'supported' }],
+        candidates: [{ record_ref: 'record-1', record_version: 'version-1', authorization_generation: 3, source_kind: 'canonical_entity', source_entity_id: 'entity-1', source_version: 'core-entity-v1:2' }],
         provider_evidence_cursor: { data_version: 4, candidate_digest: 'b'.repeat(64) },
       },
       revalidateLaneAUnderCoordinatorLease: () => ({ status: 'ready' }),
