@@ -315,6 +315,7 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
         status: 'complete',
         entries: [],
         snapshot_id: 'host-bridge-runtime-vss-snapshot',
+        snapshot_sha256: 'c'.repeat(64),
       },
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
       source: {
@@ -342,6 +343,25 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       env,
       enumerate: async () => structuredClone(inventory),
       fetchImpl: hostFetch,
+      // Test-only fixture for the runtime-acceptance contract. Production remains fail-closed
+      // unless a real verifier validates exact installed-source/runtime evidence.
+      verifyMutationRuntimeAcceptance: async proof => {
+        assert.equal(proof.pinnedHostCommit, '06bde939fb1e9c4c8d8641d810f0a916b5bce127');
+        assert.equal(proof.snapshotAlignment, 'SHARED_VSS_SNAPSHOT');
+        assert.equal(proof.snapshotSha256, 'c'.repeat(64));
+        assert.equal(proof.sourceIdentity.manifest_sha256, SOURCE_MANIFEST_SHA256);
+        assert.equal(proof.mutationCoverage.coverage_manifest_sha256, PINNED_ST_MUTATION_COVERAGE_SHA256);
+        return {
+          status: 'VERIFIED',
+          source_commit: proof.pinnedHostCommit,
+          snapshot_sha256: proof.snapshotSha256,
+          snapshot_id: proof.snapshotId,
+          root_id: proof.rootId,
+          source_manifest_sha256: proof.sourceIdentity.manifest_sha256,
+          mutation_coverage_manifest_sha256: proof.mutationCoverage.coverage_manifest_sha256,
+          evidence_sha256: 'e'.repeat(64),
+        };
+      },
       verifyMutationCoverage: async () => ({
         status: 'VERIFIED',
         source_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',

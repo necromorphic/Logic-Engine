@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import {
   PINNED_PATCH_BUNDLE_SHA256,
   PINNED_HOST_HANDLER_GIT_BLOB_SHA,
+  SOURCE_FILE_PATHS,
 } from '../host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs';
 import { tmpdir } from 'node:os';
 import { verifyLegacyHostBundle } from '../scripts/verify-legacy-host-bundle.mjs';
@@ -35,6 +36,8 @@ test('Host and Core pin the same exact lifecycle patch bundle and inventory hand
     'Gateway handler pin must match its exact Git blob identity');
   assert.equal(coreHandlerPin, PINNED_HOST_HANDLER_GIT_BLOB_SHA,
     'Core must accept only the exact Gateway handler blob');
+  assert.ok(SOURCE_FILE_PATHS.includes('plugins/logic-engine-extension-gateway/st-host-mutation-receipt-signature.mjs'),
+    'the receipt-signature module must be covered by the pinned Host source manifest');
 });
 
 test('Legacy Host overlay verification compares canonical LF hashes on every platform', () => {

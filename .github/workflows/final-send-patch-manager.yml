@@ -77,7 +77,7 @@ jobs:
         run: |
           node scripts/generate-sillytavern-patch-manager-manifest.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
+          git -C $env:GITHUB_WORKSPACE diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Create pristine pinned source worktree for bundle upgrade
         shell: powershell
