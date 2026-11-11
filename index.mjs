@@ -145,13 +145,7 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
     // Preserve the exact public Core envelope as the digest input. Canonical
     // source versions are supplied separately by Runtime's one-shot Lane B
     // dispatch evidence and joined by Provider record identity in the Receiver.
-    retrieval: {
-      status: laneBContext.status,
-      admitted: laneBContext.admitted,
-      candidates: laneBContext.candidates,
-      reason: laneBContext.reason,
-      snapshot: laneBContext.snapshot,
-    },
+    retrieval: accepted.laneB.publicResult,
     sourceLineage: accepted.laneB.candidates,
     hostContext: {
       adapter_id: coreContext.adapter_id,
