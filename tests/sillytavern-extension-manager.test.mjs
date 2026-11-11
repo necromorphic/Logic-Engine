@@ -43,8 +43,10 @@ test('Extension Manager entrypoint registers and removes only its two Host ident
   const options = {
     resolveHostContext: async () => ({ conversationUuid: '11111111-1111-4111-8111-111111111111' }),
   };
-  const unregister = await registerHostGenerationIdentityOnce(context, options);
-  const duplicateUnregister = await registerHostGenerationIdentityOnce(context, options);
+  const [unregister, duplicateUnregister] = await Promise.all([
+    registerHostGenerationIdentityOnce(context, options),
+    registerHostGenerationIdentityOnce(context, options),
+  ]);
   assert.equal(duplicateUnregister, unregister);
   assert.deepEqual([...listeners.keys()].sort(), [
     'CHAT_COMPLETION_SETTINGS_READY',
