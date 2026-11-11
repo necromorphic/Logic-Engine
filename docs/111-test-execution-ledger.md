@@ -467,3 +467,35 @@ The user had previously supplied the `/identity` response. The `host_session_id`
 **Limits:** this is a user-observed browser check; no raw console transcript or independent metadata-file inspection was supplied. It does not prove cross-chat uniqueness, rename/restore behavior, storage corruption handling, multi-tab races, authoritative Host inventory enrollment, Core authorization, NPC context injection, or Final-Send. The identity contract remains documented as `NON_AUTHORITATIVE`; Memory → NPC remains disabled/fail-closed.
 
 **Next check:** verify that a second, different chat receives a different stable UUID and that returning to the first chat restores its original UUID. Report only whether both conditions hold; do not share UUID values.
+
+
+### 2026-11-11 — Stable conversation ID isolation across chats (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and browser profile not captured.
+
+**Procedure reported by user:** opened a second existing chat and read `getContext().chatMetadata.logic_engine_conversation_id`; then returned to the first chat and re-read its value.
+
+**User result:** the second chat had its own different ID, and the first chat retained/restored its original ID. Opaque UUID values are intentionally not retained.
+
+**Result:** PASS for observed per-chat ID separation and restoration when switching between these two chats.
+
+**Limits:** two-chat manual check only. It does not prove uniqueness across all chats, rename/import/restore behavior, multi-tab races, authoritative Host inventory enrollment, Core authorization, NPC context injection, or Final-Send. The conversation identity remains non-authoritative metadata until independently enrolled/validated by Host/Core. Memory → NPC remains disabled/fail-closed.
+
+### 2026-11-11 — Live generation request carries the Host Generation Envelope (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and generation backend not captured.
+
+**Observed request payload fields:**
+- `logic_engine_context_size`: `200000` (upper bound accepted by the current Host adapter contract).
+- `logic_engine_conversation_uuid`: populated UUID (value intentionally not retained).
+- `logic_engine_generation_id`: populated UUID (value intentionally not retained).
+- `logic_engine_generation_type`: `normal`.
+- `logic_engine_request_id`: populated UUID (value intentionally not retained).
+
+**Source contract cross-check:** `host-adapter/extension-gateway/server-plugin/host-adapter.mjs` reads these five fields from `request.body`; validates the three UUIDs, requires a safe integer context size in the inclusive range 1–200000, validates generation type against the bounded lowercase identifier pattern, and returns `HOST_GENERATION_ENVELOPE_INVALID` when validation fails. It then authenticates the request and ensures the Core conversation→World binding before returning READY.
+
+**Result:** PASS for presence and observed shape of all five envelope fields in one live generation request. The context size is exactly the current configured maximum.
+
+**Limits:** request payload inspection does not prove the server accepted the envelope, that Host authentication returned READY, that Core binding/retrieval succeeded, that the SQLite provider returned authorized records, that the NPC Receiver accepted/injected context, or that Final-Send used that context. No opaque UUIDs or request secrets are stored. Memory → NPC remains disabled/fail-closed.
+
+**Next stage:** verify server-side generation preparation and the real Host→Core retrieval path using existing integrated tests/log evidence first. Ask the user for another browser action only if a specific server-side result cannot be established from repository tests or available logs; do not add another redundant manual check of the same payload fields.
