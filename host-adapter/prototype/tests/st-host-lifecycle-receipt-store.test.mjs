@@ -176,7 +176,7 @@ test('server receipt store rejects chat rename when bytes, file identity or logi
     operation: 'rename-chat',
     event_id: TERMINAL_EVENT,
     occurred_at: '2026-10-31T00:00:01.000Z',
-  }), directories), /HOST_LIFECYCLE_PERSISTED_STATE_MISMATCH/);
+  }), directories), /HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH/);
 });
 
 test('server receipt store survives restart and exact terminal retry returns the same receipt', async t => {
