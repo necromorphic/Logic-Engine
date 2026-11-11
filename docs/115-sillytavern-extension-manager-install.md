@@ -37,10 +37,13 @@ This verifies the root manifest, entrypoint path, context module resolution cont
 
 ## Manual acceptance still required
 
-After this branch is available to the Extension Manager as a Git repository ref:
+Install from the exact branch containing this change; the repository default branch may not contain it yet:
 
 1. Open SillyTavern → Extensions → Install extension.
-2. Install the Logic Engine repository URL/ref.
+2. Repository URL: `https://github.com/necromorphic/Logic-Engine`.
+3. Select branch: `integration/host-core-v1`.
+4. Choose the current-user installation scope for the first acceptance run.
+5. Install the extension.
 3. Confirm the extension appears in the installed extension list and loads without a browser-console module/import error.
 4. Restart SillyTavern and confirm the extension loads again without duplicate listeners.
 5. Confirm the server Gateway and Final-Send installation states independently. Do not enable Memory → NPC.
