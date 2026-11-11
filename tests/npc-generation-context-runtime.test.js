@@ -341,6 +341,9 @@ test('dispatch handoff exposes a Lane B-only provider projection with exact sour
   assert.equal(Object.getPrototypeOf(evidence.publicResult), Object.prototype);
   assert.equal(Object.getPrototypeOf(evidence.publicResult.candidates[0]), Object.prototype);
   assert.equal(Object.hasOwn(evidence.publicResult, 'provider_evidence_cursor'), false);
+  assert.equal(Object.isFrozen(evidence.publicResult.candidates), true);
+  assert.equal(Object.isFrozen(evidence.publicResult.candidates[0]), true);
+  assert.equal(Object.isFrozen(evidence.publicResult.candidates[0].content), true);
   assert.deepEqual(evidence.publicResult.candidates, [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
     source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
