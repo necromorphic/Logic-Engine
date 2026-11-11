@@ -31,7 +31,10 @@ test('server plugin composes authenticated Host, embedded Gateway and one-shot N
   assert.match(source, /gateway: memoryEnabled \? registeredRuntime\.gateway : unavailableGateway/);
   assert.match(source, /dispatchProtectedRequest\(\)[\s\S]*MEMORY_DISPATCH_NOT_READY/);
   assert.match(source, /authorizeResponseWrite\(\)[\s\S]*MEMORY_DISPATCH_NOT_READY/);
-  assert.doesNotMatch(source, /receiveNpcContext|createFailClosedAdapter|NOT_WIRED_FAIL_CLOSED/);
+  assert.match(source, /receiveNpcContext/);
+  assert.match(source, /buildProtectedMemory/);
+  assert.match(source, /requireProtectedMemory: memoryEnabled/);
+  assert.doesNotMatch(source, /createFailClosedAdapter|NOT_WIRED_FAIL_CLOSED/);
   assert.doesNotMatch(source, /return received\.candidates\.length === 0 \? null : received/);
 });
 
