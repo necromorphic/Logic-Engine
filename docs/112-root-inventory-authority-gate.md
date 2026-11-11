@@ -28,7 +28,7 @@ This decision does not remove the Host inventory completeness requirement. Host 
 
 ## Why the production gate remains closed
 
-The scanner is still non-authoritative and the production verifier is deny-only. Static route coverage is not runtime acceptance. The missing proof is a complete, pinned Host inventory/lifecycle contract, operation-specific durable receipts or equivalent verified runtime evidence, and a production verifier that consumes that exact evidence safely.
+The scanner is still non-authoritative and the production Host inventory/runtime-acceptance gate remains fail-closed. The embedded runtime now verifies terminal mutation-event HMACs against the adapter token using the same shared signer as the Host proxy. This repairs the receipt-signature contract for the already-supported message lifecycle operations; it does not prove coverage of the other pinned ST mutation routes. Static route coverage is not runtime acceptance. The missing proof remains a complete, pinned Host inventory/lifecycle contract, operation-specific durable receipts or equivalent verified runtime evidence for every supported route, and a production verifier that consumes that exact evidence safely.
 
 Known Host coverage gaps must be closed or explicitly excluded from the product guarantee, including unsupported destructive/import/restore operations, branch/copy lineage, pre-enrollment history, external filesystem changes, and any extension/plugin route that can mutate relevant data outside the audited lifecycle.
 
