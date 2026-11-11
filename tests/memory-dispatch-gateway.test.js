@@ -426,15 +426,22 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
       record_version: 'record-version-3',
       authorization_generation: 1,
       source_entity_id: 'entity-42',
-      source_version: 'version-7',
       epistemic_kind: 'acquired_report',
       evidence_assessment: 'supported',
       content: { 'attributes.public_note': 'accepted NPC context' },
     }],
     reason: null,
     snapshot: { world_revision: 12, commit_sequence: 19 },
-    provider_evidence_cursor: { data_version: 7, candidate_digest: 'f'.repeat(64) },
   };
+  const sourceLineage = [{
+    record_ref: 'record-42',
+    record_version: 'record-version-3',
+    authorization_generation: 1,
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-42',
+    source_version: 'core-entity-v1:7',
+  }];
+  const providerEvidenceCursor = { data_version: 7, candidate_digest: 'f'.repeat(64) };
   const hostBinding = {
     host_installation_id: '11111111-1111-4111-8111-111111111111',
     authenticated_account_id: '22222222-2222-4222-8222-222222222222',
@@ -451,6 +458,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
   };
   const received = receiveNpcContext({
     retrieval,
+    sourceLineage,
     hostContext: {
       adapter_id: 'st-gateway',
       conversation_id: '55555555-5555-4555-8555-555555555555:11111111-1111-4111-8111-111111111111:33333333-3333-4333-8333-333333333333',
@@ -467,7 +475,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
   });
   const protectedContext = Object.freeze({
     ...received,
-    providerEvidenceCursor: retrieval.provider_evidence_cursor,
+    providerEvidenceCursor,
     laneA: Object.freeze({
       lane: 'A',
       purpose: 'npc_turn_context',
@@ -484,7 +492,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
   assert.throws(() => {
     protectedContext.contextDigest = '0'.repeat(64);
   }, TypeError);
-  retrieval.candidates[0].source_version = 'version-8';
+  sourceLineage[0].source_version = 'core-entity-v1:8';
   retrieval.candidates[0].content['attributes.public_note'] = 'mutated original Core object';
   assert.equal(protectedContext.contentBlocks[0].content['attributes.public_note'], 'accepted NPC context');
   assert.equal(protectedContext.contextDigest, originalDigest);
@@ -506,7 +514,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
         label: 'source version',
         candidates: protectedContext.candidates.map(candidate => ({
           ...candidate,
-          source_version: 'version-8',
+          source_version: 'core-entity-v1:8',
         })),
       },
       {
