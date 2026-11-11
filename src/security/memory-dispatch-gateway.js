@@ -404,8 +404,10 @@ function normalizeProviderEvidenceCursor(value) {
 
 function assertSameProviderEvidenceCursor(current, expected) {
   const normalized = normalizeProviderEvidenceCursor(current);
-  if (normalized.data_version !== expected.data_version
-    || normalized.candidate_digest !== expected.candidate_digest) {
+  // PRAGMA data_version is connection-local. Retrieval and the Gateway's
+  // read-only Provider observer use different SQLite connections, so only the
+  // canonical candidate digest is comparable across this boundary.
+  if (normalized.candidate_digest !== expected.candidate_digest) {
     throw new Error('MEMORY_DISPATCH_PROVIDER_EVIDENCE_CHANGED');
   }
 }
