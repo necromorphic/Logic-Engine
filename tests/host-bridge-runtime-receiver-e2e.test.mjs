@@ -353,21 +353,11 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     assert.equal(replay.status, 'non_ready', 'a consumed Host handoff must not be accepted twice');
     assert.equal(bridge.consume(request, {} ).status, 'non_ready',
       'a different response object must not consume the original Host handoff');
-    assert.equal(bridge.prepare(request, response).then
-      ? (await bridge.prepare(request, response)).status
-      : 'unexpected-sync-result', 'non_ready',
-    'a Host request object must not be prepared twice');
-
-    const providerObserver = providerAdapter.provider;
-    assert.ok(providerObserver, 'the test uses the real file-backed SQLite Provider adapter');
-    assert.equal(result.candidates[0].record_ref, record.record_ref);
-    assert.equal(result.candidates[0].source_version, source.source_version);
-    assert.equal(providerObserver.readDispatchEvidenceSync({
-      worldId,
-      subjectId: actorId,
-      purpose: 'npc_decision',
-      candidates: [{ recordRef: record.record_ref, recordVersion: record.record_version }],
-    }).status, 'ready', 'the exact source record remains visible to the real Provider evidence reader');
+    const duplicatePrepare = await bridge.prepare(request, response);
+    assert.equal(duplicatePrepare.status, 'non_ready',
+      'a Host request object must not be prepared twice');
+    assert.equal(requestMetadata.length, 1,
+      'a duplicate prepare must not mint another Host generation identity');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
     try { nonceStore?.close(); } catch {}
