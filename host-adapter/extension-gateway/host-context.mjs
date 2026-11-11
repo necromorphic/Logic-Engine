@@ -1,6 +1,6 @@
 import { resolveStableHostConversationIdentity } from './conversation-identity.mjs';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const GATEWAY = '/api/plugins/logic-engine-extension-gateway';
 
 async function readJson(fetchImpl, url, options = {}) {
@@ -19,7 +19,7 @@ export async function resolveGatewayHostContext({
   if (typeof fetchImpl !== 'function') throw new TypeError('fetch is required');
   let hostContext = getHostContext;
   if (!hostContext) {
-    const module = await import('../../../st-context.js');
+    const module = await import(new URL('/scripts/st-context.js', import.meta.url).href);
     hostContext = module.getContext();
   }
   if (!hostContext || typeof hostContext.getCurrentChatId !== 'function'
@@ -57,4 +57,3 @@ export async function resolveGatewayHostContext({
     authenticatedAccountId: identity.authenticated_account_id,
   });
 }
-
