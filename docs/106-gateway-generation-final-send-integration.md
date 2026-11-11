@@ -171,3 +171,6 @@ When `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true`, the production Final-Send adapter i
 When Memory is disabled, the adapter retains ordinary SillyTavern native behavior. This distinction prevents an unavailable or invalid protected context from silently becoming an unprotected model request while preserving the explicitly supported complete-empty case.
 
 Regression coverage: `tests/protected-memory-required-final-send.test.mjs`. The test must prove zero provider calls for NON_READY Host preparation, unavailable Receiver projection, and Gateway denial, plus exactly one native call for an explicit complete-empty result.
+
+
+**Verification (2026-11-11):** Gateway Final-Send workflow `42995124956` on Windows self-hosted runner completed successfully: 59 Memory Dispatch Gateway tests, 20 Protected Memory Final-Send tests, 13 SillyTavern Final-Send adapter tests, 18 Gateway composition tests, and 4 required-mode fail-closed tests all passed (114/114). Full Runtime and NPC Generation Context suites remain separate acceptance gates.
