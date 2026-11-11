@@ -9,6 +9,7 @@ import {
   resolveRegisteredHostRootIdentity,
 } from '../src/application/host-root-inventory-identity.js';
 import { verifySignedRootInventoryAttestation } from './extension-gateway/server-plugin/st-source-attestation.mjs';
+import { verifyHostMutationReceiptSignature } from './extension-gateway/server-plugin/st-host-mutation-receipt-signature.mjs';
 import { loadTrustedWorldPackCatalog } from '../src/application/world-pack-catalog.js';
 import { createHostBoundNpcKnowledgeAuthorizers } from '../src/application/npc-knowledge-authorization.js';
 import {
@@ -179,7 +180,11 @@ export function createEmbeddedGatewayRuntime({ hostAdapter, adapterId = process.
       readOnly: true,
       resolveIdentity: () => ({ authorized: false }),
       resolveRootIdentity: input => resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, input),
-      verifyMutationReceipt: () => false,
+      verifyMutationReceipt: ({ event }) => verifyHostMutationReceiptSignature({
+        adapterId,
+        adapterToken: adapterTokens[adapterId],
+        event,
+      }),
       verifyRootInventoryAttestation: ({ attestation, identity }) => {
         const trusted = resolveRegisteredHostRootIdentity(hostRootIdentityRegistry, {
           host_installation_id: identity?.host_installation_id,
