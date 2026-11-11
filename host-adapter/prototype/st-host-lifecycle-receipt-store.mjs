@@ -7,7 +7,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DIGEST = /^[a-f0-9]{64}$/;
 const OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe',
-  'select-swipe', 'delete-swipe', 'delete-message', 'edit-message',
+  'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
 ]);
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const canonical = value => Array.isArray(value)
@@ -148,6 +148,16 @@ function validOperationTransition(operation, before, after) {
       && oldMessage.versions.some((version, index) =>
         version.version_id !== newMessage.versions[index].version_id
         && version.content_sha256 !== newMessage.versions[index].content_sha256));
+  }
+  if (operation === 'rename-chat') {
+    return before.target_locator !== after.target_locator
+      && before.target_path !== after.target_path
+      && before.target_file_identity === after.target_file_identity
+      && before.target_content_sha256 === after.target_content_sha256
+      && canonical(before.logical_identity) === canonical(after.logical_identity)
+      && before.other_root_entries_sha256 === after.other_root_entries_sha256
+      && before.other_source_files_sha256 === after.other_source_files_sha256
+      && canonical(before.backup_entries) === canonical(after.backup_entries);
   }
   return false;
 }
@@ -439,14 +449,25 @@ export class HostLifecycleReceiptStore {
       return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
     }
     const after = await this.#snapshot(scope, directories);
-    const mismatchReason = after.target_path !== prepared.before.target_path ? 'TARGET_PATH_CHANGED'
-      : after.target_locator !== prepared.before.target_locator ? 'TARGET_LOCATOR_CHANGED'
-        : after.target_content_sha256 === prepared.before.target_content_sha256 ? 'TARGET_CONTENT_UNCHANGED'
-          : after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256 ? 'UNRELATED_ROOT_ENTRY_CHANGED'
-            : after.other_source_files_sha256 !== prepared.before.other_source_files_sha256 ? 'UNRELATED_SOURCE_FILE_CHANGED'
-              : !validBackupTransition(prepared.before, after) ? 'BACKUP_TRANSITION_INVALID'
-                : !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)
-                  ? 'LOGICAL_OPERATION_TRANSITION_INVALID' : null;
+    const rename = scope.operation === 'rename-chat';
+    const mismatchReason = rename
+      ? after.target_path === prepared.before.target_path ? 'TARGET_PATH_UNCHANGED'
+        : after.target_locator === prepared.before.target_locator ? 'TARGET_LOCATOR_UNCHANGED'
+          : after.target_file_identity !== prepared.before.target_file_identity ? 'TARGET_FILE_IDENTITY_CHANGED'
+            : after.target_content_sha256 !== prepared.before.target_content_sha256 ? 'TARGET_CONTENT_CHANGED'
+              : after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256 ? 'UNRELATED_ROOT_ENTRY_CHANGED'
+                : after.other_source_files_sha256 !== prepared.before.other_source_files_sha256 ? 'UNRELATED_SOURCE_FILE_CHANGED'
+                  : !validBackupTransition(prepared.before, after) ? 'BACKUP_TRANSITION_INVALID'
+                    : !validOperationTransition(scope.operation, prepared.before, after)
+                      ? 'LOGICAL_OPERATION_TRANSITION_INVALID' : null
+      : after.target_path !== prepared.before.target_path ? 'TARGET_PATH_CHANGED'
+        : after.target_locator !== prepared.before.target_locator ? 'TARGET_LOCATOR_CHANGED'
+          : after.target_content_sha256 === prepared.before.target_content_sha256 ? 'TARGET_CONTENT_UNCHANGED'
+            : after.other_root_entries_sha256 !== prepared.before.other_root_entries_sha256 ? 'UNRELATED_ROOT_ENTRY_CHANGED'
+              : after.other_source_files_sha256 !== prepared.before.other_source_files_sha256 ? 'UNRELATED_SOURCE_FILE_CHANGED'
+                : !validBackupTransition(prepared.before, after) ? 'BACKUP_TRANSITION_INVALID'
+                  : !validOperationTransition(scope.operation, prepared.before.logical_identity, after.logical_identity)
+                    ? 'LOGICAL_OPERATION_TRANSITION_INVALID' : null;
     if (mismatchReason) {
       const error = new Error('HOST_LIFECYCLE_RECEIPT_PERSISTED_STATE_MISMATCH');
       error.reason = mismatchReason;
