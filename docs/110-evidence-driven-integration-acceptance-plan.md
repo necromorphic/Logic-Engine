@@ -417,3 +417,10 @@ Commits:
 - 2ff7b9d4bf73204058aa551753b6245f3ce5be07 — explicit regression test rejects the private cursor at the public Receiver boundary.
 
 Execution status: NOT TESTED. The next run must execute the Receiver unit suite and the live Host/Core/SQLite E2E. A pass would prove the public retrieval envelope can be consumed by the production Receiver in this fixture-backed Host authority scenario; it would not establish production Root Inventory authority or model egress.
+
+
+### 2026-11-11 — Production Final-Send egress composition test added (NOT TESTED)
+
+Added a focused test that drives an immutable NPC Receiver result through the actual SillyTavern Final-Send adapter, actual protected Final-Send serializer, and actual MemoryDispatchGateway into a deterministic fake model transport. It captures the exact outbound body and checks the canary, original prompt, one upstream call, durable `DISPATCH_STARTED`, and authorized response release before `COMPLETED`.
+
+The evidence readers remain controlled by the Gateway test fixture. This advances the Block 3 transport-observation harness but does not satisfy the Block 3 requirement for production evidence readers, and does not establish Blocks 1 or 4. The test is NOT TESTED until executed on Windows. Normal SillyTavern Memory → NPC remains disabled.
