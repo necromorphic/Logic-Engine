@@ -290,3 +290,25 @@ The unpatched archive does not contain `src/logic-engine-final-send-hook.js`; th
 Source confirmation: the patch wraps the Chat Completions route with `runWithLogicEngineFinalSend()`, aliases its server-side `node-fetch` import to `logicEngineFetch`, and routes streaming response forwarding through `logicEngineForwardFetchResponse()`. The same patch changes the other listed sender families. This confirms the intended source integration points; actual installed patch state and a live request still require runtime verification.
 
 Status: source/manifest compatibility verified; live installed-route execution NOT TESTED.
+
+
+### 2026-11-11 — SillyTavern Extension Manager package contract (NOT TESTED)
+
+Implementation commits:
+- `f0976f10d141bc168f9be03c217ef4b61d81166e` — root manifest now declares the browser entrypoint.
+- `da4298b135e39cb84d1dac08da6f497150b13cc1` — browser entrypoint resolves ST context through the stable public script URL.
+- `9653009a9a9b42b20115ecc0a5fe04284066145e` — Host context resolver uses the same URL.
+- `60e086fcdec885f9014f4e6a218ed39274dfc8a6` — added three structural/lifecycle contract tests.
+- `cabd4ac2229606ab1f2c3ca9ebed71aab6c6ab92` — initial install-boundary documentation.
+- `419377f9c81a55bfa58d7a67935bb3915bb836e6` — documented exact branch and user-scope installation procedure.
+
+Added command:
+```powershell
+node --test .\tests\sillytavern-extension-manager.test.mjs
+```
+
+The new tests cover root manifest entrypoint declaration, existence of local imported modules, ST context URL resolution, and registration/removal of the two generation listeners.
+
+**Execution status: NOT TESTED.** No Windows test execution or real Extension Manager installation has been observed for these commits. The source contract is aligned with SillyTavern's documented requirements that the root manifest declare a `js` entrypoint and that custom Git installation can specify a branch. This does not prove that the current branch installs and loads successfully in the user's SillyTavern instance.
+
+**Boundary:** Extension Manager installs only the browser extension. Core runtime, server Gateway, Final-Send patch, and Host lifecycle/root inventory components remain separately installed and verified. Memory → NPC remains disabled/fail-closed.
