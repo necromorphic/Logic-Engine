@@ -29,7 +29,7 @@ on:
       - ".github/workflows/npc-generation-context.yml"
       - ".github/workflows/provider-blocker3.yml"
   push:
-    branches: [main, 'npc/**', 'integration/host-core-v1']
+    branches: [main, 'npc/**']
     paths:
       - "src/application/npc-generation-context*.js"
       - "src/application/memory-npc-provider-adapter.js"
