@@ -253,3 +253,17 @@ Tested commit: `afe9bdcdf7e0b98a2b527db6ce2185194568742d`.
 A second line-by-line pass over the pinned SillyTavern archive found that the prior test fixture overstated the OpenAI frontend fields: `createGenerationParameters()` does not populate `seed` in its common `generate_data` object. The OpenAI backend's provider body includes `stop` (when non-empty) and omits undefined optional values; it does not forward ST-only routing metadata. Corrected the fixture accordingly: removed the fabricated seed value/assertion and included a source-shaped stop sequence. This correction is **NOT TESTED** pending the next Windows run.
 
 Correction commit: `534e246e429c8399f7bbe50bcb5f4361114d6e51`.
+
+
+### 2026-11-11 — Corrected SillyTavern OpenAI streaming payload (PASS)
+
+Tested commit: `e1bafd85bcbfef132c6f7dd6299e30d1c46ff8a8`.
+
+Windows PowerShell command:
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="SillyTavern OpenAI-compatible streaming request carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+Result: **1 passed, 0 failed, 0 cancelled, 0 skipped**. Total duration 803.5735 ms; subtest duration 725.2487 ms. Node emitted the SQLite ExperimentalWarning only.
+
+This run validates the corrected source-shaped payload with the non-empty `stop` field and no fabricated `seed` field. Scope remains adapter-level with fixture-backed evidence readers and fake provider transport; it is not a live SillyTavern route or production composition acceptance.
