@@ -188,6 +188,16 @@ export function createSillyTavernFinalSendAdapter({
         throw error;
       }
 
+      // Reject a repeated protected send before resolving context or
+      // replacing the response's completed release state with a new pending
+      // capability. A duplicate attempt also permanently denies later writes.
+      if (args.response && typeof args.response === 'object'
+        && protectedDispatchByResponse.has(args.response)) {
+        const previousRelease = requestIdByResponse.get(args.response);
+        if (previousRelease) previousRelease.state = 'denied';
+        throw terminalError(new Error('MEMORY_DISPATCH_DUPLICATE_HOST_SEND'));
+      }
+
       const preparedCandidate = args.request && typeof args.request === 'object'
         ? preparedContextByRequest.get(args.request) : null;
       const dispatchHostRoute = args.hostRoute ?? 'chat-completions';
