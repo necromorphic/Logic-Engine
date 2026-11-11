@@ -365,16 +365,11 @@ export function createHostSessionHandler({ createId = randomUUID, revokeSession 
 }
 
 /**
- * Fail-closed guard for ST mutation routes that do not yet have an operation-
- * specific persisted lifecycle receipt. These routes may change the enrolled
- * account root or the installed source, so they cannot run while Host authority
- * is configured. This is a route guard, not an inventory completeness proof.
- */
-/**
- * Host is an observer/extension, never an authorization proxy for native ST
- * mutations. Keep this middleware installed for compatibility with the pinned
- * route map, but always delegate to SillyTavern's own handler. Host-owned
- * resources remain protected by their own authenticated Core/Provider APIs.
+ * Non-blocking route-coverage seam. Host is an observer/extension, not an
+ * authorization proxy for native ST mutations. Keep this middleware installed
+ * for compatibility with the pinned route map, but always delegate to
+ * SillyTavern's own handler. This does not produce a lifecycle receipt or prove
+ * runtime mutation acceptance.
  */
 export function createHostUnsupportedMutationGuard({ code = 'HOST_MUTATION_ROUTE_UNSUPPORTED' } = {}) {
   if (typeof code !== 'string' || !/^[A-Z0-9_]{1,96}$/.test(code)) {
@@ -521,17 +516,11 @@ function isInitialAssistantBootstrapCreate(request, response) {
 }
 
 /**
- * Fail-closed guard for SillyTavern account-root mutations. Only the pinned
- * single-target character edit, quick-reply save and stats update routes are
- * admitted through durable PREPARED/terminal receipts. Every other bulk or
- * non-lineage-aware mutation remains blocked while Host authority is active.
- */
-/**
- * SillyTavern owns its native account mutations. Host must not deny them when
- * its identity, inventory, receipt store, or Core services are unavailable.
- * The pinned route middleware remains as a non-blocking integration seam;
- * authoritative Host inventory is reconciled independently before protected
- * Memory access, never by preventing a native ST operation.
+ * Non-blocking route-coverage seam. SillyTavern owns its native account
+ * mutations; Host does not veto them when identity, inventory, receipt storage
+ * or Core services are unavailable. This middleware does not create a durable
+ * mutation receipt. Protected Memory access must independently require
+ * authoritative Host evidence.
  */
 export function createHostBulkMutationGuard({
   enumerate = enumerateHostDataInventory,
