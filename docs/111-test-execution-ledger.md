@@ -267,3 +267,26 @@ node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-na
 Result: **1 passed, 0 failed, 0 cancelled, 0 skipped**. Total duration 803.5735 ms; subtest duration 725.2487 ms. Node emitted the SQLite ExperimentalWarning only.
 
 This run validates the corrected source-shaped payload with the non-empty `stop` field and no fabricated `seed` field. Scope remains adapter-level with fixture-backed evidence readers and fake provider transport; it is not a live SillyTavern route or production composition acceptance.
+
+
+### 2026-11-11 — Supplied SillyTavern archive verified against Final-Send patch manifest
+
+Inspected `/mnt/data/SillyTavern-release.zip` directly. Its package version is `1.19.0`. Canonical SHA-256 hashes (CRLF-normalized, matching Patch Manager rules) for all 12 source files listed in `host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json` exactly match the manifest's pre-patch hashes:
+- package.json
+- src/plugin-loader.js
+- src/server-main.js
+- src/server-startup.js
+- src/endpoints/backends/chat-completions.js
+- src/constants.js
+- src/util.js
+- src/endpoints/extensions.js
+- src/endpoints/backends/text-completions.js
+- src/endpoints/backends/kobold.js
+- src/endpoints/novelai.js
+- src/endpoints/horde.js
+
+The unpatched archive does not contain `src/logic-engine-final-send-hook.js`; this is expected because the managed Final-Send patch creates that file and modifies the relevant sender modules to use it. The patch manifest declares the exact expected created-file digest. Therefore the uploaded archive is the exact base source revision targeted by the managed patch, not evidence that the hook is missing from a correctly patched installation.
+
+Source confirmation: the patch wraps the Chat Completions route with `runWithLogicEngineFinalSend()`, aliases its server-side `node-fetch` import to `logicEngineFetch`, and routes streaming response forwarding through `logicEngineForwardFetchResponse()`. The same patch changes the other listed sender families. This confirms the intended source integration points; actual installed patch state and a live request still require runtime verification.
+
+Status: source/manifest compatibility verified; live installed-route execution NOT TESTED.
