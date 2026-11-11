@@ -6,6 +6,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostLifecycleJournal } from '../src/application/host-lifecycle-journal.js';
+import {
+  signHostMutationReceipt,
+  verifyHostMutationReceiptSignature,
+} from '../host-adapter/extension-gateway/server-plugin/st-host-mutation-receipt-signature.mjs';
 import { beginCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
 const installation = '11111111-1111-4111-8111-111111111111';
@@ -912,6 +916,59 @@ test('durable Core journal records prepared mutations, blocks overlap, and clear
   assert.equal(committed.status, 'appended');
   assert.equal(journal.getConversationStatus(installation, account, hostSession, conversation, { ...authority, adapter_id: 'test-adapter', root_id: rootId }).status, 'NO_PENDING_MUTATION');
   assert.equal(journal.verifyChain(installation, account).valid, true);
+});
+
+test('Core lifecycle journal accepts only Host terminal receipts signed by the configured adapter key', (t) => {
+  const { journal } = setupLifecycle(t);
+  const adapterId = 'test-adapter';
+  const adapterToken = 'host-mutation-test-adapter-token';
+  journal.verifyMutationReceipt = ({ event: terminal }) => verifyHostMutationReceiptSignature({
+    adapterId,
+    adapterToken,
+    event: terminal,
+  });
+
+  const prepared = {
+    event_id: '00000000-0000-4000-8000-000000000071',
+    host_installation_id: installation,
+    authenticated_account_id: account,
+    host_session_id: hostSession,
+    conversation_uuid: conversation,
+    ...authority,
+    occurred_at: '2026-10-31T00:00:00.000Z',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '00000000-0000-4000-8000-000000000072',
+    operation: 'edit-message',
+    mutation_digest: digest('signed-intent'),
+  };
+  assert.equal(journal.append(prepared).status, 'appended');
+
+  const terminal = {
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000073',
+    event_type: 'MUTATION_COMMITTED',
+    receipt_digest: digest('durable-receipt'),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  terminal.receipt_signature = signHostMutationReceipt({ adapterId, adapterToken, event: terminal });
+  assert.equal(journal.append(terminal).status, 'appended');
+
+  const secondPrepared = {
+    ...prepared,
+    event_id: '00000000-0000-4000-8000-000000000074',
+    mutation_id: '00000000-0000-4000-8000-000000000075',
+    mutation_digest: digest('second-signed-intent'),
+  };
+  assert.equal(journal.append(secondPrepared).status, 'appended');
+  const forgedTerminal = {
+    ...secondPrepared,
+    event_id: '00000000-0000-4000-8000-000000000076',
+    event_type: 'MUTATION_COMMITTED',
+    receipt_digest: digest('forged-receipt'),
+    occurred_at: '2026-10-31T00:00:02.000Z',
+    receipt_signature: terminal.receipt_signature,
+  };
+  assert.throws(() => journal.append(forgedTerminal), /HOST_LIFECYCLE_RECEIPT_MISMATCH/);
 });
 
 test('ABORTED is terminal and cannot be reversed to COMMITTED', (t) => {
