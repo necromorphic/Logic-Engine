@@ -788,23 +788,55 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     prepareHostContext: async () => ({ status: 'READY', coreConversationId: hostContext.core_conversation_id }),
     runWithAuthenticatedHostSession: (_request, _conversationId, execute) => execute(),
   });
+  // Source-backed SillyTavern 1.15.x contract:
+  // public/scripts/openai.js createGenerationParameters() returns generate_data;
+  // src/endpoints/backends/chat-completions.js serializes the OpenAI branch into
+  // the provider requestBody below. Keep the Host and provider bodies distinct.
   const request = {
     originalUrl: '/api/backends/chat-completions/generate',
     body: {
-      chat_completion_source: 'openai',
+      type: 'normal',
       messages: [{ role: 'user', content: 'Continue the scene.' }],
+      model: 'gpt-4o-mini',
+      temperature: 0.7,
+      frequency_penalty: 0,
+      presence_penalty: 0,
+      top_p: 1,
+      max_tokens: 512,
       stream: true,
+      chat_completion_source: 'openai',
+      user_name: 'User',
+      char_name: 'Character',
+      group_names: [],
+      include_reasoning: false,
+      reasoning_effort: 'auto',
+      enable_web_search: false,
+      request_images: false,
+      request_image_resolution: '512x512',
+      request_image_aspect_ratio: '1:1',
+      custom_prompt_post_processing: null,
+      verbosity: 'medium',
+      seed: 42,
     },
   };
   const response = {};
+  // Exact common OpenAI Chat Completions requestBody fields constructed by
+  // chat-completions.js for this request (undefined optional fields omitted by
+  // JSON.stringify). ST-only fields such as type/chat_completion_source and
+  // stream_options are not forwarded to the provider.
   const requestInit = {
-    method: 'POST',
+    method: 'post',
     headers: { 'content-type': 'application/json', authorization: 'Bearer test-provider-token' },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
       messages: request.body.messages,
-      stream: true,
-      stream_options: { include_usage: true },
+      model: request.body.model,
+      temperature: request.body.temperature,
+      max_tokens: request.body.max_tokens,
+      stream: request.body.stream,
+      presence_penalty: request.body.presence_penalty,
+      frequency_penalty: request.body.frequency_penalty,
+      top_p: request.body.top_p,
+      seed: request.body.seed,
     }),
   };
 
@@ -838,7 +870,16 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     assert.equal(observedBodies.length, 1, 'streaming must hand off to the provider exactly once');
     const outbound = JSON.parse(observedBodies[0]);
     assert.equal(outbound.stream, true);
-    assert.deepEqual(outbound.stream_options, { include_usage: true });
+    assert.equal(outbound.model, 'gpt-4o-mini');
+    assert.equal(outbound.temperature, 0.7);
+    assert.equal(outbound.max_tokens, 512);
+    assert.equal(outbound.seed, 42);
+    assert.equal(Object.hasOwn(outbound, 'chat_completion_source'), false,
+      'ST routing metadata must not leak into the provider request body');
+    assert.equal(Object.hasOwn(outbound, 'type'), false,
+      'ST generation type must not leak into the provider request body');
+    assert.equal(Object.hasOwn(outbound, 'stream_options'), false,
+      'the pinned ST OpenAI backend does not forward stream_options');
     assert.equal(outbound.messages[0].role, 'system');
     assert.equal(outbound.messages[0].content.includes(canary), true);
     assert.deepEqual(outbound.messages.at(-1), { role: 'user', content: 'Continue the scene.' });
