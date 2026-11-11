@@ -399,7 +399,7 @@ export function createHostRootInventoryPersistence({
           'x-adapter-token': target.adapterToken,
         },
         body: serialized,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
       });
       let payload;
       try { payload = await upstream.json(); }
@@ -455,7 +455,7 @@ export function createHostRootInventoryPersistence({
           root_id,
           attestation,
         }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: requestSignal,
       });
       if (cancelled()) return { status: 'NON_READY', reason: 'HOST_GENERATION_CANCELLED' };
       let attestationPayload;
