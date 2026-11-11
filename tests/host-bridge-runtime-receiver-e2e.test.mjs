@@ -95,7 +95,7 @@ function responseRecorder() {
   };
 }
 
-test('Host one-shot bridge preserves one run identity through live Core runtime, SQLite Provider and production NPC Receiver', async t => {
+test('one Host run preserves identity through live Core, SQLite Provider, Receiver, Gateway and fake model transport', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'host-bridge-runtime-e2e-'));
   const corePath = join(directory, 'core.sqlite');
   const providerPath = join(directory, 'memory-provider.sqlite');
@@ -473,7 +473,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     // Continue this exact Host/Receiver result through the real
     // MemoryDispatchGateway and a deterministic fake model transport. Core and
     // Provider evidence readers are the production observer-only adapter;
-    // only the Host Root Inventory authority remains fixture-backed here.
+    // Host lifecycle and Root Inventory evidence remain fixture-backed here.
     gateway = new MemoryDispatchGateway({
       ledgerPath: join(directory, 'dispatch-ledger.sqlite'),
       coordinatorPath,
