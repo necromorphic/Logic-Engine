@@ -14,7 +14,7 @@ export const PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS = Object.freeze({
   'scripts/sillytavern-patch-manager.mjs': '2a65a46db18bedded829036b3693f7125dd21788',
   'host-adapter/sillytavern-final-send-adapter.mjs': '8678a611ad66978355f39cbd844efb6b4a6359e9',
   'host-adapter/embedded-gateway-runtime.mjs': '1d048c63e678e32e984ce26ac9d31d0d733bed31',
-  'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'd41b0372dc2f1c5e6216d36fdd75ea2539b289c3',
+  'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'f683f219b59252079cec20308f181a2c90e4c7ff',
   'host-adapter/npc-generation-request-metadata.mjs': 'c2f1005b4e46eb1912530259fdc40313588d4ac9',
   'host-adapter/npc-generation-content-projection.mjs': 'c2743ae36754a1460ac414c47c53fda4c75cf0b1',
   'src/application/npc-generation-context-host-bridge.js': '6bbb22276b8123183804fbcef8974d855fc1693a',
