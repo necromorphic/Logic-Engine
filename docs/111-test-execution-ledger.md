@@ -129,3 +129,8 @@ Passed coverage reported:
 - Windows pinned-source inventory uses an audited VSS point-in-time snapshot.
 
 **Interpretation:** test suite PASS (17/17 executed, 0 failures; 1 intentional skip). The test confirms the tested Windows VSS snapshot path and inventory scanner behavior. It does not establish an authoritative production inventory, deployment-owned accepted-root authority, complete lifecycle history, or production Host→Core readiness. The scanner's documented state remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. The skipped symlink test is not counted as a pass.
+
+
+## 8. Ledger metadata correction
+
+The 2026-11-11 Host Source Inventory run was executed after the user fast-forwarded the local worktree to documentation commit `540bdf05d174e451c2c4d399c125715cbcee137`. The inventory implementation under test was unchanged by that documentation-only commit. The ledger update itself is committed separately; do not attribute the test run to the ledger-update commit.
