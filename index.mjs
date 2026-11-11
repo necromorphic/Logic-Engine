@@ -83,31 +83,51 @@ export function buildProtectedMemory(request, prepared, npcBridge) {
     contentByIdentity.set(identity, candidate);
   }
 
+  // Core exposes admission metadata in the public Result Envelope and
+  // canonical source lineage in a separate Runtime-owned evidence collection.
+  // Do not conflate these contracts: lineage records intentionally contain
+  // only the six fields accepted by the strict NPC Receiver.
+  const publicAdmissions = accepted.laneB.publicResult?.admitted;
+  if (!Array.isArray(publicAdmissions)) return undefined;
+  const lineageByIdentity = new Map();
+  for (const lineage of accepted.laneB.candidates) {
+    if (!lineage || typeof lineage !== 'object'
+      || typeof lineage.record_ref !== 'string' || typeof lineage.record_version !== 'string') return undefined;
+    const identity = JSON.stringify([lineage.record_ref, lineage.record_version]);
+    if (lineageByIdentity.has(identity)) return undefined;
+    lineageByIdentity.set(identity, lineage);
+  }
+
   const admittedContent = [];
   const expectedSources = new Set();
-  for (const admitted of accepted.laneB.candidates) {
+  const admittedIdentities = new Set();
+  for (const admitted of publicAdmissions) {
     if (!admitted || typeof admitted !== 'object'
       || typeof admitted.record_ref !== 'string' || typeof admitted.record_version !== 'string'
-      || !Number.isSafeInteger(admitted.authorization_generation)
-      || admitted.source_kind !== 'canonical_entity'
-      || typeof admitted.source_entity_id !== 'string'
-      || typeof admitted.source_version !== 'string') return undefined;
+      || typeof admitted.epistemic_kind !== 'string'
+      || admitted.evidence_assessment !== 'supported') return undefined;
     const identity = JSON.stringify([admitted.record_ref, admitted.record_version]);
+    if (admittedIdentities.has(identity)) return undefined;
+    admittedIdentities.add(identity);
     const candidate = contentByIdentity.get(identity);
-    if (!candidate || candidate.authorization_generation !== admitted.authorization_generation
-      || candidate.source_kind !== admitted.source_kind
-      || candidate.source_entity_id !== admitted.source_entity_id
-      || candidate.source_version !== admitted.source_version
+    const lineage = lineageByIdentity.get(identity);
+    if (!candidate || !lineage
+      || candidate.authorization_generation !== lineage.authorization_generation
+      || candidate.source_kind !== lineage.source_kind
+      || candidate.source_entity_id !== lineage.source_entity_id
+      || candidate.source_version !== lineage.source_version
       || candidate.epistemic_kind !== admitted.epistemic_kind
-      || candidate.evidence_assessment !== 'supported') return undefined;
+      || candidate.evidence_assessment !== admitted.evidence_assessment) return undefined;
     contentByIdentity.delete(identity);
+    lineageByIdentity.delete(identity);
     admittedContent.push({
       epistemic_kind: candidate.epistemic_kind,
       evidence_assessment: candidate.evidence_assessment,
       content: candidate.content,
     });
-    expectedSources.add(JSON.stringify([admitted.source_entity_id, admitted.source_version]));
+    expectedSources.add(JSON.stringify([lineage.source_entity_id, lineage.source_version]));
   }
+  if (lineageByIdentity.size !== 0) return undefined;
   // Unadmitted supported content is also a mismatch. Unsupported evidence may
   // remain in the Core context, but is never projected into the model prompt.
   for (const candidate of contentByIdentity.values()) {
