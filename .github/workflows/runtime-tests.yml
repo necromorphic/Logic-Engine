@@ -197,7 +197,7 @@ jobs:
           run: cc -O2 -fPIC -shared -DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
         - name: Build VFS probe on Windows
           if: runner.os == 'Windows'
-          shell: pwsh
+          shell: powershell
           run: |
             $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
             $vs = & $vswhere -latest -products '*' -property installationPath
@@ -211,7 +211,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
         - name: Verify Windows handle-relative directory anchoring
           if: runner.os == 'Windows'
-          shell: pwsh
+          shell: powershell
           run: native/secure-vfs-probe/windows_relative_open_test.exe
         - name: Verify persistent VFS registration through node:sqlite
           env:
