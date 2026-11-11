@@ -109,6 +109,45 @@ jobs:
           process.stdout.write('actual=' + actual + ' pinned=' + pinned + String.fromCharCode(10));
           assert.equal(actual, pinned, 'Host source attestation must pin the exact lifecycle and root-mutation patch bundle');
           NODE
+      - name: Generate complete Patch Manager manifest from pinned source
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node scripts/generate-sillytavern-patch-manager-manifest.mjs
+      - name: Verify generated bundle manifest contract
+        run: node --test tests/sillytavern-final-send-patch-artifact.test.js
+      - name: Create pristine pinned source worktree for Patch Manager
+        run: git -C SillyTavern worktree add --detach "$PWD/SillyTavern-manager" 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+      - name: Install, inspect, verify and uninstall the complete patch bundle
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { lstat } from 'node:fs/promises';
+          import { execFileSync } from 'node:child_process';
+          import { resolve } from 'node:path';
+          import { SillyTavernPatchManager } from './scripts/sillytavern-patch-manager.mjs';
+          const stRoot = resolve('SillyTavern-manager');
+          const manager = new SillyTavernPatchManager({ extensionRoot: process.cwd(), stRoot });
+          assert.equal((await manager.execute('preflight')).status, 'PREFLIGHT_OK');
+          assert.equal((await manager.execute('install')).status, 'INSTALLED');
+          const inspection = await manager.inspectInstalledReadOnly();
+          assert.equal(inspection.status, 'INSTALLED_AND_BACKUPS_VERIFIED');
+          assert.ok(inspection.verifiedBackupCount > 0);
+          assert.equal((await manager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
+          assert.equal((await manager.execute('uninstall')).status, 'ROLLED_BACK');
+          for (const [relativePath, pin] of Object.entries(manager.manifest.sourceFiles)) {
+            const expected = typeof pin === 'string' ? pin : pin.before;
+            assert.equal(await manager.hashAt(relativePath), expected, 'rollback baseline: ' + relativePath);
+          }
+          for (const relativePath of Object.keys(manager.manifest.createdFiles)) {
+            await assert.rejects(lstat(resolve(stRoot, relativePath)), { code: 'ENOENT' });
+          }
+          const diff = execFileSync('git', ['-C', stRoot, 'diff', '--name-only'], { encoding: 'utf8' }).trim();
+          assert.equal(diff, '', 'uninstall must restore the complete tracked SillyTavern tree');
+          process.stdout.write('PASS: full ordered bundle install, backup inspection, verify and uninstall\n');
+          NODE
+      - name: Remove pristine Patch Manager worktree
+        if: always()
+        run: git -C SillyTavern worktree remove --force "$PWD/SillyTavern-manager" || true
       - name: Audit pinned lifecycle route anchors
         env:
           SILLYTAVERN_SOURCE_ROOT: SillyTavern
