@@ -6,15 +6,15 @@ export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
 export const PINNED_PATCH_BUNDLE_SHA256 = '5ea8a6ca0171ad99eb504a7ba91109bd481883ee988bae3c74273e84b165f5a4';
-export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = '5d22bc8df340b12b66781a7add71c90345cefd22';
+export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'fdef69ca12da10bb5cdd8b98330e79fdcebd26d3';
 export const PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS = Object.freeze({
   'index.mjs': 'b00c08d2db01134e2dd6cabd2010f344fad251dc',
   'manifest.json': '258d3ba951db402d293b04854022a96d9fa24c08',
   'package.json': '7f19277fe4aae24722ea8ceb913cba366efefccb',
   'scripts/sillytavern-patch-manager.mjs': '14324ea7cda0ad760d496123b69827a0a25b1247',
   'host-adapter/sillytavern-final-send-adapter.mjs': '8678a611ad66978355f39cbd844efb6b4a6359e9',
-  'host-adapter/embedded-gateway-runtime.mjs': '1d048c63e678e32e984ce26ac9d31d0d733bed31',
-  'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'f683f219b59252079cec20308f181a2c90e4c7ff',
+  'host-adapter/embedded-gateway-runtime.mjs': 'f553db2690370490ea63208ecc0a824817e4e23c',
+  'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'a4e548d9ddc9ea4c8810ae2835ef03f597e7a8d4',
   'host-adapter/npc-generation-request-metadata.mjs': 'c2f1005b4e46eb1912530259fdc40313588d4ac9',
   'host-adapter/npc-generation-content-projection.mjs': 'c2743ae36754a1460ac414c47c53fda4c75cf0b1',
   'src/application/npc-generation-context-host-bridge.js': '6bbb22276b8123183804fbcef8974d855fc1693a',
