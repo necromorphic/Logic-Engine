@@ -38,8 +38,13 @@ The server-plugin `init()` runs after SillyTavern has imported its native genera
 - Rollback/uninstall restores only files matching known manager-owned hashes and preserves unknown user edits.
 - Install/update/delete lifecycle hooks invoke the manager from the native ST server route. A rollback conflict blocks Extension deletion.
 - Crash recovery processes the journal before the next operation; ambiguous locks and source states fail closed.
+- Manifest v1 also supports an ordered `patch.artifacts` bundle. Each artifact is path-confined, hash-pinned after LF normalization, and applied sequentially in isolated preflight and live install under the same backup set, transaction journal, verification and rollback. The bundle digest pins artifact order and the `allowUnidiffZero` application flag. Legacy single-artifact manifests remain supported.
 
 Manager state, transaction journal and byte-exact backups are stored under `data/logic-engine/final-send-patch/` inside the ST data tree, outside the removable Extension directory. Restore uses a durable transaction journal and fsync-backed atomic replacement; interrupted restore is replayed idempotently on the next manager operation. Directory fsync is used where the platform supports it; unexpected I/O failures abort and leave recovery state intact.
+
+## Lifecycle patch bundle promotion status
+
+The production manifest at this revision still declares only the Final-Send artifact. The lifecycle-hooks and root-mutation-guards patches remain under `host-adapter/prototype/patches/` and are **not installed** by the production Patch Manager. Ordered bundle support is installation infrastructure only; it does not activate those prototype hooks. Promotion requires a generated manifest pinning the complete combined before/after file set, then exact pinned install, verify, uninstall and interrupted-rollback acceptance against SillyTavern 1.19.0.
 
 ## Current patch coverage
 
