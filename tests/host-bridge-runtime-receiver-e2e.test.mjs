@@ -584,6 +584,36 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
     );
     assert.equal(upstreamCalls.length, 1,
       'a replayed Host response must not produce a second model transport call');
+
+    // A Provider revoke after one successful dispatch must invalidate the
+    // previously received candidate cursor before any subsequent model egress.
+    providerAdapter.provider.revokeRecord(scope, record.record_ref, record.record_version);
+    const revokedRequest = { ...request, body: structuredClone(request.body) };
+    const revokedResponse = responseRecorder();
+    await finalSendAdapter.prepare(revokedRequest, revokedResponse);
+    const revokedTransportCalls = [];
+    await assert.rejects(
+      finalSendAdapter.dispatch({
+        ...dispatchArgs,
+        request: revokedRequest,
+        response: revokedResponse,
+        transport: async (url, init) => {
+          revokedTransportCalls.push({ url, body: init.body });
+          return { status: 200, body: 'must-not-run' };
+        },
+      }),
+      error => {
+        const causes = [];
+        let current = error;
+        for (let depth = 0; current && depth < 5; depth += 1, current = current.cause) {
+          causes.push(current.message || String(current));
+        }
+        assert.ok(causes.includes('PROVIDER_DISPATCH_EVIDENCE_CHANGED'), causes.join(' <- '));
+        return true;
+      },
+    );
+    assert.equal(revokedTransportCalls.length, 0,
+      'Provider revocation after retrieval must block the next model transport invocation');
   } finally {
     if (server?.listening) await new Promise(resolveClose => server.close(resolveClose));
     try { finalSendAdapter?.close?.(); } catch {}
