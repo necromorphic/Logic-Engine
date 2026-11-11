@@ -453,3 +453,26 @@ This is a protocol-shaped test fixture, not evidence from a live installed Silly
 ### SillyTavern request-contract alignment — 2026-11-11
 
 The Final-Send streaming adapter test now follows the supplied SillyTavern source contract: frontend `createGenerationParameters()` Host payload and backend OpenAI provider `requestBody` are modeled separately. The test must not treat an arbitrary OpenAI body as the ST Host request, nor assume ST-only fields such as `chat_completion_source`, `type`, or `stream_options` reach the provider. The focused test remains NOT TESTED until a Windows run. Even after it passes, live installed ST composition and production evidence-reader acceptance remain outstanding.
+
+
+### 2026-11-11 — Block 2 focused Receiver and real Host/Core/SQLite retrieval-to-Receiver checks (PASS; full block not yet accepted)
+
+The user executed the focused suites on Windows after updating the worktree to the ledger-only commit `bcb0f16af703aa09f84769f2a62cac9446c00a19`. The tested source candidate remains `e1f3092479c57b12ab252f052b3902f077ff29c6`.
+
+Exact command:
+
+```powershell
+node --import ./tests/configure-test-env.js --test `
+  ./tests/npc-context-receiver.test.mjs `
+  ./tests/host-core-sqlite-e2e.test.js
+```
+
+Result: **12/12 passed, 0 failed, 0 skipped** (549.2608 ms).
+
+The Host/Core/SQLite E2E now invokes the production `receiveNpcContext()` using the actual public retrieval payload returned through Host Adapter → Core HTTP → MemoryNpcConsumer → file-backed SQLite Provider. It checks the canary, record reference/version, canonical source ID/version, original Core envelope digest, Receiver context digest, and frozen accepted content. It independently checks Core and Provider SQLite integrity and persisted source/record/grant state through read-only observer connections. The Host inventory/root-proof evidence remains explicit test fixtures.
+
+The focused Receiver suite additionally verifies generation/run identity validation, digest stability and content sensitivity, Core-admitted candidate projection, public five-field envelope enforcement, complete-empty behavior, evidence/admission/scope rejection, and unsafe input rejection.
+
+**Disposition:** these checks close the previously unexecuted retrieval-to-Receiver test and focused Receiver unit-test items. They do not yet prove a single live integrated Host one-shot bridge → real Core HTTP/SQLite retrieval → Receiver → production Gateway/model transport execution with the same independently correlated run/request/record/source evidence. The separate production-composition and Gateway suites provide adjacent boundary coverage, but must not be represented as that one end-to-end proof. Root Inventory authority remains fixture-backed/deny-only in production.
+
+**Block 2 status:** targeted subchecks PASS; full Block 2 acceptance remains NOT ACCEPTED pending the integrated same-run continuity/replay proof at the production composition boundary. Keep Memory → NPC disabled in normal SillyTavern.
