@@ -137,6 +137,7 @@ function copyContent(content) {
  */
 export function receiveNpcContext({
   retrieval,
+  sourceLineage,
   hostContext,
   hostBinding,
   requestId,
@@ -187,6 +188,27 @@ export function receiveNpcContext({
     throw new Error('NPC_CONTEXT_NON_READY');
   }
 
+  // Canonical source versions are not part of the public Core HTTP envelope.
+  // They arrive through separately validated, Runtime-owned Lane B dispatch
+  // evidence and are joined by exact Provider record identity.
+  if (!denseArray(sourceLineage, 50)) throw new Error('NPC_CONTEXT_SOURCE_LINEAGE_INVALID');
+  const lineageByIdentity = new Map();
+  for (const lineage of sourceLineage) {
+    if (!exactDataRecord(lineage, [
+      'record_ref', 'record_version', 'authorization_generation',
+      'source_kind', 'source_entity_id', 'source_version',
+    ]) || !ID(lineage.record_ref) || !ID(lineage.record_version)
+      || !Number.isSafeInteger(lineage.authorization_generation) || lineage.authorization_generation < 1
+      || lineage.source_kind !== 'canonical_entity' || !ID(lineage.source_entity_id)
+      || typeof lineage.source_version !== 'string'
+      || !/^core-entity-v1:[1-9][0-9]*$/.test(lineage.source_version)) {
+      throw new Error('NPC_CONTEXT_SOURCE_LINEAGE_INVALID');
+    }
+    const identity = JSON.stringify([lineage.record_ref, lineage.record_version]);
+    if (lineageByIdentity.has(identity)) throw new Error('NPC_CONTEXT_SOURCE_LINEAGE_DUPLICATED');
+    lineageByIdentity.set(identity, lineage);
+  }
+
   const coreEnvelopeDigest = createHash('sha256')
     .update(JSON.stringify(canonicalJson(retrieval)), 'utf8')
     .digest('hex');
@@ -213,12 +235,12 @@ export function receiveNpcContext({
     const candidate = retrieval.candidates[index];
     if (!exactDataRecord(candidate, [
       'record_ref', 'record_version', 'authorization_generation', 'source_entity_id',
-      'source_version', 'epistemic_kind', 'evidence_assessment', 'content',
+      'epistemic_kind', 'evidence_assessment', 'content',
     ])) throw new Error('NPC_CONTEXT_CANDIDATE_INVALID');
 
     if (!ID(candidate.record_ref) || !ID(candidate.record_version)
       || !Number.isSafeInteger(candidate.authorization_generation) || candidate.authorization_generation < 1
-      || !ID(candidate.source_entity_id) || !ID(candidate.source_version)
+      || !ID(candidate.source_entity_id)
       || !ID(candidate.epistemic_kind) || !KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.evidence_assessment)) {
       throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
     }
@@ -243,6 +265,13 @@ export function receiveNpcContext({
       || admitted.evidence_assessment !== candidate.evidence_assessment) {
       throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
     }
+    const lineage = lineageByIdentity.get(recordIdentity);
+    if (!lineage || lineage.authorization_generation !== candidate.authorization_generation
+      || lineage.source_entity_id !== candidate.source_entity_id
+      || lineage.source_kind !== 'canonical_entity') {
+      throw new Error('NPC_CONTEXT_SOURCE_LINEAGE_MISMATCH');
+    }
+    lineageByIdentity.delete(recordIdentity);
     admittedByIdentity.delete(recordIdentity);
 
     const content = copyContent(candidate.content);
@@ -251,11 +280,11 @@ export function receiveNpcContext({
     totalContentBytes += Buffer.byteLength(contentJson, 'utf8');
     if (totalContentBytes > 512 * 1024) throw new Error('NPC_CONTEXT_CONTENT_LIMIT_EXCEEDED');
 
-    const sourceIdentity = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
+    const sourceIdentity = JSON.stringify([candidate.source_entity_id, lineage.source_version]);
     sourcesByIdentity.set(sourceIdentity, Object.freeze({
       source_kind: 'canonical_entity',
       source_entity_id: candidate.source_entity_id,
-      source_version: candidate.source_version,
+      source_version: lineage.source_version,
     }));
     candidates.push(Object.freeze({
       record_ref: candidate.record_ref,
@@ -263,7 +292,7 @@ export function receiveNpcContext({
       authorization_generation: candidate.authorization_generation,
       source_kind: 'canonical_entity',
       source_entity_id: candidate.source_entity_id,
-      source_version: candidate.source_version,
+      source_version: lineage.source_version,
     }));
     contentBlocks.push(Object.freeze({
       epistemic_kind: candidate.epistemic_kind,
@@ -272,6 +301,7 @@ export function receiveNpcContext({
     }));
   }
   if (admittedByIdentity.size !== 0) throw new Error('NPC_CONTEXT_CANDIDATE_SCOPE_MISMATCH');
+  if (lineageByIdentity.size !== 0) throw new Error('NPC_CONTEXT_SOURCE_LINEAGE_MISMATCH');
 
   const sources = [...sourcesByIdentity.values()];
   if (sources.length === 0 && candidates.length !== 0) throw new Error('NPC_CONTEXT_SOURCE_SET_INVALID');
