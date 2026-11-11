@@ -64,3 +64,18 @@ jobs:
           tests/memory-provider-core-integration.test.js
           tests/memory-npc-consumer.test.js
           tests/memory-npc-provider-adapter.test.js
+
+  host-bridge-runtime-receiver-e2e:
+    # The integrated bridge/SQLite/Receiver scenario is platform-neutral and can
+    # run on the user's Linux self-hosted runner; it does not require Windows VSS.
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.1"
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+      - name: Run integrated Host bridge, Core SQLite and NPC Receiver test
+        run: node --import ./tests/configure-test-env.js --test tests/host-bridge-runtime-receiver-e2e.test.mjs
