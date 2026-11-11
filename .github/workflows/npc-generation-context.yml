@@ -10,6 +10,9 @@ on:
       - "host-adapter/npc-context-receiver.mjs"
       - "tests/npc-context-receiver.test.mjs"
       - "tests/host-bridge-runtime-receiver-e2e.test.mjs"
+      - "tests/protected-memory-required-final-send.test.mjs"
+      - "host-adapter/sillytavern-final-send-adapter.mjs"
+      - "index.mjs"
       - "tests/npc-memory-candidate-eligibility.test.js"
       - "tests/memory-provider-core-integration.test.js"
       - "tests/npc-generation-context*.test.js"
@@ -60,6 +63,7 @@ jobs:
           tests/npc-generation-context-host-bridge.test.js
           tests/npc-context-receiver.test.mjs
           tests/host-bridge-runtime-receiver-e2e.test.mjs
+          tests/protected-memory-required-final-send.test.mjs
           tests/npc-memory-candidate-eligibility.test.js
           tests/memory-provider-core-integration.test.js
           tests/memory-npc-consumer.test.js
@@ -77,5 +81,8 @@ jobs:
           node-version: "22.13.1"
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
-      - name: Run integrated Host bridge, Core SQLite and NPC Receiver test
-        run: node --import ./tests/configure-test-env.js --test tests/host-bridge-runtime-receiver-e2e.test.mjs
+      - name: Run integrated Host bridge, Core SQLite, NPC Receiver and required Final-Send tests
+        run: >-
+          node --import ./tests/configure-test-env.js --test
+          tests/host-bridge-runtime-receiver-e2e.test.mjs
+          tests/protected-memory-required-final-send.test.mjs
