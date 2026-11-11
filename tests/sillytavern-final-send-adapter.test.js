@@ -15,6 +15,9 @@ const sources = {
 const protectedMemory = {
   requestId: 'req-1',
   generationId: 'generation-req-1',
+  runId: '77777777-7777-4777-8777-777777777777',
+  contextDigest: 'a'.repeat(64),
+  coreEnvelopeDigest: 'b'.repeat(64),
   model: 'gemini-test',
   worldId: 'world-1',
   actorId: 'actor-1',
