@@ -186,7 +186,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         provider_evidence_cursor: providerRetrieval.provider_evidence_cursor,
         sources: [{
           source_kind: 'canonical_entity',
-          entity_id: dispatchRecord.source_entity_id,
+          source_entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
         }],
         candidates: [{
@@ -240,7 +240,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         providerEvidenceCursor: providerRetrieval.provider_evidence_cursor,
         sources: [{
           source_kind: 'canonical_entity',
-          entity_id: dispatchRecord.source_entity_id,
+          source_entity_id: dispatchRecord.source_entity_id,
           source_version: dispatchRecord.source_version,
         }],
         candidates: [staleCandidate],
