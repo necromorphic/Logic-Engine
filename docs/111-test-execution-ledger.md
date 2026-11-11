@@ -436,3 +436,19 @@ The user also reported no Console errors. Requests showing HTTP 304 are normal c
 **Limits:** This verifies the observed identity response schema only. It does not prove stable conversation enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
 
 **Next check:** compare the `host_session_id` values in the two Network response bodies locally and report only whether they match; do not share the UUID values.
+
+
+### 2026-11-11 — Live SillyTavern session/identity binding comparison (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+The user supplied the `/session` response:
+- `host_session_id` — populated UUID.
+- `host_session_identity` — exact value `SIGNED_AUTHENTICATED_ST_SESSION`.
+- `host_user_handle` — `default-user`.
+
+The user had previously supplied the `/identity` response. The `host_session_id` values in the two responses were compared and exactly match. The opaque UUID is intentionally not repeated in this ledger.
+
+**Result:** PASS for the observed session response schema and the cross-endpoint session binding (`/identity.host_session_id === /session.host_session_id`). Combined with the prior observed HTTP 200 responses, this confirms successful browser-side retrieval of both endpoints and a matching session identifier in their returned JSON.
+
+**Limits:** This does not prove stable conversation identity enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
