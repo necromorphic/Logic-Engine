@@ -1,0 +1,95 @@
+name: SillyTavern unified Host patch bundle
+
+on:
+  push:
+    branches:
+      - integration/host-core-v1
+  pull_request:
+    paths:
+      - "host-adapter/patches/**"
+      - "host-adapter/prototype/patches/**"
+      - "scripts/sillytavern-patch-manager.mjs"
+      - "tests/sillytavern-patch-manager.test.js"
+      - "tests/sillytavern-final-send-patch-artifact.test.js"
+      - ".github/workflows/host-lifecycle-patch-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: \${{ github.workflow }}-\${{ github.event_name }}-\${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  pinned-patch-bundle:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Checkout exact SillyTavern source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        env:
+          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: false
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+      - name: Apply Final-Send, lifecycle and root-mutation patches in production order
+        run: |
+          actual="$(git -C SillyTavern rev-parse HEAD)"
+          test "$actual" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+          git -C SillyTavern config core.autocrlf false
+          git -C SillyTavern config core.eol lf
+          final_send="$PWD/host-adapter/patches/sillytavern-1.19.0-final-send.patch"
+          lifecycle="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          root_guards="$PWD/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
+          git -C SillyTavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --check "$final_send"
+          git -C SillyTavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace "$final_send"
+          for patch in "$lifecycle" "$root_guards"; do
+            git -C SillyTavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero --check "$patch"
+            git -C SillyTavern -c core.autocrlf=false apply --ignore-space-change --ignore-whitespace --unidiff-zero "$patch"
+          done
+          git -C SillyTavern diff --check
+      - name: Verify exact changed-file set and syntax
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const patches = [
+            'host-adapter/patches/sillytavern-1.19.0-final-send.patch',
+            'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch',
+            'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch',
+          ];
+          const expected = new Set();
+          for (const patchPath of patches) {
+            for (const line of readFileSync(patchPath, 'utf8').split(/\r?\n/)) {
+              const match = line.match(/^(?:--- a\/|\+\+\+ b\/)(.+)$/);
+              if (match && match[1] !== '/dev/null') expected.add(match[1]);
+            }
+          }
+          const changed = execFileSync('git', ['-C', 'SillyTavern', 'diff', '--name-only'], { encoding: 'utf8' });
+          const untracked = execFileSync('git', ['-C', 'SillyTavern', 'ls-files', '--others', '--exclude-standard'], { encoding: 'utf8' });
+          const actual = new Set((changed + '\n' + untracked).split(/\r?\n/).filter(Boolean));
+          assert.deepEqual([...actual].sort(), [...expected].sort(), 'patched SillyTavern file set must exactly match all three pinned artifacts');
+          for (const file of actual) {
+            if (/\.(?:mjs|js)$/.test(file)) execFileSync('node', ['--check', \`SillyTavern/\${file}\`], { stdio: 'inherit' });
+          }
+          process.stdout.write(\`PASS: \${actual.size} exact patched files syntax-checked\n\`);
+          NODE
+      - name: Test transactional Patch Manager and Final-Send artifact
+        run: |
+          node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
+      - name: Audit pinned lifecycle route anchors
+        env:
+          SILLYTAVERN_SOURCE_ROOT: SillyTavern
+        run: node --test host-adapter/prototype/tests/pinned-st-source-audit.test.mjs
