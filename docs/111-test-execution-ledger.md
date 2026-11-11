@@ -361,3 +361,26 @@ This confirms that Extension Manager installation is present and the package is 
 **Status:** package contract test PASS; Extension Manager installation/listing PASS. Browser runtime load, console state, server Gateway communication, Final-Send installation and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
 
 **Next verification:** inspect the browser Console for errors referencing Logic Engine and verify the browser runtime's expected Host identity registration and server Gateway endpoints independently. Do not infer full integration from the extension list alone.
+
+
+### 2026-11-11 — SillyTavern browser module load observed in Edge Network (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version and installed ST root/build not restated in this observation.
+
+**User-provided Network evidence after enabling Keep log:**
+- `lifecycle-journal.mjs` — HTTP 200
+- `st-lifecycle-bridge.mjs` — HTTP 200
+- `conversation-identity.mjs` — HTTP 200
+- Extension `manifest.json` requests — HTTP 200
+- Extension Manager `index.js` — HTTP 200 (two entries observed)
+- `host-context.mjs` — HTTP 200 (two entries observed)
+- imported `conversation-identity.mjs` — HTTP 200
+- an additional `conversation-identity.mjs` entry had no visible status in the pasted table.
+
+The user also reported no Console errors. Requests showing HTTP 304 are normal cache revalidation responses and are not failures.
+
+**Result:** browser network retrieval of the listed extension modules is **PASS** (HTTP 200 responses observed). This is stronger evidence than Extension Manager listing alone and confirms that Edge requested and received the entrypoint and its imported modules.
+
+**Limits:** Network 200/304 responses do not independently prove successful module evaluation, completion of browser initialization, actual listener registration, or server Gateway/Host identity exchange. The absence of reported Console errors is useful supporting evidence but does not prove those behaviors. Server Gateway communication and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** verify the runtime identity endpoints from the same live ST session, then verify a real supported generation path without enabling Memory → NPC.
