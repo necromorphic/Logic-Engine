@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,6 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { initializeMemoryProviderSchema, createMemoryNpcProviderAdapter } from '../src/application/memory-npc-provider-adapter.js';
 import { MemoryDispatchGateway } from '../src/security/memory-dispatch-gateway.js';
-import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from '../src/security/accepted-head-authority.js';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { createSillyTavernFinalSendAdapter } from '../host-adapter/sillytavern-final-send-adapter.mjs';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
@@ -53,6 +53,37 @@ const SESSION = '33333333-3333-4333-8333-333333333333';
 const CONVERSATION = '44444444-4444-4444-8444-444444444444';
 const SOURCE_MANIFEST_SHA256 = 'c'.repeat(64);
 
+async function startAcceptedHeadAuthorityProcess(path) {
+  const authorityUrl = new URL('../src/security/accepted-head-authority.js', import.meta.url).href;
+  const script = [
+    'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
+    'const args = process.argv.slice(1);',
+    'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "host-bridge-runtime-e2e-authority" });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
+    'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
+    'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
+  ].join('\\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: {
+      PATH: process.env.PATH || '',
+      SystemRoot: process.env.SystemRoot || '',
+      WINDIR: process.env.WINDIR || '',
+      LE_TEST_CORE_TOKEN: ACCEPTED_CORE_TOKEN,
+      LE_TEST_PROVIDER_TOKEN: ACCEPTED_PROVIDER_TOKEN,
+      LE_TEST_READ_TOKEN: ACCEPTED_READ_TOKEN,
+    },
+  });
+  const [chunk] = await once(child.stdout, 'data');
+  const match = String(chunk).match(/LISTENING:(\\d+)/);
+  if (!match) {
+    child.kill();
+    throw new Error('Accepted-head test service did not start.');
+  }
+  return { child, port: Number(match[1]) };
+}
+
 function responseRecorder() {
   return {
     statusCode: null,
@@ -83,24 +114,15 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
   let observerAdapter;
   let nonceStore;
   let server;
-  let authority;
-  let authorityServer;
+  let authorityProcess;
+  let authorityPort;
   let gateway;
   let finalSendAdapter;
   try {
-    authority = new AcceptedHeadAuthority({
-      path: join(directory, 'accepted-head-authority.sqlite'),
-      installationId: 'host-bridge-runtime-e2e-installation',
-    });
-    authorityServer = createAcceptedHeadAuthorityServer({
-      authority,
-      coreToken: ACCEPTED_CORE_TOKEN,
-      providerToken: ACCEPTED_PROVIDER_TOKEN,
-      readToken: ACCEPTED_READ_TOKEN,
-    });
-    authorityServer.listen(0, '127.0.0.1');
-    await once(authorityServer, 'listening');
-    const authorityPort = authorityServer.address().port;
+    authorityProcess = await startAcceptedHeadAuthorityProcess(
+      join(directory, 'accepted-head-authority.sqlite'),
+    );
+    authorityPort = authorityProcess.port;
 
     // Bootstrap empty Core and Provider schemas first, then perform explicit
     // test-only accepted-head baseline enrollment before reopening them in
@@ -450,7 +472,7 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     gateway = new MemoryDispatchGateway({
       ledgerPath: join(directory, 'dispatch-ledger.sqlite'),
       coordinatorPath,
-      authorityPort: authorityServer.address().port,
+      authorityPort,
       readToken: ACCEPTED_READ_TOKEN,
       readCoreEvidence: input => observerAdapter.readCoreEvidenceSync(input),
       readProviderEvidence: input => observerAdapter.readProviderEvidenceSync(input),
@@ -555,10 +577,10 @@ test('Host one-shot bridge preserves one run identity through live Core runtime,
     try { nonceStore?.close(); } catch {}
     try { providerAdapter?.close(); } catch {}
     try { store?.close(); } catch {}
-    if (authorityServer?.listening) {
-      await new Promise(resolveClose => authorityServer.close(resolveClose));
+    if (authorityProcess?.child.exitCode === null && authorityProcess?.child.signalCode === null) {
+      authorityProcess.child.stdin.end('stop');
+      await once(authorityProcess.child, 'exit');
     }
-    try { authority?.close(); } catch {}
     if (previousCoordinator === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previousCoordinator;
     if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
