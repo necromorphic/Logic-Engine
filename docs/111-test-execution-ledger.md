@@ -203,3 +203,12 @@ The 1/1 PASS in section 10 applies to the earlier test version at `2f991c681ec2d
 - **Verified:** immutable Receiver canary reaches one observed model egress; a second dispatch using the same Host response is synchronously denied; no second model transport call occurs; response release after duplicate denial is rejected.
 - **Scope limitation:** fixture-backed Core/Provider/Host evidence readers and deterministic in-process fake model transport. This does not prove live installed SillyTavern composition, independent production Root Authority/Host Inventory, or full acceptance Blocks 1–4.
 - **SQLite ExperimentalWarning:** informational; test passed.
+
+
+### 2026-11-11 — OpenAI-compatible SillyTavern streaming adapter composition added (NOT TESTED)
+
+Added an adapter-level streaming composition test using the actual Receiver, SillyTavern Final-Send adapter, protected serializer, and SQLite-backed Gateway fixture. The Host request follows the chat-completions route shape (chat_completion_source, messages, stream); the provider request uses an OpenAI-compatible chat-completions body (model, messages, stream, stream_options). A deterministic fake transport captures the exact serialized outbound body. A simulated Host streaming writer sends two chunks and the terminal event, with each write passed through the adapter's response-release authorization.
+
+The test asserts one provider handoff, exact prompt preservation, Receiver canary insertion, streaming flags/options preservation, per-chunk authorization, and COMPLETED only after the final authorized write.
+
+**Evidence boundary:** this is an OpenAI-compatible protocol fixture, not a live installed SillyTavern process or a captured request from the supplied ST release archive. Gateway evidence readers remain fixture-backed. It is NOT TESTED until executed on Windows.
