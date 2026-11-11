@@ -17,6 +17,9 @@ This decision does not remove the Host inventory completeness requirement. Host 
 
 1. The user ran `tests/host-source-inventory.test.js` on Windows PowerShell / Node.js 22.18.0: 17 passed, 0 failed, 1 skipped. The suite includes the audited Windows VSS point-in-time snapshot path. It validates a bounded scanner candidate, not an authoritative production inventory.
 2. The scanner's own disposition remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`.
+3. `verifyPinnedSillyTavernMutationCoverage` proves that 89 reviewed route declarations and their expected middleware names exist in the pinned source. It hashes those source files. It does **not** execute the routes or prove that the middleware creates durable mutation receipts.
+4. The current ST middleware seams (`createHostUnsupportedMutationGuard`, `createHostBulkMutationGuard`, `createHostLifecycleSaveGuard`, and `createHostAccountMutationMiddleware`) deliberately delegate to `next()`. Native ST operations continue; they are not blocked by Host and do not by themselves produce runtime-acceptance evidence.
+5. The inventory diagnostics response includes `UNVERIFIED_MUTATION_RUNTIME_ACCEPTANCE`, but that response-only blocker was not consumed by the generation authentication gate. A valid-looking Core root attestation could therefore have been treated as sufficient by the gate despite the missing runtime acceptance evidence.
 3. `src/index.js` constructs `HostVersionDigestLedger` with `verifyInventorySnapshot: async () => false`. This is an intentional production deny-only gate. It must not be replaced by a permissive callback or a test fixture.
 4. `HostLifecycleJournal` stores append-only root inventory baseline/delta records and validates signed attestations. These records do not independently prove complete coverage of all supported SillyTavern data and lifecycle paths.
 5. `ENGINE_HOST_ROOT_IDENTITIES` is a deployment-owned allowlist for adapter, installation, account, root and pinned source-manifest digest. It is identity configuration, not proof that the complete Host source inventory was captured.
@@ -25,7 +28,7 @@ This decision does not remove the Host inventory completeness requirement. Host 
 
 ## Why the production gate remains closed
 
-The scanner is still non-authoritative and the production verifier is deny-only. The missing proof is not a remote server. The missing proof is a complete, pinned Host inventory/lifecycle contract and a production verifier that consumes that exact evidence safely.
+The scanner is still non-authoritative and the production verifier is deny-only. Static route coverage is not runtime acceptance. The missing proof is a complete, pinned Host inventory/lifecycle contract, operation-specific durable receipts or equivalent verified runtime evidence, and a production verifier that consumes that exact evidence safely.
 
 Known Host coverage gaps must be closed or explicitly excluded from the product guarantee, including unsupported destructive/import/restore operations, branch/copy lineage, pre-enrollment history, external filesystem changes, and any extension/plugin route that can mutate relevant data outside the audited lifecycle.
 
@@ -39,12 +42,13 @@ Therefore do not:
 
 ## Smallest safe next implementation block
 
-1. Freeze the supported SillyTavern source roots and lifecycle operations for the pinned build. For every operation, identify the authoritative persisted source, mutation route, identity/lineage effect, and how unsupported paths fail closed.
-2. Complete the Host inventory envelope so it represents the supported set atomically and binds it to the authenticated installation/account/root and Core conversation/world binding.
-3. Implement the production verifier only against that complete contract. It must reject partial scans, missing roots, stale or conflicting generations, malformed identities, incomplete lifecycle evidence, and verifier errors.
-4. Use the existing local accepted-head service only for the Core/Provider mutation and partial-restore guarantees it actually provides. Keep its database outside routine Core/Provider backups, under a separate local service identity/ACL, and document recovery. Do not claim it detects a full-device rollback that includes its database.
-5. Prove that the pinned SillyTavern production composition routes protected Memory disclosure through the approved Gateway and final revalidation before the sole model transport. Host inventory readiness alone is not dispatch authorization.
-6. Add file-backed tests for complete/incomplete inventory, stale replay, mutation during scan, restart/recovery, local authority outage/mismatch, and zero-egress denial. Run the exact Windows Host/Core/SQLite/Gateway acceptance path on one exact candidate.
+1. Implement the operation-specific runtime acceptance evidence for the frozen SillyTavern mutation surface. The verifier must be production-composed, bound to the exact pinned source, current VSS snapshot, source manifest and mutation-route manifest, and must reject missing, stale or mismatched evidence. Until it exists, Host generation authentication must return `HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED` before Core root attestation or context resolution.
+2. Freeze the supported SillyTavern source roots and lifecycle operations for the pinned build. For every operation, identify the authoritative persisted source, mutation route, identity/lineage effect, and how unsupported paths fail closed.
+3. Complete the Host inventory envelope so it represents the supported set atomically and binds it to the authenticated installation/account/root and Core conversation/world binding.
+4. Implement the production verifier only against that complete contract. It must reject partial scans, missing roots, stale or conflicting generations, malformed identities, incomplete lifecycle evidence, and verifier errors.
+5. Use the existing local accepted-head service only for the Core/Provider mutation and partial-restore guarantees it actually provides. Keep its database outside routine Core/Provider backups, under a separate local service identity/ACL, and document recovery. Do not claim it detects a full-device rollback that includes its database.
+6. Prove that the pinned SillyTavern production composition routes protected Memory disclosure through the approved Gateway and final revalidation before the sole model transport. Host inventory readiness alone is not dispatch authorization.
+7. Add file-backed tests for complete/incomplete inventory, stale replay, mutation during scan, restart/recovery, local authority outage/mismatch, and zero-egress denial. Run the exact Windows Host/Core/SQLite/Gateway acceptance path on one exact candidate.
 
 ## Acceptance and release conditions
 
