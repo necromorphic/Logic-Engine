@@ -157,3 +157,17 @@ Regression coverage includes duplicate preparation, concurrent preparation, fail
 ## 4 Nov 2026 — Native Host route propagation
 
 The pinned Final-Send hook now derives the Host generation route from the authenticated request path and passes that same route to sender resolution and Core dispatch. This prevents native text-completions, Kobold, NovelAI, and Horde generation requests from being misclassified as Chat Completions at the hook boundary. A hook-level regression test verifies the route survives through dispatch. The route remains bound to the one-shot Host preparation context; unknown routes retain the fail-closed behavior.
+
+
+## Required protected-Memory mode — fail-closed transport behavior
+
+When `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true`, the production Final-Send adapter is constructed with `requireProtectedMemory=true`. In this mode:
+- Host preparation that is missing, NON_READY, or not bound to an authenticated Host session is terminal for that generation;
+- an absent, asynchronous, throwing, or invalid Receiver projection is terminal;
+- a protected sender-route mismatch is terminal;
+- a Gateway rejection before transport handoff is terminal and cannot fall back to the native provider transport;
+- only an explicit `null` result from the trusted projection callback means a successfully authorized complete-empty context and may use ordinary native transport.
+
+When Memory is disabled, the adapter retains ordinary SillyTavern native behavior. This distinction prevents an unavailable or invalid protected context from silently becoming an unprotected model request while preserving the explicitly supported complete-empty case.
+
+Regression coverage: `tests/protected-memory-required-final-send.test.mjs`. The test must prove zero provider calls for NON_READY Host preparation, unavailable Receiver projection, and Gateway denial, plus exactly one native call for an explicit complete-empty result.
