@@ -265,12 +265,21 @@ test('Host Adapter requires Core root proof before context resolution and binds 
       } : {}),
     };
   };
+  const testOnlyMutationRuntimeAcceptance = async input => ({
+    status: 'VERIFIED',
+    source_commit: PINNED_HOST_COMMIT,
+    snapshot_sha256: input.snapshotSha256,
+    source_manifest_sha256: input.sourceIdentity.manifest_sha256,
+    mutation_coverage_manifest_sha256: input.mutationCoverage.coverage_manifest_sha256,
+    evidence_sha256: 'a'.repeat(64),
+  });
   const adapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
     fetchImpl,
     persistRootInventory: testOnlyAuthoritativeRootProof,
     verifySourceIdentity: testSourceIdentity,
+    verifyMutationRuntimeAcceptance: testOnlyMutationRuntimeAcceptance,
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
@@ -298,8 +307,8 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   const productionAdapter = createSillyTavernHostAdapter({
     env,
     enumerate: authoritativeFixture,
-    // This negative case deliberately supplies an unverified installed manifest.
-    verifySourceIdentity: async () => ({ status: 'SOURCE_IDENTITY_UNVERIFIED' }),
+    // Production has no runtime-acceptance verifier configured; static route coverage alone must not open the gate.
+    verifySourceIdentity: testSourceIdentity,
     verifyMutationCoverage: async () => ({
       status: 'VERIFIED',
       source_commit: PINNED_HOST_COMMIT,
@@ -329,9 +338,9 @@ test('Host Adapter requires Core root proof before context resolution and binds 
   await productionAdapter.dispatchMiddleware(productionRequest, productionGateResponse, () => { productionPassedGate = true; });
   assert.equal(productionPassedGate, false);
   assert.equal(productionGateResponse.statusCode, 503);
-  assert.equal(productionGateResponse.payload.code, 'HOST_INVENTORY_NOT_AUTHORITATIVE');
-  assert.equal(productionCoreCalls.includes('/v1/host-root-inventory/attest'), false,
-    'an unverified installed source manifest must never create a Core completeness attestation');
+  assert.equal(productionGateResponse.payload.code, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED');
+  assert.equal(productionCoreCalls.length, 0,
+    'without runtime acceptance, production must not call Core or create a completeness attestation');
   assert.equal(productionCoreCalls.includes('/v1/host-context/resolve'), false);
 
   const sessionResponse = responseRecorder();
