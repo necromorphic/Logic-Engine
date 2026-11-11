@@ -344,7 +344,7 @@ test('dispatch handoff exposes a Lane B-only provider projection with exact sour
   assert.deepEqual(evidence.publicResult.candidates, [{
     record_ref: 'memory:1', record_version: 'v1', authorization_generation: 2,
     source_entity_id: 'source-1', epistemic_kind: 'acquired_report',
-    evidence_assessment: 'supported', content: { 'attributes.note': 'known' },
+    evidence_assessment: 'supported', content: { note: 'report' },
   }]);
   assert.deepEqual({ ...evidence.provider_evidence_cursor }, {
     data_version: 12, candidate_digest: 'b'.repeat(64),
