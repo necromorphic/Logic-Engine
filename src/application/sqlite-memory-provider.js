@@ -1638,12 +1638,19 @@ export class SQLiteMemoryProvider {
     if (!localHead || !Number.isSafeInteger(localHead.head)) {
       throw new Error('PROVIDER_DISPATCH_ACCEPTED_HEAD_UNAVAILABLE');
     }
+    // Match the Gateway's canonical source evidence contract. Provider's
+    // persisted lineage uses entity_id internally; the dispatch boundary uses
+    // source_entity_id consistently with Core and Receiver projections.
     const derivedSources = [...new Map(candidates.map(candidate => [
       JSON.stringify([candidate.source_kind, candidate.source_entity_id, candidate.source_version]),
-      { source_kind: candidate.source_kind, entity_id: candidate.source_entity_id, source_version: candidate.source_version },
+      {
+        source_kind: candidate.source_kind,
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      },
     ])).values()].sort((a, b) =>
-      JSON.stringify([a.source_kind, a.entity_id, a.source_version])
-        .localeCompare(JSON.stringify([b.source_kind, b.entity_id, b.source_version])));
+      JSON.stringify([a.source_kind, a.source_entity_id, a.source_version])
+        .localeCompare(JSON.stringify([b.source_kind, b.source_entity_id, b.source_version])));
     return Object.freeze({
       world_id: worldId,
       actor_id: actorId,
