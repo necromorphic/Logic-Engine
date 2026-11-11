@@ -177,13 +177,64 @@ export class SillyTavernPatchManager {
       if (info.isSymbolicLink() || !info.isFile()) throw new Error(code);
     }
     this.manifest = JSON.parse(await readFile(this.manifestPath, 'utf8'));
-    this.patchBytes = await readFile(this.patchPath);
-    if (!isUtf8(this.patchBytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID');
-    // Git may materialize text patches with CRLF on Windows. The manifest
-    // pins canonical UTF-8/LF bytes so the same artifact verifies on every OS.
-    const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
-    this.canonicalPatchBytes = canonicalPatchBytes;
-    if (sha256(canonicalPatchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
+    const declaredArtifacts = this.manifest.patch?.artifacts;
+    this.patchArtifacts = [];
+    if (declaredArtifacts !== undefined) {
+      if (!Array.isArray(declaredArtifacts) || declaredArtifacts.length < 2 || declaredArtifacts.length > 16) {
+        throw new Error('PATCH_ARTIFACT_BUNDLE_INVALID');
+      }
+      for (const [index, descriptor] of declaredArtifacts.entries()) {
+        if (!descriptor || typeof descriptor.path !== 'string'
+          || descriptor.path.includes('\\') || isAbsolute(descriptor.path)
+          || descriptor.path.split('/').some(part => !part || part === '.' || part === '..')
+          || !/^[a-f0-9]{64}$/.test(descriptor.sha256 ?? '')) {
+          throw new Error('PATCH_ARTIFACT_BUNDLE_INVALID');
+        }
+        const artifactPath = resolve(this.extensionRoot, ...descriptor.path.split('/'));
+        await assertNoSymlinkComponents(this.extensionRoot, artifactPath);
+        const artifactInfo = await lstat(artifactPath);
+        if (artifactInfo.isSymbolicLink() || !artifactInfo.isFile()) {
+          throw new Error('PATCH_ARTIFACT_UNSAFE: ' + descriptor.path);
+        }
+        const bytes = await readFile(artifactPath);
+        if (!isUtf8(bytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID: ' + descriptor.path);
+        const canonicalBytes = Buffer.from(bytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+        if (sha256(canonicalBytes) !== descriptor.sha256) {
+          throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH: ' + descriptor.path);
+        }
+        this.patchArtifacts.push({
+          path: descriptor.path,
+          bytes: canonicalBytes,
+          sha256: descriptor.sha256,
+          allowUnidiffZero: descriptor.allowUnidiffZero === true,
+        });
+      }
+      const bundleIdentity = this.patchArtifacts.map(item => item.path + '\\0' + item.sha256).join('\\n');
+      this.patchSha256 = sha256(Buffer.from(bundleIdentity, 'utf8'));
+      if (this.manifest.patch.bundleSha256 !== this.patchSha256) {
+        throw new Error('PATCH_ARTIFACT_BUNDLE_INTEGRITY_MISMATCH');
+      }
+      const finalSendArtifact = this.patchArtifacts.find(item => item.path === this.manifest.patch.path);
+      if (!finalSendArtifact || finalSendArtifact.sha256 !== this.manifest.patch.sha256) {
+        throw new Error('PATCH_ARTIFACT_FINAL_SEND_PIN_MISMATCH');
+      }
+      this.canonicalPatchBytes = finalSendArtifact.bytes;
+    } else {
+      this.patchBytes = await readFile(this.patchPath);
+      if (!isUtf8(this.patchBytes)) throw new Error('PATCH_ARTIFACT_ENCODING_INVALID');
+      // Git may materialize text patches with CRLF on Windows. The manifest
+      // pins canonical UTF-8/LF bytes so the same artifact verifies on every OS.
+      const canonicalPatchBytes = Buffer.from(this.patchBytes.toString('utf8').replace(/\\r\\n?/g, '\\n'), 'utf8');
+      this.canonicalPatchBytes = canonicalPatchBytes;
+      if (sha256(canonicalPatchBytes) !== this.manifest.patch.sha256) throw new Error('PATCH_ARTIFACT_INTEGRITY_MISMATCH');
+      this.patchArtifacts.push({
+        path: this.manifest.patch.path ?? 'logic-engine-final-send.patch',
+        bytes: canonicalPatchBytes,
+        sha256: this.manifest.patch.sha256,
+        allowUnidiffZero: false,
+      });
+      this.patchSha256 = this.manifest.patch.sha256;
+    }
     if (this.manifest.id !== 'logic-engine-sillytavern-final-send'
       || this.manifest.host?.name !== 'SillyTavern'
       || this.manifest.host?.version !== '1.19.0'
@@ -347,7 +398,7 @@ export class SillyTavernPatchManager {
       || state.hostVersion !== this.manifest.host.version
       || state.hostCommit !== this.manifest.host.commit
       || state.patchVersion !== this.manifest.patch.version
-      || state.patchSha256 !== this.manifest.patch.sha256
+      || state.patchSha256 !== this.patchSha256
       || typeof state.backupId !== 'string'
       || !state.backupId
       || JSON.stringify(state.createdFiles) !== JSON.stringify(this.manifest.createdFiles)) {
@@ -389,7 +440,7 @@ export class SillyTavernPatchManager {
       hostVersion: this.manifest.host.version,
       hostCommit: this.manifest.host.commit,
       patchVersion: this.manifest.patch.version,
-      patchSha256: this.manifest.patch.sha256,
+      patchSha256: this.patchSha256,
       verifiedBackupCount: expectedBackups.length,
     };
   }
@@ -435,9 +486,18 @@ export class SillyTavernPatchManager {
         await mkdir(dirname(target), { recursive: true });
         await writeFile(target, bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
       }
-      const canonicalPatchPath = resolve(temporaryRoot, 'logic-engine-final-send.patch');
-      await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
-      this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', '--check', canonicalPatchPath], temporaryRoot);
+      for (const [index, artifact] of this.patchArtifacts.entries()) {
+        const canonicalPatchPath = resolve(temporaryRoot, 'logic-engine-patch-' + index + '.patch');
+        await writeFile(canonicalPatchPath, artifact.bytes, { flag: 'wx', mode: 0o600 });
+        const args = ['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace'];
+        if (artifact.allowUnidiffZero) args.push('--unidiff-zero');
+        args.push('--check', canonicalPatchPath);
+        this.runGit(args, temporaryRoot);
+        const applyArgs = ['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace'];
+        if (artifact.allowUnidiffZero) applyArgs.push('--unidiff-zero');
+        applyArgs.push(canonicalPatchPath);
+        this.runGit(applyArgs, temporaryRoot);
+      }
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -493,11 +553,16 @@ export class SillyTavernPatchManager {
     await this.writeJournal(journal);
     this._activeInstallBackups = backups;
     const patchRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-'));
-    const canonicalPatchPath = resolve(patchRoot, 'logic-engine-final-send.patch');
     try {
-      await writeFile(canonicalPatchPath, this.canonicalPatchBytes, { flag: 'wx', mode: 0o600 });
       await this.normalizePatchTargetsForApply();
-      this.runGit(['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace', canonicalPatchPath], this.stRoot);
+      for (const [index, artifact] of this.patchArtifacts.entries()) {
+        const canonicalPatchPath = resolve(patchRoot, 'logic-engine-patch-' + index + '.patch');
+        await writeFile(canonicalPatchPath, artifact.bytes, { flag: 'wx', mode: 0o600 });
+        const args = ['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace'];
+        if (artifact.allowUnidiffZero) args.push('--unidiff-zero');
+        args.push(canonicalPatchPath);
+        this.runGit(args, this.stRoot);
+      }
       await this.restorePatchTargetLineEndings();
 
       // The Host source manifest initially describes the Host-only overlay.
@@ -536,7 +601,7 @@ export class SillyTavernPatchManager {
         hostVersion: this.manifest.host.version,
         hostCommit: this.manifest.host.commit,
         patchVersion: this.manifest.patch.version,
-        patchSha256: this.manifest.patch.sha256,
+        patchSha256: this.patchSha256,
         backupId,
         backups,
         createdFiles: this.manifest.createdFiles,
@@ -657,7 +722,7 @@ export class SillyTavernPatchManager {
           && state.hostVersion === this.manifest.host.version
           && state.hostCommit === this.manifest.host.commit
           && state.patchVersion === this.manifest.patch.version
-          && state.patchSha256 === this.manifest.patch.sha256
+          && state.patchSha256 === this.patchSha256
           && JSON.stringify(state.createdFiles) === JSON.stringify(this.manifest.createdFiles);
         if (sameInstalledArtifact) {
           await this.verifyInstalled();
