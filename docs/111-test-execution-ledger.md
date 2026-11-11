@@ -400,3 +400,20 @@ The user also reported no Console errors. Requests showing HTTP 304 are normal c
 **Limits:** The three rows do not by themselves establish whether calls correspond to separate generation events, multiple loaded extension paths, or an unnecessary duplicate. No conclusion about duplicate registration is drawn from this data alone. Full Host conversation identity resolution, listener behavior, Core retrieval, NPC context injection, and Final-Send remain unverified by this observation. Memory → NPC remains disabled/fail-closed.
 
 **Next check:** filter Network by `identity` after the same generation and capture the status, initiator, and count of matching rows.
+
+
+### 2026-11-11 — Live SillyTavern identity endpoint observed during generation (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+**User-provided Network evidence with filter `identity`:**
+- `conversation-identity.mjs` — three HTTP 200 script responses (one initiated by `script.js:19`, two by `host-context.mjs:1`).
+- `conversation-identity.mjs` — six HTTP 304 script responses (initiators `script.js:19` and `host-context.mjs:1`).
+- `identity` — HTTP 200, Fetch, initiator `script.js:1629`, 960 B, 5 ms.
+- `identity` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 960 B, 4 ms (two rows).
+
+**Result:** PASS for successful HTTP responses from the Gateway `/identity` endpoint during the observed generation. Together with the preceding user-observed three `/session` HTTP 200 responses, this confirms that the browser runtime reached both identity endpoints. Module HTTP 304 responses are normal cache revalidation and are not failures.
+
+**Limits:** Network status and response sizes do not validate the JSON identity fields or prove that the client accepted them. The repeated endpoint requests are recorded as observed; their cause (separate initialization/generation paths versus redundant calls) is NOT VERIFIED. Successful stable conversation enrollment/persistence, Host inventory authorization, Core retrieval, Receiver acceptance, NPC context injection, and Final-Send are not established by this Network evidence. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** inspect the actual `identity` response JSON in Edge Network → select an `identity` request → Response. Confirm only that the response contains the expected identity fields and that `host_session_id` matches the corresponding `/session` response. Do not paste opaque IDs or other sensitive values; report whether the fields match and whether the response includes an error.
