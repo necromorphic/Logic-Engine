@@ -105,12 +105,11 @@ jobs:
           LOGIC_ENGINE_VFS_PROBE_PATH: ${{ runner.temp }}/logic_engine_secure_vfs_probe_strict.so
         run: |
           python3 -m py_compile tests/run_better_sqlite3_cross_uid.py
-          if ! sudo -n true; then
-            echo "::error::The self-hosted Linux runner must have non-interactive sudo for the isolated cross-UID broker test."
+          NODE_BINARY="$(command -v node)"
+          if ! sudo -n /usr/bin/python3 "$GITHUB_WORKSPACE/tests/run_better_sqlite3_cross_uid.py"; then
+            echo "::error::The isolated cross-UID test needs the runner's exact NOPASSWD Python command; see the required runner setup."
             exit 1
           fi
-          NODE_BINARY="$(command -v node)"
-          sudo -n env NODE_BINARY="$NODE_BINARY" BETTER_SQLITE3_PACKAGE_DIR="$BETTER_SQLITE3_PACKAGE_DIR" LOGIC_ENGINE_VFS_PROBE_PATH="$LOGIC_ENGINE_VFS_PROBE_PATH" python3 tests/run_better_sqlite3_cross_uid.py
 
   windows-x64:
     runs-on: [self-hosted, Windows, X64]
