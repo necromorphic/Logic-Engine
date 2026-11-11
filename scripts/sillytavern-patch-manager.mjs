@@ -172,12 +172,14 @@ export class SillyTavernPatchManager {
     const rootInfo = await lstat(this.stRoot);
     if (!rootInfo.isDirectory()) throw new Error('SILLYTAVERN_ROOT_INVALID');
     if (!isWithin(this.stRoot, this.managerDir)) throw new Error('PATCH_MANAGER_STATE_PATH_INVALID');
-    for (const [path, code] of [[this.manifestPath, 'PATCH_MANIFEST_UNSAFE'], [this.patchPath, 'PATCH_ARTIFACT_UNSAFE']]) {
-      const info = await lstat(path);
-      if (info.isSymbolicLink() || !info.isFile()) throw new Error(code);
-    }
+    const manifestInfo = await lstat(this.manifestPath);
+    if (manifestInfo.isSymbolicLink() || !manifestInfo.isFile()) throw new Error('PATCH_MANIFEST_UNSAFE');
     this.manifest = JSON.parse(await readFile(this.manifestPath, 'utf8'));
     const declaredArtifacts = this.manifest.patch?.artifacts;
+    if (declaredArtifacts === undefined) {
+      const patchInfo = await lstat(this.patchPath);
+      if (patchInfo.isSymbolicLink() || !patchInfo.isFile()) throw new Error('PATCH_ARTIFACT_UNSAFE');
+    }
     this.patchArtifacts = [];
     if (declaredArtifacts !== undefined) {
       if (!Array.isArray(declaredArtifacts) || declaredArtifacts.length < 2 || declaredArtifacts.length > 16) {
@@ -186,8 +188,9 @@ export class SillyTavernPatchManager {
       for (const [index, descriptor] of declaredArtifacts.entries()) {
         if (!descriptor || typeof descriptor.path !== 'string'
           || descriptor.path.includes('\\') || isAbsolute(descriptor.path)
-          || descriptor.path.split('/').some(part => !part || part === '.' || part === '..')
-          || !/^[a-f0-9]{64}$/.test(descriptor.sha256 ?? '')) {
+          || descriptor.path.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\0'))
+          || !/^[a-f0-9]{64}$/.test(descriptor.sha256 ?? '')
+          || typeof descriptor.allowUnidiffZero !== 'boolean') {
           throw new Error('PATCH_ARTIFACT_BUNDLE_INVALID');
         }
         const artifactPath = resolve(this.extensionRoot, ...descriptor.path.split('/'));
@@ -209,7 +212,7 @@ export class SillyTavernPatchManager {
           allowUnidiffZero: descriptor.allowUnidiffZero === true,
         });
       }
-      const bundleIdentity = JSON.stringify(this.patchArtifacts.map(({ path, sha256 }) => ({ path, sha256 })));
+      const bundleIdentity = JSON.stringify(this.patchArtifacts.map(({ path, sha256, allowUnidiffZero }) => ({ path, sha256, allowUnidiffZero })));
       this.patchSha256 = sha256(Buffer.from(bundleIdentity, 'utf8'));
       if (this.manifest.patch.bundleSha256 !== this.patchSha256) {
         throw new Error('PATCH_ARTIFACT_BUNDLE_INTEGRITY_MISMATCH');
