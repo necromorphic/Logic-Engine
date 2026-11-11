@@ -1616,15 +1616,19 @@ export class SQLiteMemoryProvider {
     const rawByIdentity = new Map(rawCandidates.map(candidate => [
       JSON.stringify([candidate.record.ref, candidate.record.version]), candidate,
     ]));
+    // The dispatch candidate projection intentionally contains only record
+    // identity, authorization generation and canonical source lineage. The
+    // cursor digest above binds the complete raw Provider candidate set,
+    // including epistemic_kind and evidence_assessment, to the retrieval
+    // snapshot. Those semantic fields are separately bound to Core admission
+    // and Receiver-approved content; they are not fields of this projection.
     for (const candidate of candidates) {
       const raw = rawByIdentity.get(JSON.stringify([candidate.record_ref, candidate.record_version]));
       if (!raw
         || raw.authorization_generation !== candidate.authorization_generation
         || raw.source.kind !== candidate.source_kind
         || raw.source.entity_id !== candidate.source_entity_id
-        || raw.source.source_version !== candidate.source_version
-        || raw.epistemic_kind !== candidate.epistemic_kind
-        || raw.lifecycle.evidence_assessment !== candidate.evidence_assessment) {
+        || raw.source.source_version !== candidate.source_version) {
         throw new Error('PROVIDER_DISPATCH_CANDIDATE_NOT_CURRENT');
       }
     }
