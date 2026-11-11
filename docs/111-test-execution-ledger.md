@@ -186,3 +186,6 @@ The previously passing production-adapter egress test was extended to attempt a 
 - no second Host response write.
 
 The 1/1 PASS in section 10 applies to the earlier test version at `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b`; it does not cover these newly added duplicate-dispatch assertions. The extended test is **NOT TESTED** until rerun on Windows. Fixture-backed evidence limitations from section 10 remain unchanged.
+
+
+**Failure analysis and correction — 2026-11-11:** the first extended run at `24937d4e12f3cd7e0f6cfb54dd7b904d2f691e52` failed because `dispatch()` replaced the response's existing `COMPLETED` release state with a new `pending` entry before checking the duplicate-response WeakSet. The test correctly detected that the duplicate attempt was not synchronously rejected. Commit `3628593a737fd1607535e1e25b154e07709dea7a` moves the duplicate check to the beginning of dispatch, before context resolution or response-capability replacement, and marks the existing release state denied. The corrected implementation and extended test are **NOT TESTED** pending a new Windows run.
