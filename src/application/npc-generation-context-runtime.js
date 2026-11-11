@@ -69,6 +69,12 @@ function toPlainData(value, depth = 0) {
   return copy;
 }
 
+function freezePlainData(value) {
+  if (!value || typeof value !== 'object') return value;
+  for (const key of Object.keys(value)) freezePlainData(value[key]);
+  return Object.freeze(value);
+}
+
 function validId(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= 200
     && value === value.trim()
@@ -559,7 +565,7 @@ export function createCoreNpcGenerationContextRuntime({
       provider_evidence_cursor: toPlainData(laneB.provider_evidence_cursor),
     });
     if (!providerResult) return Object.freeze({ status: 'non_ready', reason: 'dispatch_lane_b_public_result_invalid' });
-    const publicResult = Object.freeze({
+    const publicResult = freezePlainData({
       status: providerResult.status,
       admitted: providerResult.admitted,
       candidates: providerResult.candidates,
