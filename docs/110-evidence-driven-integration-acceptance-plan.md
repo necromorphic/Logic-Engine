@@ -429,3 +429,8 @@ The evidence readers remain controlled by the Gateway test fixture. This advance
 ### 2026-11-11 — Final-Send duplicate-dispatch denial added (NOT TESTED)
 
 Extended the adapter-level egress test to attempt a second send with the same Host response after the first dispatch completed. The expected behavior is a terminal duplicate-send denial, zero additional model transport calls, and no second response release. This regression is NOT TESTED. It does not change the production evidence-reader limitation or the open acceptance status of Blocks 1, 3, and 4.
+
+
+### 2026-11-11 — Duplicate Final-Send guard corrected after failing regression (NOT TESTED)
+
+The first duplicate-dispatch regression failed: dispatch replaced the existing response release state before consulting its duplicate-send guard. The adapter now checks the response WeakSet before context resolution and before resetting release state, and marks the prior release denied. The corrected behavior remains NOT TESTED until the user reruns the focused Windows test.
