@@ -530,3 +530,20 @@ Commits:
 - `837e16cfd252ce75c76bc4bbfbd9744e3ee9fda5` — integration contract documentation.
 
 **Execution status:** NOT TESTED at this exact head. The dispatch ledger remains content-free; the added fields are correlation metadata only. Exact same-run persistence must pass the Windows Gateway Final-Send suite and Linux/Windows NPC suite before this check can be marked PASS. Keep Memory → NPC disabled in normal SillyTavern.
+
+
+### 2026-11-11 — Gateway correlation and required Final-Send regression suite PASS
+
+**PASS — GitHub Actions run `42995124956`, commit `b928f070270a71d01620add1406039adff6df2ac`, Windows self-hosted runner.**
+
+- Syntax validation: PASS.
+- Memory Dispatch Gateway: 59/59 PASS.
+- Protected Memory Final-Send: 20/20 PASS.
+- SillyTavern Final-Send adapter: 13/13 PASS.
+- Gateway Final-Send composition: 18/18 PASS.
+- Required protected-Memory fail-closed regressions: 4/4 PASS.
+- Total: **114/114 PASS, 0 FAIL**.
+
+The run confirms the new required correlation fields are accepted by the in-process Gateway, included in the signed request snapshot, persisted in the dispatch-start ledger, and preserved by the sender-registry migration test. It also confirms the protected-Memory failure paths do not invoke native provider transport, while the explicitly authorized complete-empty case invokes it exactly once.
+
+**Still NOT VERIFIED:** the full Runtime suite (run `42995123469`) and the NPC Generation Context / embedded Host-Core-Receiver suite (run `42995123035`) are queued. This does not prove same-run continuity through the actual production Gateway and model transport in one integrated test. Host Root Inventory production authority remains deny-only. Keep Memory → NPC disabled in normal SillyTavern.
