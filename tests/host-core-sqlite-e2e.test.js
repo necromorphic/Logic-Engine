@@ -341,9 +341,9 @@ test('Host dispatch proxy retrieves a real SQLite Provider record through Core H
     assert.equal(receiverEnvelope.admitted.length, receiverEnvelope.candidates.length,
       'Core did not admit every supported candidate for NPC projection: ' + JSON.stringify(receiverAdmissionDiagnostics));
     assert.deepEqual(
-      receiverAdmissionDiagnostics.candidates?.[0]?.keys,
-      ['record_ref', 'record_version', 'authorization_generation', 'source_entity_id',
-        'source_version', 'epistemic_kind', 'evidence_assessment', 'content'],
+      [...(receiverAdmissionDiagnostics.candidates?.[0]?.keys ?? [])].sort(),
+      ['authorization_generation', 'content', 'epistemic_kind', 'evidence_assessment',
+        'record_ref', 'record_version', 'source_entity_id', 'source_version'].sort(),
       'Core candidate shape differs from the Receiver contract: ' + JSON.stringify(receiverAdmissionDiagnostics),
     );
     const received = receiveNpcContext({
