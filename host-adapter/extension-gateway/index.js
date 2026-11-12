@@ -34,17 +34,17 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
     return data;
 }
 
-let stContextPromise;
+let stContextModulePromise;
 async function getSillyTavernContext() {
-    if (!stContextPromise) {
-        stContextPromise = import(new URL('/scripts/st-context.js', import.meta.url).href)
-            .then(module => module.getContext())
+    if (!stContextModulePromise) {
+        stContextModulePromise = import(new URL('/scripts/st-context.js', import.meta.url).href)
             .catch(error => {
-                stContextPromise = null;
+                stContextModulePromise = null;
                 throw error;
             });
     }
-    return stContextPromise;
+    const module = await stContextModulePromise;
+    return module.getContext();
 }
 
 const REGISTRATION_KEY = Symbol.for('logic-engine.host-generation-identity.registration.v1');
@@ -183,7 +183,10 @@ export async function registerHostGenerationIdentity(context = null, { resolveHo
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
         throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
     }
-    const attach = data => attachHostConversationLocator(data, hostContext, resolveHostContext);
+    // The event bus is stable, but chatMetadata is replaced on chat switches.
+    // Pass a provider so each generation resolves the current ST context snapshot.
+    const contextSource = context ?? getSillyTavernContext;
+    const attach = data => attachHostConversationLocator(data, contextSource, resolveHostContext);
     const removeAutoCapture = await registerHostLifecycleAutoCapture(hostContext);
     // ST awaits each listener before serializing the generation request.
     // CHAT_COMPLETION_SETTINGS_READY is the last mutable point for Chat
