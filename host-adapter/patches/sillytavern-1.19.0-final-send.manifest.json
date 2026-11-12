@@ -10,7 +10,7 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "6c25b96114305fca7ca508bcd6d4ff1e238b966bb8c0a3895f8427a10975cdad",
+    "bundleSha256": "a4d2499bec8f857a8d15fbd724d364df850f841cf90fb10538286211dcebc4b5",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "3404985840bf410f812f4a9b46d3c287e232329ca2ef93d9826e03ed8f4fc894",
+        "sha256": "afaed0c3dfedfed89f81951cea205677052650ce4e2d93a86097d68ed3988733",
         "allowUnidiffZero": true
       },
       {
@@ -33,7 +33,7 @@
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
     "public/script.js": {
       "before": "955c603d0bad84bac5a716f0818d85c2543e44d4c43878e0d63ef1e55ca91855",
-      "after": "6d7fc552c2dde410c749730048c48e642ad4179ede666f7286aded820beaeddc"
+      "after": "aeb227631d7c3577543d79dc85701f765a84bd3cb46f99e532ba6e3b90acf616"
     },
     "public/scripts/bookmarks.js": {
       "before": "5c3a68aa82e58c0d82777065b8466572fc1b202cad98a92ba4daa852c386ad1b",
@@ -195,7 +195,7 @@
   "createdFiles": {
     "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "382f79b054c45fa1fbfdfb5ec44f5fa4980f2fb602ada729540ae270a1ae306a",
     "public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs": "2adb9b6d4619c968ac7da680cc9fffa3c47b3f09b981017cdaf8ac96c37eabc2",
-    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "83db71d55a4a002562715b33d428a9086615047be4ddf65050b12b81056de933",
+    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "712b33f637c895bff4fd4b9d3e94190ac4988fbbd3887d3469cdcb38b31f92c7",
     "src/endpoints/logic-engine-host-inventory-handler.mjs": "362f7ee2f193d30db59d8cf8e5b2a90f761e5aa4dab0661b0405e7026e7ef64c",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
     "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
