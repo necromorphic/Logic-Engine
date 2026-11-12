@@ -79,6 +79,8 @@ export async function resolveStableHostConversationIdentity({
   };
   const persistConversationUuid = async (conversationUuid, { requireServerVerification = false } = {}) => {
     const originalMetadata = metadata;
+    const hadPriorIdentity = Object.hasOwn(originalMetadata, 'logic_engine_conversation_id');
+    const priorIdentity = originalMetadata.logic_engine_conversation_id;
     originalMetadata.logic_engine_conversation_id = conversationUuid;
     if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator) {
       delete originalMetadata.logic_engine_conversation_id;
@@ -87,6 +89,8 @@ export async function resolveStableHostConversationIdentity({
     try {
       await saveMetadata();
     } catch (error) {
+      if (hadPriorIdentity) originalMetadata.logic_engine_conversation_id = priorIdentity;
+      else delete originalMetadata.logic_engine_conversation_id;
       throw Error('NON_READY: durable Host conversation identity could not be saved: ' + (error?.message || error));
     }
     if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator
@@ -166,10 +170,13 @@ export async function resolveStableHostConversationIdentity({
         throw Error('NON_READY: Host enrollment recovery pair is duplicated or associated elsewhere');
       }
     }
-    if (!(await verifyServerPersistence(conversationUuid))) {
+    if (typeof verifyPersistedIdentity !== 'function') {
       throw Error('NON_READY: server confirmation is required before restoring missing chat identity metadata');
     }
-    await persistConversationUuid(conversationUuid, { requireServerVerification: false });
+    await persistConversationUuid(conversationUuid);
+    if (!(await verifyServerPersistence(conversationUuid))) {
+      throw Error('NON_READY: server did not confirm the restored conversation identity in the persisted chat');
+    }
     return {
       status: 'READY_FOR_REVIEW',
       conversationId: mappedId,
