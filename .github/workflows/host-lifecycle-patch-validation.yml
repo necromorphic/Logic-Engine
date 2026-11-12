@@ -33,6 +33,8 @@ jobs:
             'host-adapter/extension-gateway/gateway-policy.mjs',
             'host-adapter/extension-gateway/server-plugin/index.mjs',
             'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-mutation-runtime-acceptance.mjs',
             'host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs',
             'host-adapter/extension-gateway/server-plugin/st-server-digest-proxy.mjs',
             'host-adapter/extension-gateway/server-plugin/fs-inventory.js',

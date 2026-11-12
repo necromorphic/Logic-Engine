@@ -54,7 +54,10 @@ jobs:
           node --check host-adapter/extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs
           node --check host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs
           node --check host-adapter/extension-gateway/server-plugin/host-adapter.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-mutation-runtime-acceptance.mjs
           node --check host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs
+          node --test host-adapter/extension-gateway/tests/st-host-mutation-runtime-acceptance.test.mjs
 
       - name: Run focused receipt and pinned-source tests
         env:
