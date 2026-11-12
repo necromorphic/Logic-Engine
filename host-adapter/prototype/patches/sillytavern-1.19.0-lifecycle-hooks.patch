@@ -92,10 +92,10 @@ diff --git a/public/script.js b/public/script.js
 +let logicEngineLifecyclePendingRenameId = null;
 +let logicEngineHostDiagnostic = null;
 +async function getLogicEngineConversationId() {
-+    const session = await getLogicEngineHostSession();
-+    const identity = await getLogicEngineHostIdentity();
-+    const hostSessionId = identity.host_session_id;
 +    try {
++        const session = await getLogicEngineHostSession();
++        const identity = await getLogicEngineHostIdentity();
++        const hostSessionId = identity.host_session_id;
 +        const result = await resolveStableHostConversationIdentity({
 +            locator: getCurrentChatId(),
 +            hostSessionId,
