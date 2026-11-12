@@ -199,52 +199,12 @@ try {
     }
 
     $attestationSource = Get-Content -LiteralPath (Join-Path $serverSource 'st-source-attestation.mjs') -Raw
-    $patchHashMatch = [regex]::Match($attestationSource, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'")
+    $patchHashMatch = [regex]::Match($attestationSource, "PINNED_PATCH_BUNDLE_SHA256\\s*=\\s*'([a-f0-9]{64})'")
     if (-not $patchHashMatch.Success) { throw 'HOST_PATCH_BUNDLE_PIN_NOT_FOUND' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.pinned_host_commit -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
         -or $manifest.patch_blob_sha -ne $patchHashMatch.Groups[1].Value
-        -or $manifest.manifest_sha256 -notmatch '^[a-f0-9]{64}    [pscustomobject]@{
-        status = 'HOST_PLUGIN_AND_PATCH_BUNDLE_UPDATED_AND_VERIFIED'
-        hostVersion = $stPackage.version
-        serverModuleCount = $serverFiles.Count
-        updatedFileCount = $script:Destinations.Count
-        patchVersion = $patchUpdateResult.patchVersion
-        patchBundleSha256 = $manifest.patch_blob_sha
-        sourceManifestSha256 = $manifest.manifest_sha256
-        backupDirectory = $backupRoot
-        note = 'Host lifecycle patch, Gateway, browser extension and Patch Manager were updated transactionally. Chat data, Core databases, Host identity and SQLite files were not modified.'
-    } | ConvertTo-Json -Depth 5
-} catch {
-    if (-not $patchManagerUpdateStarted) {
-        for ($index = $script:Destinations.Count - 1; $index -ge 0; $index--) {
-            $entry = $script:Destinations[$index]
-            $backupPath = Join-Path $backupRoot $entry.RelativePath
-            if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-                Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
-            } elseif (-not $entry.Existed -and (Test-Path -LiteralPath $entry.Destination -PathType Leaf)) {
-                Remove-Item -LiteralPath $entry.Destination -Force
-            }
-        }
-        if ($manifestExisted -and (Test-Path -LiteralPath $manifestBackupPath -PathType Leaf)) {
-            Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
-        } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $manifestPath -Force
-        }
-        if (-not $browserPluginRootExisted -and (Test-Path -LiteralPath $browserPluginRoot -PathType Container)) {
-            Remove-Item -LiteralPath $browserPluginRoot -Recurse -Force
-        }
-        Write-Warning ('Host plugin preflight/copy failed; previous files were restored. Backup: ' + $backupRoot)
-    } else {
-        Write-Warning ('Patch Manager update was started. Do not delete plugin files, transaction journals or backups. Preserve this directory for recovery: ' + $backupRoot)
-    }
-    throw
-} finally {
-    if (-not $completed) {
-        Write-Warning ('Host plugin/patch update did not complete. Evidence and backups retained at: ' + $backupRoot)
-    }
-}
-) {
+        -or $manifest.manifest_sha256 -notmatch '^[a-f0-9]{64}$') {
         throw 'HOST_SOURCE_MANIFEST_DOES_NOT_MATCH_CURRENT_PATCH_BUNDLE'
     }
     foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
