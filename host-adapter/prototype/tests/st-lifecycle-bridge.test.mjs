@@ -601,6 +601,25 @@ test('ambiguous enrollment marker blocks recovery with a stable diagnostic code'
   }
 });
 
+test('journal restore conflicts produce a stable diagnostic without changing persisted message IDs', async () => {
+  const original = makeFixture();
+  await original.bridge.enrollCurrentConversation();
+  const chat = structuredClone(original.chat);
+  const expected = chat.map(message => structuredClone(message._logicEngineLifecycle));
+  const recovered = makeFixture(chat);
+  recovered.journal.restoreBaseline = async () => { throw Error('simulated existing journal conflict'); };
+
+  await assert.rejects(
+    recovered.bridge.beforeMutation('delete-message', [0]),
+    error => error.code === 'HOST_ENROLLMENT_RECOVERY_REJECTED',
+  );
+  assert.deepEqual(
+    recovered.chat.map(message => message._logicEngineLifecycle),
+    expected,
+  );
+  assert.equal(await recovered.journal.isEnrolled('chat-1'), false);
+});
+
 test('partial persisted Host identities are never replaced by automatic enrollment', async () => {
   const f = makeFixture();
   f.chat[0]._logicEngineLifecycle = {
