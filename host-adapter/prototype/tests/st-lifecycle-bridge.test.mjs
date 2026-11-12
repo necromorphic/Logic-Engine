@@ -178,7 +178,7 @@ test('lifecycle mutations require a matching durable before/after pair', async (
     /afterMutation has no matching durable beforeMutation/,
   );
 
-  const ledger = await f.journal.exportCaptureLedger(conversationId);
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
   assert.deepEqual(
     ledger.records.filter(record => record.operation.startsWith('before:') || record.operation.startsWith('after:'))
       .map(record => record.operation),
@@ -1152,7 +1152,7 @@ test('persisted inventory transport failures retain safe status and server diagn
   assert.equal(failed.code, 'SOURCE_INVENTORY_UNAVAILABLE');
   assert.equal(failed.reasonCode, 'HOST_INVENTORY_INTERNAL_ERROR');
   assert.equal(failed.httpStatus, 503);
-  assert.match(failed.observedAt, /^\\d{4}-\\d{2}-\\d{2}T/);
+  assert.match(failed.observedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(JSON.stringify(failed).includes('private filesystem path'), false);
 
   const status = await f.bridge.getCoreCaptureStatus();
