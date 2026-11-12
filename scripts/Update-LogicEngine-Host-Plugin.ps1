@@ -140,6 +140,14 @@ try {
         @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/generate-pinned-source-manifest.mjs'); Relative = 'host-adapter/prototype/generate-pinned-source-manifest.mjs' }
         @{ Source = (Join-Path $repoRoot 'tests/fixtures/sillytavern-final-send-v1.manifest.json'); Relative = 'tests/fixtures/sillytavern-final-send-v1.manifest.json' }
     )
+    # The manifest generator runs from the installed Core plugin and reads these
+    # browser sources relative to its own repository root. Refresh that source
+    # mirror as part of the same transaction; updating only the deployed public/
+    # extension leaves the generator attesting against stale code.
+    foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+        $coreFiles += @{ Source = (Join-Path $browserSource $name); Relative = ('host-adapter/extension-gateway/' + $name) }
+    }
+
     foreach ($entry in $coreFiles) {
         Add-UpdateFile $entry.Source (Join-Path $corePluginRoot $entry.Relative) ('plugins/logic-engine/' + $entry.Relative)
     }
