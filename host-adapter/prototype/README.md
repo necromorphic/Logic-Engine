@@ -4,7 +4,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 ## Implemented
 
-- IndexedDB append-only journal. The first instrumented Host mutation automatically establishes a review-only baseline before the native mutation; existing pre-enrollment history remains `UNKNOWN_UNRECOVERABLE`. The explicit `window.logicEngineHostLifecycle.enrollCurrentConversation()` hook remains available for controlled acceptance/recovery, but normal chat use does not require a console call. Baseline creation automatically triggers one persisted-inventory verification and records bounded failure diagnostics.
+- IndexedDB append-only journal. On each `CHAT_CHANGED` event, the browser extension automatically restores or creates the conversation baseline, verifies persisted Host Inventory and records bounded failure diagnostics; the first instrumented Host mutation remains a fallback if chat-load capture did not run. Existing pre-enrollment history remains `UNKNOWN_UNRECOVERABLE`. The explicit `window.logicEngineHostLifecycle.enrollCurrentConversation()` hook remains available for controlled acceptance/recovery, but normal chat use does not require a console call.
 - Per-conversation sequence, random event IDs, canonical SHA-256 payload/record digests, and previous-record digest.
 - Atomic head checkpoint in a separate object store in the same IndexedDB database. It detects a missing/truncated record tail while the checkpoint remains; it is not a separate physical failure domain and does not protect against an attacker who can rewrite both stores.
 - Baseline mapping with random logical message/version IDs and content digests; raw message text is not written to the journal. Mutation records retain identity, lineage and digests only.
