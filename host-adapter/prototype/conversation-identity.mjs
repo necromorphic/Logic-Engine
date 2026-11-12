@@ -112,6 +112,10 @@ export async function resolveStableHostConversationIdentity({
     if (mappedId && mappedId !== resolvedId) {
       throw Error('NON_READY: Host locator metadata is missing or inconsistent');
     }
+    if (mappedId && storage.getItem(activeMarker) !== null
+      && !markerValueMatchesLocator(storage.getItem(activeMarker))) {
+      throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
+    }
     if (mappedId && typeof verifyPersistedIdentity === 'function'
       && !(await verifyServerPersistence(existing))) {
       throw Error('NON_READY: server did not confirm the current conversation identity in the persisted chat');
