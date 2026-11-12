@@ -66,6 +66,9 @@ concurrency:
 jobs:
   npc-generation-context:
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

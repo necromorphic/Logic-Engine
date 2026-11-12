@@ -39,6 +39,9 @@ concurrency:
 jobs:
   pinned-patch:
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -58,7 +61,7 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
       - name: Verify pinned source revision
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $actual = (git -C SillyTavern rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {
@@ -73,7 +76,7 @@ jobs:
       - name: Generate and verify the committed full-bundle manifest
         env:
           SILLYTAVERN_DIR: SillyTavern
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           node scripts/generate-sillytavern-patch-manager-manifest.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -86,18 +89,18 @@ jobs:
           if ($diffExitCode -eq 1) { throw 'Committed Patch Manager manifest is stale; regenerate and commit the manifest.' }
           if ($diffExitCode -ne 0) { throw "Git manifest comparison failed with exit code $diffExitCode." }
       - name: Create pristine pinned source worktree for bundle upgrade
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           git -C SillyTavern worktree add --detach "$PWD\SillyTavern-manager" 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify v1-to-v2 Patch Manager upgrade on Windows
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           node scripts/verify-sillytavern-patch-manager-bundle.mjs SillyTavern-manager tests/fixtures/sillytavern-final-send-v1.manifest.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Remove pristine Patch Manager worktree
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           if (Test-Path 'SillyTavern-manager') {
             git -C SillyTavern worktree remove --force "$PWD\SillyTavern-manager"

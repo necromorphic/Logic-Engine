@@ -29,6 +29,9 @@ concurrency:
 jobs:
   pinned-source-audit:
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -42,7 +45,7 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
       - name: Verify exact source revision
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $actual = (git -C SillyTavern rev-parse HEAD).Trim()
           if ($LASTEXITCODE -ne 0 -or $actual -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {

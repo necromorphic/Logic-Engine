@@ -17,6 +17,9 @@ jobs:
   deployment-security-contracts:
     name: Deployment security contracts (local Windows)
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -33,6 +36,9 @@ jobs:
   npc-boundary:
     # Run the NPC-owned pure admission boundary on the local Windows runner.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -76,6 +82,9 @@ jobs:
   core-trusted-acquisition:
     # Run Core-owned acquisition lifecycle tests locally with the integrated Windows suite.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -92,6 +101,9 @@ jobs:
     # Windows lstat exposes a file ID but reports dev=0; verify descriptor identity
     # and reparse-point behavior on the local Windows runner.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -112,6 +124,9 @@ jobs:
   host-inventory-reconciliation:
     # Exercise the real file-backed Core/Coordinator/Host-ledger race on the local Windows runner.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -128,6 +143,9 @@ jobs:
   process-contract:
     # Keep the pure Process Manager contract matrix on the local Windows runner.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 10
     permissions:
       contents: read
@@ -142,6 +160,9 @@ jobs:
   mechanics-policy-authority:
     # Keep the versioned policy/evaluation lifecycle covered on the local Windows runner.
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 15
     permissions:
       contents: read
@@ -182,6 +203,9 @@ jobs:
       # Build and test the native extension against the exact Node-bundled SQLite
       # engine on the local Windows runner. Linux-only native coverage remains separate.
       runs-on: [self-hosted, Windows, X64]
+      defaults:
+        run:
+          shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
       timeout-minutes: 10
       permissions:
         contents: read
@@ -197,7 +221,7 @@ jobs:
           run: cc -O2 -fPIC -shared -DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
         - name: Build VFS probe on Windows
           if: runner.os == 'Windows'
-          shell: powershell
+          shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
           run: |
             $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
             $vs = & $vswhere -latest -products '*' -property installationPath
@@ -211,7 +235,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
         - name: Verify Windows handle-relative directory anchoring
           if: runner.os == 'Windows'
-          shell: powershell
+          shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
           run: native/secure-vfs-probe/windows_relative_open_test.exe
         - name: Verify persistent VFS registration through node:sqlite
           env:

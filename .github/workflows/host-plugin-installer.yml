@@ -23,49 +23,52 @@ concurrency:
 jobs:
   windows-install:
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
       - name: Parse isolated deployment launcher with Windows PowerShell 5.1
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Get-Content -LiteralPath './scripts/Start-LogicEngine-PR870-Test.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Windows PowerShell 5.1 launcher syntax is valid.'
       - name: Parse consolidated Phase 2 acceptance runner with Windows PowerShell 5.1
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Get-Content -LiteralPath './scripts/Run-Phase2-PC-Acceptance.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Phase 2 acceptance runner syntax is valid.'
       - name: Check local Host acceptance bootstrap syntax
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           node --check ./scripts/bootstrap-windows-host-acceptance.mjs
       - name: Checkout pinned SillyTavern source
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $stRoot = Join-Path $env:RUNNER_TEMP 'SillyTavern'
           git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git $stRoot
           git -C $stRoot checkout 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           "ST_ROOT=$stRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install plugin copy and managed patch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
       - name: Verify installed plugin and patch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
       - name: Verify installer refuses an existing plugin directory without mutation
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
           $gatewayRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine-extension-gateway'

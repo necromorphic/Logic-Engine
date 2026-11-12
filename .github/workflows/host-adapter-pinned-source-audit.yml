@@ -14,6 +14,9 @@ concurrency:
 jobs:
   pinned-source:
     runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -26,7 +29,7 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: Sillytavern
       - name: Normalize pinned SillyTavern checkout line endings
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           git -C Sillytavern config core.autocrlf false
           git -C Sillytavern config core.eol lf
@@ -35,12 +38,12 @@ jobs:
           git -C Sillytavern checkout-index --force --all
           if ($LASTEXITCODE -ne 0) { throw 'Pinned SillyTavern tracked files could not be rewritten with LF' }
       - name: Syntax-check transactional Host patch-bundle installer
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           node --check scripts/install-sillytavern-host-patch-bundle.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Exercise transactional Host bundle installer against a clean pinned source copy
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'SillyTavern-host-bundle-install-test'
           New-Item -ItemType Directory -Force $target | Out-Null
@@ -68,13 +71,13 @@ jobs:
           node scripts/install-sillytavern-host-patch-bundle.mjs --st-root $target
           if ($LASTEXITCODE -ne 0) { throw 'Transactional Host patch-bundle installer acceptance failed' }
       - name: Install pinned SillyTavern runtime dependencies
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: Sillytavern
         run: |
           npm ci --no-audit --no-fund
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Gateway artifacts and apply pinned lifecycle patch
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $corePlugin = 'Sillytavern/plugins/logic-engine'
           $corePluginFiles = @(
@@ -162,7 +165,7 @@ jobs:
           if (Test-Path Sillytavern/src/endpoints/logic-engine-lifecycle.js) { throw 'Unexpected independent lifecycle route' }
           if (Test-Path Sillytavern/src/endpoints/logic-engine-host-inventory.js) { throw 'Unexpected independent inventory route' }
       - name: Verify pinned server plugin load order
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $server = Get-Content Sillytavern/src/server-main.js -Raw
           $loader = Get-Content Sillytavern/src/plugin-loader.js -Raw
@@ -170,7 +173,7 @@ jobs:
           if (-not ($loader.Contains('/api/plugins/') -and $loader.Contains('router'))) { throw 'Native plugin route mount changed' }
           if ($server.Contains('/api/logic-engine')) { throw 'Unexpected direct Host API route' }
       - name: Syntax-check patched Host and Gateway modules
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           function Assert-NodeSyntax([string]$file) {
             node --check $file
@@ -189,7 +192,7 @@ jobs:
           $files = @('public/script.js', 'public/scripts/bookmarks.js', 'public/scripts/group-chats.js', 'public/scripts/chat-backups.js', 'public/scripts/slash-commands.js', 'src/server-main.js', 'src/endpoints/backends/chat-completions.js', 'src/endpoints/chats.js', 'src/endpoints/groups.js', 'src/endpoints/characters.js', 'src/endpoints/backups.js', 'src/endpoints/data-maid.js', 'src/endpoints/settings.js', 'src/endpoints/users-private.js', 'src/endpoints/users-public.js', 'src/endpoints/users-admin.js', 'src/users.js', 'src/endpoints/logic-engine-host-inventory-handler.mjs', 'src/endpoints/content-manager.js', 'src/endpoints/image-metadata.js', 'src/endpoints/images.js', 'src/endpoints/moving-ui.js', 'src/endpoints/presets.js', 'src/endpoints/quick-replies.js', 'src/endpoints/secrets.js', 'src/endpoints/sprites.js', 'src/endpoints/stats.js', 'src/endpoints/themes.js', 'src/endpoints/worldinfo.js', 'src/endpoints/vectors.js', 'src/endpoints/extensions.js', 'src/endpoints/backgrounds.js', 'src/endpoints/avatars.js', 'src/endpoints/assets.js', 'src/endpoints/files.js', 'src/endpoints/stable-diffusion.js', 'src/endpoints/thumbnails.js', 'src/plugin-loader.js')
           foreach ($file in $files) { Assert-NodeSyntax (Join-Path Sillytavern $file) }
       - name: Run Host lifecycle and identity acceptance tests
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           SILLYTAVERN_DIR: Sillytavern
           SILLYTAVERN_SOURCE_ROOT: Sillytavern
@@ -202,7 +205,7 @@ jobs:
           node --test experiments/host-adapter-source-audit/harness.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Generate pinned patched-source manifest
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           SILLYTAVERN_DIR: Sillytavern
         run: |
