@@ -16,6 +16,8 @@ import {
   createHostRootInventoryPersistence,
 } from './st-server-digest-proxy.mjs';
 import { HostIdentityStore } from './st-host-identity-store.mjs';
+import { HostLifecycleReceiptStore } from './st-host-lifecycle-receipt-store.mjs';
+import { createHostMutationRuntimeAcceptanceVerifier } from './st-host-mutation-runtime-acceptance.mjs';
 import { HostAccountMutationReceiptStore, verifySingleTargetMutationTransition } from './st-host-account-mutation-receipt-store.mjs';
 import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 import { createHostSessionRevocationClient } from './st-host-session-revocation.mjs';
@@ -142,6 +144,13 @@ export function createSillyTavernHostAdapter({
   const identityStore = identityDirectory
     ? new HostIdentityStore({ directory: identityDirectory })
     : null;
+  const lifecycleReceiptStore = identityDirectory
+    ? new HostLifecycleReceiptStore({ directory: path.join(identityDirectory, 'lifecycle-receipts') })
+    : null;
+  const verifyMutationRuntimeAcceptance = injectedVerifyMutationRuntimeAcceptance
+    ?? (lifecycleReceiptStore
+      ? createHostMutationRuntimeAcceptanceVerifier({ receiptStore: lifecycleReceiptStore })
+      : null);
   const accountMutationReceiptStore = identityDirectory
     ? new HostAccountMutationReceiptStore({
       directory: path.join(identityDirectory, 'account-mutations'),
@@ -187,6 +196,7 @@ export function createSillyTavernHostAdapter({
   if (identityStore) {
     const lifecycle = createHostLifecycleJournalProxy({
       identityStore,
+      receiptStore: lifecycleReceiptStore,
       ensureRootInventory: (request, conversationUuid) => authentication
         ? authentication.authenticate(request, conversationUuid)
         : Promise.resolve({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' }),
@@ -272,12 +282,12 @@ export function createSillyTavernHostAdapter({
         // Host context from an authoritative root proof until operation receipts and
         // real-file before/after/restart evidence are verified for this exact
         // pinned source and snapshot.
-        if (typeof injectedVerifyMutationRuntimeAcceptance !== 'function') {
+        if (typeof verifyMutationRuntimeAcceptance !== 'function') {
           return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
         }
         let mutationRuntimeAcceptance;
         try {
-          mutationRuntimeAcceptance = await injectedVerifyMutationRuntimeAcceptance({
+          mutationRuntimeAcceptance = await verifyMutationRuntimeAcceptance({
             pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
             rootPath: directories.root,
             entries: hostInventory.filesystem.entries,
@@ -287,6 +297,8 @@ export function createSillyTavernHostAdapter({
             rootId: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
             sourceIdentity,
             mutationCoverage,
+            hostInstallationId: identityRecord.host_installation_id,
+            authenticatedAccountId: identityRecord.authenticated_account_id,
             signal,
           });
         } catch {

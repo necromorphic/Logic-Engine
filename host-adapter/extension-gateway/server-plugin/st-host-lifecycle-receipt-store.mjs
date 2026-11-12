@@ -381,6 +381,14 @@ export class HostLifecycleReceiptStore {
       other_source_files_sha256: sha256(Buffer.from(canonical(otherSourceFiles), 'utf8')),
       inventory_sha256: inventory.source.inventory_sha256,
       snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
+      snapshot_proof: {
+        host_commit: this.hostCommit,
+        snapshot_id: inventory.filesystem.snapshot_id ?? null,
+        snapshot_sha256: inventory.filesystem.snapshot_sha256 ?? null,
+        source_snapshot_id: inventory.source.snapshot_id ?? null,
+        source_inventory_sha256: inventory.source.inventory_sha256,
+        snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
+      },
     };
   }
 
@@ -390,7 +398,7 @@ export class HostLifecycleReceiptStore {
     const filePath = this.#recordPath(scope, 'prepared');
     const existing = await this.#read(filePath);
     if (existing) {
-      if (existing.schema_version !== 1
+      if (existing.schema_version !== 1 || existing.evidence_schema_version !== 2
         || existing.event_id !== scope.event_id
         || existing.mutation_digest !== scope.mutation_digest
         || existing.operation !== scope.operation) {
@@ -401,6 +409,8 @@ export class HostLifecycleReceiptStore {
     const before = await this.#snapshot(scope, directories);
     const record = {
       schema_version: 1,
+      evidence_schema_version: 2,
+      process_started_at_ms: Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)),
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
       host_session_id: scope.host_session_id,
@@ -468,7 +478,11 @@ export class HostLifecycleReceiptStore {
       throw error;
     }
     const receipt = {
-      protocol_version: 1,
+      protocol_version: 2,
+      host_commit: this.hostCommit,
+      before_snapshot_proof: prepared.before.snapshot_proof,
+      after_snapshot_proof: after.snapshot_proof,
+      recovery_verified: scope.recovery_verified === true,
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
       host_session_id: scope.host_session_id,
@@ -499,6 +513,7 @@ export class HostLifecycleReceiptStore {
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     const record = {
       schema_version: 1,
+      evidence_schema_version: 2,
       event_type: 'MUTATION_COMMITTED',
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
@@ -549,6 +564,7 @@ export class HostLifecycleReceiptStore {
       ...scope,
       event_id: randomUUID(),
       occurred_at: new Date().toISOString(),
+      recovery_verified: true,
     };
     if (canonical(current) === canonical(prepared.before)) {
       const result = await this.abort(terminalScope, directories);
@@ -604,7 +620,11 @@ export class HostLifecycleReceiptStore {
       throw new Error('HOST_LIFECYCLE_ABORT_STATE_CHANGED');
     }
     const receipt = {
-      protocol_version: 1,
+      protocol_version: 2,
+      host_commit: this.hostCommit,
+      before_snapshot_proof: prepared.before.snapshot_proof,
+      after_snapshot_proof: after.snapshot_proof,
+      recovery_verified: scope.recovery_verified === true,
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
       host_session_id: scope.host_session_id,
@@ -620,6 +640,7 @@ export class HostLifecycleReceiptStore {
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     const record = {
       schema_version: 1,
+      evidence_schema_version: 2,
       event_type: 'MUTATION_ABORTED',
       event_id: scope.event_id,
       receipt_digest: receiptDigest,
@@ -634,4 +655,145 @@ export class HostLifecycleReceiptStore {
       && canonical(existing.receipt) === canonical(record.receipt));
     return { status: stored.status, receipt_digest: stored.record.receipt_digest, occurred_at: stored.record.occurred_at };
   }
+
+  /**
+   * Read-only acceptance audit. It never manufactures receipts or changes
+   * pending mutations. Only committed, digest-valid records from a prior
+   * server process count toward runtime operation coverage.
+   */
+
+  async verifyRuntimeAcceptance({
+    pinnedHostCommit, rootPath, rootId, entries, snapshotAlignment,
+    snapshotId, snapshotSha256, sourceIdentity, mutationCoverage,
+    hostInstallationId, authenticatedAccountId,
+    currentProcessStartedAtMs = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)),
+  } = {}) {
+    const fail = reason => ({ status: 'NON_READY', reason });
+    if (pinnedHostCommit !== this.hostCommit || typeof rootPath !== 'string'
+      || !path.isAbsolute(rootPath) || !DIGEST.test(rootId ?? '')
+      || rootId !== sha256(Buffer.from(path.resolve(rootPath), 'utf8'))
+      || !UUID.test(hostInstallationId ?? '') || !UUID.test(authenticatedAccountId ?? '')
+      || !Array.isArray(entries) || entries.length === 0
+      || entries.some(entry => !entry || typeof entry.path !== 'string' || !DIGEST.test(entry.sha256 ?? ''))
+      || sha256(Buffer.from(JSON.stringify(entries), 'utf8')) !== snapshotSha256
+      || snapshotAlignment !== 'SHARED_VSS_SNAPSHOT'
+      || typeof snapshotId !== 'string' || !snapshotId
+      || !DIGEST.test(snapshotSha256 ?? '')
+      || !Number.isSafeInteger(currentProcessStartedAtMs) || currentProcessStartedAtMs < 1
+      || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+      || !DIGEST.test(sourceIdentity.manifest_sha256 ?? '')
+      || mutationCoverage?.status !== 'VERIFIED'
+      || mutationCoverage.source_commit !== this.hostCommit
+      || !DIGEST.test(mutationCoverage.coverage_manifest_sha256 ?? '')
+      || !DIGEST.test(mutationCoverage.source_files_sha256 ?? '')
+      || !Number.isSafeInteger(mutationCoverage.route_count) || mutationCoverage.route_count < 1) {
+      return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_INPUT_INVALID');
+    }
+    await this.#prepareDirectory();
+    const names = await fs.readdir(this.directory);
+    const preparedNames = names.filter(name => /^[a-f0-9]{64}\.prepared\.json$/.test(name)).sort();
+    const terminalNames = new Set(names.filter(name => /^[a-f0-9]{64}\.terminal\.json$/.test(name)));
+    const scopedTerminalNames = new Set();
+    const required = new Set(OPERATIONS);
+    const covered = new Set();
+    const evidence = [];
+    let recoveryVerified = false;
+    for (const name of preparedNames) {
+      const prepared = await this.#read(path.join(this.directory, name));
+      if (!prepared) return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
+      if (prepared.host_installation_id !== hostInstallationId
+        || prepared.authenticated_account_id !== authenticatedAccountId) continue;
+      const terminalName = name.replace(/\.prepared\.json$/, '.terminal.json');
+      if (!terminalNames.has(terminalName)) return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_TERMINAL_MISSING');
+      scopedTerminalNames.add(terminalName);
+      const terminal = await this.#read(path.join(this.directory, terminalName));
+      if (prepared.evidence_schema_version !== 2) {
+        if (!terminal?.receipt
+          || terminal.receipt_digest !== sha256(Buffer.from(canonical(terminal.receipt), 'utf8'))) {
+          return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_LEGACY_RECEIPT_INVALID');
+        }
+        continue;
+      }
+      if (prepared.schema_version !== 1
+        || !Number.isSafeInteger(prepared.process_started_at_ms)
+        || prepared.process_started_at_ms < 1
+        || prepared.process_started_at_ms >= currentProcessStartedAtMs
+        || !required.has(prepared.operation)
+        || !UUID.test(prepared.mutation_id ?? '') || !UUID.test(prepared.event_id ?? '')
+        || !DIGEST.test(prepared.mutation_digest ?? '')
+        || !prepared.before?.snapshot_proof
+        || prepared.before.snapshot_proof.host_commit !== this.hostCommit
+        || prepared.before.snapshot_proof.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+        || typeof prepared.before.snapshot_proof.snapshot_id !== 'string'
+        || prepared.before.snapshot_proof.source_snapshot_id !== prepared.before.snapshot_proof.snapshot_id
+        || !DIGEST.test(prepared.before.snapshot_proof.snapshot_sha256 ?? '')
+        || !DIGEST.test(prepared.before.snapshot_proof.source_inventory_sha256 ?? '')) {
+        return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
+      }
+      if (!terminal || terminal.schema_version !== 1 || terminal.evidence_schema_version !== 2
+        || !['MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(terminal.event_type)
+        || !terminal.receipt
+        || terminal.receipt_digest !== sha256(Buffer.from(canonical(terminal.receipt), 'utf8'))) {
+        return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_TERMINAL_INVALID');
+      }
+      const receipt = terminal.receipt;
+      if (receipt.protocol_version !== 2 || receipt.host_commit !== this.hostCommit
+        || receipt.host_installation_id !== prepared.host_installation_id
+        || receipt.authenticated_account_id !== prepared.authenticated_account_id
+        || receipt.host_session_id !== prepared.host_session_id
+        || receipt.conversation_uuid !== prepared.conversation_uuid
+        || receipt.mutation_id !== prepared.mutation_id
+        || receipt.event_id !== terminal.event_id
+        || receipt.operation !== prepared.operation
+        || receipt.mutation_digest !== prepared.mutation_digest
+        || canonical(receipt.before_snapshot_proof) !== canonical(prepared.before.snapshot_proof)
+        || receipt.after_snapshot_proof?.host_commit !== this.hostCommit
+        || receipt.after_snapshot_proof?.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+        || typeof receipt.after_snapshot_proof.snapshot_id !== 'string'
+        || receipt.after_snapshot_proof.source_snapshot_id !== receipt.after_snapshot_proof.snapshot_id
+        || !DIGEST.test(receipt.after_snapshot_proof.snapshot_sha256 ?? '')
+        || !DIGEST.test(receipt.after_snapshot_proof.source_inventory_sha256 ?? '')
+        || receipt.before_snapshot_proof.snapshot_id === receipt.after_snapshot_proof.snapshot_id) {
+        return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_RECEIPT_BINDING_INVALID');
+      }
+      if (terminal.event_type === 'MUTATION_COMMITTED') covered.add(prepared.operation);
+      recoveryVerified ||= receipt.recovery_verified === true;
+      evidence.push({
+        operation: prepared.operation, event_type: terminal.event_type,
+        prepared_process_started_at_ms: prepared.process_started_at_ms,
+        prepared_event_id: prepared.event_id, terminal_event_id: terminal.event_id,
+        receipt_digest: terminal.receipt_digest,
+        before_snapshot_id: receipt.before_snapshot_proof.snapshot_id,
+        after_snapshot_id: receipt.after_snapshot_proof.snapshot_id,
+      });
+    }
+    for (const terminalName of terminalNames) {
+      if (scopedTerminalNames.has(terminalName)) continue;
+      const terminal = await this.#read(path.join(this.directory, terminalName));
+      if (terminal?.receipt?.host_installation_id === hostInstallationId
+        && terminal?.receipt?.authenticated_account_id === authenticatedAccountId) {
+        return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_ORPHAN_TERMINAL');
+      }
+    }
+    const missing = [...required].filter(operation => !covered.has(operation)).sort();
+    if (missing.length) return { ...fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_OPERATION_COVERAGE_INCOMPLETE'), missing_operations: missing };
+    if (!recoveryVerified) return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_RESTART_RECOVERY_UNPROVEN');
+    evidence.sort((a, b) => a.operation.localeCompare(b.operation) || a.receipt_digest.localeCompare(b.receipt_digest));
+    const evidencePayload = {
+      protocol_version: 1, source_commit: this.hostCommit,
+      host_installation_id: hostInstallationId, authenticated_account_id: authenticatedAccountId,
+      root_id: rootId, snapshot_id: snapshotId, snapshot_sha256: snapshotSha256,
+      source_manifest_sha256: sourceIdentity.manifest_sha256,
+      mutation_coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+      operations: evidence,
+    };
+    return {
+      status: 'VERIFIED', source_commit: this.hostCommit,
+      snapshot_id: snapshotId, snapshot_sha256: snapshotSha256, root_id: rootId,
+      source_manifest_sha256: sourceIdentity.manifest_sha256,
+      mutation_coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+      evidence_sha256: sha256(Buffer.from(canonical(evidencePayload), 'utf8')),
+    };
+  }
+
 }
