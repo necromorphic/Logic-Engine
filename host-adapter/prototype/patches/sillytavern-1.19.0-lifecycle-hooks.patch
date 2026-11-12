@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,272 @@
+@@ -1583,6 +1593,279 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -312,7 +312,7 @@ diff --git a/public/script.js b/public/script.js
 +    await window.logicEngineHostLifecycle?.waitForEnrollment?.();
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604,1 +1861,18 @@
+@@ -1604,1 +1868,18 @@
 -    if (clearData) chat.length = 0;
 +    if (clearData) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -332,7 +332,7 @@ diff --git a/public/script.js b/public/script.js
 +        }
 +    }
 +
-@@ -1605,8 +1879,14 @@
+@@ -1605,8 +1886,14 @@
  }
  
  export async function deleteLastMessage() {
@@ -347,7 +347,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1676,6 +1956,8 @@
+@@ -1676,6 +1963,8 @@
  
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
@@ -356,7 +356,7 @@ diff --git a/public/script.js b/public/script.js
  
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
-@@ -1689,6 +1971,8 @@
+@@ -1689,6 +1978,8 @@
      const startIndex = firstMessageId <= minId ? firstMessageId : null;
      updateViewMessageIds(startIndex);
      saveChatDebounced();
@@ -365,7 +365,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
-@@ -5904,9 +6188,13 @@
+@@ -5904,9 +6195,13 @@
  
      chat_metadata.tainted = true;
  
@@ -379,7 +379,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, insertAt);
          await reloadCurrentChat();
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, insertAt);
-@@ -5914,6 +6202,7 @@
+@@ -5914,6 +6209,7 @@
          chat.push(message);
          await saveChatConditional();
          const chat_id = (chat.length - 1);
@@ -387,7 +387,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, chat_id);
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
-@@ -6653,6 +6942,15 @@
+@@ -6653,6 +6949,15 @@
          type = 'normal';
      }
  
@@ -403,7 +403,7 @@ diff --git a/public/script.js b/public/script.js
      if (chat.length && (!lastMessage.extra || typeof lastMessage.extra !== 'object')) {
          lastMessage.extra = {};
      }
-@@ -6825,6 +7123,9 @@
+@@ -6825,6 +7130,9 @@
          item.swipe_info.push(...swipeInfoArray);
      }
  
@@ -413,7 +413,7 @@ diff --git a/public/script.js b/public/script.js
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
  }
-@@ -8400,6 +8701,8 @@
+@@ -8400,6 +8708,8 @@
          return;
      }
  
@@ -422,7 +422,7 @@ diff --git a/public/script.js b/public/script.js
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
      await eventSource.emit(event_types.MESSAGE_EDITED, this_edit_mes_id);
-@@ -8431,6 +8734,7 @@
+@@ -8431,6 +8741,7 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
@@ -430,7 +430,7 @@ diff --git a/public/script.js b/public/script.js
      showSwipeButtons();
  }
  
-@@ -9364,6 +9668,8 @@
+@@ -9364,6 +9675,8 @@
          return;
      }
  
@@ -439,7 +439,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9401,6 +9707,7 @@
+@@ -9401,6 +9714,7 @@
      }
  
      await saveChatConditional();
@@ -447,7 +447,7 @@ diff --git a/public/script.js b/public/script.js
  
      return newSwipeId;
  }
-@@ -9446,6 +9753,8 @@
+@@ -9446,6 +9760,8 @@
   * @returns {Promise<string[]>} List of imported file names.
   */
  export async function importCharacterChat(formData, { refresh = true } = {}) {
@@ -456,7 +456,7 @@ diff --git a/public/script.js b/public/script.js
      const fetchResult = await fetch('/api/chats/import', {
          method: 'POST',
          body: formData,
-@@ -10095,6 +10404,11 @@
+@@ -10095,6 +10411,11 @@
              saveChatDebounced();
          }
  
@@ -468,7 +468,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,6 +10418,14 @@
+@@ -10104,6 +10425,14 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -483,7 +483,7 @@ diff --git a/public/script.js b/public/script.js
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
              //Transition to the new chat.
-@@ -10729,13 +11051,32 @@
+@@ -10729,13 +11058,32 @@
   * @param {string} newName New name for the chat (no JSONL extension)
   */
  export async function renameChat(oldFileName, newName) {
@@ -523,7 +523,7 @@ diff --git a/public/script.js b/public/script.js
  }
  
  /**
-@@ -10826,6 +11167,8 @@
+@@ -10826,6 +11174,8 @@
   * @return {Promise<boolean>} - A promise that resolves when the character is successfully deleted
   */
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
@@ -532,7 +532,7 @@ diff --git a/public/script.js b/public/script.js
      if (!Array.isArray(characterKey)) {
          characterKey = [characterKey];
      }
-@@ -11501,6 +11844,7 @@
+@@ -11501,6 +11851,7 @@
      $(document).on('click', '.exportChatButton, .exportRawChatButton', async function (e) {
          e.stopPropagation();
          const format = $(this).data('format') || 'txt';
@@ -543,7 +543,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 --- a/public/scripts/bookmarks.js
 +++ b/public/scripts/bookmarks.js
-@@ -185,6 +190,10 @@
+@@ -185,6 +197,10 @@
  
  // Export is used by Timelines extension. Do not remove.
  export async function createBranch(mesId, { swipeId = null } = {}) {
@@ -557,7 +557,7 @@ diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -1321,6 +1326,7 @@
+@@ -1321,6 +1333,7 @@
   * @returns {Promise<void>} Promise that resolves when the group is deleted
   */
  async function deleteGroup(id) {
@@ -565,7 +565,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find((x) => x.id === id);
  
      const response = await fetch('/api/groups/delete', {
-@@ -2217,6 +2223,7 @@
+@@ -2217,6 +2230,7 @@
   * @returns {Promise<void>} Promise that resolves when the group chat is renamed
   */
  export async function renameGroupChat(groupId, oldChatId, newChatId) {
@@ -573,7 +573,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find(x => x.id === groupId);
  
      if (!group || !group.chats.includes(oldChatId)) {
-@@ -2240,6 +2247,10 @@
+@@ -2240,6 +2254,10 @@
   * @returns {Promise<void>}
   */
  export async function deleteGroupChatByName(groupId, chatName) {
@@ -584,7 +584,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find(x => x.id === groupId);
      if (!group || !group.chats.includes(chatName)) {
          return;
-@@ -2277,6 +2288,7 @@
+@@ -2277,6 +2295,7 @@
   * @param {boolean} [options.jumpToNewChat=true] Whether to jump to a new chat after deletion (existing one, or create a new one if none exists)
   */
  export async function deleteGroupChat(groupId, chatId, { jumpToNewChat = true } = {}) {
@@ -592,7 +592,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find(x => x.id === groupId);
  
      if (!group || !group.chats.includes(chatId)) {
-@@ -2317,6 +2329,10 @@
+@@ -2317,6 +2336,10 @@
   * @returns {Promise<string[]>} List of imported file names
   */
  export async function importGroupChat(formData, { refresh = true } = {}) {
@@ -603,7 +603,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const fetchResult = await fetch('/api/chats/group/import', {
          method: 'POST',
          headers: getRequestHeaders({ omitContentType: true }),
-@@ -2357,6 +2373,7 @@
+@@ -2357,6 +2380,7 @@
   * @returns {Promise<void>} Promise that resolves when the group chat is saved
   */
  export async function saveGroupBookmarkChat(groupId, name, metadata, mesId, chatData = undefined) {
@@ -614,7 +614,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 --- a/public/scripts/chat-backups.js
 +++ b/public/scripts/chat-backups.js
-@@ -71,6 +76,10 @@
+@@ -71,6 +83,10 @@
       * @returns {Promise<void>}
       */
      async restoreBackup(name) {
@@ -628,7 +628,7 @@ diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 --- a/public/scripts/slash-commands.js
 +++ b/public/scripts/slash-commands.js
-@@ -5839,6 +5844,8 @@
+@@ -5839,6 +5851,8 @@
              : message.is_user ? 'user' : 'assistant';
      }
  
@@ -637,7 +637,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
      message.extra = message.extra || {};
      if (role === 'system') {
          message.extra.type = system_message_types.NARRATOR;
-@@ -5856,6 +5863,7 @@
+@@ -5856,6 +5870,7 @@
      }
      await eventSource.emit(event_types.MESSAGE_UPDATED, modifyAt);
      await saveChatConditional();
@@ -645,7 +645,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
  
      return role;
  }
-@@ -5886,6 +5894,8 @@
+@@ -5886,6 +5901,8 @@
          return message.name;
      }
  
@@ -654,7 +654,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
      let newName = '';
  
      if (message.is_user) {
-@@ -5922,6 +5932,7 @@
+@@ -5922,6 +5939,7 @@
      }
      await eventSource.emit(event_types.MESSAGE_UPDATED, modifyAt);
      await saveChatConditional();
@@ -665,7 +665,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-main.js b/src/server-main.js
 --- a/src/server-main.js
 +++ b/src/server-main.js
-@@ -107,6 +112,12 @@
+@@ -107,6 +119,12 @@
  app.use(compression());
  app.use(responseTime());
  
@@ -681,7 +681,7 @@ diff --git a/src/server-main.js b/src/server-main.js
 diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
 --- a/src/endpoints/backends/chat-completions.js
 +++ b/src/endpoints/backends/chat-completions.js
-@@ -667,7 +672,11 @@
+@@ -667,7 +679,11 @@
      }
  
      const body = getGeminiBody();
@@ -697,7 +697,7 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
-@@ -24,6 +29,11 @@
+@@ -24,6 +36,11 @@
      isPathUnderParent,
  } from '../util.js';
  
@@ -709,7 +709,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
  const isBackupEnabled = !!getConfigValue('backups.chat.enabled', true, 'boolean');
  const maxTotalChatBackups = Number(getConfigValue('backups.chat.maxTotalBackups', -1, 'number'));
  const throttleInterval = Number(getConfigValue('backups.chat.throttleInterval', 10_000, 'number'));
-@@ -529,7 +539,7 @@
+@@ -529,7 +546,7 @@
   * @param {string} cardName Passed to backupChat.
   * @param {string} backupDirectory Passed to backupChat.
   */
@@ -718,7 +718,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      const jsonlData = chatData?.map(m => JSON.stringify(m)).join('\n');
  
      const doIntegrityCheck = (checkIntegrity && !skipIntegrityCheck);
-@@ -539,10 +549,12 @@
+@@ -539,10 +556,12 @@
          throw new IntegrityMismatchError(`Chat integrity check failed for "${filePath}". The expected integrity slug was "${chatIntegritySlug}".`);
      }
      tryWriteFileSync(filePath, jsonlData);
@@ -733,7 +733,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          const handle = request.user.profile.handle;
          const cardName = String(request.body.avatar_url).replace('.png', '');
-@@ -554,7 +566,7 @@
+@@ -554,7 +573,7 @@
          }
  
          if (Array.isArray(chatData)) {
@@ -742,7 +742,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
              return response.send({ ok: true });
          } else {
              return response.status(400).send({ error: 'The request\'s body.chat is not an array.' });
-@@ -618,7 +630,7 @@
+@@ -618,7 +637,7 @@
      }
  });
  
@@ -751,7 +751,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          if (!request.body || !request.body.original_file || !request.body.renamed_file) {
              return response.sendStatus(400);
-@@ -651,7 +663,7 @@
+@@ -651,7 +670,7 @@
      }
  });
  
@@ -760,7 +760,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          if (!path.extname(request.body.chatfile)) {
              request.body.chatfile += '.jsonl';
-@@ -676,7 +688,7 @@
+@@ -676,7 +695,7 @@
      }
  });
  
@@ -769,7 +769,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      if (!request.body.file || (!request.body.avatar_url && request.body.is_group === false)) {
          return response.sendStatus(400);
      }
-@@ -748,7 +760,7 @@
+@@ -748,7 +767,7 @@
      }
  });
  
@@ -778,7 +778,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          const filedata = request.file;
  
-@@ -768,7 +780,7 @@
+@@ -768,7 +787,7 @@
      }
  });
  
@@ -787,7 +787,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      if (!request.body) return response.sendStatus(400);
  
      const format = request.body.file_type;
-@@ -897,7 +909,7 @@
+@@ -897,7 +916,7 @@
      }
  });
  
@@ -796,7 +796,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          if (!request.body || !request.body.id) {
              return response.sendStatus(400);
-@@ -919,7 +931,7 @@
+@@ -919,7 +938,7 @@
      }
  });
  
@@ -805,7 +805,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
      try {
          if (!request.body || !request.body.id) {
              return response.sendStatus(400);
-@@ -931,7 +943,7 @@
+@@ -931,7 +950,7 @@
          const chatData = request.body.chat;
  
          if (Array.isArray(chatData)) {
@@ -817,7 +817,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 --- a/src/endpoints/groups.js
 +++ b/src/endpoints/groups.js
-@@ -9,6 +14,9 @@
+@@ -9,6 +21,9 @@
  import { color, tryParse } from '../util.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
  
@@ -827,7 +827,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
  export const router = express.Router();
  
  /**
-@@ -34,6 +42,15 @@
+@@ -34,6 +49,15 @@
  export async function migrateGroupChatsMetadataFormat(userDirectories) {
      for (const userDirs of userDirectories) {
          try {
@@ -843,7 +843,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
              let anyDataMigrated = false;
              const backupPath = path.join(userDirs.backups, '_group_metadata_update');
              const groupFiles = await fsPromises.readdir(userDirs.groups, { withFileTypes: true });
-@@ -153,7 +170,7 @@
+@@ -153,7 +177,7 @@
      return response.send(groups);
  });
  
@@ -852,7 +852,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
      if (!request.body) {
          return response.sendStatus(400);
      }
-@@ -187,7 +204,7 @@
+@@ -187,7 +211,7 @@
      return response.send(groupMetadata);
  });
  
@@ -861,7 +861,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
      if (!request.body || !request.body.id) {
          return response.sendStatus(400);
      }
-@@ -200,7 +217,7 @@
+@@ -200,7 +224,7 @@
      return response.send({ ok: true });
  });
  
@@ -873,7 +873,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 --- a/src/endpoints/characters.js
 +++ b/src/endpoints/characters.js
-@@ -26,6 +31,9 @@
+@@ -26,6 +38,9 @@
  import { CharXParser, persistCharXAssets } from '../charx.js';
  import cacheBuster from '../middleware/cacheBuster.js';
  
@@ -883,10 +883,10 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
  // With 100 MB limit it would take roughly 3000 characters to reach this limit
  const memoryCacheCapacity = getConfigValue('performance.memoryCacheCapacity', '100mb');
  const memoryCache = new MemoryLimitedMap(memoryCacheCapacity);
-@@ -38,1 +46,1 @@
+@@ -38,1 +53,1 @@
 -const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean');
 +const useDiskCache = !!getConfigValue('performance.useDiskCache', true, 'boolean') && !process.env.LOGIC_ENGINE_HOST_IDENTITY_DIR;
-@@ -1021,7 +1029,7 @@
+@@ -1021,7 +1036,7 @@
  
  export const router = express.Router();
  
@@ -895,7 +895,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          if (!request.body) return response.sendStatus(400);
  
-@@ -1050,7 +1058,7 @@
+@@ -1050,7 +1065,7 @@
      }
  });
  
@@ -904,7 +904,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body.avatar_url || !request.body.new_name) {
          return response.sendStatus(400);
      }
-@@ -1098,7 +1106,7 @@
+@@ -1098,7 +1113,7 @@
      }
  });
  
@@ -913,11 +913,11 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body) {
          console.warn('Error: no response body detected');
          response.status(400).send('Error: no response body detected');
-@@ -1123,1 +1131,2 @@
+@@ -1123,1 +1138,2 @@
 -            await writeCharacterData(avatarPath, char, targetFile, request);
 +            const saved = await writeCharacterData(avatarPath, char, targetFile, request);
 +            if (!saved) return response.sendStatus(500);
-@@ -1139,7 +1148,7 @@
+@@ -1139,7 +1155,7 @@
      }
  });
  
@@ -926,7 +926,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          if (!request.file) {
              return response.status(400).send('Error: no file uploaded');
-@@ -1190,7 +1199,7 @@
+@@ -1190,7 +1206,7 @@
   * @param {Object} response - The HTTP response object.
   * @returns {void}
   */
@@ -935,7 +935,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      console.debug(request.body);
      if (!request.body) {
          console.warn('Error: no response body detected');
-@@ -1325,7 +1334,7 @@
+@@ -1325,7 +1341,7 @@
   * @param {import("express").Response} response - The HTTP response object
   * @returns {void}
   */
@@ -944,7 +944,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      try {
          // ── Bulk mode: avatars array is present ──────────────────
          if (Array.isArray(request.body.avatars)) {
-@@ -1413,7 +1422,7 @@
+@@ -1413,7 +1429,7 @@
      }
  });
  
@@ -953,7 +953,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body || !request.body.avatar_url) {
          return response.sendStatus(400);
      }
-@@ -1557,7 +1566,7 @@
+@@ -1557,7 +1573,7 @@
          : undefined;
  }
  
@@ -962,7 +962,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
      if (!request.body || !request.file) return response.sendStatus(400);
  
      const uploadPath = path.join(request.file.destination, request.file.filename);
-@@ -1598,7 +1607,7 @@
+@@ -1598,7 +1614,7 @@
      }
  });
  
@@ -974,7 +974,7 @@ diff --git a/src/endpoints/characters.js b/src/endpoints/characters.js
 diff --git a/src/endpoints/backups.js b/src/endpoints/backups.js
 --- a/src/endpoints/backups.js
 +++ b/src/endpoints/backups.js
-@@ -3,7 +8,10 @@
+@@ -3,7 +15,10 @@
  import path from 'node:path';
  import sanitize from 'sanitize-filename';
  import { CHAT_BACKUPS_PREFIX, getChatInfo } from './chats.js';
@@ -985,7 +985,7 @@ diff --git a/src/endpoints/backups.js b/src/endpoints/backups.js
  export const router = express.Router();
  
  router.post('/chat/get', async (request, response) => {
-@@ -29,7 +37,7 @@
+@@ -29,7 +44,7 @@
      }
  });
  
@@ -998,7 +998,7 @@ diff --git a/src/endpoints/logic-engine-host-inventory-handler.mjs b/src/endpoin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-inventory-handler.mjs
-@@ -0,0 +6,6 @@
+@@ -0,0 +13,6 @@
 +export {
 +    assertHostStartupMigrationAllowed,
 +    createHostBulkMutationGuard,
@@ -1008,7 +1008,7 @@ new file mode 100644
 diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 --- a/src/endpoints/data-maid.js
 +++ b/src/endpoints/data-maid.js
-@@ -7,7 +12,10 @@
+@@ -7,7 +19,10 @@
  import { CHAT_BACKUPS_PREFIX } from './chats.js';
  import { isPathUnderParent, tryParse } from '../util.js';
  import { SETTINGS_FILE } from '../constants.js';
@@ -1019,7 +1019,7 @@ diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
  const sha256 = str => crypto.createHash('sha256').update(str).digest('hex');
  
  /**
-@@ -767,7 +775,7 @@
+@@ -767,7 +782,7 @@
      }
  });
  
@@ -1031,7 +1031,7 @@ diff --git a/src/endpoints/data-maid.js b/src/endpoints/data-maid.js
 diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 --- a/src/endpoints/settings.js
 +++ b/src/endpoints/settings.js
-@@ -10,7 +15,12 @@
+@@ -10,7 +22,12 @@
  import { getConfigValue, generateTimestamp, removeOldBackups } from '../util.js';
  import { getAllUserHandles, getUserDirectories } from '../users.js';
  import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
@@ -1044,10 +1044,10 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
  const ENABLE_EXTENSIONS = !!getConfigValue('extensions.enabled', true, 'boolean');
  const ENABLE_EXTENSIONS_AUTO_UPDATE = !!getConfigValue('extensions.autoUpdate', true, 'boolean');
  const ENABLE_ACCOUNTS = !!getConfigValue('enableUserAccounts', false, 'boolean');
-@@ -340,1 +350,1 @@
+@@ -340,1 +357,1 @@
 -router.post('/make-snapshot', async (request, response) => {
 +router.post('/make-snapshot', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -347,7 +357,7 @@
+@@ -347,7 +364,7 @@
      }
  });
  
@@ -1059,11 +1059,11 @@ diff --git a/src/endpoints/settings.js b/src/endpoints/settings.js
 diff --git a/src/users.js b/src/users.js
 --- a/src/users.js
 +++ b/src/users.js
-@@ -24,2 +29,3 @@
+@@ -24,2 +36,3 @@
  import { filterValidIpPatterns, getIpFromRequest } from './express-common.js';
  import { extensionsEnabledFeatureGuard } from './endpoints/extensions.js';
 +import { revokeHostSessionBeforeLogout } from '../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
-@@ -122,8 +128,11 @@
+@@ -122,8 +135,11 @@
      const directoriesList = userHandles.map(handle => getUserDirectories(handle));
      for (const userDirectories of directoriesList) {
 +        // A missing user root identifies a genuinely new account. Permit the
@@ -1075,7 +1075,7 @@ diff --git a/src/users.js b/src/users.js
              }
          }
      }
-@@ -232,7 +241,8 @@
+@@ -232,7 +248,8 @@
  export async function migrateUserData() {
      const publicDirectory = path.join(process.cwd(), 'public');
  
@@ -1085,7 +1085,7 @@ diff --git a/src/users.js b/src/users.js
 +    if (!fs.existsSync(legacyCharactersDirectory)) {
          return;
      }
-@@ -740,3 +750,15 @@
+@@ -740,3 +757,15 @@
  export function shouldRedirectToLogin(request) {
      return ENABLE_ACCOUNTS && !request.user;
  }
@@ -1101,21 +1101,21 @@ diff --git a/src/users.js b/src/users.js
 +    delete session.logicEngineSessionId;
 +    delete session.logicEngineSessionHandle;
 +}
-@@ -789,5 +811,6 @@
+@@ -789,5 +818,6 @@
          const user = await storage.getItem(toKey(userHandles[0]));
          if (user && !user.password) {
 +            await revokeHostSessionBeforeAccountSwitch(request, userHandles[0]);
              request.session.handle = userHandles[0];
              request.session.version = getAccountVersion(user);
              return true;
-@@ -884,5 +907,6 @@
+@@ -884,5 +914,6 @@
              const user = await storage.getItem(toKey(userHandle));
              if (user && user.enabled) {
 +                await revokeHostSessionBeforeAccountSwitch(request, userHandle);
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -925,6 +949,7 @@
+@@ -925,6 +956,7 @@
              const user = await storage.getItem(toKey(userHandle));
              // Verify pass again here just to be sure
              if (user && user.enabled && user.password && user.password === getPasswordHash(password, user.salt)) {
@@ -1123,7 +1123,7 @@ diff --git a/src/users.js b/src/users.js
                  request.session.handle = userHandle;
                  request.session.version = getAccountVersion(user);
                  return true;
-@@ -994,5 +1019,14 @@
+@@ -994,5 +1026,14 @@
          if (request.session.version !== getAccountVersion(user)) {
              console.warn('User data has changed since the session was created. Invalidating session for user:', handle);
 +            if (request.session.logicEngineSessionId !== undefined) {
@@ -1141,13 +1141,13 @@ diff --git a/src/users.js b/src/users.js
 diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 --- a/src/endpoints/users-public.js
 +++ b/src/endpoints/users-public.js
-@@ -7,2 +12,5 @@
+@@ -7,2 +19,5 @@
  import { color, Cache, getConfigValue } from '../util.js';
  import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
 +import { revokeHostSessionBeforeLogout } from '../../plugins/logic-engine-extension-gateway/st-host-session-revocation.mjs';
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
-@@ -93,4 +101,14 @@
+@@ -93,4 +108,14 @@
  
          await loginLimiter.delete(ip);
 +        if (request.session.logicEngineSessionId !== undefined
@@ -1162,13 +1162,13 @@ diff --git a/src/endpoints/users-public.js b/src/endpoints/users-public.js
 +        }
          request.session.handle = user.handle;
          request.session.version = getAccountVersion(user);
-@@ -150,1 +168,1 @@
+@@ -150,1 +175,1 @@
 -router.post('/recover-step2', async (request, response) => {
 +router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {
 diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 --- a/src/endpoints/users-private.js
 +++ b/src/endpoints/users-private.js
-@@ -11,7 +16,14 @@
+@@ -11,7 +23,14 @@
  import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
  import { color, Cache, getConfigValue } from '../util.js';
  import { getIpAddress, retryAfter } from '../express-common.js';
@@ -1183,23 +1183,23 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
  const RESET_POINTS = getConfigValue('rateLimiting.accountsResetMaxAttempts', 5, 'number');
  const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
  const RESET_CACHE = new Cache(5 * 60 * 1000);
-@@ -33,0 +46,6 @@
+@@ -33,0 +53,6 @@
 +        try {
 +            await revokeHostSessionBeforeLogout(request);
 +        } catch (error) {
 +            console.warn('Logic Engine session revocation unavailable; continuing native logout.', error?.message || error);
 +        }
 +
-@@ -68,1 +86,1 @@
+@@ -68,1 +93,1 @@
 -router.post('/change-avatar', async (request, response) => {
 +router.post('/change-avatar', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -103,1 +121,1 @@
+@@ -103,1 +128,1 @@
 -router.post('/change-password', async (request, response) => {
 +router.post('/change-password', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -156,1 +174,1 @@
+@@ -156,1 +181,1 @@
 -router.post('/backup', async (request, response) => {
 +router.post('/backup', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -181,6 +199,6 @@
+@@ -181,6 +206,6 @@
      }
  });
  
@@ -1207,10 +1207,10 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 +router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {
      try {
          const password = request.body.password;
-@@ -204,1 +222,1 @@
+@@ -204,1 +229,1 @@
 -router.post('/change-name', async (request, response) => {
 +router.post('/change-name', hostUnsupportedMutationGuard, async (request, response) => {
-@@ -258,7 +276,7 @@
+@@ -258,7 +283,7 @@
      }
  });
  
@@ -1222,33 +1222,33 @@ diff --git a/src/endpoints/users-private.js b/src/endpoints/users-private.js
 diff --git a/src/endpoints/users-admin.js b/src/endpoints/users-admin.js
 --- a/src/endpoints/users-admin.js
 +++ b/src/endpoints/users-admin.js
-@@ -4,0 +10,3 @@
+@@ -4,0 +17,3 @@
 +import { createHostUnsupportedMutationGuard } from './logic-engine-host-inventory-handler.mjs';
 +const hostUnsupportedMutationGuard = createHostUnsupportedMutationGuard();
 +const hostAccountDeleteGuard = createHostUnsupportedMutationGuard({ code: 'HOST_USER_ACCOUNT_DELETE_UNSUPPORTED' });
-@@ -66,1 +74,1 @@
+@@ -66,1 +81,1 @@
 -router.post('/disable', requireAdminMiddleware, async (request, response) => {
 +router.post('/disable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -95,1 +103,1 @@
+@@ -95,1 +110,1 @@
 -router.post('/enable', requireAdminMiddleware, async (request, response) => {
 +router.post('/enable', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -119,1 +127,1 @@
+@@ -119,1 +134,1 @@
 -router.post('/promote', requireAdminMiddleware, async (request, response) => {
 +router.post('/promote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -143,1 +151,1 @@
+@@ -143,1 +158,1 @@
 -router.post('/demote', requireAdminMiddleware, async (request, response) => {
 +router.post('/demote', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -172,1 +180,1 @@
+@@ -172,1 +187,1 @@
 -router.post('/create', requireAdminMiddleware, async (request, response) => {
 +router.post('/create', requireAdminMiddleware, hostUnsupportedMutationGuard, async (request, response) => {
-@@ -216,1 +224,1 @@
+@@ -216,1 +231,1 @@
 -router.post('/delete', requireAdminMiddleware, async (request, response) => {
 +router.post('/delete', requireAdminMiddleware, hostAccountDeleteGuard, async (request, response) => {
 diff --git a/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-@@ -0,0 +6,365 @@
+@@ -0,0 +13,365 @@
 +// Generation start/stop signals do not independently mutate persisted chat files; their resulting messages are covered by message-send/receive receipts.
 +const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 +const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
@@ -1619,7 +1619,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +6,1038 @@
+@@ -0,0 +13,1038 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2663,7 +2663,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/p
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-@@ -0,0 +6,170 @@
+@@ -0,0 +13,170 @@
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 +const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
 +const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
