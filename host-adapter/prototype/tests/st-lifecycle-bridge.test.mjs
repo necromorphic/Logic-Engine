@@ -1137,6 +1137,7 @@ test('persisted inventory transport failures retain safe status and server diagn
       if (fail) {
         const error = Error('private filesystem path must not escape');
         error.code = 'SOURCE_INVENTORY_UNAVAILABLE';
+        error.reasonCode = 'HOST_INVENTORY_INTERNAL_ERROR';
         error.httpStatus = 503;
         throw error;
       }
@@ -1149,6 +1150,7 @@ test('persisted inventory transport failures retain safe status and server diagn
   assert.equal(failed.status, 'NON_READY');
   assert.equal(failed.stage, 'PERSISTED_INVENTORY_FETCH');
   assert.equal(failed.code, 'SOURCE_INVENTORY_UNAVAILABLE');
+  assert.equal(failed.reasonCode, 'HOST_INVENTORY_INTERNAL_ERROR');
   assert.equal(failed.httpStatus, 503);
   assert.match(failed.observedAt, /^\\d{4}-\\d{2}-\\d{2}T/);
   assert.equal(JSON.stringify(failed).includes('private filesystem path'), false);
