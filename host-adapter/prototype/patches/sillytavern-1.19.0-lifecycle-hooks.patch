@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,352 @@
+@@ -1583,6 +1593,360 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -128,6 +128,8 @@ diff --git a/public/script.js b/public/script.js
 +        const message = String(error?.message || '');
 +        const classifications = [
 +            [/locator binding and enrollment marker|recovery pair/i, 'HOST_ENROLLMENT_RECOVERY_PAIR_INVALID'],
++            [/marker does not match the active locator/i, 'HOST_ENROLLMENT_MARKER_LOCATOR_MISMATCH'],
++            [/locator is associated with another conversation identity/i, 'HOST_ENROLLMENT_IDENTITY_COLLISION'],
 +            [/server confirmation is required/i, 'HOST_ENROLLMENT_SERVER_CONFIRMATION_REQUIRED'],
 +            [/server did not confirm/i, 'HOST_ENROLLMENT_PERSISTENCE_MISMATCH'],
 +            [/legacy.*marker|legacy identity migration/i, 'HOST_LEGACY_ENROLLMENT_MARKER_CONFLICT'],
@@ -147,12 +149,18 @@ diff --git a/public/script.js b/public/script.js
 +                if (key?.startsWith('logic-engine-host-lifecycle-locator:')) locatorBindingCount++;
 +            }
 +        } catch { /* diagnostics must not turn storage denial into a native ST failure */ }
++        let currentLocatorBindingPresent = false;
++        try {
++            currentLocatorBindingPresent = localStorage.getItem(
++                'logic-engine-host-lifecycle-locator:' + getCurrentChatId(),
++            ) !== null;
++        } catch { /* keep the diagnostic available when browser storage is denied */ }
 +        logicEngineHostDiagnostic = Object.freeze({
 +            status: 'NON_READY',
 +            stage: 'CONVERSATION_IDENTITY',
 +            code,
 +            conversationMetadataPresent: typeof chat_metadata?.logic_engine_conversation_id === 'string',
-+            currentLocatorBindingPresent: localStorage.getItem('logic-engine-host-lifecycle-locator:' + getCurrentChatId()) !== null,
++            currentLocatorBindingPresent,
 +            enrollmentMarkerCount,
 +            locatorBindingCount,
 +            observedAt: new Date().toISOString(),
