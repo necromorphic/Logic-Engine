@@ -753,6 +753,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     } catch (error) {
       const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code)
         ? error.code : 'HOST_INVENTORY_TRANSPORT_FAILED';
+      const reasonCode = typeof error?.reasonCode === 'string' && /^[A-Z0-9_:-]{1,128}$/.test(error.reasonCode)
+        ? error.reasonCode : null;
       const httpStatus = Number.isInteger(error?.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599
         ? error.httpStatus : null;
       const diagnostic = Object.freeze({
@@ -760,6 +762,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         stage: 'PERSISTED_INVENTORY_FETCH',
         reason: 'persisted Host inventory request failed',
         code,
+        ...(reasonCode === null ? {} : { reasonCode }),
         ...(httpStatus === null ? {} : { httpStatus }),
         observedAt: new Date().toISOString(),
       });
