@@ -58,7 +58,6 @@ jobs:
 
             $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
             $administratorsSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
-            New-Item -ItemType Directory -Path $root | Out-Null
             Copy-Item -LiteralPath $probeSource -Destination $probeScript
 
             # Grant traversal/read on the fixture root; Core and Provider get protected ACLs below.
