@@ -129,6 +129,21 @@ if ($legacyBackupDirs.Count -gt 0) {
 
 try {
     Copy-FilteredTree $repoRoot $pluginPath
+
+    # The pinned-source manifest generator consumes this single fixture at runtime.
+    # The general plugin copy intentionally excludes the tests tree, so install
+    # this required artifact explicitly without copying the test suite.
+    $runtimeFixtureSource = Join-Path $repoRoot 'tests/fixtures/sillytavern-final-send-v1.manifest.json'
+    $runtimeFixtureDestination = Join-Path $pluginPath 'tests/fixtures/sillytavern-final-send-v1.manifest.json'
+    if (-not (Test-Path -LiteralPath $runtimeFixtureSource -PathType Leaf)) {
+        Stop-WithCode 'HOST_RUNTIME_FIXTURE_SOURCE_NOT_FOUND'
+    }
+    $runtimeFixtureInfo = Get-Item -LiteralPath $runtimeFixtureSource -Force
+    if ($runtimeFixtureInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        Stop-WithCode 'HOST_RUNTIME_FIXTURE_SOURCE_REPARSE_POINT_DENIED'
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $runtimeFixtureDestination) -Force | Out-Null
+    Copy-Item -LiteralPath $runtimeFixtureSource -Destination $runtimeFixtureDestination
     Write-Host "Copied Logic-Engine Final-Send plugin to: $pluginPath"
 } catch {
     if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }

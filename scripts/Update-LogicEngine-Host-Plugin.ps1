@@ -138,6 +138,7 @@ try {
         @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'); Relative = 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch' },
         @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch'); Relative = 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch' },
         @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/generate-pinned-source-manifest.mjs'); Relative = 'host-adapter/prototype/generate-pinned-source-manifest.mjs' }
+        @{ Source = (Join-Path $repoRoot 'tests/fixtures/sillytavern-final-send-v1.manifest.json'); Relative = 'tests/fixtures/sillytavern-final-send-v1.manifest.json' }
     )
     foreach ($entry in $coreFiles) {
         Add-UpdateFile $entry.Source (Join-Path $corePluginRoot $entry.Relative) ('plugins/logic-engine/' + $entry.Relative)
