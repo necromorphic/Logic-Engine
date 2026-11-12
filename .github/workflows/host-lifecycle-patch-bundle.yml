@@ -130,4 +130,4 @@ jobs:
       - name: Audit pinned lifecycle route anchors
         env:
           SILLYTAVERN_SOURCE_ROOT: SillyTavern
-        run: node --test host-adapter/prototype/tests/pinned-st-source-audit.test.mjs
+        run: node --test host-adapter/prototype/tests/st-lifecycle-bridge.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs
