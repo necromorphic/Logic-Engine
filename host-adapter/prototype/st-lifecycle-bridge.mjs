@@ -31,6 +31,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
   const persistedInventoryRevocationPublished = new Set();
+  const persistedInventoryDiagnostics = new Map();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -718,8 +719,22 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     let inventory;
     try {
       inventory = await getPersistedInventory();
-    } catch {
-      return { status: 'NON_READY', reason: 'persisted Host inventory request failed' };
+      persistedInventoryDiagnostics.delete(id);
+    } catch (error) {
+      const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code)
+        ? error.code : 'HOST_INVENTORY_TRANSPORT_FAILED';
+      const httpStatus = Number.isInteger(error?.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599
+        ? error.httpStatus : null;
+      const diagnostic = Object.freeze({
+        status: 'NON_READY',
+        stage: 'PERSISTED_INVENTORY_FETCH',
+        reason: 'persisted Host inventory request failed',
+        code,
+        ...(httpStatus === null ? {} : { httpStatus }),
+        observedAt: new Date().toISOString(),
+      });
+      persistedInventoryDiagnostics.set(id, diagnostic);
+      return diagnostic;
     }
     if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
       || inventory.authority !== 'NON_AUTHORITATIVE'
@@ -866,7 +881,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   function getCoreCaptureStatus() {
     const conversationId = getConversationId();
-    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
+    return Promise.resolve(conversationId).then(id => {
+      if (!id) return { status: 'NO_CONVERSATION' };
+      return {
+        ...(coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }),
+        diagnostic: persistedInventoryDiagnostics.get(id) ?? null,
+      };
+    });
   }
 
   async function reconcileCurrentConversation() {
