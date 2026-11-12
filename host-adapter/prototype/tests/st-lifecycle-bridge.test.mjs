@@ -547,6 +547,82 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   assert.ok(readiness.reason.length > 0);
 });
 
+test('old enrollment marker is recovered only from the exact active locator and verified persisted identities', async () => {
+  const original = makeFixture();
+  await original.bridge.enrollCurrentConversation();
+  const chat = structuredClone(original.chat);
+  const expected = chat.map(message => ({
+    messageId: message._logicEngineLifecycle.messageId,
+    versionIds: message._logicEngineLifecycle.versions.map(version => version.versionId),
+  }));
+  const recovered = makeFixture(chat);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  globalThis.localStorage = {
+    getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:chat-file-1' : null,
+  };
+  try {
+    const before = await recovered.bridge.beforeMutation('delete-message', [0]);
+    assert.equal(before.operation, 'before:delete-message');
+    assert.equal((await recovered.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+    const snapshot = await recovered.journal.latestIdentitySnapshot('chat-1');
+    assert.deepEqual(snapshot.map(message => ({
+      messageId: message.messageId,
+      versionIds: message.versions.map(version => version.versionId),
+    })), expected);
+    assert.equal(
+      globalThis.localStorage.getItem('logic-engine-host-lifecycle:chat-1'),
+      'enrolled:chat-file-1',
+      'recovery must preserve the old marker as historical evidence',
+    );
+    const baseline = (await recovered.journal.exportCaptureLedger('chat-1')).records[0];
+    assert.equal(baseline.payload.captureBoundary, 'origin-recovery-current-state-baseline');
+    assert.equal(baseline.payload.preRecoveryHistory, 'UNKNOWN_UNRECOVERABLE');
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('ambiguous enrollment marker blocks recovery with a stable diagnostic code', async () => {
+  const f = makeFixture();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  globalThis.localStorage = {
+    getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:another-chat-file' : null,
+  };
+  try {
+    await assert.rejects(
+      f.bridge.beforeMutation('delete-message', [0]),
+      error => error.code === 'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+    );
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('partial persisted Host identities are never replaced by automatic enrollment', async () => {
+  const f = makeFixture();
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [{
+      versionId: '33333333-3333-4333-8333-333333333333',
+      versionIndex: 0,
+      payloadDigest: await contentDigest(f.chat[0].mes),
+      parentVersionId: null,
+    }],
+  };
+  const before = structuredClone(f.chat[0]._logicEngineLifecycle);
+  await assert.rejects(
+    f.bridge.beforeMutation('message-send', []),
+    error => error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+  );
+  assert.deepEqual(f.chat[0]._logicEngineLifecycle, before);
+  assert.equal(f.chat[1]._logicEngineLifecycle, undefined);
+  assert.equal(await f.journal.isEnrolled('chat-1'), false);
+});
+
 test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
