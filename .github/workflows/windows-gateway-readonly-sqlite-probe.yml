@@ -55,6 +55,7 @@ jobs:
             $rootAcl.SetAccessRule($rootRule)
             Set-Acl -LiteralPath $root -AclObject $rootAcl
 
+            $env:PATH = "$pythonDir;$env:PATH"
             foreach ($role in @('Core', 'Provider')) {
               $dir = Join-Path $root $role
               New-Item -ItemType Directory -Path $dir | Out-Null
