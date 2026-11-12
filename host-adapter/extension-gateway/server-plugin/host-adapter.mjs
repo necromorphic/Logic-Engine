@@ -303,40 +303,6 @@ export function createSillyTavernHostAdapter({
           return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' };
         }
 
-        let rootProof;
-        try {
-          if (typeof persistRootInventory !== 'function') {
-            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
-          }
-          rootProof = await persistRootInventory({
-            userHandle,
-            rootPath: directories.root,
-            entries: hostInventory.filesystem.entries,
-            snapshotAlignment: hostInventory.snapshot_alignment,
-            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
-            sourceIdentity,
-            mutationCoverage,
-            signal,
-          });
-          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
-        } catch {
-          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
-        }
-        if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
-          || rootProof.integrity_status !== 'INTEGRITY_OK'
-          || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
-          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
-          || !/^[a-f0-9]{64}$/.test(rootProof.attestation_sha256 ?? '')
-          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 0
-          || !/^[a-f0-9]{64}$/.test(rootProof.lifecycle_head_sha256 ?? '')
-          || (rootProof.lifecycle_sequence === 0 && rootProof.lifecycle_head_sha256 !== '0'.repeat(64))
-          || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
-          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
-          || rootProof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
-          || hostInventory.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT') {
-          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
-        }
-
         const source = hostInventory.source;
         const sourceFiles = Array.isArray(source?.files) ? source.files : null;
         const unresolvedSourceBlockers = Array.isArray(source?.blockers)
@@ -395,6 +361,40 @@ export function createSillyTavernHostAdapter({
           || mutationRuntimeAcceptance.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
           || !/^[a-f0-9]{64}$/.test(mutationRuntimeAcceptance.evidence_sha256 ?? '')) {
           return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+
+        let rootProof;
+        try {
+          if (typeof persistRootInventory !== 'function') {
+            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+          }
+          rootProof = await persistRootInventory({
+            userHandle,
+            rootPath: directories.root,
+            entries: hostInventory.filesystem.entries,
+            snapshotAlignment: hostInventory.snapshot_alignment,
+            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            sourceIdentity,
+            mutationCoverage,
+            signal,
+          });
+          if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
+        if (rootProof?.status !== 'AUTHORITATIVE_COMPLETE'
+          || rootProof.integrity_status !== 'INTEGRITY_OK'
+          || !Number.isSafeInteger(rootProof.sequence) || rootProof.sequence < 1
+          || !/^[a-f0-9]{64}$/.test(rootProof.manifest_sha256 ?? '')
+          || !/^[a-f0-9]{64}$/.test(rootProof.attestation_sha256 ?? '')
+          || !Number.isSafeInteger(rootProof.lifecycle_sequence) || rootProof.lifecycle_sequence < 0
+          || !/^[a-f0-9]{64}$/.test(rootProof.lifecycle_head_sha256 ?? '')
+          || (rootProof.lifecycle_sequence === 0 && rootProof.lifecycle_head_sha256 !== '0'.repeat(64))
+          || sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+          || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+          || rootProof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
+          || hostInventory.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT') {
+          return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
         return {
