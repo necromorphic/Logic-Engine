@@ -215,13 +215,13 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
     'only authentication failures may invalidate the cached Host identity');
   assert.ok(patch.includes("/^HOST_(?:SESSION_|AUTHENTICATED_CONTEXT|USER_IDENTITY)/.test(serverCode)"),
     'server authentication reason codes must trigger identity refresh without treating inventory failures as auth failures');
-  assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
+  assert.ok(patch.includes("inventory.host_user_handle !== session.host_user_handle"),
     'persisted inventory must remain bound to the authenticated ST account');
   assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
   assert.ok(patch.includes('function invalidateLogicEngineHostIdentity()'));
   assert.ok(patch.includes('logicEngineHostIdentityPromise = null;'));
   assert.ok(patch.includes('logicEngineLifecycleBridgePromise = null;'));
-  const accountMismatchGuard = patch.indexOf("inventory?.host_user_handle !== session.host_user_handle");
+  const accountMismatchGuard = patch.indexOf("inventory.host_user_handle !== session.host_user_handle");
   const accountMismatchInvalidation = patch.indexOf("invalidateLogicEngineHostIdentity();", accountMismatchGuard);
   const accountMismatchFailure = patch.indexOf("Persisted Host inventory belongs to a different authenticated account", accountMismatchGuard);
   assert.ok(accountMismatchGuard >= 0 && accountMismatchInvalidation > accountMismatchGuard
