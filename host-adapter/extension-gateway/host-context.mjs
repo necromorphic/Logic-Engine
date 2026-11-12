@@ -18,6 +18,7 @@ export async function resolveGatewayHostContext({
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('fetch is required');
   let hostContext = getHostContext;
+  if (typeof hostContext === 'function') hostContext = await hostContext();
   if (!hostContext) {
     const module = await import(new URL('/scripts/st-context.js', import.meta.url).href);
     hostContext = module.getContext();
