@@ -25,9 +25,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.12'
       - name: Probe read-only SQLite access under a separate Windows identity
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
@@ -37,8 +34,15 @@ jobs:
           $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
           $account = "leGwProbe$suffix"
           $root = Join-Path $env:RUNNER_TEMP "le-gw-probe-$suffix"
-          $python = (Get-Command python -ErrorAction Stop).Source
-          $pythonDir = Split-Path -Parent $python
+          # Install a private Python runtime without setup-python's PowerShell bootstrap;
+          # this runner enforces a machine execution policy that blocks setup.ps1.
+          $pythonDir = Join-Path $env:RUNNER_TEMP "le-gw-python-$suffix"
+          $pythonInstaller = Join-Path $env:RUNNER_TEMP 'python-3.12.10-amd64.exe'
+          Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile $pythonInstaller
+          $install = Start-Process -FilePath $pythonInstaller -ArgumentList @('/quiet', 'InstallAllUsers=0', ("TargetDir={0}" -f $pythonDir), 'Include_launcher=0', 'Include_test=0', 'Include_pip=0', 'PrependPath=0') -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Python installer failed with exit code $($install.ExitCode)." }
+          $python = Join-Path $pythonDir 'python.exe'
+          if (-not (Test-Path -LiteralPath $python)) { throw 'Private Python installation did not produce python.exe.' }
           $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py'
           $probeScript = Join-Path $root 'gateway_readonly_sqlite_probe.py'
           $writerProcesses = @()
@@ -158,4 +162,6 @@ jobs:
               Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
             }
             try { Remove-LocalUser -Name $account -ErrorAction SilentlyContinue } catch {}
+            if (Test-Path -LiteralPath $pythonDir) { Remove-Item -LiteralPath $pythonDir -Recurse -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $pythonInstaller) { Remove-Item -LiteralPath $pythonInstaller -Force -ErrorAction SilentlyContinue }
           }
