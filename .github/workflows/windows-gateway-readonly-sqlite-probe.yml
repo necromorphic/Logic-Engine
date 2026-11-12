@@ -34,44 +34,27 @@ jobs:
           $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
           $account = "leGwProbe$suffix"
           $root = Join-Path $env:RUNNER_TEMP "le-gw-probe-$suffix"
-          # Install a private Python runtime without setup-python's PowerShell bootstrap;
-          # this runner enforces a machine execution policy that blocks setup.ps1.
-          $pythonDir = Join-Path $env:RUNNER_TEMP "le-gw-python-$suffix"
-          $pythonInstaller = Join-Path $env:RUNNER_TEMP 'python-3.12.10-amd64.exe'
-          Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile $pythonInstaller
-          $install = Start-Process -FilePath $pythonInstaller -ArgumentList @('/quiet', 'InstallAllUsers=0', ("TargetDir={0}" -f $pythonDir), 'Include_launcher=0', 'Include_test=0', 'Include_pip=0', 'PrependPath=0') -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "Python installer failed with exit code $($install.ExitCode)." }
+          # Keep the private Python runtime inside the fixture root so its ACL is
+          # limited to this disposable test tree, not the shared runner tool cache.
+          $pythonDir = Join-Path $root 'python-runtime'
+          $pythonInstaller = Join-Path $env:RUNNER_TEMP "python-3.12.10-$suffix-amd64.exe"
           $python = Join-Path $pythonDir 'python.exe'
-          if (-not (Test-Path -LiteralPath $python)) { throw 'Private Python installation did not produce python.exe.' }
           $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py'
           $probeScript = Join-Path $root 'gateway_readonly_sqlite_probe.py'
           $writerProcesses = @()
           $pythonAclPaths = @()
           $userSid = $null
           try {
+            New-Item -ItemType Directory -Path $root | Out-Null
+            Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile $pythonInstaller
+            $install = Start-Process -FilePath $pythonInstaller -ArgumentList @('/quiet', 'InstallAllUsers=0', ("TargetDir={0}" -f $pythonDir), 'Include_launcher=0', 'Include_test=0', 'Include_pip=0', 'PrependPath=0') -Wait -PassThru
+            if ($install.ExitCode -ne 0) { throw "Python installer failed with exit code $($install.ExitCode)." }
+            if (-not (Test-Path -LiteralPath $python)) { throw 'Private Python installation did not produce python.exe.' }
             New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
             $userSid = (Get-LocalUser -Name $account).SID
             Write-Host "Pinned Python executable: $python"
             & $python --version
             if ($LASTEXITCODE -ne 0) { throw 'Pinned Python runtime failed its startup check.' }
-
-            # The alternate logon must be able to traverse the tool-cache path and load Python DLLs.
-            $toolCache = $env:RUNNER_TOOL_CACHE
-            if (-not $toolCache) { throw 'RUNNER_TOOL_CACHE is not defined.' }
-            $cursor = $pythonDir
-            while ($cursor -and ($cursor.Length -ge $toolCache.Length) -and $cursor.StartsWith($toolCache, [System.StringComparison]::OrdinalIgnoreCase)) {
-              $pythonAclPaths += $cursor
-              $parent = Split-Path -Parent $cursor
-              if (-not $parent -or $parent -eq $cursor) { break }
-              $cursor = $parent
-            }
-            if ($pythonAclPaths -notcontains $toolCache) { $pythonAclPaths += $toolCache }
-            foreach ($aclPath in $pythonAclPaths) {
-              & icacls.exe $aclPath /grant ("*{0}:(RX)" -f $userSid.Value) | Out-Host
-              if ($LASTEXITCODE -ne 0) { throw "Could not grant Python path traversal on $aclPath." }
-            }
-            & icacls.exe $pythonDir /grant ("*{0}:(OI)(CI)RX" -f $userSid.Value) /T /C | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw 'Could not grant read/execute access to the pinned Python runtime.' }
 
             $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
             $administratorsSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
@@ -89,6 +72,8 @@ jobs:
             )
             $rootAcl.SetAccessRule($rootRule)
             Set-Acl -LiteralPath $root -AclObject $rootAcl
+            & icacls.exe $pythonDir /grant ("*{0}:(OI)(CI)RX" -f $userSid.Value) /T /C | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw 'Could not grant read/execute access to the private Python runtime.' }
 
             foreach ($role in @('Core', 'Provider')) {
               $dir = Join-Path $root $role
@@ -150,9 +135,6 @@ jobs:
           } finally {
             foreach ($proc in $writerProcesses) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
             if ($userSid) {
-              foreach ($aclPath in $pythonAclPaths) {
-                try { & icacls.exe $aclPath /remove:g ("*{0}" -f $userSid.Value) | Out-Host } catch {}
-              }
               try { & icacls.exe $pythonDir /remove:g ("*{0}" -f $userSid.Value) /T /C | Out-Host } catch {}
             }
             if (Test-Path -LiteralPath $root) {
