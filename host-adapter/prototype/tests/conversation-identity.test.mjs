@@ -177,6 +177,30 @@ test('missing chat metadata is restored only from an exact marker and locator pa
   assert.equal(storage.getItem(prefix + resolvedId), 'enrolled:chat-file.jsonl');
 });
 
+test('identity recovery is rejected if the active chat changes during server confirmation', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
+  storage.setItem(prefix + resolvedId, 'enrolled:chat-file.jsonl');
+  const metadata = { logic_engine_conversation_id: null };
+  let activeMetadata = metadata;
+
+  await assert.rejects(
+    resolver({
+      locator: 'chat-file.jsonl',
+      metadata,
+      storage,
+      getCurrentMetadata: () => activeMetadata,
+      verifyPersistedIdentity: async () => {
+        activeMetadata = {};
+        return true;
+      },
+    }),
+    /server did not confirm the restored conversation identity/,
+  );
+});
+
 test('missing chat metadata is not restored from an unpaired or ambiguous enrollment marker', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
