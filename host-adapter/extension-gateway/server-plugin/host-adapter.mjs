@@ -303,44 +303,6 @@ export function createSillyTavernHostAdapter({
           return { status: 'NON_READY', code: 'HOST_SOURCE_IDENTITY_UNAVAILABLE' };
         }
 
-        // Static route presence is not runtime acceptance. The production
-        // verifier audits durable operation receipts, real-file before/after
-        // evidence, restart recovery, pinned source identity and the current
-        // shared VSS snapshot before this request may acquire a Host context.
-        if (typeof verifyMutationRuntimeAcceptance !== 'function') {
-          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
-        }
-        let mutationRuntimeAcceptance;
-        try {
-          mutationRuntimeAcceptance = await verifyMutationRuntimeAcceptance({
-            pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
-            rootPath: directories.root,
-            entries: hostInventory.filesystem.entries,
-            snapshotAlignment: hostInventory.snapshot_alignment,
-            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
-            snapshotId: hostInventory.filesystem.snapshot_id,
-            rootId: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
-            sourceIdentity,
-            mutationCoverage,
-            hostInstallationId: identityRecord.host_installation_id,
-            authenticatedAccountId: identityRecord.authenticated_account_id,
-            signal,
-          });
-        } catch {
-          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
-        }
-        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
-        if (mutationRuntimeAcceptance?.status !== 'VERIFIED'
-          || mutationRuntimeAcceptance.source_commit !== PINNED_SILLYTAVERN_COMMIT
-          || mutationRuntimeAcceptance.snapshot_sha256 !== hostInventory.filesystem.snapshot_sha256
-          || mutationRuntimeAcceptance.snapshot_id !== hostInventory.filesystem.snapshot_id
-          || mutationRuntimeAcceptance.root_id !== createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex')
-          || mutationRuntimeAcceptance.source_manifest_sha256 !== sourceIdentity.manifest_sha256
-          || mutationRuntimeAcceptance.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
-          || !/^[a-f0-9]{64}$/.test(mutationRuntimeAcceptance.evidence_sha256 ?? '')) {
-          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
-        }
-
         let rootProof;
         try {
           if (typeof persistRootInventory !== 'function') {
@@ -395,6 +357,44 @@ export function createSillyTavernHostAdapter({
           || source.snapshot_provider !== 'windows-vss-client-accessible'
           || source.snapshot_consistency !== 'VSS_POINT_IN_TIME_READ_ONLY') {
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
+        }
+
+        // Static route presence is not runtime acceptance. The production
+        // verifier audits durable operation receipts, real-file before/after
+        // evidence, restart recovery, pinned source identity and the current
+        // shared VSS snapshot before this request may acquire a Host context.
+        if (typeof verifyMutationRuntimeAcceptance !== 'function') {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+        let mutationRuntimeAcceptance;
+        try {
+          mutationRuntimeAcceptance = await verifyMutationRuntimeAcceptance({
+            pinnedHostCommit: PINNED_SILLYTAVERN_COMMIT,
+            rootPath: directories.root,
+            entries: hostInventory.filesystem.entries,
+            snapshotAlignment: hostInventory.snapshot_alignment,
+            snapshotSha256: hostInventory.filesystem.snapshot_sha256,
+            snapshotId: hostInventory.filesystem.snapshot_id,
+            rootId: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
+            sourceIdentity,
+            mutationCoverage,
+            hostInstallationId: identityRecord.host_installation_id,
+            authenticatedAccountId: identityRecord.authenticated_account_id,
+            signal,
+          });
+        } catch {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
+        }
+        if (cancelled()) return { status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' };
+        if (mutationRuntimeAcceptance?.status !== 'VERIFIED'
+          || mutationRuntimeAcceptance.source_commit !== PINNED_SILLYTAVERN_COMMIT
+          || mutationRuntimeAcceptance.snapshot_sha256 !== hostInventory.filesystem.snapshot_sha256
+          || mutationRuntimeAcceptance.snapshot_id !== hostInventory.filesystem.snapshot_id
+          || mutationRuntimeAcceptance.root_id !== createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex')
+          || mutationRuntimeAcceptance.source_manifest_sha256 !== sourceIdentity.manifest_sha256
+          || mutationRuntimeAcceptance.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
+          || !/^[a-f0-9]{64}$/.test(mutationRuntimeAcceptance.evidence_sha256 ?? '')) {
+          return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
         }
 
         return {
