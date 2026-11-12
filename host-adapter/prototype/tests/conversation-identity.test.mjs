@@ -145,6 +145,76 @@ test('un-enrolled browser cache migrates to the authenticated server installatio
   assert.equal(storage.getItem('logic-engine-host-installation-id'), INSTALL_B);
 });
 
+test('missing chat metadata is restored only from an exact marker and locator pair with server confirmation', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
+  storage.setItem(prefix + resolvedId, 'enrolled:chat-file.jsonl');
+  const metadata = {};
+  let saves = 0;
+  let verifications = 0;
+
+  const result = await resolver({
+    locator: 'chat-file.jsonl',
+    metadata,
+    storage,
+    saveMetadata: async () => { saves++; },
+    verifyPersistedIdentity: async conversationUuid => {
+      verifications++;
+      return metadata.logic_engine_conversation_id === conversationUuid;
+    },
+  });
+
+  assert.equal(result.status, 'READY_FOR_REVIEW');
+  assert.equal(result.conversationId, resolvedId);
+  assert.equal(result.conversationUuid, CHAT_A);
+  assert.equal(result.recoveredFromVerifiedEnrollmentPair, true);
+  assert.equal(metadata.logic_engine_conversation_id, CHAT_A);
+  assert.equal(saves, 1);
+  assert.equal(verifications, 1);
+  assert.equal(storage.getItem(locatorKey('chat-file.jsonl')), resolvedId);
+  assert.equal(storage.getItem(prefix + resolvedId), 'enrolled:chat-file.jsonl');
+});
+
+test('missing chat metadata is not restored from an unpaired or ambiguous enrollment marker', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
+  storage.setItem(prefix + resolvedId, 'enrolled:another-chat.jsonl');
+  const metadata = {};
+  let saves = 0;
+
+  await assert.rejects(
+    resolver({
+      locator: 'chat-file.jsonl',
+      metadata,
+      storage,
+      saveMetadata: async () => { saves++; },
+      verifyPersistedIdentity: async () => true,
+    }),
+    /marker do not form a valid recovery pair/,
+  );
+  assert.equal(metadata.logic_engine_conversation_id, undefined);
+  assert.equal(saves, 0);
+});
+
+test('missing chat metadata recovery requires server-side persisted-file confirmation', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
+  storage.setItem(prefix + resolvedId, 'enrolled:chat-file.jsonl');
+  const metadata = {};
+
+  await assert.rejects(
+    resolver({ locator: 'chat-file.jsonl', metadata, storage }),
+    /server confirmation is required/,
+  );
+  assert.equal(metadata.logic_engine_conversation_id, undefined);
+});
+
 test('legacy filename-based enrollment marker cannot be silently upgraded', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
