@@ -1700,7 +1700,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,1160 @@
+@@ -0,0 +1,1168 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2090,7 +2090,15 @@ new file mode 100644
 +  }
 +
 +  async function ensureConversationEnrolled(conversationId) {
-+    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    let restored;
++    try {
++      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    } catch {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_RECOVERY_REJECTED',
++        'persisted Host identity metadata could not be restored into the local journal',
++      );
++    }
 +    if (restored) return;
 +
 +    // Never replace partial, malformed, or stale per-message identities with
