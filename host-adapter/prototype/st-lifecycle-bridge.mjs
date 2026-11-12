@@ -32,6 +32,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   const coreCaptureStates = new Map();
   const persistedInventoryRevocationPublished = new Set();
   const persistedInventoryDiagnostics = new Map();
+  const automaticEnrollmentPromises = new Map();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -333,13 +334,39 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
   }
 
+  async function ensureConversationEnrolled(conversationId) {
+    if (await enrolledOrFailClosed(conversationId)) return;
+    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    if (restored) return;
+    let pending = automaticEnrollmentPromises.get(conversationId);
+    if (!pending) {
+      pending = (async () => {
+        if (await getConversationId() !== conversationId) {
+          throw Error('NON_READY: Host conversation changed before automatic enrollment');
+        }
+        return enrollCurrentConversation();
+      })();
+      automaticEnrollmentPromises.set(conversationId, pending);
+    }
+    try {
+      await pending;
+    } finally {
+      if (automaticEnrollmentPromises.get(conversationId) === pending) {
+        automaticEnrollmentPromises.delete(conversationId);
+      }
+    }
+    if (!(await journal.isEnrolled(conversationId))) {
+      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
+    }
+  }
+
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId) return { status: 'NOT_ENROLLED' };
     let recoveredBaseline = false;
     if (!(await enrolledOrFailClosed(conversationId))) {
       const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
-      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
+      if (!restored) await ensureConversationEnrolled(conversationId);
       recoveredBaseline = true;
     }
     if (getLifecycleStatus) {
