@@ -25,7 +25,7 @@ const OPERATIONS = [
 const uuid = index => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, '0')}`;
 const rootId = root => sha(Buffer.from(path.resolve(root), 'utf8'));
 
-async function writeEvidence(directory, { omitOperation = null, omitRecovery = false, corrupt = false } = {}) {
+async function writeEvidence(directory, { omitOperation = null, omitRecovery = false, corrupt = false, sameProcess = false } = {}) {
   const currentProcessStartedAtMs = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000));
   const priorProcessStartedAtMs = currentProcessStartedAtMs - 60000;
   for (const [index, operation] of OPERATIONS.entries()) {
@@ -57,7 +57,8 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
     const prepared = {
-      schema_version: 1, evidence_schema_version: 2, process_started_at_ms: priorProcessStartedAtMs, ...scope,
+      schema_version: 1, evidence_schema_version: 2,
+      process_started_at_ms: sameProcess ? Date.now() : priorProcessStartedAtMs, ...scope,
       event_id: uuid(index + 60), operation, mutation_digest: sha('mutation-' + operation),
       before: { snapshot_proof: beforeProof },
     };
@@ -113,9 +114,8 @@ test('runtime verifier accepts a complete schema-v2 receipt ledger fixture', asy
 });
 
 test('runtime verifier rejects receipts created by the current server process', async t => {
-  const { root, store } = await fixture(t, {});
+  const { root, store } = await fixture(t, { sameProcess: true });
   const inputs = makeInputs(root);
-  const currentProcessStartedAtMs = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)) - 60000;
   const result = await store.verifyRuntimeAcceptance({
     pinnedHostCommit: inputs.pinnedHostCommit,
     rootPath: inputs.rootPath,
@@ -128,7 +128,6 @@ test('runtime verifier rejects receipts created by the current server process', 
     mutationCoverage: inputs.mutationCoverage,
     hostInstallationId: inputs.hostInstallationId,
     authenticatedAccountId: inputs.authenticatedAccountId,
-    currentProcessStartedAtMs,
   });
   assert.equal(result.status, 'NON_READY');
   assert.equal(result.reason, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
