@@ -2958,7 +2958,7 @@ new file mode 100644
 +    }
 +  };
 +
-+  if (existing !== undefined && !validUuid(existing)) {
++  if (existing !== undefined && existing !== null && !validUuid(existing)) {
 +    throw Error('NON_READY: malformed stable Host conversation identity');
 +  }
 +
