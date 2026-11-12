@@ -112,6 +112,10 @@ export async function resolveStableHostConversationIdentity({
     if (mappedId && mappedId !== resolvedId) {
       throw Error('NON_READY: Host locator metadata is missing or inconsistent');
     }
+    if (mappedId && typeof verifyPersistedIdentity === 'function'
+      && !(await verifyServerPersistence(existing))) {
+      throw Error('NON_READY: server did not confirm the current conversation identity in the persisted chat');
+    }
     if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
       throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
     }
