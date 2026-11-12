@@ -1177,7 +1177,7 @@ test('first instrumented Host mutation automatically establishes a review-only b
   assert.equal(await f.journal.isEnrolled(conversationId), true);
   assert.equal(f.chat.length, 2);
   assert.ok(f.chat.every(message => message._logicEngineLifecycle?.messageId));
-  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  const ledger = await f.journal.exportCaptureLedger(conversationId);
   assert.equal(ledger.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledger.status, 'REVIEW_ONLY');
   assert.equal(ledger.records.some(record => record.operation === 'before:message-send'), true);
