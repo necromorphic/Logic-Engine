@@ -1163,8 +1163,13 @@ test('persisted inventory transport failures retain safe status and server diagn
   assert.equal((await f.bridge.getCoreCaptureStatus()).diagnostic, null);
 });
 
-test('first instrumented Host mutation automatically establishes a review-only baseline before mutation', async () => {
-  const f = makeFixture();
+test('first instrumented Host mutation automatically establishes a review-only baseline and verifies persisted inventory', async () => {
+  const conversationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
+  let inventoryCalls = 0;
+  const f = makeFixture(undefined, {
+    conversationId,
+    getPersistedInventory: async () => { inventoryCalls++; return null; },
+  });
   const before = await f.bridge.beforeMutation('message-send', []);
   assert.notEqual(before.status, 'NOT_ENROLLED');
   assert.equal(await f.journal.isEnrolled('chat-1'), true);
@@ -1174,5 +1179,6 @@ test('first instrumented Host mutation automatically establishes a review-only b
   assert.equal(ledger.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledger.status, 'REVIEW_ONLY');
   assert.equal(ledger.records.some(record => record.operation === 'before:message-send'), true);
+  assert.equal(inventoryCalls, 1, 'persisted Host inventory must be checked automatically after baseline persistence');
 });
 
