@@ -11,6 +11,8 @@ on:
       - 'tests/windows-host-deployment-launcher.test.js'
       - 'scripts/sillytavern-patch-manager.mjs'
       - 'host-adapter/patches/**'
+      - 'host-adapter/extension-gateway/**'
+      - 'host-adapter/prototype/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/host-plugin-installer.yml'
@@ -118,6 +120,16 @@ jobs:
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'HOST_PATCH_BUNDLE_UPGRADE_FAILED' }
           $runtimeFixture = Join-Path $upgradeRoot 'plugins/logic-engine/tests/fixtures/sillytavern-final-send-v1.manifest.json'
           if (-not (Test-Path -LiteralPath $runtimeFixture -PathType Leaf)) { throw 'HOST_RUNTIME_FIXTURE_NOT_REPAIRED_BY_UPDATER' }
+
+          # The installed generator must use the same current browser sources as
+          # the deployed ST public extension, not the stale files from the prior candidate.
+          $coreBrowserSource = Join-Path $upgradeRoot 'plugins/logic-engine/host-adapter/extension-gateway'
+          $deployedBrowserSource = Join-Path $upgradeRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
+          foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+            $coreHash = (Get-FileHash -LiteralPath (Join-Path $coreBrowserSource $name) -Algorithm SHA256).Hash
+            $deployedHash = (Get-FileHash -LiteralPath (Join-Path $deployedBrowserSource $name) -Algorithm SHA256).Hash
+            if ($coreHash -ne $deployedHash) { throw ('HOST_GENERATOR_BROWSER_SOURCE_STALE: ' + $name) }
+          }
 
           $attestation = Get-Content -LiteralPath './host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs' -Raw
           $expectedPatchHash = [regex]::Match($attestation, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'").Groups[1].Value
