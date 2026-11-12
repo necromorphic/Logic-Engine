@@ -13,7 +13,7 @@ import {
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createDispatchRequestSignature, verifyDispatchRequestSignature, deriveDispatchEvidenceFromAdmission, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
@@ -235,6 +235,25 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
     source_version: 'version-7',
   }],
   ...overrides,
+});
+
+test('dispatch evidence derives from NPC Lane-B admission and excludes content', () => {
+ const laneB={lane:'B',core_purpose:'npc_decision',provider_purpose:'npc_decision',status:'ready',reason:null,
+ snapshot:{world_revision:7,commit_sequence:12},provider_evidence_cursor:{data_version:4,candidate_digest:'a'.repeat(64)},
+ admitted:[{record_ref:'record-42',record_version:'record-version-3',authorization_generation:2}],
+ candidates:[{record_ref:'record-42',record_version:'record-version-3',authorization_generation:2,
+ source_kind:'canonical_entity',source_entity_id:'entity-42',source_version:'core-entity-v1:7',
+ epistemic_kind:'supported',evidence_assessment:'supported',content:{text:'TRANSIENT_TEXT_MUST_NOT_ENTER_EVIDENCE'}}]};
+ const evidence=deriveDispatchEvidenceFromAdmission(laneB);
+ assert.deepEqual(evidence.sources,[{source_kind:'canonical_entity',source_entity_id:'entity-42',source_version:'core-entity-v1:7'}]);
+ assert.deepEqual(evidence.candidates,[{record_ref:'record-42',record_version:'record-version-3',authorization_generation:2,
+ source_kind:'canonical_entity',source_entity_id:'entity-42',source_version:'core-entity-v1:7'}]);
+ assert.deepEqual(evidence.snapshot,{world_revision:7,commit_sequence:12});
+ assert.deepEqual(evidence.providerEvidenceCursor,{data_version:4,candidate_digest:'a'.repeat(64)});
+ assert.equal(JSON.stringify(evidence).includes('TRANSIENT_TEXT_MUST_NOT_ENTER_EVIDENCE'),false);
+ assert.throws(()=>deriveDispatchEvidenceFromAdmission({...laneB,status:'non_ready'}),/MEMORY_DISPATCH_NOT_READY/);
+ assert.throws(()=>deriveDispatchEvidenceFromAdmission({...laneB,admitted:[{...laneB.admitted[0],authorization_generation:3}]}),/MEMORY_DISPATCH_NOT_READY/);
+ assert.throws(()=>deriveDispatchEvidenceFromAdmission({...laneB,candidates:[{...laneB.candidates[0],source_version:undefined}]}),/MEMORY_DISPATCH_NOT_READY/);
 });
 
 test('Gateway signing is independent of mutable Array prototype methods and iteration', () => {
