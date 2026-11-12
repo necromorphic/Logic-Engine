@@ -50,6 +50,53 @@ test('Gateway resolves stable installation/account/conversation identity with se
   assert.equal(calls.length,2);
 });
 
+test('Gateway obtains a fresh ST context snapshot for each generation after chat switches', async () => {
+  const storage = new MemoryStorage();
+  const firstContext = {
+    ...hostContext(),
+    getCurrentChatId: () => 'character/first-chat.jsonl',
+  };
+  const firstMetadata = firstContext.chatMetadata;
+  const secondContext = {
+    ...hostContext(),
+    getCurrentChatId: () => 'character/second-chat.jsonl',
+  };
+  const secondMetadata = secondContext.chatMetadata;
+  let currentContext = firstContext;
+  let providerCalls = 0;
+  const getHostContext = () => {
+    providerCalls++;
+    return currentContext;
+  };
+  const fetchImpl = async url => {
+    const pathname = new URL(String(url), 'http://localhost').pathname;
+    if (pathname.endsWith('/session')) return response(200, {
+      host_session_id: sessionId,
+      host_session_identity: 'SIGNED_AUTHENTICATED_ST_SESSION',
+    });
+    if (pathname.endsWith('/identity')) return response(200, {
+      host_session_id: sessionId,
+      host_installation_id: installationId,
+      authenticated_account_id: accountId,
+      identity_source: 'SERVER_PERSISTED_OPAQUE_IDENTITY',
+    });
+    throw new Error('UNEXPECTED_GATEWAY_TEST_PATH');
+  };
+  let generated = 0;
+  const cryptoProvider = {
+    randomUUID: () => generated++ === 0 ? conversationUuid : '55555555-5555-4555-8555-555555555556',
+  };
+
+  const first = await resolveGatewayHostContext({ fetchImpl, getHostContext, storage, cryptoProvider });
+  currentContext = secondContext;
+  const second = await resolveGatewayHostContext({ fetchImpl, getHostContext, storage, cryptoProvider });
+
+  assert.equal(providerCalls, 2);
+  assert.equal(firstMetadata.logic_engine_conversation_id, conversationUuid);
+  assert.equal(secondMetadata.logic_engine_conversation_id, '55555555-5555-4555-8555-555555555556');
+  assert.notEqual(first.conversationId, second.conversationId);
+});
+
 test('Host persists the server-derived Core conversation binding before the read-only Gateway runs', async () => {
   let captured;
   const result = await ensureCoreConversationWorldBinding({
