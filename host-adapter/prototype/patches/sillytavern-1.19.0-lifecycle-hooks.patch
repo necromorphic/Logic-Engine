@@ -160,6 +160,10 @@ diff --git a/public/script.js b/public/script.js
 +                        ? serverCode : 'HOST_INVENTORY_HTTP_' + response.status;
 +                    if (serverReason && /^[A-Z0-9_:-]{1,128}$/.test(serverReason)) error.reasonCode = serverReason;
 +                    error.httpStatus = response.status;
++                    if ((!serverCode && [401, 403].includes(response.status))
++                        || (serverCode && /^HOST_(?:SESSION_|AUTHENTICATED_CONTEXT|USER_IDENTITY)/.test(serverCode))) {
++                        invalidateLogicEngineHostIdentity();
++                    }
 +                    throw error;
 +                }
 +                if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) {
