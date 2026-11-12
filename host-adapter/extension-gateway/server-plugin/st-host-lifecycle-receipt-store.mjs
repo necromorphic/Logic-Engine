@@ -16,6 +16,9 @@ const canonical = value => Array.isArray(value)
     ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
     : JSON.stringify(value);
 const sha256 = value => createHash('sha256').update(value).digest('hex');
+// Capture once per Node process so receipt creation and verification use an identical
+// process identity despite millisecond rounding drift in Date.now() - process.uptime().
+const PROCESS_STARTED_AT_MS = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000));
 const validScope = scope => scope && UUID.test(scope.host_installation_id ?? '')
   && UUID.test(scope.authenticated_account_id ?? '')
   && UUID.test(scope.host_session_id ?? '')
@@ -429,7 +432,7 @@ export class HostLifecycleReceiptStore {
     const record = {
       schema_version: 1,
       evidence_schema_version: 2,
-      process_started_at_ms: Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)),
+      process_started_at_ms: PROCESS_STARTED_AT_MS,
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
       host_session_id: scope.host_session_id,
@@ -685,7 +688,7 @@ export class HostLifecycleReceiptStore {
     pinnedHostCommit, rootPath, rootId, entries, snapshotAlignment,
     snapshotId, snapshotSha256, sourceIdentity, mutationCoverage,
     hostInstallationId, authenticatedAccountId,
-    currentProcessStartedAtMs = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)),
+    currentProcessStartedAtMs = PROCESS_STARTED_AT_MS,
   } = {}) {
     const fail = reason => ({ status: 'NON_READY', reason });
     if (pinnedHostCommit !== this.hostCommit || typeof rootPath !== 'string'
