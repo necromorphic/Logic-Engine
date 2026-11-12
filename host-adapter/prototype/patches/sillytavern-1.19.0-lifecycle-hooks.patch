@@ -2876,7 +2876,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/p
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-@@ -0,0 +1,260 @@
+@@ -0,0 +1,261 @@
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 +const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
 +const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
