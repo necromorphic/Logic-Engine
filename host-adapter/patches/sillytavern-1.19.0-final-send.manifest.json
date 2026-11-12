@@ -10,7 +10,7 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "70e835c9172f22599a4fefb63126bfc1cea689276c84082e58f03fa976763998",
+    "bundleSha256": "b8b8ec599b7baabcb1f8c81180e356f17e237c0a3b8b6d5942bcecd49ab411bf",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "55f227c28633695e66b45a559596863774731bc2d637d7f0d66fb8e2994ac33f",
+        "sha256": "f000f96238c373ed1139fd642a09e5eba0bf35431b0ae98181ced1566dd6e884",
         "allowUnidiffZero": true
       },
       {
@@ -33,7 +33,7 @@
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
     "public/script.js": {
       "before": "955c603d0bad84bac5a716f0818d85c2543e44d4c43878e0d63ef1e55ca91855",
-      "after": "3392f81e78b5e6a2eaa01a2b2dbbb92d4fb769675b6e69aef8b34b0377ed8a7a"
+      "after": "c41842f68adc9242e0a424dcb0c29750fab0b950440f0fe8cf15af52c8aeecd9"
     },
     "public/scripts/bookmarks.js": {
       "before": "5c3a68aa82e58c0d82777065b8466572fc1b202cad98a92ba4daa852c386ad1b",
@@ -193,9 +193,9 @@
     "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd"
   },
   "createdFiles": {
-    "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "382f79b054c45fa1fbfdfb5ec44f5fa4980f2fb602ada729540ae270a1ae306a",
+    "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "75b06c6b94943d5de2ac35e12af984608fb0e6382de28a46c8054ac2ea5ef624",
     "public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs": "2adb9b6d4619c968ac7da680cc9fffa3c47b3f09b981017cdaf8ac96c37eabc2",
-    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "ca7ad541d1466c5e09b2a537b345aa565e307e34a676479da8a4d78cedda0be8",
+    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "009cf4d541a185fdf8fff7e457c2fc21ce99494e9090c310fd7af928f0baeb4a",
     "src/endpoints/logic-engine-host-inventory-handler.mjs": "362f7ee2f193d30db59d8cf8e5b2a90f761e5aa4dab0661b0405e7026e7ef64c",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
     "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
