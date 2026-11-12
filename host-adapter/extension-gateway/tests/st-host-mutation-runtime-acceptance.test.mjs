@@ -94,13 +94,35 @@ async function fixture(t, options) {
   return { root, store: new HostLifecycleReceiptStore({ directory, hostCommit: HOST_COMMIT }) };
 }
 
-test('runtime verifier accepts complete durable operation coverage only after process restart', async t => {
+test('runtime verifier accepts a complete schema-v2 receipt ledger fixture', async t => {
   const { root, store } = await fixture(t, {});
   const result = await createHostMutationRuntimeAcceptanceVerifier({ receiptStore: store })(makeInputs(root));
   assert.equal(result.status, 'VERIFIED');
   assert.equal(result.source_commit, HOST_COMMIT);
   assert.equal(result.snapshot_id, makeInputs(root).snapshotId);
   assert.match(result.evidence_sha256, /^[a-f0-9]{64}$/);
+});
+
+test('runtime verifier rejects receipts created by the current server process', async t => {
+  const { root, store } = await fixture(t, {});
+  const inputs = makeInputs(root);
+  const currentProcessStartedAtMs = Math.max(0, Math.floor(Date.now() - process.uptime() * 1000)) - 60000;
+  const result = await store.verifyRuntimeAcceptance({
+    pinnedHostCommit: inputs.pinnedHostCommit,
+    rootPath: inputs.rootPath,
+    rootId: inputs.rootId,
+    entries: inputs.entries,
+    snapshotAlignment: inputs.snapshotAlignment,
+    snapshotId: inputs.snapshotId,
+    snapshotSha256: inputs.snapshotSha256,
+    sourceIdentity: inputs.sourceIdentity,
+    mutationCoverage: inputs.mutationCoverage,
+    hostInstallationId: inputs.hostInstallationId,
+    authenticatedAccountId: inputs.authenticatedAccountId,
+    currentProcessStartedAtMs,
+  });
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.reason, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
 });
 
 test('runtime verifier reports missing native lifecycle operation coverage', async t => {
@@ -118,7 +140,7 @@ test('runtime verifier rejects corrupt terminal receipt digest', async t => {
   assert.equal(result.reason, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_TERMINAL_INVALID');
 });
 
-test('runtime verifier requires a verified recovery receipt', async t => {
+test('runtime verifier rejects a ledger without a recovery marker', async t => {
   const { root, store } = await fixture(t, { omitRecovery: true });
   const result = await createHostMutationRuntimeAcceptanceVerifier({ receiptStore: store })(makeInputs(root));
   assert.equal(result.status, 'NON_READY');
