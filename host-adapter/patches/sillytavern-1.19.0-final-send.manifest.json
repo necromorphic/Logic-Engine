@@ -10,7 +10,7 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "7179f733f872cabca85c3b4d9add899f1334027064cb3e91b7223c6408f8fe9b",
+    "bundleSha256": "c3ca43ea872dab6f09446bc2a97fd4dff48a4e02a9f56ff11116b4f2e28f975a",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "01fdab0cf6b5f21d866503d80870536703b612baa7a6b79b6874c536be957bf6",
+        "sha256": "1bf47afd0e666e74469f3b5c16094bb0f9565adff8347521967122d7941a009e",
         "allowUnidiffZero": true
       },
       {
@@ -33,7 +33,7 @@
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
     "public/script.js": {
       "before": "955c603d0bad84bac5a716f0818d85c2543e44d4c43878e0d63ef1e55ca91855",
-      "after": "aeb227631d7c3577543d79dc85701f765a84bd3cb46f99e532ba6e3b90acf616"
+      "after": "3392f81e78b5e6a2eaa01a2b2dbbb92d4fb769675b6e69aef8b34b0377ed8a7a"
     },
     "public/scripts/bookmarks.js": {
       "before": "5c3a68aa82e58c0d82777065b8466572fc1b202cad98a92ba4daa852c386ad1b",
