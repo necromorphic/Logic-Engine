@@ -163,12 +163,13 @@ test('runtime verifier rejects double-scan candidates and unpinned source identi
 
 test('receipt store records real before/after files and a recover()-completed mutation', async t => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'host-runtime-store-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'st-data');
   const chats = path.join(root, 'chats');
   const groups = path.join(root, 'groups');
   const groupChats = path.join(root, 'groupChats');
   const receiptDirectory = path.join(base, 'host-receipts');
-  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups), mkdir(groupChats)]);
+  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups, { recursive: true }), mkdir(groupChats, { recursive: true })]);
   await mkdir(receiptDirectory);
   const chatPath = path.join(chats, 'conversation.json');
   let messages = [];
@@ -286,5 +287,4 @@ test('receipt store records real before/after files and a recover()-completed mu
   assert.notEqual(firstTerminal.receipt.before_snapshot_proof.snapshot_id, firstTerminal.receipt.after_snapshot_proof.snapshot_id);
   assert.equal(recoveredTerminal.receipt.recovery_verified, true);
   assert.match(recoveredTerminal.receipt_digest, /^[a-f0-9]{64}$/);
-  t.after(() => rm(base, { recursive: true, force: true }));
 });

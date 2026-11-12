@@ -59,6 +59,8 @@ jobs:
             'host-adapter/sillytavern-final-send-adapter.mjs',
             'host-adapter/embedded-gateway-runtime.mjs',
             'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-mutation-runtime-acceptance.mjs',
             'host-adapter/npc-generation-request-metadata.mjs',
             'host-adapter/npc-generation-content-projection.mjs',
             'src/application/npc-generation-context-host-bridge.js'
@@ -88,6 +90,8 @@ jobs:
             'host-adapter/sillytavern-final-send-adapter.mjs',
             'host-adapter/embedded-gateway-runtime.mjs',
             'host-adapter/extension-gateway/server-plugin/host-adapter.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs',
+            'host-adapter/extension-gateway/server-plugin/st-host-mutation-runtime-acceptance.mjs',
             'host-adapter/npc-generation-request-metadata.mjs',
             'host-adapter/npc-generation-content-projection.mjs',
             'src/application/npc-generation-context-host-bridge.js'
