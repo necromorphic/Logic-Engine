@@ -557,9 +557,9 @@ test('old enrollment marker is recovered only from the exact active locator and 
   }));
   const recovered = makeFixture(chat);
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  globalThis.localStorage = {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: {
     getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:chat-file-1' : null,
-  };
+  } });
   try {
     const before = await recovered.bridge.beforeMutation('delete-message', [0]);
     assert.equal(before.operation, 'before:delete-message');
@@ -586,9 +586,9 @@ test('old enrollment marker is recovered only from the exact active locator and 
 test('ambiguous enrollment marker blocks recovery with a stable diagnostic code', async () => {
   const f = makeFixture();
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  globalThis.localStorage = {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: {
     getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:another-chat-file' : null,
-  };
+  } });
   try {
     await assert.rejects(
       f.bridge.beforeMutation('delete-message', [0]),
