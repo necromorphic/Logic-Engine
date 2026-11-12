@@ -37,7 +37,7 @@ jobs:
           # Keep the private Python runtime inside the fixture root so its ACL is
           # limited to this disposable test tree, not the shared runner tool cache.
           $pythonDir = Join-Path $root 'python-runtime'
-          $pythonInstaller = Join-Path $env:RUNNER_TEMP "python-3.12.10-$suffix-amd64.exe"
+          $pythonArchive = Join-Path $env:RUNNER_TEMP "python-3.12.10-$suffix-embed-amd64.zip"
           $python = Join-Path $pythonDir 'python.exe'
           $probeSource = Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py'
           $probeScript = Join-Path $root 'gateway_readonly_sqlite_probe.py'
@@ -46,15 +46,20 @@ jobs:
           $userSid = $null
           try {
             New-Item -ItemType Directory -Path $root | Out-Null
-            Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe' -OutFile $pythonInstaller
-            $install = Start-Process -FilePath $pythonInstaller -ArgumentList @('/quiet', 'InstallAllUsers=0', ("TargetDir={0}" -f $pythonDir), 'Include_launcher=0', 'Include_test=0', 'Include_pip=0', 'PrependPath=0') -Wait -PassThru
-            if ($install.ExitCode -ne 0) { throw "Python installer failed with exit code $($install.ExitCode)." }
-            if (-not (Test-Path -LiteralPath $python)) { throw 'Private Python installation did not produce python.exe.' }
+            Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip' -OutFile $pythonArchive
+            New-Item -ItemType Directory -Path $pythonDir | Out-Null
+            Expand-Archive -LiteralPath $pythonArchive -DestinationPath $pythonDir -Force
+            if (-not (Test-Path -LiteralPath $python)) { throw 'Pinned Python embeddable archive did not contain python.exe.' }
+            $pythonPathConfig = Join-Path $pythonDir 'python312._pth'
+            if (-not (Test-Path -LiteralPath $pythonPathConfig)) { throw 'Pinned Python embeddable archive is missing python312._pth.' }
+            Add-Content -LiteralPath $pythonPathConfig -Value 'DLLs' -Encoding ASCII
             New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
             $userSid = (Get-LocalUser -Name $account).SID
             Write-Host "Pinned Python executable: $python"
             & $python --version
             if ($LASTEXITCODE -ne 0) { throw 'Pinned Python runtime failed its startup check.' }
+            & $python -c "import sqlite3, sys; print('Python', sys.version.split()[0], 'SQLite', sqlite3.sqlite_version)"
+            if ($LASTEXITCODE -ne 0) { throw 'Pinned Python runtime cannot import the SQLite standard-library module.' }
 
             $systemSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-18')
             $administratorsSid = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
@@ -144,5 +149,5 @@ jobs:
             }
             try { Remove-LocalUser -Name $account -ErrorAction SilentlyContinue } catch {}
             if (Test-Path -LiteralPath $pythonDir) { Remove-Item -LiteralPath $pythonDir -Recurse -Force -ErrorAction SilentlyContinue }
-            if (Test-Path -LiteralPath $pythonInstaller) { Remove-Item -LiteralPath $pythonInstaller -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $pythonArchive) { Remove-Item -LiteralPath $pythonArchive -Force -ErrorAction SilentlyContinue }
           }
