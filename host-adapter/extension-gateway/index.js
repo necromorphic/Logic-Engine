@@ -101,9 +101,11 @@ export async function registerHostLifecycleAutoCapture(context = null) {
                 return { status: 'STALE_CONVERSATION' };
             }
 
+            const expectedReviewOnlyRejection = capture?.status === 'NON_READY'
+                && capture.code === 'HOST_INVENTORY_NOT_READY';
             const diagnostic = state?.diagnostic
                 ?? capture?.diagnostic
-                ?? (capture?.status === 'NON_READY' ? capture : null)
+                ?? (capture?.status === 'NON_READY' && !expectedReviewOnlyRejection ? capture : null)
                 ?? (capture?.persistedInventoryStatus === 'NON_READY'
                     ? { code: 'HOST_INVENTORY_NOT_READY', httpStatus: null }
                     : null);
