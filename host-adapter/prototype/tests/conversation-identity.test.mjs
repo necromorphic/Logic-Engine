@@ -151,7 +151,7 @@ test('missing chat metadata is restored only from an exact marker and locator pa
   const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
   storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
   storage.setItem(prefix + resolvedId, 'enrolled:chat-file.jsonl');
-  const metadata = {};
+  const metadata = { logic_engine_conversation_id: null };
   let saves = 0;
   let verifications = 0;
 
