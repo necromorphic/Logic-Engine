@@ -10,21 +10,21 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "168607ba610855db189361a2faab2168f244153afa52e14d9e320e3dcff6ed65",
+    "bundleSha256": "7179f733f872cabca85c3b4d9add899f1334027064cb3e91b7223c6408f8fe9b",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-        "sha256": "591d55d8777f9f9d24858fd4dd91103cbe98a4bbd5f295c36001d8f409f95027",
+        "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
         "allowUnidiffZero": false
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "f9c8a9c0ec3123cf760782499b858d2898038c64d76bc4d2b0763e6cebbcb8a2",
+        "sha256": "01fdab0cf6b5f21d866503d80870536703b612baa7a6b79b6874c536be957bf6",
         "allowUnidiffZero": true
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch",
-        "sha256": "181457028daad66cb3afe77f9b112396eb1c2635443ec43bf1e5e5bdd120cd19",
+        "sha256": "d6d29fd76bceede98af2653ba223bb4ade76d2cfb8495545a487cd5ca0f11929",
         "allowUnidiffZero": true
       }
     ]
