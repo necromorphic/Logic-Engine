@@ -123,11 +123,19 @@ jobs:
                 if (-not (Test-Path -LiteralPath $sidecar)) { throw "Missing live SQLite sidecar: $sidecar" }
               }
 
-              $readerArgs = @(
-                ('"{0}"' -f $probeScript),
-                'reader', ('"{0}"' -f $db), 'unused'
-              ) -join ' '
-              $reader = Start-Process -FilePath $python -ArgumentList $readerArgs -Credential $credential -LoadUserProfile -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -WorkingDirectory $root
+              # Start-Process -Credential creates the child with the target user's
+              # environment, not the runner service's modified PATH. Use a tiny
+              # command wrapper to make the private embeddable runtime and its DLLs
+              # explicit in that user's process environment before Python starts.
+              $readerCmd = Join-Path $root 'run-reader.cmd'
+              @(
+                '@echo off',
+                ('set "PATH={0};%PATH%"' -f $pythonDir),
+                ('set "PYTHONHOME={0}"' -f $pythonDir),
+                ('"{0}" "{1}" reader "{2}" unused' -f $python, $probeScript, $db),
+                'exit /b %errorlevel%'
+              ) | Set-Content -LiteralPath $readerCmd -Encoding ASCII
+              $reader = Start-Process -FilePath $env:ComSpec -ArgumentList @('/d', '/c', ('"{0}"' -f $readerCmd)) -Credential $credential -LoadUserProfile -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -WorkingDirectory $root
               if ($reader.ExitCode -ne 0) {
                 $details = ''
                 if (Test-Path $out) { $details += Get-Content $out -Raw }
