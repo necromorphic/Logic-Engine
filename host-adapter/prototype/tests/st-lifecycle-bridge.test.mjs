@@ -178,7 +178,7 @@ test('lifecycle mutations require a matching durable before/after pair', async (
     /afterMutation has no matching durable beforeMutation/,
   );
 
-  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  const ledger = await f.journal.exportCaptureLedger(conversationId);
   assert.deepEqual(
     ledger.records.filter(record => record.operation.startsWith('before:') || record.operation.startsWith('after:'))
       .map(record => record.operation),
@@ -1174,7 +1174,7 @@ test('first instrumented Host mutation automatically establishes a review-only b
   });
   const before = await f.bridge.beforeMutation('message-send', []);
   assert.notEqual(before.status, 'NOT_ENROLLED');
-  assert.equal(await f.journal.isEnrolled('chat-1'), true);
+  assert.equal(await f.journal.isEnrolled(conversationId), true);
   assert.equal(f.chat.length, 2);
   assert.ok(f.chat.every(message => message._logicEngineLifecycle?.messageId));
   const ledger = await f.journal.exportCaptureLedger('chat-1');
