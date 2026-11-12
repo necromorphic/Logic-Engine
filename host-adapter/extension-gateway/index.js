@@ -34,10 +34,23 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
     return data;
 }
 
+let stContextPromise;
+async function getSillyTavernContext() {
+    if (!stContextPromise) {
+        stContextPromise = import(new URL('/scripts/st-context.js', import.meta.url).href)
+            .then(module => module.getContext())
+            .catch(error => {
+                stContextPromise = null;
+                throw error;
+            });
+    }
+    return stContextPromise;
+}
+
 const REGISTRATION_KEY = Symbol.for('logic-engine.host-generation-identity.registration.v1');
 
 export async function registerHostLifecycleAutoCapture(context = null) {
-    const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
+    const hostContext = context ?? await getSillyTavernContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes?.CHAT_CHANGED
         || typeof hostContext.getCurrentChatId !== 'function') {
         console.warn('[Logic Engine] Automatic Host inventory capture is unavailable: CHAT_CHANGED context missing.');
@@ -166,7 +179,7 @@ export async function registerHostLifecycleAutoCapture(context = null) {
 }
 
 export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
-    const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
+    const hostContext = context ?? await getSillyTavernContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
         throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
     }
