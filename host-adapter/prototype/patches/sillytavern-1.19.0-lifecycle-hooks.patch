@@ -146,7 +146,7 @@ diff --git a/public/script.js b/public/script.js
 +                const conversationId = await getLogicEngineConversationId();
 +                const conversationUuid = conversationId?.split(':').at(-1);
 +                if (!conversationUuid) throw Error('Host conversation identity unavailable for persisted inventory');
-+                const response = await fetch('/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid=' + encodeURIComponent(conversationUuid), {
++                const response = await fetch('/api/logic-engine/host/inventory?conversation_uuid=' + encodeURIComponent(conversationUuid), {
 +                    credentials: 'same-origin',
 +                    cache: 'no-store',
 +                });
@@ -181,7 +181,7 @@ diff --git a/public/script.js b/public/script.js
 +                return payload;
 +            },
 +            publishLifecycleEvent: async event => {
-+                const response = await fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/events', {
++                const response = await fetch('/api/logic-engine/host/host-lifecycle/events', {
 +                    method: 'POST',
 +                    credentials: 'same-origin',
 +                    headers: { ...getRequestHeaders(), 'Content-Type': 'application/json' },
@@ -195,7 +195,7 @@ diff --git a/public/script.js b/public/script.js
 +                return payload;
 +            },
 +            getLifecycleStatus: async conversationId => {
-+                const response = await fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id='
++                const response = await fetch('/api/logic-engine/host/host-lifecycle/status?conversation_id='
 +                    + encodeURIComponent(conversationId), {
 +                    credentials: 'same-origin',
 +                    cache: 'no-store',
