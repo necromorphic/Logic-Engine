@@ -195,7 +195,7 @@
   "createdFiles": {
     "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "382f79b054c45fa1fbfdfb5ec44f5fa4980f2fb602ada729540ae270a1ae306a",
     "public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs": "2adb9b6d4619c968ac7da680cc9fffa3c47b3f09b981017cdaf8ac96c37eabc2",
-    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "48d4b51aa018a09d059f66ae61cfaa76d0ea605611916a5e16ced29c8168cdce",
+    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "ca7ad541d1466c5e09b2a537b345aa565e307e34a676479da8a4d78cedda0be8",
     "src/endpoints/logic-engine-host-inventory-handler.mjs": "362f7ee2f193d30db59d8cf8e5b2a90f761e5aa4dab0661b0405e7026e7ef64c",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
     "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
