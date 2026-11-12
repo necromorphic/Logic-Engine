@@ -168,7 +168,9 @@ export function createSillyTavernHostAdapter({
   const lifecycleReceiptStore = identityDirectory
     ? new HostLifecycleReceiptStore({
       directory: path.join(identityDirectory, 'lifecycle-receipts'),
+      enumerate,
       sourceEvidenceProvider: lifecycleSourceEvidenceProvider,
+      hostCommit: PINNED_SILLYTAVERN_COMMIT,
     })
     : null;
   const verifyMutationRuntimeAcceptance = injectedVerifyMutationRuntimeAcceptance
