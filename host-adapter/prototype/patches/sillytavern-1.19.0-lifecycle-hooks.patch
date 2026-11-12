@@ -2857,7 +2857,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/p
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,250 @@
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 +const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
 +const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
@@ -2971,6 +2971,10 @@ new file mode 100644
 +    const activeMarker = MARKER_PREFIX + resolvedId;
 +    if (mappedId && mappedId !== resolvedId) {
 +      throw Error('NON_READY: Host locator metadata is missing or inconsistent');
++    }
++    if (mappedId && storage.getItem(activeMarker) !== null
++      && !markerValueMatchesLocator(storage.getItem(activeMarker))) {
++      throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
 +    }
 +    if (mappedId && typeof verifyPersistedIdentity === 'function'
 +      && !(await verifyServerPersistence(existing))) {
