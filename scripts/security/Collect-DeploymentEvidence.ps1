@@ -4,7 +4,7 @@ param(
     [string[]]$BackupPath = @(),
     [int[]]$ProcessId = @(),
     [string[]]$ProcessName = @("node.exe", "python.exe", "pythonw.exe"),
-    [string]$OutputPath = ".\security-deployment-audit.json"
+    [string]$OutputPath = ".\\security-deployment-audit.json"
 )
 
 Set-StrictMode -Version Latest
@@ -15,7 +15,7 @@ function Get-OwnerForProcess {
     try {
         $result = Invoke-CimMethod -InputObject (Get-CimInstance Win32_Process -Filter "ProcessId = $Id") -MethodName GetOwner
         if ($result.ReturnValue -eq 0) {
-            return ("{0}\{1}" -f $result.Domain, $result.User)
+            return ("{0}\\{1}" -f $result.Domain, $result.User)
         }
     } catch {}
     return $null
@@ -376,8 +376,15 @@ try {
     $outboundFirewallRulesAvailable = $false
     $outboundFirewallRules = @([pscustomobject]@{ unavailable = "Outbound firewall rule query failed or is unavailable" })
 }
-$firewallAllowRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Allow" })
-$firewallBlockRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Block" })
+# The unavailable sentinel deliberately has no 'action' field. Filter by property
+# presence so strict mode records the evidence as INCOMPLETE instead of aborting
+# collection with PropertyNotFoundException.
+$firewallAllowRules = @($outboundFirewallRules | Where-Object {
+    $_.PSObject.Properties['action'] -and $_.action -eq "Allow"
+})
+$firewallBlockRules = @($outboundFirewallRules | Where-Object {
+    $_.PSObject.Properties['action'] -and $_.action -eq "Block"
+})
 
 $incompleteReasons = New-Object System.Collections.Generic.List[string]
 if ($requestedDataPaths.Count -eq 0) {
