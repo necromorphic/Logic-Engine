@@ -33,6 +33,7 @@ test('pinned source manifest covers every installed Gateway helper', () => {
     'st-host-identity-store.mjs',
     'st-host-inventory-handler.mjs',
     'st-host-lifecycle-receipt-store.mjs',
+    'st-host-mutation-runtime-acceptance.mjs',
     'st-mutation-route-contract.mjs',
     'st-host-session-revocation.mjs',
     'st-server-digest-proxy.mjs',
