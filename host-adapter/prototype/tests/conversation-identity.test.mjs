@@ -61,7 +61,7 @@ test('a locator binding prevents silent identity replacement or metadata deletio
   const metadata = { logic_engine_conversation_id: CHAT_A };
   storage.setItem(locatorKey('chat-file.jsonl'), INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
   metadata.logic_engine_conversation_id = CHAT_B;
-  await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
+  await assert.rejects(resolver({ metadata, storage }), /binding and enrollment marker do not form a valid recovery pair/);
   delete metadata.logic_engine_conversation_id;
   await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
 });
@@ -72,7 +72,7 @@ test('an enrolled marker without a locator binding fails closed except during th
   const metadata = { logic_engine_conversation_id: CHAT_A };
   const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
   storage.setItem(prefix + resolvedId, 'enrolled:old-name.jsonl');
-  await assert.rejects(resolver({ locator: 'new-name.jsonl', metadata, storage }), /no matching locator binding/);
+  await assert.rejects(resolver({ locator: 'new-name.jsonl', metadata, storage }), /marker does not match the active locator/);
   const renamed = await resolver({
     locator: 'new-name.jsonl', metadata, storage, pendingRenameId: resolvedId,
   });
@@ -88,7 +88,7 @@ test('same-install copy with reused chat metadata is rejected by locator binding
   storage.setItem(locatorKey('original.jsonl'), resolvedId);
   await assert.rejects(
     resolver({ locator: 'copy.jsonl', metadata, storage }),
-    /no matching locator binding/,
+    /marker does not match the active locator/,
   );
 });
 
