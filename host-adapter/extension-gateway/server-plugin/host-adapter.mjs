@@ -144,8 +144,31 @@ export function createSillyTavernHostAdapter({
   const identityStore = identityDirectory
     ? new HostIdentityStore({ directory: identityDirectory })
     : null;
+  const lifecycleSourceEvidenceProvider = async ({ directories } = {}) => {
+    try {
+      const sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories?.extensions });
+      const mutationCoverage = await (injectedVerifyMutationCoverage ?? verifyPinnedSillyTavernMutationCoverage)();
+      if (sourceIdentity?.status !== 'CURRENT_IDENTITIES_VERIFIED'
+        || !/^[a-f0-9]{64}$/.test(sourceIdentity.manifest_sha256 ?? '')
+        || mutationCoverage?.status !== 'VERIFIED'
+        || mutationCoverage.source_commit !== PINNED_SILLYTAVERN_COMMIT
+        || mutationCoverage.coverage_manifest_sha256 !== PINNED_ST_MUTATION_COVERAGE_SHA256
+        || !/^[a-f0-9]{64}$/.test(mutationCoverage.source_files_sha256 ?? '')
+        || mutationCoverage.route_count !== PINNED_ST_MUTATION_ROUTE_COUNT) return { status: 'NON_READY' };
+      return {
+        status: 'VERIFIED',
+        source_manifest_sha256: sourceIdentity.manifest_sha256,
+        mutation_coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+      };
+    } catch {
+      return { status: 'NON_READY' };
+    }
+  };
   const lifecycleReceiptStore = identityDirectory
-    ? new HostLifecycleReceiptStore({ directory: path.join(identityDirectory, 'lifecycle-receipts') })
+    ? new HostLifecycleReceiptStore({
+      directory: path.join(identityDirectory, 'lifecycle-receipts'),
+      sourceEvidenceProvider: lifecycleSourceEvidenceProvider,
+    })
     : null;
   const verifyMutationRuntimeAcceptance = injectedVerifyMutationRuntimeAcceptance
     ?? (lifecycleReceiptStore

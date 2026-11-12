@@ -41,12 +41,18 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
     const beforeProof = {
       host_commit: HOST_COMMIT, snapshot_id: uuid(index + 20),
       snapshot_sha256: sha('before-' + operation), source_snapshot_id: uuid(index + 20),
-      source_inventory_sha256: sha('source-before-' + operation), snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      source_inventory_sha256: sha('source-before-' + operation),
+      source_manifest_sha256: sha('source-manifest'),
+      mutation_coverage_manifest_sha256: sha('coverage'),
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
     const afterProof = {
       host_commit: HOST_COMMIT, snapshot_id: uuid(index + 40),
       snapshot_sha256: sha('after-' + operation), source_snapshot_id: uuid(index + 40),
-      source_inventory_sha256: sha('source-after-' + operation), snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      source_inventory_sha256: sha('source-after-' + operation),
+      source_manifest_sha256: sha('source-manifest'),
+      mutation_coverage_manifest_sha256: sha('coverage'),
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
     const prepared = {
       schema_version: 1, evidence_schema_version: 2, process_started_at_ms: priorProcessStartedAtMs, ...scope,
@@ -220,6 +226,11 @@ test('receipt store records real before/after files and a recover()-completed mu
   const store = new HostLifecycleReceiptStore({
     directory: receiptDirectory,
     enumerate,
+    sourceEvidenceProvider: async () => ({
+      status: 'VERIFIED',
+      source_manifest_sha256: sha('source-manifest'),
+      mutation_coverage_manifest_sha256: sha('coverage'),
+    }),
     hostCommit: HOST_COMMIT,
   });
   const firstScope = {
@@ -284,6 +295,10 @@ test('receipt store records real before/after files and a recover()-completed mu
   assert.equal(firstTerminal.receipt.protocol_version, 2);
   assert.equal(firstTerminal.receipt.before_snapshot_proof.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
   assert.equal(firstTerminal.receipt.after_snapshot_proof.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+  assert.equal(firstTerminal.receipt.before_snapshot_proof.source_manifest_sha256, sha('source-manifest'));
+  assert.equal(firstTerminal.receipt.after_snapshot_proof.source_manifest_sha256, sha('source-manifest'));
+  assert.equal(firstTerminal.receipt.before_snapshot_proof.mutation_coverage_manifest_sha256, sha('coverage'));
+  assert.equal(firstTerminal.receipt.after_snapshot_proof.mutation_coverage_manifest_sha256, sha('coverage'));
   assert.notEqual(firstTerminal.receipt.before_snapshot_proof.snapshot_id, firstTerminal.receipt.after_snapshot_proof.snapshot_id);
   assert.equal(recoveredTerminal.receipt.recovery_verified, true);
   assert.match(recoveredTerminal.receipt_digest, /^[a-f0-9]{64}$/);
