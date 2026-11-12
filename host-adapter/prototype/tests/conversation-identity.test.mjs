@@ -200,6 +200,25 @@ test('missing chat metadata is not restored from an unpaired or ambiguous enroll
   assert.equal(saves, 0);
 });
 
+test('an existing locator mapping is rejected when the persisted SillyTavern chat no longer confirms its identity', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const resolvedId = INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('chat-file.jsonl'), resolvedId);
+  storage.setItem(prefix + resolvedId, 'enrolled:chat-file.jsonl');
+  const metadata = { logic_engine_conversation_id: CHAT_A };
+
+  await assert.rejects(
+    resolver({
+      locator: 'chat-file.jsonl',
+      metadata,
+      storage,
+      verifyPersistedIdentity: async () => false,
+    }),
+    /server did not confirm the current conversation identity/,
+  );
+});
+
 test('missing chat metadata recovery requires server-side persisted-file confirmation', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
