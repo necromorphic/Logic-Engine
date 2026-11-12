@@ -207,6 +207,10 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
     'inventory failures must preserve the HTTP status for diagnostics');
   assert.ok(patch.includes("const inventory = await response.json().catch(() => null);"),
     'empty/non-JSON error bodies must not erase the HTTP failure status');
+  assert.ok(patch.includes("if (serverReason && /^[A-Z0-9_:-]{1,128}$/.test(serverReason)) error.reasonCode = serverReason;"),
+    'the bounded server-side reason token must reach Host diagnostics');
+  assert.ok(patch.includes("error.code = 'HOST_INVENTORY_RESPONSE_INVALID';"),
+    'a malformed successful response must be diagnosed without invalidating the authenticated session');
   assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
     'persisted inventory must remain bound to the authenticated ST account');
   assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
