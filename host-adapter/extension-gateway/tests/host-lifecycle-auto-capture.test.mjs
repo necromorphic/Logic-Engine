@@ -144,3 +144,48 @@ test('CHAT_CHANGED verifies an enrolled chat without creating a second baseline'
         else globalThis.toastr = previousToastr;
     }
 });
+
+test('review-only Core rejection does not produce a false Inventory failure notification', async () => {
+    const previousLifecycle = globalThis.logicEngineHostLifecycle;
+    const previousToastr = globalThis.toastr;
+    const eventSource = createEventSource();
+    const notices = [];
+    let currentLocator = null;
+
+    globalThis.logicEngineHostLifecycle = {
+        async syncCurrentDigestInventory() {
+            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_READY' };
+        },
+        async enrollCurrentConversation() {
+            throw new Error('ENROLLMENT_MUST_NOT_RUN_FOR_EXISTING_CHAT');
+        },
+        async getCoreCaptureStatus() {
+            return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_READY', diagnostic: null };
+        },
+    };
+    globalThis.toastr = {
+        warning(message, title) {
+            notices.push({ message, title });
+        },
+    };
+
+    try {
+        const remove = await registerHostLifecycleAutoCapture({
+            eventSource,
+            eventTypes: { CHAT_CHANGED: 'chat_id_changed' },
+            getCurrentChatId: () => currentLocator,
+        });
+        currentLocator = 'chat-review-only';
+        const listener = eventSource.listeners.get('chat_id_changed');
+        const result = await listener('chat-review-only');
+
+        assert.equal(result.status, 'CHECKED');
+        assert.equal(notices.length, 0);
+        remove();
+    } finally {
+        if (previousLifecycle === undefined) delete globalThis.logicEngineHostLifecycle;
+        else globalThis.logicEngineHostLifecycle = previousLifecycle;
+        if (previousToastr === undefined) delete globalThis.toastr;
+        else globalThis.toastr = previousToastr;
+    }
+});
