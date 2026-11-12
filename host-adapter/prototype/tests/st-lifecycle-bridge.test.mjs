@@ -1126,3 +1126,39 @@ test('origin recovery refuses missing or mismatched persisted identity metadata'
   assert.equal(result.status, 'NOT_ENROLLED');
   assert.equal(result.reason, 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES');
 });
+
+
+test('persisted inventory transport failures retain safe status and server diagnostics for the Host status surface', async () => {
+  const conversationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
+  let fail = true;
+  const f = makeFixture(undefined, {
+    conversationId,
+    getPersistedInventory: async () => {
+      if (fail) {
+        const error = Error('private filesystem path must not escape');
+        error.code = 'SOURCE_INVENTORY_UNAVAILABLE';
+        error.httpStatus = 503;
+        throw error;
+      }
+      return null;
+    },
+  });
+  await f.bridge.enrollCurrentConversation();
+
+  const failed = await f.bridge.verifyPersistedInventory();
+  assert.equal(failed.status, 'NON_READY');
+  assert.equal(failed.stage, 'PERSISTED_INVENTORY_FETCH');
+  assert.equal(failed.code, 'SOURCE_INVENTORY_UNAVAILABLE');
+  assert.equal(failed.httpStatus, 503);
+  assert.match(failed.observedAt, /^\\d{4}-\\d{2}-\\d{2}T/);
+  assert.equal(JSON.stringify(failed).includes('private filesystem path'), false);
+
+  const status = await f.bridge.getCoreCaptureStatus();
+  assert.equal(status.diagnostic.code, 'SOURCE_INVENTORY_UNAVAILABLE');
+  assert.equal(status.diagnostic.httpStatus, 503);
+
+  fail = false;
+  const recovered = await f.bridge.verifyPersistedInventory();
+  assert.equal(recovered.status, 'NON_READY');
+  assert.equal((await f.bridge.getCoreCaptureStatus()).diagnostic, null);
+});
