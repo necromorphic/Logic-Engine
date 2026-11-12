@@ -86,7 +86,7 @@ jobs:
                 ('"{0}"' -f (Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py')),
                 'writer', ('"{0}"' -f $db), ('"{0}"' -f $ready)
               ) -join ' '
-              $proc = Start-Process -FilePath $python -ArgumentList $args -PassThru -WindowStyle Hidden -WorkingDirectory $env:GITHUB_WORKSPACE
+              $proc = Start-Process -FilePath $python -ArgumentList $args -PassThru -WindowStyle Hidden -WorkingDirectory $root
               $writerProcesses += $proc
               $deadline = (Get-Date).AddSeconds(15)
               while (-not (Test-Path -LiteralPath $ready) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
