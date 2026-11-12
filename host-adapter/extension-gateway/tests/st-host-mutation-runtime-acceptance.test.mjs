@@ -94,11 +94,12 @@ function makeInputs(root) {
 }
 
 async function fixture(t, options) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'host-runtime-acceptance-'));
-  const directory = path.join(root, 'receipts');
-  await mkdir(directory);
+  const base = await mkdtemp(path.join(os.tmpdir(), 'host-runtime-acceptance-'));
+  const root = path.join(base, 'data-root');
+  const directory = path.join(base, 'receipts');
+  await Promise.all([mkdir(root), mkdir(directory)]);
   await writeEvidence(directory, options);
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(base, { recursive: true, force: true }));
   return { root, store: new HostLifecycleReceiptStore({ directory, hostCommit: HOST_COMMIT }) };
 }
 

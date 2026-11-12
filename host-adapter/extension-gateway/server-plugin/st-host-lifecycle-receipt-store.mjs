@@ -708,6 +708,9 @@ export class HostLifecycleReceiptStore {
       || !Number.isSafeInteger(mutationCoverage.route_count) || mutationCoverage.route_count < 1) {
       return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_INPUT_INVALID');
     }
+    try { await this.assertOutsideRoot(rootPath); } catch {
+      return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_RECEIPT_STORE_SCOPE_INVALID');
+    }
     await this.#prepareDirectory();
     const names = await fs.readdir(this.directory);
     const preparedNames = names.filter(name => /^[a-f0-9]{64}\.prepared\.json$/.test(name)).sort();
