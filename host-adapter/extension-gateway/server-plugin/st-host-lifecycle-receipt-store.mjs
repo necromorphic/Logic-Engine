@@ -480,8 +480,8 @@ export class HostLifecycleReceiptStore {
     const receipt = {
       protocol_version: 2,
       host_commit: this.hostCommit,
-      before_snapshot_proof: prepared.before.snapshot_proof,
-      after_snapshot_proof: after.snapshot_proof,
+      before_snapshot_proof: prepared.before.snapshot_proof ?? null,
+      after_snapshot_proof: after.snapshot_proof ?? null,
       recovery_verified: scope.recovery_verified === true,
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
@@ -622,8 +622,8 @@ export class HostLifecycleReceiptStore {
     const receipt = {
       protocol_version: 2,
       host_commit: this.hostCommit,
-      before_snapshot_proof: prepared.before.snapshot_proof,
-      after_snapshot_proof: after.snapshot_proof,
+      before_snapshot_proof: prepared.before.snapshot_proof ?? null,
+      after_snapshot_proof: after.snapshot_proof ?? null,
       recovery_verified: scope.recovery_verified === true,
       host_installation_id: scope.host_installation_id,
       authenticated_account_id: scope.authenticated_account_id,
