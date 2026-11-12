@@ -387,7 +387,15 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function ensureConversationEnrolled(conversationId) {
-    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'persisted Host identity metadata could not be restored into the local journal',
+      );
+    }
     if (restored) return;
 
     // Never replace partial, malformed, or stale per-message identities with
