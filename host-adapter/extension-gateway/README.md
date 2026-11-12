@@ -38,6 +38,12 @@ It does not expose a Memory retrieval or model dispatch route. The Final-Send se
 
 Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plugin auto-update disabled unless the plugin source is pinned and reviewed. All public Host routes remain behind ST login middleware and CSRF protection.
 
+
+
+### Automatic chat-load enrollment and Inventory verification
+
+The browser extension listens for SillyTavern `CHAT_CHANGED` events and also checks the initially loaded chat when the extension starts. For each conversation it first calls the lifecycle bridge's persisted-inventory synchronization; if the conversation has no enrollment, it creates the review-only baseline and verifies Inventory as part of enrollment. A failed Inventory request is retained as a bounded diagnostic and shown as a SillyTavern notification with the error code and HTTP status. No DevTools console command is required. The check is coalesced per conversation during the page session; the first instrumented mutation remains a fallback if chat-load capture was unavailable. Review-only or incomplete inventory remains NON_READY and does not authorize Memory retrieval or model disclosure.
+
 ## Identity and inventory contract
 
 - Installation and account IDs are generated and persisted by the server-side `HostIdentityStore`.
@@ -49,7 +55,7 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 
 ### Automatic first-time World binding
 
-For a single-World deployment, set `ENGINE_HOST_DEFAULT_WORLD_ID` in the **Core API process** to the ID of an already-created canonical World. After updating the Logic-Engine checkout, update an existing pinned SillyTavern install with `scripts/Update-LogicEngine-Host-Plugin.ps1 -SillyTavernRoot <path>`; it backs up and replaces only the three changed server modules in the two plugin locations, then regenerates and verifies the pinned source manifest. On the first protected generation for each session-scoped Host conversation, the Host Adapter sends only its authenticated session/installation/conversation identity to Core. Core creates and audits the missing binding to that deployment-owned default World; the browser cannot submit or select a World. The embedded Gateway opens the Core database read-only, so this binding is persisted through the authenticated Core API before the embedded reader resolves it. Existing bindings are reused; revoked bindings are never silently restored. Multi-World deployments must use an explicit audited assignment workflow.
+For a single-World deployment, set `ENGINE_HOST_DEFAULT_WORLD_ID` in the **Core API process** to the ID of an already-created canonical World. After updating the Logic-Engine checkout, stop SillyTavern and run `scripts/Update-LogicEngine-Host-Plugin.ps1 -SillyTavernRoot <path>`; it backs up and upgrades the complete managed patch bundle, Patch Manager artifacts, Gateway server plugin and browser extension, then verifies the installed patch state and pinned source manifest. It preserves chat data, Core databases, Host identity and SQLite application data. On the first protected generation for each session-scoped Host conversation, the Host Adapter sends only its authenticated session/installation/conversation identity to Core. Core creates and audits the missing binding to that deployment-owned default World; the browser cannot submit or select a World. The embedded Gateway opens the Core database read-only, so this binding is persisted through the authenticated Core API before the embedded reader resolves it. Existing bindings are reused; revoked bindings are never silently restored. Multi-World deployments must use an explicit audited assignment workflow.
 
 The first lifecycle preflight can occur before the first generation has created a Root Inventory snapshot. If Core returns exactly `HOST_LIFECYCLE_NOT_AUTHORIZED`, the Host lifecycle proxy invokes the same authenticated Host inventory gate used by generation and retries the status read once. It does not retry other authorization failures, perform enrollment, or rebind revoked identities.
 
