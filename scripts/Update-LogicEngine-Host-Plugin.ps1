@@ -199,7 +199,7 @@ try {
     }
 
     $attestationSource = Get-Content -LiteralPath (Join-Path $serverSource 'st-source-attestation.mjs') -Raw
-    $patchHashMatch = [regex]::Match($attestationSource, "PINNED_PATCH_BUNDLE_SHA256\\s*=\\s*'([a-f0-9]{64})'")
+    $patchHashMatch = [regex]::Match($attestationSource, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'")
     if (-not $patchHashMatch.Success) { throw 'HOST_PATCH_BUNDLE_PIN_NOT_FOUND' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.pinned_host_commit -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
@@ -246,6 +246,9 @@ try {
             Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
         } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
             Remove-Item -LiteralPath $manifestPath -Force
+        }
+        if (-not $browserPluginRootExisted -and (Test-Path -LiteralPath $browserPluginRoot -PathType Container)) {
+            Remove-Item -LiteralPath $browserPluginRoot -Recurse -Force
         }
         Write-Warning ('Host plugin preflight/copy failed; previous files were restored. Backup: ' + $backupRoot)
     } else {
