@@ -167,11 +167,58 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return fingerprintSource(chat, getSourceLocator());
   }
 
+  function hostLifecycleFailure(code, message) {
+    const error = Error('NON_READY: ' + message);
+    error.code = code;
+    return error;
+  }
+
   async function enrolledOrFailClosed(conversationId) {
     const enrolled = await journal.isEnrolled(conversationId);
+    if (enrolled) return true;
+
     const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
-    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
-    return enrolled;
+    if (!marker) return false;
+
+    // A marker is only a recovery hint, never authority. Recover only when its
+    // recorded state and locator match this exact active chat, and every
+    // persisted message/version ID and digest independently verifies.
+    const locator = getSourceLocator();
+    const allowedMarkers = locator ? new Set([
+      'enrolled:' + locator,
+      'enrolling:' + locator,
+      'NON_READY:' + locator,
+    ]) : new Set();
+    if (!allowedMarkers.has(marker)) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+        'an old enrollment marker does not identify the active chat unambiguously',
+      );
+    }
+
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'the old enrollment marker exists but its persisted identity snapshot could not be restored',
+      );
+    }
+    if (!restored) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_METADATA_INCOMPLETE',
+        'the old enrollment marker exists but complete persisted message/version identities are unavailable',
+      );
+    }
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity?.status !== 'INTEGRITY_OK') {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_INTEGRITY_FAILED',
+        'the recovered current-state baseline failed journal integrity verification',
+      );
+    }
+    return true;
   }
 
   // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
@@ -342,6 +389,27 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function ensureConversationEnrolled(conversationId) {
     const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
     if (restored) return;
+
+    // Never replace partial, malformed, or stale per-message identities with
+    // freshly minted IDs. Automatic enrollment is allowed only for a genuinely
+    // unmarked chat whose messages have no Host lifecycle identity metadata.
+    const chat = getChat();
+    const hasPersistedIdentity = Array.isArray(chat)
+      && chat.some(message => message && Object.hasOwn(message, '_logicEngineLifecycle'));
+    if (hasPersistedIdentity) {
+      throw hostLifecycleFailure(
+        'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+        'some persisted Host message identities exist but do not form a complete verifiable baseline',
+      );
+    }
+    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
+    if (marker) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_MARKER_WITHOUT_RECOVERABLE_IDENTITIES',
+        'an old enrollment marker exists but no complete persisted identity snapshot can be recovered',
+      );
+    }
+
     let pending = automaticEnrollmentPromises.get(conversationId);
     if (!pending) {
       pending = (async () => {
