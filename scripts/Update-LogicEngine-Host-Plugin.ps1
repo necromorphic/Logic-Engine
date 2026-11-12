@@ -24,12 +24,15 @@ if ($stPackage.version -ne '1.19.0') {
 $nodeCommand = Get-Command 'node' -ErrorAction SilentlyContinue
 if (-not $nodeCommand) { throw 'NODE_NOT_AVAILABLE' }
 
-$sourceDirectory = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
-$corePluginDirectory = Join-Path $stRoot 'plugins/logic-engine/host-adapter/extension-gateway/server-plugin'
-$gatewayPluginDirectory = Join-Path $stRoot 'plugins/logic-engine-extension-gateway'
-$manifestPath = Join-Path $gatewayPluginDirectory 'pinned-source-manifest.json'
+$serverSource = Join-Path $repoRoot 'host-adapter/extension-gateway/server-plugin'
+$corePluginRoot = Join-Path $stRoot 'plugins/logic-engine'
+$coreServerDirectory = Join-Path $corePluginRoot 'host-adapter/extension-gateway/server-plugin'
+$gatewayPluginRoot = Join-Path $stRoot 'plugins/logic-engine-extension-gateway'
+$browserSource = Join-Path $repoRoot 'host-adapter/extension-gateway'
+$browserPluginRoot = Join-Path $stRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
+$manifestPath = Join-Path $gatewayPluginRoot 'pinned-source-manifest.json'
 
-foreach ($directory in @($sourceDirectory, $corePluginDirectory, $gatewayPluginDirectory)) {
+foreach ($directory in @($serverSource, $corePluginRoot, $gatewayPluginRoot, $browserPluginRoot)) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
         throw ('HOST_PLUGIN_DIRECTORY_NOT_FOUND: ' + $directory)
     }
@@ -39,93 +42,198 @@ foreach ($directory in @($sourceDirectory, $corePluginDirectory, $gatewayPluginD
     }
 }
 
-$files = @('host-adapter.mjs', 'st-server-digest-proxy.mjs', 'st-source-attestation.mjs')
-$destinations = @()
-foreach ($file in $files) {
-    $source = Join-Path $sourceDirectory $file
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        throw ('HOST_PLUGIN_SOURCE_FILE_NOT_FOUND: ' + $file)
+function Add-UpdateFile {
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [string]$RelativePath
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+        throw ('HOST_PLUGIN_SOURCE_FILE_NOT_FOUND: ' + $Source)
     }
-    foreach ($directory in @($corePluginDirectory, $gatewayPluginDirectory)) {
-        $destination = Join-Path $directory $file
-        if (Test-Path -LiteralPath $destination) {
-            $item = Get-Item -LiteralPath $destination -Force
-            if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                throw ('HOST_PLUGIN_DESTINATION_UNSAFE: ' + $destination)
-            }
-        }
-        $destinations += [pscustomobject]@{
-            Source = $source
-            Destination = $destination
-            Existed = Test-Path -LiteralPath $destination -PathType Leaf
+    $sourceInfo = Get-Item -LiteralPath $Source -Force
+    if ($sourceInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw ('HOST_PLUGIN_SOURCE_REPARSE_POINT_DENIED: ' + $Source)
+    }
+    $parent = Split-Path -Parent $Destination
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    $parentInfo = Get-Item -LiteralPath $parent -Force
+    if ($parentInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw ('HOST_PLUGIN_DESTINATION_PARENT_REPARSE_POINT_DENIED: ' + $parent)
+    }
+    $existed = Test-Path -LiteralPath $Destination
+    if ($existed) {
+        $destinationInfo = Get-Item -LiteralPath $Destination -Force
+        if ($destinationInfo.PSIsContainer -or ($destinationInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw ('HOST_PLUGIN_DESTINATION_UNSAFE: ' + $Destination)
         }
     }
+    $script:Destinations.Add([pscustomobject]@{
+        Source = $Source
+        Destination = $Destination
+        RelativePath = $RelativePath
+        Existed = $existed
+    }) | Out-Null
 }
 
-$backupRoot = Join-Path $env:TEMP ('LogicEngine-Host-Plugin-Backup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$backupRoot = Join-Path $env:TEMP ('LogicEngine-Host-Bundle-Upgrade-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+$script:Destinations = New-Object System.Collections.Generic.List[object]
 $manifestExisted = Test-Path -LiteralPath $manifestPath -PathType Leaf
-$manifestBackupPath = Join-Path $backupRoot 'pinned-source-manifest.json'
-if ($manifestExisted) { Copy-Item -LiteralPath $manifestPath -Destination $manifestBackupPath }
+$manifestBackupPath = Join-Path $backupRoot 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'
+if ($manifestExisted) {
+    $manifestInfo = Get-Item -LiteralPath $manifestPath -Force
+    if ($manifestInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw 'HOST_SOURCE_MANIFEST_REPARSE_POINT_DENIED'
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $manifestBackupPath) -Force | Out-Null
+    Copy-Item -LiteralPath $manifestPath -Destination $manifestBackupPath
+}
+
+$patchManagerUpdateStarted = $false
+$patchManagerUpdateSucceeded = $false
 $completed = $false
-$previousSilTavernDir = [Environment]::GetEnvironmentVariable('SILLYTAVERN_DIR', 'Process')
-$previousLocation = Get-Location
 
 try {
-    foreach ($entry in $destinations) {
-        $rootPrefix = $stRoot.TrimEnd([char[]]@('\', '/'))
-        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\', '/'))
-        $backupPath = Join-Path $backupRoot $relative
+    # Refresh every Gateway server module in both the deployed Gateway and the
+    # Core-owned source mirror. Updating only these modules while leaving the
+    # SillyTavern lifecycle patch old creates a mixed, falsely attested install.
+    $serverFiles = @(Get-ChildItem -LiteralPath $serverSource -File |
+        Where-Object { $_.Extension -in @('.mjs', '.js') -or $_.Name -eq 'package.json' } |
+        Sort-Object Name)
+    if (-not $serverFiles.Count) { throw 'HOST_PLUGIN_SERVER_SOURCE_EMPTY' }
+
+    foreach ($file in $serverFiles) {
+        Add-UpdateFile $file.FullName (Join-Path $coreServerDirectory $file.Name) ('plugins/logic-engine/host-adapter/extension-gateway/server-plugin/' + $file.Name)
+        Add-UpdateFile $file.FullName (Join-Path $gatewayPluginRoot $file.Name) ('plugins/logic-engine-extension-gateway/' + $file.Name)
+    }
+
+    # Patch Manager, its complete pinned artifact set and its manifest must move
+    # together. The update command rolls back the old managed patch using its
+    # durable backups, then installs the new exact bundle.
+    $coreFiles = @(
+        @{ Source = (Join-Path $repoRoot 'scripts/sillytavern-patch-manager.mjs'); Relative = 'scripts/sillytavern-patch-manager.mjs' },
+        @{ Source = (Join-Path $repoRoot 'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json'); Relative = 'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json' },
+        @{ Source = (Join-Path $repoRoot 'host-adapter/patches/sillytavern-1.19.0-final-send.patch'); Relative = 'host-adapter/patches/sillytavern-1.19.0-final-send.patch' },
+        @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'); Relative = 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch' },
+        @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch'); Relative = 'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch' },
+        @{ Source = (Join-Path $repoRoot 'host-adapter/prototype/generate-pinned-source-manifest.mjs'); Relative = 'host-adapter/prototype/generate-pinned-source-manifest.mjs' }
+    )
+    foreach ($entry in $coreFiles) {
+        Add-UpdateFile $entry.Source (Join-Path $corePluginRoot $entry.Relative) ('plugins/logic-engine/' + $entry.Relative)
+    }
+
+    # The manifest generator runs during Patch Manager update. It must see the
+    # current browser extension as well as the current server plugin before it
+    # emits a new source manifest.
+    foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+        Add-UpdateFile (Join-Path $browserSource $name) (Join-Path $browserPluginRoot $name) ('public/scripts/extensions/third-party/logic-engine-extension-gateway/' + $name)
+    }
+
+    foreach ($entry in $script:Destinations) {
         if ($entry.Existed) {
-            New-Item -ItemType Directory -Path (Split-Path $backupPath) -Force | Out-Null
+            $backupPath = Join-Path $backupRoot $entry.RelativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $backupPath) -Force | Out-Null
             Copy-Item -LiteralPath $entry.Destination -Destination $backupPath
         }
         Copy-Item -LiteralPath $entry.Source -Destination $entry.Destination -Force
     }
 
-    [Environment]::SetEnvironmentVariable('SILLYTAVERN_DIR', $stRoot, 'Process')
-    Set-Location -LiteralPath $repoRoot
-    & $nodeCommand.Source 'host-adapter/prototype/generate-pinned-source-manifest.mjs'
-    if ($LASTEXITCODE -ne 0) {
-        throw ('PINNED_SOURCE_MANIFEST_GENERATION_FAILED: ' + $LASTEXITCODE)
+    $patchManager = Join-Path $corePluginRoot 'scripts/sillytavern-patch-manager.mjs'
+    $patchManagerUpdateStarted = $true
+    $patchUpdateOutput = & $nodeCommand.Source $patchManager 'update' '--st-root' $stRoot '--extension-root' $corePluginRoot 2>&1
+    $patchUpdateExitCode = $LASTEXITCODE
+    $patchUpdateText = ($patchUpdateOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    if ($patchUpdateExitCode -ne 0) {
+        Write-Host $patchUpdateText
+        throw ('HOST_PATCH_MANAGER_UPDATE_FAILED_' + $patchUpdateExitCode)
     }
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw 'PINNED_SOURCE_MANIFEST_NOT_CREATED'
+    try { $patchUpdateResult = $patchUpdateText | ConvertFrom-Json } catch {
+        throw 'HOST_PATCH_MANAGER_UPDATE_RESPONSE_INVALID'
     }
+    if ($patchUpdateResult.status -notin @('INSTALLED', 'UP_TO_DATE')) {
+        throw ('HOST_PATCH_MANAGER_UPDATE_UNEXPECTED_STATUS: ' + [string]$patchUpdateResult.status)
+    }
+    $patchManagerUpdateSucceeded = $true
+
+    # This installer independently reconstructs the exact Host overlay from the
+    # pinned ST commit, updates Gateway/browser files and generates the final
+    # source manifest only after the full patch bundle has been verified.
+    $bundleInstaller = Join-Path $repoRoot 'scripts/install-sillytavern-host-patch-bundle.mjs'
+    $bundleOutput = & $nodeCommand.Source $bundleInstaller '--st-root' $stRoot 2>&1
+    $bundleExitCode = $LASTEXITCODE
+    $bundleText = ($bundleOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    if ($bundleExitCode -ne 0) {
+        Write-Host $bundleText
+        throw ('HOST_PATCH_BUNDLE_UPDATE_FAILED_' + $bundleExitCode)
+    }
+    try { $bundleResult = $bundleText | ConvertFrom-Json } catch {
+        throw 'HOST_PATCH_BUNDLE_UPDATE_RESPONSE_INVALID'
+    }
+    if ($bundleResult.status -ne 'HOST_PATCH_BUNDLE_INSTALLED_AND_VERIFIED') {
+        throw ('HOST_PATCH_BUNDLE_UPDATE_UNEXPECTED_STATUS: ' + [string]$bundleResult.status)
+    }
+
+    $verifyOutput = & $nodeCommand.Source $patchManager 'verify' '--st-root' $stRoot '--extension-root' $corePluginRoot 2>&1
+    $verifyExitCode = $LASTEXITCODE
+    $verifyText = ($verifyOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    if ($verifyExitCode -ne 0) {
+        Write-Host $verifyText
+        throw ('HOST_PATCH_MANAGER_VERIFY_FAILED_' + $verifyExitCode)
+    }
+    try { $verifyResult = $verifyText | ConvertFrom-Json } catch {
+        throw 'HOST_PATCH_MANAGER_VERIFY_RESPONSE_INVALID'
+    }
+    if ($verifyResult.status -ne 'INSTALLED_AND_VERIFIED') {
+        throw ('HOST_PATCH_MANAGER_VERIFY_UNEXPECTED_STATUS: ' + [string]$verifyResult.status)
+    }
+
+    $attestationSource = Get-Content -LiteralPath (Join-Path $serverSource 'st-source-attestation.mjs') -Raw
+    $patchHashMatch = [regex]::Match($attestationSource, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'")
+    if (-not $patchHashMatch.Success) { throw 'HOST_PATCH_BUNDLE_PIN_NOT_FOUND' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if (-not ($manifest.manifest_sha256 -match '^[a-f0-9]{64}$')) {
-        throw 'PINNED_SOURCE_MANIFEST_INVALID'
+    if ($manifest.pinned_host_commit -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+        -or $manifest.patch_blob_sha -ne $patchHashMatch.Groups[1].Value
+        -or $manifest.manifest_sha256 -notmatch '^[a-f0-9]{64}$') {
+        throw 'HOST_SOURCE_MANIFEST_DOES_NOT_MATCH_CURRENT_PATCH_BUNDLE'
     }
+
     $completed = $true
     [pscustomobject]@{
-        status = 'HOST_PLUGIN_UPDATED_AND_SOURCE_MANIFEST_VERIFIED'
+        status = 'HOST_PLUGIN_AND_PATCH_BUNDLE_UPDATED_AND_VERIFIED'
         hostVersion = $stPackage.version
-        updatedFileCount = $destinations.Count
+        serverModuleCount = $serverFiles.Count
+        updatedFileCount = $script:Destinations.Count
+        patchVersion = $patchUpdateResult.patchVersion
+        patchBundleSha256 = $manifest.patch_blob_sha
         sourceManifestSha256 = $manifest.manifest_sha256
         backupDirectory = $backupRoot
-        note = 'Core database, Host identity, chat metadata, SQLite files and SillyTavern patches were not modified.'
-    } | ConvertTo-Json -Depth 4
+        note = 'Host lifecycle patch, Gateway, browser extension and Patch Manager were updated transactionally. Chat data, Core databases, Host identity and SQLite files were not modified.'
+    } | ConvertTo-Json -Depth 5
 } catch {
-    foreach ($entry in $destinations) {
-        $rootPrefix = $stRoot.TrimEnd([char[]]@('\', '/'))
-        $relative = $entry.Destination.Substring($rootPrefix.Length).TrimStart([char[]]@('\', '/'))
-        $backupPath = Join-Path $backupRoot $relative
-        if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
-        } elseif (-not $entry.Existed -and (Test-Path -LiteralPath $entry.Destination -PathType Leaf)) {
-            Remove-Item -LiteralPath $entry.Destination -Force
+    if (-not $patchManagerUpdateStarted) {
+        foreach ($entry in @($script:Destinations | Select-Object -Reverse)) {
+            $backupPath = Join-Path $backupRoot $entry.RelativePath
+            if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+                Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
+            } elseif (-not $entry.Existed -and (Test-Path -LiteralPath $entry.Destination -PathType Leaf)) {
+                Remove-Item -LiteralPath $entry.Destination -Force
+            }
         }
-    }
-    if ($manifestExisted -and (Test-Path -LiteralPath $manifestBackupPath -PathType Leaf)) {
-        Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
-    } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        Remove-Item -LiteralPath $manifestPath -Force
+        if ($manifestExisted -and (Test-Path -LiteralPath $manifestBackupPath -PathType Leaf)) {
+            Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
+        } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $manifestPath -Force
+        }
+        Write-Warning ('Host plugin preflight/copy failed; previous files were restored. Backup: ' + $backupRoot)
+    } else {
+        Write-Warning ('Patch Manager update was started. Do not delete plugin files, transaction journals or backups. Preserve this directory for recovery: ' + $backupRoot)
     }
     throw
 } finally {
-    Set-Location -LiteralPath $previousLocation
-    [Environment]::SetEnvironmentVariable('SILLYTAVERN_DIR', $previousSilTavernDir, 'Process')
     if (-not $completed) {
-        Write-Warning ('Host plugin update was rolled back. Backup/evidence directory: ' + $backupRoot)
+        Write-Warning ('Host plugin/patch update did not complete. Evidence and backups retained at: ' + $backupRoot)
     }
 }
