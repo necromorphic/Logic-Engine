@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -137,4 +137,132 @@ test('runtime verifier rejects double-scan candidates and unpinned source identi
   });
   assert.equal(badSource.status, 'NON_READY');
   assert.equal(badSource.reason, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_INPUT_INVALID');
+});
+
+test('receipt store records real before/after files and a recover()-completed mutation', async t => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'host-runtime-store-'));
+  const root = path.join(base, 'st-data');
+  const chats = path.join(root, 'chats');
+  const groups = path.join(root, 'groups');
+  const groupChats = path.join(root, 'groupChats');
+  const receiptDirectory = path.join(base, 'host-receipts');
+  await Promise.all([mkdir(chats, { recursive: true }), mkdir(groups), mkdir(groupChats)]);
+  await mkdir(receiptDirectory);
+  const chatPath = path.join(chats, 'conversation.json');
+  let messages = [];
+  let snapshotCounter = 100;
+  const writeChat = () => writeFile(chatPath, JSON.stringify({ messages }));
+  await writeChat();
+  const directories = { root, chats, groups, groupChats };
+  const enumerate = async () => {
+    const bytes = await readFile(chatPath);
+    const info = await stat(chatPath);
+    const fileIdentity = String(info.dev) + ':' + String(info.ino);
+    const snapshotId = uuid(snapshotCounter++);
+    const entries = [{
+      path: 'chats/conversation.json',
+      identity: { dev: String(info.dev), ino: String(info.ino) },
+      sha256: sha(bytes),
+    }];
+    const logicalIdentity = {
+      conversation_uuid: CONVERSATION,
+      identity_status: 'CURRENT_IDENTITIES_VERIFIED',
+      missing_message_identity_count: 0,
+      messages,
+    };
+    const sourceFiles = [{
+      kind: 'root-chat',
+      locator: 'conversation.json',
+      content_sha256: sha(bytes),
+      file_identity: fileIdentity,
+      logical_identity: logicalIdentity,
+    }];
+    return {
+      filesystem: {
+        status: 'complete',
+        entries,
+        snapshot_id: snapshotId,
+        snapshot_sha256: sha(Buffer.from(JSON.stringify(entries), 'utf8')),
+      },
+      source: {
+        status: 'DOUBLE_SCAN_CANDIDATE',
+        host_commit: HOST_COMMIT,
+        snapshot_id: snapshotId,
+        inventory_sha256: sha(Buffer.from(canonical(sourceFiles), 'utf8')),
+        files: sourceFiles,
+      },
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+    };
+  };
+  const store = new HostLifecycleReceiptStore({
+    directory: receiptDirectory,
+    enumerate,
+    hostCommit: HOST_COMMIT,
+  });
+  const firstScope = {
+    host_installation_id: INSTALL,
+    authenticated_account_id: ACCOUNT,
+    host_session_id: SESSION,
+    conversation_uuid: CONVERSATION,
+    mutation_id: uuid(101),
+    event_id: uuid(102),
+    operation: 'create-message',
+    mutation_digest: sha('create-message-real-file'),
+    occurred_at: new Date().toISOString(),
+  };
+  await store.prepare(firstScope, directories);
+  messages = [{
+    message_id: uuid(103),
+    active_version_index: 0,
+    versions: [{
+      version_id: uuid(104), version_index: 0, parent_version_id: null,
+      content_sha256: sha('first message'), active: true,
+    }],
+  }];
+  await writeChat();
+  await store.commit({ ...firstScope, event_id: uuid(105) }, directories);
+
+  const recoveryScope = {
+    ...firstScope,
+    mutation_id: uuid(106),
+    event_id: uuid(107),
+    operation: 'message-send',
+    mutation_digest: sha('message-send-recovered'),
+    occurred_at: new Date().toISOString(),
+  };
+  await store.prepare(recoveryScope, directories);
+  messages = [...messages, {
+    message_id: uuid(108),
+    active_version_index: 0,
+    versions: [{
+      version_id: uuid(109), version_index: 0, parent_version_id: null,
+      content_sha256: sha('second message'), active: true,
+    }],
+  }];
+  await writeChat();
+  const recovered = await store.recover({
+    ...recoveryScope,
+    prepared_event_id: recoveryScope.event_id,
+    event_id: uuid(110),
+    occurred_at: new Date().toISOString(),
+  }, directories);
+  assert.equal(recovered.status, 'COMMITTED');
+
+  const keyFor = scope => sha(Buffer.from(canonical({
+    host_installation_id: scope.host_installation_id,
+    authenticated_account_id: scope.authenticated_account_id,
+    host_session_id: scope.host_session_id,
+    conversation_uuid: scope.conversation_uuid,
+    mutation_id: scope.mutation_id,
+  }), 'utf8'));
+  const firstTerminal = JSON.parse(await readFile(path.join(receiptDirectory, keyFor(firstScope) + '.terminal.json'), 'utf8'));
+  const recoveredTerminal = JSON.parse(await readFile(path.join(receiptDirectory, keyFor(recoveryScope) + '.terminal.json'), 'utf8'));
+  assert.equal(firstTerminal.evidence_schema_version, 2);
+  assert.equal(firstTerminal.receipt.protocol_version, 2);
+  assert.equal(firstTerminal.receipt.before_snapshot_proof.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+  assert.equal(firstTerminal.receipt.after_snapshot_proof.snapshot_alignment, 'SHARED_VSS_SNAPSHOT');
+  assert.notEqual(firstTerminal.receipt.before_snapshot_proof.snapshot_id, firstTerminal.receipt.after_snapshot_proof.snapshot_id);
+  assert.equal(recoveredTerminal.receipt.recovery_verified, true);
+  assert.match(recoveredTerminal.receipt_digest, /^[a-f0-9]{64}$/);
+  t.after(() => rm(base, { recursive: true, force: true }));
 });
