@@ -156,24 +156,14 @@ try {
     if ($patchUpdateResult.status -notin @('INSTALLED', 'UP_TO_DATE')) {
         throw ('HOST_PATCH_MANAGER_UPDATE_UNEXPECTED_STATUS: ' + [string]$patchUpdateResult.status)
     }
-    $patchManagerUpdateSucceeded = $true
-
     # This installer independently reconstructs the exact Host overlay from the
     # pinned ST commit, updates Gateway/browser files and generates the final
     # source manifest only after the full patch bundle has been verified.
     $bundleInstaller = Join-Path $repoRoot 'scripts/install-sillytavern-host-patch-bundle.mjs'
-    $bundleOutput = & $nodeCommand.Source $bundleInstaller '--st-root' $stRoot 2>&1
+    & $nodeCommand.Source $bundleInstaller '--st-root' $stRoot
     $bundleExitCode = $LASTEXITCODE
-    $bundleText = ($bundleOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
     if ($bundleExitCode -ne 0) {
-        Write-Host $bundleText
         throw ('HOST_PATCH_BUNDLE_UPDATE_FAILED_' + $bundleExitCode)
-    }
-    try { $bundleResult = $bundleText | ConvertFrom-Json } catch {
-        throw 'HOST_PATCH_BUNDLE_UPDATE_RESPONSE_INVALID'
-    }
-    if ($bundleResult.status -ne 'HOST_PATCH_BUNDLE_INSTALLED_AND_VERIFIED') {
-        throw ('HOST_PATCH_BUNDLE_UPDATE_UNEXPECTED_STATUS: ' + [string]$bundleResult.status)
     }
 
     $verifyOutput = & $nodeCommand.Source $patchManager 'verify' '--st-root' $stRoot '--extension-root' $corePluginRoot 2>&1
@@ -214,7 +204,8 @@ try {
     } | ConvertTo-Json -Depth 5
 } catch {
     if (-not $patchManagerUpdateStarted) {
-        foreach ($entry in @($script:Destinations | Select-Object -Reverse)) {
+        for ($index = $script:Destinations.Count - 1; $index -ge 0; $index--) {
+            $entry = $script:Destinations[$index]
             $backupPath = Join-Path $backupRoot $entry.RelativePath
             if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
                 Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
