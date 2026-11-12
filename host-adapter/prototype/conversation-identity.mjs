@@ -102,7 +102,7 @@ export async function resolveStableHostConversationIdentity({
     }
   };
 
-  if (existing !== undefined && !validUuid(existing)) {
+  if (existing !== undefined && existing !== null && !validUuid(existing)) {
     throw Error('NON_READY: malformed stable Host conversation identity');
   }
 
