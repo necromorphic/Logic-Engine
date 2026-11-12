@@ -10,7 +10,7 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "c3ca43ea872dab6f09446bc2a97fd4dff48a4e02a9f56ff11116b4f2e28f975a",
+    "bundleSha256": "70e835c9172f22599a4fefb63126bfc1cea689276c84082e58f03fa976763998",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "1bf47afd0e666e74469f3b5c16094bb0f9565adff8347521967122d7941a009e",
+        "sha256": "55f227c28633695e66b45a559596863774731bc2d637d7f0d66fb8e2994ac33f",
         "allowUnidiffZero": true
       },
       {
