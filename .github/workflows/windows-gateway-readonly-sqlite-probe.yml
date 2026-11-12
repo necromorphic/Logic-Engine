@@ -1,5 +1,12 @@
 name: Windows gateway read-only SQLite WAL probe
 on:
+  push:
+    branches:
+      - integration/host-core-v1
+    paths:
+      - 'scripts/security/gateway_readonly_sqlite_probe.mjs'
+      - '.github/workflows/windows-gateway-readonly-sqlite-probe.yml'
+      - 'docs/security/gateway-readonly-sqlite-probe.md'
   pull_request:
     paths:
       - 'scripts/security/gateway_readonly_sqlite_probe.mjs'
