@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/install-sillytavern-host-plugin.ps1'
+      - 'scripts/Update-LogicEngine-Host-Plugin.ps1'
       - 'scripts/Start-LogicEngine-PR870-Test.ps1'
       - 'scripts/Run-Phase2-PC-Acceptance.ps1'
       - 'scripts/bootstrap-windows-host-acceptance.mjs'
@@ -38,6 +39,13 @@ jobs:
           $source = Get-Content -LiteralPath './scripts/Start-LogicEngine-PR870-Test.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Windows PowerShell 5.1 launcher syntax is valid.'
+      - name: Parse Host plugin updater with Windows PowerShell 5.1
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-Content -LiteralPath './scripts/Update-LogicEngine-Host-Plugin.ps1' -Raw
+          [void][scriptblock]::Create($source)
+          Write-Output 'Host plugin updater syntax is valid.'
       - name: Parse consolidated Phase 2 acceptance runner with Windows PowerShell 5.1
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
@@ -67,6 +75,52 @@ jobs:
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
+      - name: Verify upgrade from the previous Host candidate refreshes the complete ST patch bundle
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $upgradeRoot = Join-Path $env:RUNNER_TEMP 'SillyTavern-Host-Upgrade'
+          $oldRepo = Join-Path $env:RUNNER_TEMP 'Logic-Engine-Previous'
+          if (Test-Path -LiteralPath $upgradeRoot) { Remove-Item -LiteralPath $upgradeRoot -Recurse -Force }
+          if (Test-Path -LiteralPath $oldRepo) { Remove-Item -LiteralPath $oldRepo -Recurse -Force }
+
+          git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git $upgradeRoot
+          if ($LASTEXITCODE -ne 0) { throw 'UPGRADE_ST_CLONE_FAILED' }
+          git -C $upgradeRoot checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          if ($LASTEXITCODE -ne 0) { throw 'UPGRADE_ST_PIN_CHECKOUT_FAILED' }
+
+          git init $oldRepo
+          if ($LASTEXITCODE -ne 0) { throw 'PREVIOUS_LOGIC_ENGINE_INIT_FAILED' }
+          git -C $oldRepo remote add origin https://github.com/necromorphic/Logic-Engine.git
+          if ($LASTEXITCODE -ne 0) { throw 'PREVIOUS_LOGIC_ENGINE_REMOTE_FAILED' }
+          git -C $oldRepo fetch --depth=1 origin 4ec529607649ff4873b5db8d4e0467b9d15a283e
+          if ($LASTEXITCODE -ne 0) { throw 'PREVIOUS_LOGIC_ENGINE_FETCH_FAILED' }
+          git -C $oldRepo checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'PREVIOUS_LOGIC_ENGINE_CHECKOUT_FAILED' }
+
+          & (Join-Path $oldRepo 'scripts/install-sillytavern-host-plugin.ps1') -SillyTavernRoot $upgradeRoot
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'PREVIOUS_HOST_INSTALL_FAILED' }
+
+          & './scripts/Update-LogicEngine-Host-Plugin.ps1' -SillyTavernRoot $upgradeRoot
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'HOST_PATCH_BUNDLE_UPGRADE_FAILED' }
+
+          $attestation = Get-Content -LiteralPath './host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs' -Raw
+          $expectedPatchHash = [regex]::Match($attestation, "PINNED_PATCH_BUNDLE_SHA256\\s*=\\s*'([a-f0-9]{64})'").Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($expectedPatchHash)) { throw 'CURRENT_PATCH_BUNDLE_PIN_MISSING' }
+          $manifestPath = Join-Path $upgradeRoot 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.patch_blob_sha -ne $expectedPatchHash) { throw 'STALE_HOST_PATCH_BUNDLE_MANIFEST_AFTER_UPGRADE' }
+
+          $pluginRoot = Join-Path $upgradeRoot 'plugins/logic-engine'
+          node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $upgradeRoot --extension-root $pluginRoot
+          if ($LASTEXITCODE -ne 0) { throw 'PATCH_MANAGER_VERIFY_FAILED_AFTER_UPGRADE' }
+
+          $bridgePath = Join-Path $upgradeRoot 'public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs'
+          if (-not (Test-Path -LiteralPath $bridgePath -PathType Leaf)) { throw 'UPDATED_LIFECYCLE_BRIDGE_MISSING' }
+          $bridge = Get-Content -LiteralPath $bridgePath -Raw
+          if (-not $bridge.Contains('ensureConversationEnrolled')) { throw 'AUTOMATIC_ENROLLMENT_HOOK_MISSING_AFTER_UPGRADE' }
+          if (-not $bridge.Contains('persistedInventoryDiagnostics')) { throw 'INVENTORY_DIAGNOSTICS_MISSING_AFTER_UPGRADE' }
+          Write-Output 'Previous Host candidate upgraded to the current complete patch bundle.'
       - name: Verify installer refuses an existing plugin directory without mutation
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
