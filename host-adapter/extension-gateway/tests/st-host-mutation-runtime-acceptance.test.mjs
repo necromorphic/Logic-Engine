@@ -58,7 +58,7 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
     };
     const prepared = {
       schema_version: 1, evidence_schema_version: 2,
-      process_started_at_ms: sameProcess ? Date.now() : priorProcessStartedAtMs, ...scope,
+      process_started_at_ms: sameProcess ? currentProcessStartedAtMs : priorProcessStartedAtMs, ...scope,
       event_id: uuid(index + 60), operation, mutation_digest: sha('mutation-' + operation),
       before: { snapshot_proof: beforeProof },
     };
@@ -76,6 +76,7 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
     await writeFile(path.join(directory, key + '.prepared.json'), canonical(prepared));
     await writeFile(path.join(directory, key + '.terminal.json'), canonical(terminal));
   }
+  return currentProcessStartedAtMs;
 }
 
 function makeInputs(root) {
@@ -99,9 +100,9 @@ async function fixture(t, options) {
   const root = path.join(base, 'data-root');
   const directory = path.join(base, 'receipts');
   await Promise.all([mkdir(root), mkdir(directory)]);
-  await writeEvidence(directory, options);
+  const processStartedAtMs = await writeEvidence(directory, options);
   t.after(() => rm(base, { recursive: true, force: true }));
-  return { root, store: new HostLifecycleReceiptStore({ directory, hostCommit: HOST_COMMIT }) };
+  return { root, processStartedAtMs, store: new HostLifecycleReceiptStore({ directory, hostCommit: HOST_COMMIT }) };
 }
 
 test('runtime verifier accepts a complete schema-v2 receipt ledger fixture', async t => {
@@ -114,7 +115,7 @@ test('runtime verifier accepts a complete schema-v2 receipt ledger fixture', asy
 });
 
 test('runtime verifier rejects receipts created by the current server process', async t => {
-  const { root, store } = await fixture(t, { sameProcess: true });
+  const { root, store, processStartedAtMs } = await fixture(t, { sameProcess: true });
   const inputs = makeInputs(root);
   const result = await store.verifyRuntimeAcceptance({
     pinnedHostCommit: inputs.pinnedHostCommit,
@@ -128,6 +129,7 @@ test('runtime verifier rejects receipts created by the current server process', 
     mutationCoverage: inputs.mutationCoverage,
     hostInstallationId: inputs.hostInstallationId,
     authenticatedAccountId: inputs.authenticatedAccountId,
+    currentProcessStartedAtMs: processStartedAtMs,
   });
   assert.equal(result.status, 'NON_READY');
   assert.equal(result.reason, 'HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
