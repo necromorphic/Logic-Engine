@@ -148,10 +148,13 @@ export async function resolveStableHostConversationIdentity({
     }
     if (!mappedId && storage.getItem(activeMarker)) {
       const markerValue = storage.getItem(activeMarker);
-      if (!markerValueMatchesLocator(markerValue) || pendingRenameId !== resolvedId) {
-        if (!markerValueMatchesLocator(markerValue)) {
-          throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
-        }
+      const markerMatchesCurrentLocator = markerValueMatchesLocator(markerValue);
+      // A rename is the only permitted exception: the exact conversation ID
+      // must have been captured by renameChat before ST changes the locator.
+      if (!markerMatchesCurrentLocator && pendingRenameId !== resolvedId) {
+        throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
+      }
+      if (markerMatchesCurrentLocator && pendingRenameId !== resolvedId) {
         // An exact marker/metadata pair can repair only its missing locator cache.
         if (!(await verifyServerPersistence(existing))) {
           throw Error('NON_READY: server confirmation is required before repairing a Host locator binding');
