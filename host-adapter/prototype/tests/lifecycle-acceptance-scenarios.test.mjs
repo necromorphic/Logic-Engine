@@ -201,8 +201,12 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(patch.includes('getLogicEngineHostIdentity'));
   assert.ok(patch.includes('hostInstallationId: identity.host_installation_id'));
   assert.ok(patch.includes('getPersistedInventory: async'));
-  assert.ok(patch.includes("throw error;"),
-    'missing persisted inventory must fail closed');
+  assert.ok(patch.includes("error.code = serverCode && /^[A-Z0-9_]{1,96}$/.test(serverCode)"),
+    'inventory failures must preserve only a bounded server error code');
+  assert.ok(patch.includes("error.httpStatus = response.status;"),
+    'inventory failures must preserve the HTTP status for diagnostics');
+  assert.ok(patch.includes("const inventory = await response.json().catch(() => null);"),
+    'empty/non-JSON error bodies must not erase the HTTP failure status');
   assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
     'persisted inventory must remain bound to the authenticated ST account');
   assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
@@ -341,3 +345,21 @@ test('Host identity never prevents native user directory bootstrap', async () =>
   assert.equal(patch.includes('Skipping system prompt migration while Host authority is active.'), false);
 });
 
+
+test('lifecycle patch paths match the actual registered Gateway inventory and journal routes', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const gateway = await readFile(resolve(here, '../../extension-gateway/server-plugin/index.mjs'), 'utf8');
+  for (const route of [
+    "router.get('/inventory', hostAdapter.inventory);",
+    "router.post('/host-lifecycle/events', hostAdapter.lifecycleEvents);",
+    "router.get('/host-lifecycle/status', hostAdapter.lifecycleStatus);",
+  ]) assert.ok(gateway.includes(route), 'Gateway route missing: ' + route);
+  for (const url of [
+    "/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid=",
+    "/api/plugins/logic-engine-extension-gateway/host-lifecycle/events",
+    "/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id=",
+  ]) assert.ok(patch.includes(url), 'Host client route does not match registered Gateway namespace: ' + url);
+  assert.equal(patch.includes('/api/logic-engine/host/'), false,
+    'the lifecycle patch must not call the obsolete prototype endpoint namespace');
+});
