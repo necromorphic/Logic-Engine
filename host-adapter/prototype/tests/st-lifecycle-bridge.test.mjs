@@ -1162,3 +1162,17 @@ test('persisted inventory transport failures retain safe status and server diagn
   assert.equal(recovered.status, 'NON_READY');
   assert.equal((await f.bridge.getCoreCaptureStatus()).diagnostic, null);
 });
+
+test('first instrumented Host mutation automatically establishes a review-only baseline before mutation', async () => {
+  const f = makeFixture();
+  const before = await f.bridge.beforeMutation('message-send', []);
+  assert.notEqual(before.status, 'NOT_ENROLLED');
+  assert.equal(await f.journal.isEnrolled('chat-1'), true);
+  assert.equal(f.chat.length, 2);
+  assert.ok(f.chat.every(message => message._logicEngineLifecycle?.messageId));
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(ledger.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
+  assert.equal(ledger.status, 'REVIEW_ONLY');
+  assert.equal(ledger.records.some(record => record.operation === 'before:message-send'), true);
+});
+
