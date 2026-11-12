@@ -159,6 +159,7 @@ export function createSillyTavernHostAdapter({
         status: 'VERIFIED',
         source_manifest_sha256: sourceIdentity.manifest_sha256,
         mutation_coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+        mutation_coverage_source_files_sha256: mutationCoverage.source_files_sha256,
       };
     } catch {
       return { status: 'NON_READY' };

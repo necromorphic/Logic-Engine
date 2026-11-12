@@ -44,6 +44,7 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
       source_inventory_sha256: sha('source-before-' + operation),
       source_manifest_sha256: sha('source-manifest'),
       mutation_coverage_manifest_sha256: sha('coverage'),
+      mutation_coverage_source_files_sha256: sha('source-files'),
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
     const afterProof = {
@@ -52,6 +53,7 @@ async function writeEvidence(directory, { omitOperation = null, omitRecovery = f
       source_inventory_sha256: sha('source-after-' + operation),
       source_manifest_sha256: sha('source-manifest'),
       mutation_coverage_manifest_sha256: sha('coverage'),
+      mutation_coverage_source_files_sha256: sha('source-files'),
       snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
     };
     const prepared = {
@@ -230,6 +232,7 @@ test('receipt store records real before/after files and a recover()-completed mu
       status: 'VERIFIED',
       source_manifest_sha256: sha('source-manifest'),
       mutation_coverage_manifest_sha256: sha('coverage'),
+      mutation_coverage_source_files_sha256: sha('source-files'),
     }),
     hostCommit: HOST_COMMIT,
   });

@@ -379,7 +379,8 @@ export class HostLifecycleReceiptStore {
         const candidate = await this.sourceEvidenceProvider({ directories, hostCommit: this.hostCommit });
         if (candidate?.status === 'VERIFIED'
           && DIGEST.test(candidate.source_manifest_sha256 ?? '')
-          && DIGEST.test(candidate.mutation_coverage_manifest_sha256 ?? '')) {
+          && DIGEST.test(candidate.mutation_coverage_manifest_sha256 ?? '')
+          && DIGEST.test(candidate.mutation_coverage_source_files_sha256 ?? '')) {
           sourceEvidence = candidate;
         }
       } catch {}
@@ -404,6 +405,7 @@ export class HostLifecycleReceiptStore {
         source_inventory_sha256: inventory.source.inventory_sha256,
         source_manifest_sha256: sourceEvidence?.source_manifest_sha256 ?? null,
         mutation_coverage_manifest_sha256: sourceEvidence?.mutation_coverage_manifest_sha256 ?? null,
+        mutation_coverage_source_files_sha256: sourceEvidence?.mutation_coverage_source_files_sha256 ?? null,
         snapshot_alignment: inventory.snapshot_alignment ?? 'UNKNOWN',
       },
     };
@@ -746,7 +748,8 @@ export class HostLifecycleReceiptStore {
         || !DIGEST.test(prepared.before.snapshot_proof.snapshot_sha256 ?? '')
         || !DIGEST.test(prepared.before.snapshot_proof.source_inventory_sha256 ?? '')
         || prepared.before.snapshot_proof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
-        || prepared.before.snapshot_proof.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256) {
+        || prepared.before.snapshot_proof.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
+        || prepared.before.snapshot_proof.mutation_coverage_source_files_sha256 !== mutationCoverage.source_files_sha256) {
         return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_PREPARED_EVIDENCE_INVALID');
       }
       if (!terminal || terminal.schema_version !== 1 || terminal.evidence_schema_version !== 2
@@ -774,6 +777,7 @@ export class HostLifecycleReceiptStore {
         || !DIGEST.test(receipt.after_snapshot_proof.source_inventory_sha256 ?? '')
         || receipt.after_snapshot_proof.source_manifest_sha256 !== sourceIdentity.manifest_sha256
         || receipt.after_snapshot_proof.mutation_coverage_manifest_sha256 !== mutationCoverage.coverage_manifest_sha256
+        || receipt.after_snapshot_proof.mutation_coverage_source_files_sha256 !== mutationCoverage.source_files_sha256
         || receipt.before_snapshot_proof.snapshot_id === receipt.after_snapshot_proof.snapshot_id) {
         return fail('HOST_MUTATION_RUNTIME_ACCEPTANCE_RECEIPT_BINDING_INVALID');
       }
@@ -806,6 +810,7 @@ export class HostLifecycleReceiptStore {
       root_id: rootId, snapshot_id: snapshotId, snapshot_sha256: snapshotSha256,
       source_manifest_sha256: sourceIdentity.manifest_sha256,
       mutation_coverage_manifest_sha256: mutationCoverage.coverage_manifest_sha256,
+      mutation_coverage_source_files_sha256: mutationCoverage.source_files_sha256,
       operations: evidence,
     };
     return {
