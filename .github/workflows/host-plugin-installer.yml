@@ -116,6 +116,8 @@ jobs:
 
           & './scripts/Update-LogicEngine-Host-Plugin.ps1' -SillyTavernRoot $upgradeRoot
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'HOST_PATCH_BUNDLE_UPGRADE_FAILED' }
+          $runtimeFixture = Join-Path $upgradeRoot 'plugins/logic-engine/tests/fixtures/sillytavern-final-send-v1.manifest.json'
+          if (-not (Test-Path -LiteralPath $runtimeFixture -PathType Leaf)) { throw 'HOST_RUNTIME_FIXTURE_NOT_REPAIRED_BY_UPDATER' }
 
           $attestation = Get-Content -LiteralPath './host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs' -Raw
           $expectedPatchHash = [regex]::Match($attestation, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'").Groups[1].Value
