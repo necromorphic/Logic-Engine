@@ -173,7 +173,7 @@ diff --git a/public/script.js b/public/script.js
 +}
 +
 +function wrapNativeSafeLifecycleBridge(bridge) {
-+    const safe = async (label, callback) => {
++    const safe = async (label, callback, nativeFallback = true) => {
 +        try {
 +            return await callback();
 +        } catch (error) {
@@ -188,20 +188,22 @@ diff --git a/public/script.js b/public/script.js
 +            logicEngineHostDiagnostic = diagnostic;
 +            console.warn('Logic Engine Host diagnostic', diagnostic);
 +            console.warn('Logic Engine lifecycle observer unavailable; continuing native SillyTavern operation.');
-+            return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++            return nativeFallback
++                ? { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' }
++                : diagnostic;
 +        }
 +    };
 +    return {
 +        ...bridge,
 +        beforeMutation: (...args) => safe('lifecycle preparation', () => bridge.beforeMutation(...args)),
 +        afterMutation: (...args) => safe('lifecycle receipt', () => bridge.afterMutation(...args)),
-+        syncCurrentDigestInventory: (...args) => safe('digest sync', () => bridge.syncCurrentDigestInventory(...args)),
-+        verifyPersistedInventory: (...args) => safe('inventory verification', () => bridge.verifyPersistedInventory(...args)),
-+        reconcileCurrentConversation: (...args) => safe('conversation reconciliation', () => bridge.reconcileCurrentConversation(...args)),
++        syncCurrentDigestInventory: (...args) => safe('digest sync', () => bridge.syncCurrentDigestInventory(...args), false),
++        verifyPersistedInventory: (...args) => safe('inventory verification', () => bridge.verifyPersistedInventory(...args), false),
++        reconcileCurrentConversation: (...args) => safe('conversation reconciliation', () => bridge.reconcileCurrentConversation(...args), false),
 +        // Native SillyTavern export remains available if optional lifecycle
 +        // observation is unavailable; server-side protected mutation gates remain authoritative.
 +        guardExport: (...args) => safe('export verification', () => bridge.guardExport(...args)),
-+        getCoreCaptureStatus: (...args) => safe('capture status', () => bridge.getCoreCaptureStatus(...args)),
++        getCoreCaptureStatus: (...args) => safe('capture status', () => bridge.getCoreCaptureStatus(...args), false),
 +    };
 +}
 +
