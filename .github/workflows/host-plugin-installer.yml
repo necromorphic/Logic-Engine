@@ -118,7 +118,7 @@ jobs:
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'HOST_PATCH_BUNDLE_UPGRADE_FAILED' }
 
           $attestation = Get-Content -LiteralPath './host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs' -Raw
-          $expectedPatchHash = [regex]::Match($attestation, "PINNED_PATCH_BUNDLE_SHA256\\s*=\\s*'([a-f0-9]{64})'").Groups[1].Value
+          $expectedPatchHash = [regex]::Match($attestation, "PINNED_PATCH_BUNDLE_SHA256\s*=\s*'([a-f0-9]{64})'").Groups[1].Value
           if ([string]::IsNullOrWhiteSpace($expectedPatchHash)) { throw 'CURRENT_PATCH_BUNDLE_PIN_MISSING' }
           $manifestPath = Join-Path $upgradeRoot 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
