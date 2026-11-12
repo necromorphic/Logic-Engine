@@ -122,8 +122,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $TestSt "package-lock.json") -PathTy
     Stop-WithCode "SILLYTAVERN_PACKAGE_LOCK_MISSING"
 }
 if ($ResumeExisting) {
-    # Update only the three changed server modules and refresh the pinned source
-    # manifest. Existing chat data, Core databases, identity and ST patches remain.
+    # Upgrade the complete managed Host patch bundle from the current candidate.
+    # Patch Manager restores the previous patch from its verified backups and applies
+    # the current lifecycle/inventory artifacts. Chat data, Core DBs, identity and
+    # SQLite application state remain untouched.
     if (-not (Test-Path -LiteralPath (Join-Path $TestSt "node_modules") -PathType Container)) {
         Push-Location $TestSt
         try {
