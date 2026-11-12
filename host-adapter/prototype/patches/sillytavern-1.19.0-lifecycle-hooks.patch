@@ -1619,7 +1619,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +13,1038 @@
+@@ -0,0 +1,1092 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1653,6 +1653,8 @@ new file mode 100644
 +  const publishQueues = new Map();
 +  const coreCaptureStates = new Map();
 +  const persistedInventoryRevocationPublished = new Set();
++  const persistedInventoryDiagnostics = new Map();
++  const automaticEnrollmentPromises = new Map();
 +
 +  function sortParentFirst(entries) {
 +    const groups = new Map();
@@ -1904,6 +1906,10 @@ new file mode 100644
 +      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
 +    }
 +    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
++    // Verify the just-persisted baseline automatically once. This is a bounded
++    // per-conversation scan, not a full-root scan on every message mutation.
++    const persistedInventory = getPersistedInventory
++      ? await verifyPersistedInventory(conversationId) : null;
 +    await assertEnrollmentSourceUnchanged();
 +    return {
 +      conversationId,
@@ -1912,6 +1918,7 @@ new file mode 100644
 +      messageCount: chat.length,
 +      status: 'REVIEW_ONLY',
 +      coreCaptureStatus: coreCapture.status,
++      persistedInventoryStatus: persistedInventory?.status ?? 'NOT_CONFIGURED',
 +    };
 +  }
 +
@@ -1954,13 +1961,37 @@ new file mode 100644
 +    }
 +  }
 +
++  async function ensureConversationEnrolled(conversationId) {
++    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    if (restored) return;
++    let pending = automaticEnrollmentPromises.get(conversationId);
++    if (!pending) {
++      pending = (async () => {
++        if (await getConversationId() !== conversationId) {
++          throw Error('NON_READY: Host conversation changed before automatic enrollment');
++        }
++        return enrollCurrentConversation();
++      })();
++      automaticEnrollmentPromises.set(conversationId, pending);
++    }
++    try {
++      await pending;
++    } finally {
++      if (automaticEnrollmentPromises.get(conversationId) === pending) {
++        automaticEnrollmentPromises.delete(conversationId);
++      }
++    }
++    if (!(await journal.isEnrolled(conversationId))) {
++      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
++    }
++  }
++
 +  async function beforeMutation(operation, messageIndexes, details = {}) {
 +    const conversationId = await getConversationId();
 +    if (!conversationId) return { status: 'NOT_ENROLLED' };
 +    let recoveredBaseline = false;
 +    if (!(await enrolledOrFailClosed(conversationId))) {
-+      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
-+      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
++      await ensureConversationEnrolled(conversationId);
 +      recoveredBaseline = true;
 +    }
 +    if (getLifecycleStatus) {
@@ -2340,8 +2371,25 @@ new file mode 100644
 +    let inventory;
 +    try {
 +      inventory = await getPersistedInventory();
-+    } catch {
-+      return { status: 'NON_READY', reason: 'persisted Host inventory request failed' };
++      persistedInventoryDiagnostics.delete(id);
++    } catch (error) {
++      const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code)
++        ? error.code : 'HOST_INVENTORY_TRANSPORT_FAILED';
++      const reasonCode = typeof error?.reasonCode === 'string' && /^[A-Z0-9_:-]{1,128}$/.test(error.reasonCode)
++        ? error.reasonCode : null;
++      const httpStatus = Number.isInteger(error?.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599
++        ? error.httpStatus : null;
++      const diagnostic = Object.freeze({
++        status: 'NON_READY',
++        stage: 'PERSISTED_INVENTORY_FETCH',
++        reason: 'persisted Host inventory request failed',
++        code,
++        ...(reasonCode === null ? {} : { reasonCode }),
++        ...(httpStatus === null ? {} : { httpStatus }),
++        observedAt: new Date().toISOString(),
++      });
++      persistedInventoryDiagnostics.set(id, diagnostic);
++      return diagnostic;
 +    }
 +    if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
 +      || inventory.authority !== 'NON_AUTHORITATIVE'
@@ -2488,7 +2536,13 @@ new file mode 100644
 +
 +  function getCoreCaptureStatus() {
 +    const conversationId = getConversationId();
-+    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
++    return Promise.resolve(conversationId).then(id => {
++      if (!id) return { status: 'NO_CONVERSATION' };
++      return {
++        ...(coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }),
++        diagnostic: persistedInventoryDiagnostics.get(id) ?? null,
++      };
++    });
 +  }
 +
 +  async function reconcileCurrentConversation() {
@@ -2658,7 +2712,6 @@ new file mode 100644
 +    guardExport: async () => assertUnavailableSafe(),
 +  });
 +}
-
 diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
 new file mode 100644
 --- /dev/null
