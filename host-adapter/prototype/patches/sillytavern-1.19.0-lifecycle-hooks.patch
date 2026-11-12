@@ -317,7 +317,7 @@ diff --git a/public/script.js b/public/script.js
 +        },
 +        getDiagnostics: async () => ({
 +            lastHostDiagnostic: logicEngineHostDiagnostic,
-+            lifecycle: await (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus(),
++            lifecycle: await (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus?.() ?? { status: 'UNAVAILABLE' },
 +        }),
 +        guardOperation: async (operation, messageIndexes = [], details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).beforeMutation(operation, messageIndexes, details),
