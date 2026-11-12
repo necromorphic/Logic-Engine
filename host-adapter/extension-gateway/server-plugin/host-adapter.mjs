@@ -278,10 +278,9 @@ export function createSillyTavernHostAdapter({
         }
 
         // Static route presence is not runtime acceptance. The production
-        // adapter has no runtime-acceptance verifier yet, so it must not acquire a
-        // Host context from an authoritative root proof until operation receipts and
-        // real-file before/after/restart evidence are verified for this exact
-        // pinned source and snapshot.
+        // verifier audits durable operation receipts, real-file before/after
+        // evidence, restart recovery, pinned source identity and the current
+        // shared VSS snapshot before this request may acquire a Host context.
         if (typeof verifyMutationRuntimeAcceptance !== 'function') {
           return { status: 'NON_READY', code: 'HOST_MUTATION_RUNTIME_ACCEPTANCE_UNVERIFIED' };
         }
