@@ -75,7 +75,15 @@ export async function resolveStableHostConversationIdentity({
     && ['enrolled:', 'enrolling:', 'NON_READY:'].some(prefix => value === prefix + locator);
   const verifyServerPersistence = async conversationUuid => {
     if (typeof verifyPersistedIdentity !== 'function') return false;
-    try { return await verifyPersistedIdentity(conversationUuid) === true; } catch { return false; }
+    try {
+      const confirmed = await verifyPersistedIdentity(conversationUuid) === true;
+      return confirmed
+        && getCurrentMetadata() === metadata
+        && getCurrentLocator() === locator
+        && metadata.logic_engine_conversation_id === conversationUuid;
+    } catch {
+      return false;
+    }
   };
   const persistConversationUuid = async (conversationUuid, { requireServerVerification = false } = {}) => {
     const originalMetadata = metadata;
