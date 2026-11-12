@@ -77,8 +77,14 @@ jobs:
         run: |
           node scripts/generate-sillytavern-patch-manager-manifest.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $env:GITHUB_WORKSPACE) { throw 'GITHUB_WORKSPACE is not set.' }
+          $repoRoot = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).Path
+          git -C "$repoRoot" rev-parse --show-toplevel
+          if ($LASTEXITCODE -ne 0) { throw "Git workspace is not a repository: $repoRoot" }
+          git -C "$repoRoot" diff --exit-code -- host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json
+          $diffExitCode = $LASTEXITCODE
+          if ($diffExitCode -eq 1) { throw 'Committed Patch Manager manifest is stale; regenerate and commit the manifest.' }
+          if ($diffExitCode -ne 0) { throw "Git manifest comparison failed with exit code $diffExitCode." }
       - name: Create pristine pinned source worktree for bundle upgrade
         shell: powershell
         run: |
