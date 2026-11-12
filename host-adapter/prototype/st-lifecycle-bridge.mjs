@@ -335,7 +335,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function ensureConversationEnrolled(conversationId) {
-    if (await enrolledOrFailClosed(conversationId)) return;
     const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
     if (restored) return;
     let pending = automaticEnrollmentPromises.get(conversationId);
@@ -365,8 +364,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!conversationId) return { status: 'NOT_ENROLLED' };
     let recoveredBaseline = false;
     if (!(await enrolledOrFailClosed(conversationId))) {
-      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
-      if (!restored) await ensureConversationEnrolled(conversationId);
+      await ensureConversationEnrolled(conversationId);
       recoveredBaseline = true;
     }
     if (getLifecycleStatus) {
