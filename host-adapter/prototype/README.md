@@ -323,3 +323,12 @@ The installer fetches the exact SillyTavern commit pinned by `st-source-attestat
 The installer refuses a different SillyTavern source revision, partial/modified covered source files, symlinks, and unreviewed server-plugin or third-party extension directories. It does not remove unknown extensions or user data. If the installation contains another server plugin or third-party extension, use a separate clean test installation; the runtime attestation intentionally rejects unreviewed executable extensions.
 
 This command installs the **Host patch bundle only**. It does not install or modify Final-Send, does not enable Memory→NPC, and does not make an incomplete lifecycle inventory authoritative. Keep the existing fail-closed readiness gates.
+
+
+## Automatic enrollment recovery and diagnostics — 12 Nov 2026
+
+The browser Host bridge treats an old enrollment marker as a recovery hint, not as proof that the journal is corrupt. It restores an origin-lost IndexedDB baseline only when the marker state names the exact active chat and the existing persisted message/version identities and SHA-256 digests all verify. The restored baseline is explicitly current-state-only; pre-recovery history remains `UNKNOWN_UNRECOVERABLE`.
+
+If `chat_metadata.logic_engine_conversation_id` is absent, recovery is permitted only from a matching installation/account-scoped locator mapping and enrollment marker. The Host saves the recovered UUID and confirms it through the authenticated server inventory route before accepting the identity. Partial message metadata, duplicate mappings, mismatched markers, or missing server confirmation remain NON_READY. No old marker or record is deleted, and no existing ID is regenerated.
+
+The browser Host integration emits structured diagnostics with a stable reason code and exposes the latest report through `window.logicEngineHostLifecycle.getDiagnostics()`. This is an internal status surface; normal Host operation does not require manual DevTools inspection.
