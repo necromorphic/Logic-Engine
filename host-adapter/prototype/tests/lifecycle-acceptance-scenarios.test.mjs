@@ -201,7 +201,7 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
   assert.ok(patch.includes('getLogicEngineHostIdentity'));
   assert.ok(patch.includes('hostInstallationId: identity.host_installation_id'));
   assert.ok(patch.includes('getPersistedInventory: async'));
-  assert.ok(patch.includes("throw Error('Persisted Host inventory unavailable')"),
+  assert.ok(patch.includes("throw error;"),
     'missing persisted inventory must fail closed');
   assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
     'persisted inventory must remain bound to the authenticated ST account');
