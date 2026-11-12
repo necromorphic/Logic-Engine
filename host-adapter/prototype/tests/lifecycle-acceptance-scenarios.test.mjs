@@ -211,6 +211,10 @@ test('pinned SillyTavern patch uses the existing authenticated inventory and dig
     'the bounded server-side reason token must reach Host diagnostics');
   assert.ok(patch.includes("error.code = 'HOST_INVENTORY_RESPONSE_INVALID';"),
     'a malformed successful response must be diagnosed without invalidating the authenticated session');
+  assert.ok(patch.includes("if ((!serverCode && [401, 403].includes(response.status))"),
+    'only authentication failures may invalidate the cached Host identity');
+  assert.ok(patch.includes("/^HOST_(?:SESSION_|AUTHENTICATED_CONTEXT|USER_IDENTITY)/.test(serverCode)"),
+    'server authentication reason codes must trigger identity refresh without treating inventory failures as auth failures');
   assert.ok(patch.includes("inventory?.host_user_handle !== session.host_user_handle"),
     'persisted inventory must remain bound to the authenticated ST account');
   assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
