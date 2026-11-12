@@ -12,8 +12,36 @@ $stRoot = (Resolve-Path -LiteralPath $SillyTavernRoot).Path
 $pluginRoot = Join-Path $stRoot 'plugins'
 $pluginPath = Join-Path $pluginRoot 'logic-engine'
 $gatewayPluginPath = Join-Path $pluginRoot 'logic-engine-extension-gateway'
+$browserPluginPath = Join-Path $stRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
 
 function Stop-WithCode([string]$Code) { throw $Code }
+
+function Copy-BrowserExtension([string]$Source, [string]$Destination) {
+    $files = @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')
+    $parent = Split-Path -Parent $Destination
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    $parentInfo = Get-Item -LiteralPath $parent -Force
+    if (-not $parentInfo.PSIsContainer -or ($parentInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        Stop-WithCode 'BROWSER_EXTENSION_PARENT_UNSAFE'
+    }
+    if (Test-Path -LiteralPath $Destination) {
+        Stop-WithCode 'BROWSER_EXTENSION_PATH_ALREADY_EXISTS'
+    }
+    New-Item -ItemType Directory -Path $Destination | Out-Null
+    foreach ($name in $files) {
+        $sourceFile = Join-Path $Source $name
+        if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+            Stop-WithCode ('BROWSER_EXTENSION_SOURCE_FILE_NOT_FOUND: ' + $name)
+        }
+        $sourceInfo = Get-Item -LiteralPath $sourceFile -Force
+        if ($sourceInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            Stop-WithCode ('BROWSER_EXTENSION_SOURCE_REPARSE_POINT_DENIED: ' + $name)
+        }
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $Destination $name)
+    }
+}
 
 function Copy-FilteredTree([string]$Source, [string]$Destination) {
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
@@ -64,6 +92,9 @@ if (-not (Test-Path -LiteralPath (Join-Path $stRoot 'src/plugin-loader.js') -Pat
 # Refuse an existing installation before changing any directory or backup state.
 if ((Test-Path -LiteralPath $pluginPath) -or (Test-Path -LiteralPath $gatewayPluginPath)) {
     Stop-WithCode 'PLUGIN_PATH_ALREADY_EXISTS'
+}
+if (Test-Path -LiteralPath $browserPluginPath) {
+    Stop-WithCode 'BROWSER_EXTENSION_PATH_ALREADY_EXISTS'
 }
 if (-not (Test-Path -LiteralPath $pluginRoot -PathType Container)) {
     New-Item -ItemType Directory -Path $pluginRoot | Out-Null
@@ -156,6 +187,9 @@ try {
 try {
     Copy-FilteredTree $gatewaySource $gatewayPluginPath
     Write-Host "Copied Logic-Engine Host Gateway plugin to: $gatewayPluginPath"
+    $browserSource = Join-Path $repoRoot 'host-adapter/extension-gateway'
+    Copy-BrowserExtension $browserSource $browserPluginPath
+    Write-Host "Copied Logic Engine browser extension to: $browserPluginPath"
     & node (Join-Path $repoRoot 'scripts/install-sillytavern-host-patch-bundle.mjs') --st-root $stRoot
     if ($LASTEXITCODE -ne 0) { Stop-WithCode 'HOST_PATCH_BUNDLE_INSTALL_FAILED' }
 } catch {
@@ -165,6 +199,7 @@ try {
     if ($LASTEXITCODE -eq 0) {
         if (Test-Path -LiteralPath $pluginPath) { Remove-Item -LiteralPath $pluginPath -Recurse -Force }
         if (Test-Path -LiteralPath $gatewayPluginPath) { Remove-Item -LiteralPath $gatewayPluginPath -Recurse -Force }
+        if (Test-Path -LiteralPath $browserPluginPath) { Remove-Item -LiteralPath $browserPluginPath -Recurse -Force }
     } else {
         Write-Warning 'Final-Send rollback was not confirmed; plugin files were preserved for recovery.'
     }
@@ -173,6 +208,13 @@ try {
 
 & node (Join-Path $pluginPath 'scripts/sillytavern-patch-manager.mjs') verify --st-root $stRoot --extension-root $pluginPath
 if ($LASTEXITCODE -ne 0) { Stop-WithCode 'PATCH_VERIFY_FAILED_AFTER_HOST_BUNDLE' }
+foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $browserPluginPath $name) -PathType Leaf)) {
+        Stop-WithCode ('BROWSER_EXTENSION_INSTALL_INCOMPLETE: ' + $name)
+    }
+}
+$browserManifest = Get-Content -LiteralPath (Join-Path $browserPluginPath 'manifest.json') -Raw | ConvertFrom-Json
+if ($browserManifest.js -ne 'index.js') { Stop-WithCode 'BROWSER_EXTENSION_MANIFEST_INVALID' }
 
 Write-Host ''
 Write-Host 'Install candidate prepared. Do not start SillyTavern until server plugins are explicitly enabled.'

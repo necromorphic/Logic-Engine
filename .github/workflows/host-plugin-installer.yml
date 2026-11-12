@@ -68,13 +68,26 @@ jobs:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
-      - name: Verify installed plugin and patch
+      - name: Verify installed plugin, browser extension and managed patch
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $env:ST_ROOT --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_VERIFY_FAILED' }
+
+          $browserRoot = Join-Path $env:ST_ROOT 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
+          foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $browserRoot $name) -PathType Leaf)) {
+              throw ('BROWSER_EXTENSION_FILE_MISSING: ' + $name)
+            }
+          }
+          $browserManifest = Get-Content -LiteralPath (Join-Path $browserRoot 'manifest.json') -Raw | ConvertFrom-Json
+          if ($browserManifest.js -ne 'index.js') { throw 'BROWSER_EXTENSION_MANIFEST_INVALID' }
+          $browserEntry = Get-Content -LiteralPath (Join-Path $browserRoot 'index.js') -Raw
+          if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
+            throw 'BROWSER_EXTENSION_AUTO_CAPTURE_ENTRYPOINT_MISSING'
+          }
       - name: Verify upgrade from the previous Host candidate refreshes the complete ST patch bundle
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
