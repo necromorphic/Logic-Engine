@@ -124,6 +124,17 @@ jobs:
           $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           if ($manifest.patch_blob_sha -ne $expectedPatchHash) { throw 'STALE_HOST_PATCH_BUNDLE_MANIFEST_AFTER_UPGRADE' }
 
+          $browserRoot = Join-Path $upgradeRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
+          foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $browserRoot $name) -PathType Leaf)) {
+              throw ('BROWSER_EXTENSION_NOT_REPAIRED_BY_UPDATER: ' + $name)
+            }
+          }
+          $browserEntry = Get-Content -LiteralPath (Join-Path $browserRoot 'index.js') -Raw
+          if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
+            throw 'BROWSER_EXTENSION_AUTO_CAPTURE_NOT_REPAIRED_BY_UPDATER'
+          }
+
           $pluginRoot = Join-Path $upgradeRoot 'plugins/logic-engine'
           node (Join-Path $pluginRoot 'scripts/sillytavern-patch-manager.mjs') verify --st-root $upgradeRoot --extension-root $pluginRoot
           if ($LASTEXITCODE -ne 0) { throw 'PATCH_MANAGER_VERIFY_FAILED_AFTER_UPGRADE' }

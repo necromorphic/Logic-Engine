@@ -32,13 +32,31 @@ $browserSource = Join-Path $repoRoot 'host-adapter/extension-gateway'
 $browserPluginRoot = Join-Path $stRoot 'public/scripts/extensions/third-party/logic-engine-extension-gateway'
 $manifestPath = Join-Path $gatewayPluginRoot 'pinned-source-manifest.json'
 
-foreach ($directory in @($serverSource, $corePluginRoot, $gatewayPluginRoot, $browserPluginRoot)) {
+foreach ($directory in @($serverSource, $corePluginRoot, $gatewayPluginRoot)) {
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
         throw ('HOST_PLUGIN_DIRECTORY_NOT_FOUND: ' + $directory)
     }
     $item = Get-Item -LiteralPath $directory -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         throw ('HOST_PLUGIN_REPARSE_POINT_DENIED: ' + $directory)
+    }
+}
+
+# Older first-install candidates omitted the browser extension entirely. Allow
+# that one managed directory to be absent so this updater can repair the install.
+$browserParent = Split-Path -Parent $browserPluginRoot
+if (-not (Test-Path -LiteralPath $browserParent -PathType Container)) {
+    throw 'HOST_PLUGIN_BROWSER_EXTENSION_PARENT_NOT_FOUND'
+}
+$browserParentInfo = Get-Item -LiteralPath $browserParent -Force
+if ($browserParentInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw 'HOST_PLUGIN_BROWSER_EXTENSION_PARENT_UNSAFE'
+}
+$browserPluginRootExisted = Test-Path -LiteralPath $browserPluginRoot
+if ($browserPluginRootExisted) {
+    $browserRootInfo = Get-Item -LiteralPath $browserPluginRoot -Force
+    if (-not $browserRootInfo.PSIsContainer -or ($browserRootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'HOST_PLUGIN_BROWSER_EXTENSION_ROOT_UNSAFE'
     }
 }
 
@@ -186,8 +204,59 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     if ($manifest.pinned_host_commit -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
         -or $manifest.patch_blob_sha -ne $patchHashMatch.Groups[1].Value
-        -or $manifest.manifest_sha256 -notmatch '^[a-f0-9]{64}$') {
+        -or $manifest.manifest_sha256 -notmatch '^[a-f0-9]{64}    [pscustomobject]@{
+        status = 'HOST_PLUGIN_AND_PATCH_BUNDLE_UPDATED_AND_VERIFIED'
+        hostVersion = $stPackage.version
+        serverModuleCount = $serverFiles.Count
+        updatedFileCount = $script:Destinations.Count
+        patchVersion = $patchUpdateResult.patchVersion
+        patchBundleSha256 = $manifest.patch_blob_sha
+        sourceManifestSha256 = $manifest.manifest_sha256
+        backupDirectory = $backupRoot
+        note = 'Host lifecycle patch, Gateway, browser extension and Patch Manager were updated transactionally. Chat data, Core databases, Host identity and SQLite files were not modified.'
+    } | ConvertTo-Json -Depth 5
+} catch {
+    if (-not $patchManagerUpdateStarted) {
+        for ($index = $script:Destinations.Count - 1; $index -ge 0; $index--) {
+            $entry = $script:Destinations[$index]
+            $backupPath = Join-Path $backupRoot $entry.RelativePath
+            if ($entry.Existed -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
+                Copy-Item -LiteralPath $backupPath -Destination $entry.Destination -Force
+            } elseif (-not $entry.Existed -and (Test-Path -LiteralPath $entry.Destination -PathType Leaf)) {
+                Remove-Item -LiteralPath $entry.Destination -Force
+            }
+        }
+        if ($manifestExisted -and (Test-Path -LiteralPath $manifestBackupPath -PathType Leaf)) {
+            Copy-Item -LiteralPath $manifestBackupPath -Destination $manifestPath -Force
+        } elseif (-not $manifestExisted -and (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            Remove-Item -LiteralPath $manifestPath -Force
+        }
+        if (-not $browserPluginRootExisted -and (Test-Path -LiteralPath $browserPluginRoot -PathType Container)) {
+            Remove-Item -LiteralPath $browserPluginRoot -Recurse -Force
+        }
+        Write-Warning ('Host plugin preflight/copy failed; previous files were restored. Backup: ' + $backupRoot)
+    } else {
+        Write-Warning ('Patch Manager update was started. Do not delete plugin files, transaction journals or backups. Preserve this directory for recovery: ' + $backupRoot)
+    }
+    throw
+} finally {
+    if (-not $completed) {
+        Write-Warning ('Host plugin/patch update did not complete. Evidence and backups retained at: ' + $backupRoot)
+    }
+}
+) {
         throw 'HOST_SOURCE_MANIFEST_DOES_NOT_MATCH_CURRENT_PATCH_BUNDLE'
+    }
+    foreach ($name in @('index.js', 'gateway-policy.mjs', 'host-context.mjs', 'conversation-identity.mjs', 'manifest.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $browserPluginRoot $name) -PathType Leaf)) {
+            throw ('HOST_PLUGIN_BROWSER_EXTENSION_INCOMPLETE: ' + $name)
+        }
+    }
+    $browserManifest = Get-Content -LiteralPath (Join-Path $browserPluginRoot 'manifest.json') -Raw | ConvertFrom-Json
+    if ($browserManifest.js -ne 'index.js') { throw 'HOST_PLUGIN_BROWSER_EXTENSION_MANIFEST_INVALID' }
+    $browserEntry = Get-Content -LiteralPath (Join-Path $browserPluginRoot 'index.js') -Raw
+    if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
+        throw 'HOST_PLUGIN_BROWSER_AUTO_CAPTURE_MISSING'
     }
 
     $completed = $true
