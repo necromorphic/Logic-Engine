@@ -838,7 +838,7 @@ export class SQLiteStore {
             subject_id TEXT NOT NULL,
             fact_id TEXT,
             acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN (
-              'author_initial','imported','direct_observation','communication_delivered'
+              'author_initial','imported','communication_delivered'
             )),
             provenance_ref TEXT NOT NULL,
             provenance_digest TEXT NOT NULL,
@@ -848,30 +848,43 @@ export class SQLiteStore {
             acquired_value_json TEXT,
             acquired_source_event_ids_json TEXT,
             source_evidence_json TEXT,
+            source_adapter_id TEXT,
+            source_conversation_id TEXT,
+            source_message_id TEXT,
+            source_version_id TEXT,
+            source_content_sha256 TEXT,
             PRIMARY KEY(world_id,acquisition_id),
             UNIQUE(world_id,event_id,acquisition_id),
             CHECK(
               (acquisition_kind IN ('author_initial','imported')
-                AND fact_id IS NOT NULL AND source_evidence_json IS NULL)
+                AND fact_id IS NOT NULL AND source_evidence_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL AND source_content_sha256 IS NULL)
               OR
-              (acquisition_kind IN ('direct_observation','communication_delivered')
+              (acquisition_kind='communication_delivered'
                 AND fact_id IS NULL AND source_evidence_json IS NOT NULL
-                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL)
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NOT NULL AND source_conversation_id IS NOT NULL
+                AND source_message_id IS NOT NULL AND source_version_id IS NOT NULL
+                AND source_content_sha256 IS NOT NULL)
             )
           );
           INSERT INTO knowledge_acquisitions_new(
             world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
             provenance_digest,authorization_ref,event_id,committed_revision,
-            acquired_value_json,acquired_source_event_ids_json,source_evidence_json
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
           )
           SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
             provenance_digest,authorization_ref,event_id,committed_revision,
-            acquired_value_json,acquired_source_event_ids_json,NULL
+            acquired_value_json,acquired_source_event_ids_json,NULL,NULL,NULL,NULL,NULL,NULL
           FROM knowledge_acquisitions;
           DROP TABLE knowledge_acquisitions;
           ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
           CREATE INDEX knowledge_acquisitions_subject
             ON knowledge_acquisitions(world_id,subject_id,acquisition_id);
+          CREATE INDEX knowledge_acquisitions_source
+            ON knowledge_acquisitions(world_id,subject_id,source_adapter_id,source_conversation_id,committed_revision,acquisition_id);
           `);
           const violations = this.db.prepare('PRAGMA foreign_key_check').all();
           if (violations.length) {
@@ -1886,7 +1899,7 @@ export class SQLiteStore {
           if (this.db.prepare('SELECT 1 FROM knowledge_acquisitions WHERE world_id=? AND acquisition_id=?').get(id, effect.acquisition_id)) {
             throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION', 'Acquisition ID already exists in this world.', 409);
           }
-          if (['direct_observation', 'communication_delivered'].includes(effect.acquisition_kind)) {
+          if (effect.acquisition_kind === 'communication_delivered') {
             const evidence = effect.source_evidence;
             if (effect.fact_id !== undefined || !evidence
               || evidence.evidence_type !== effect.acquisition_kind
@@ -3088,21 +3101,24 @@ export class SQLiteStore {
     // Derived projection only: canonical valid world_events remain the authority.
     const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
       world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision,
-      acquired_value_json,acquired_source_event_ids_json,source_evidence_json
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+      acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+      source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const eligibleSubjects = new Set(this.db.prepare("SELECT entity_id FROM entities WHERE world_id=? AND status<>'destroyed'").all(id).map((row) => row.entity_id));
     const eligibleFacts = new Set(this.db.prepare("SELECT fact_id,source_event_ids_json FROM facts WHERE world_id=? AND status='active'").all(id)
       .filter((row) => dec(row.source_event_ids_json).length > 0).map((row) => row.fact_id));
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind !== 'knowledge.acquire' || !eligibleSubjects.has(effect.subject_id)) continue;
-        if (['direct_observation', 'communication_delivered'].includes(effect.acquisition_kind)) {
+        if (effect.acquisition_kind === 'communication_delivered') {
           const evidence = effect.source_evidence;
           if (!evidence || evidence.evidence_type !== effect.acquisition_kind
             || evidence.recipient?.world_id !== id || evidence.recipient?.actor_id !== effect.subject_id) continue;
+          const sourceConversationId = [evidence.host_session_id, evidence.host_installation_id, evidence.conversation_uuid].join(':');
           insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, null, effect.acquisition_kind,
             effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
-            null, null, enc(evidence));
+            null, null, enc(evidence), evidence.adapter_id, sourceConversationId,
+            evidence.source.message_id, evidence.source.version_id, evidence.source.content_sha256);
           continue;
         }
         if (!eligibleFacts.has(effect.fact_id)) continue;
@@ -3110,7 +3126,7 @@ export class SQLiteStore {
         if (!Object.hasOwn(effect, 'acquired_value') || !Array.isArray(effect.acquired_source_event_ids)) continue;
         insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, effect.fact_id, effect.acquisition_kind,
           effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
-          enc(effect.acquired_value), enc(effect.acquired_source_event_ids), null);
+          enc(effect.acquired_value), enc(effect.acquired_source_event_ids), null, null, null, null, null, null);
       }
     }
 
