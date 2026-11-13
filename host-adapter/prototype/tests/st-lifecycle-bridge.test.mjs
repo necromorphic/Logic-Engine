@@ -1304,8 +1304,8 @@ test('installed SillyTavern patch automatically enrolls and captures inventory o
   const bridgeSource = await readFile(new URL('../st-lifecycle-bridge.mjs', import.meta.url), 'utf8');
   assert.match(patch, /eventSource\.on\(event_types\.CHAT_CHANGED, async changedLocator => \{/);
   assert.match(patch, /await captureLogicEngineHostChatOnLoad\(changedLocator\)/);
-  assert.match(patch, /const enrollment = await bridge\.ensureCurrentConversationEnrolled\(\)/);
-  assert.match(patch, /const inventory = await bridge\.syncCurrentDigestInventory\(\)/);
+  assert.match(patch, /const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled\(\)/);
+  assert.match(patch, /const inventory = await window.logicEngineHostLifecycle.syncCurrentDigestInventory\(\)/);
   assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\(\)/);
   assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
   assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
