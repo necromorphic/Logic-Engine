@@ -825,6 +825,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       payload: afterPayload,
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
+    let communicationDeliveryReceipt = null;
     if (publishLifecycleEvent) {
       // This local event proves the browser journal checkpoint. The authenticated
       // server proxy independently rescans persisted files and issues the terminal
@@ -848,9 +849,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
         throw Error('NON_READY: Core did not durably accept the completed Host mutation');
       }
+      if (result.communication_delivery_receipt?.evidence_type === 'communication_delivered') {
+        communicationDeliveryReceipt = result.communication_delivery_receipt;
+      }
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
-    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
+    return {
+      sequence: event.sequence,
+      messageCount: chat.length,
+      status: 'REVIEW_ONLY',
+      coreCaptureStatus: coreCapture.status,
+      ...(communicationDeliveryReceipt ? { communicationDeliveryReceipt } : {}),
+    };
   }
 
   async function verifyPersistedInventory(conversationId = null) {
