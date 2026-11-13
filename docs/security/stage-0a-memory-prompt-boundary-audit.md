@@ -45,12 +45,12 @@ The prior test fixture for Google incorrectly modeled its outbound body as `mess
 - Chat Completions Memory is now appended to the first existing `role: 'user'` message (after its existing content). The provider's message-role sequence is unchanged. If no user message exists, a user message is added after leading system messages. The Memory content is a JSON envelope with `type: logic_engine_untrusted_memory`, `trust_level: untrusted_data`, and a string-valued `data` field.
 - Existing system messages and their contents are preserved; Memory content is never interpreted as a message object and cannot provide a message role. Existing user messages remain user messages; no additional role is introduced when a user turn already exists.
 - Google AI Studio and Vertex AI receive the envelope as an additional text part in the first existing `contents[]` user turn. If no user turn exists, a user content is inserted before model turns. Their separate `systemInstruction` is left untouched.
-- Role-less prompt routes append the JSON data envelope after the existing prompt instead of prepending Memory ahead of the prompt.
+- Role-less prompt routes (Text Completions, Kobold, NovelAI and Horde) have no role boundary. Protected Memory is rejected before provider transport on these routes; ordinary unprotected generation continues natively.
 - Host-only locators continue to be removed before provider serialization.
 
 ## Security boundary and limitation
 
-This change proves a structural property: retrieved Memory is not assigned the provider's `system` role, is not placed in Google's `systemInstruction`, and cannot create additional message objects or roles through embedded text/JSON. When a user turn exists, the original role sequence is preserved and only that user turn's content is extended. Prompt-injection strings and fake `role: system` fields remain inside the serialized data string.
+This change proves a structural property: retrieved Memory is not assigned the provider's `system` role, is not placed in Google's `systemInstruction`, and cannot create additional message objects or roles through embedded text/JSON. When a user turn exists, the original role sequence is preserved and only that user turn's content is extended. Prompt-injection strings and fake `role: system` fields remain inside the serialized data string. Routes with no role-bearing structure reject protected Memory before transport rather than flattening it into a prompt.
 
 No serialization scheme can prove that a language model will never follow malicious text placed in a user message or a flat prompt. This stage removes the privilege escalation to the system channel; it does not claim model-level immunity to all prompt injection. A stronger semantic policy would require separately reviewed trusted system instructions/model-side controls and is outside this stage.
 
@@ -63,4 +63,4 @@ No serialization scheme can prove that a language model will never follow malici
 
 ## Verification target
 
-The focused Node test file `tests/protected-memory-final-send.test.js` exercises the final serialized provider request for OpenAI-compatible, Claude, Gemini/Vertex, Cohere, AI21, and role-less prompt routes. It asserts that the system channel is unchanged, Memory is user-role/untrusted JSON data, fake role claims remain data, and prompt-only routes append rather than prepend Memory. The full repository CI is the final execution check for this branch.
+The focused Node test file `tests/protected-memory-final-send.test.js` exercises the final serialized provider request for OpenAI-compatible, Claude, Gemini/Vertex, Cohere and AI21 routes. It asserts that the system channel is unchanged, Memory is appended only inside an existing user turn, fake role claims remain data, and role-less Text Completions/Kobold/NovelAI/Horde routes fail closed with zero transport calls. The full repository CI is the final execution check for this branch.
