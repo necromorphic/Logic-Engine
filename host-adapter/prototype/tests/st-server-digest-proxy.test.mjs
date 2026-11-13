@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from '../st-server-digest-proxy.mjs';
 import { createHash, createHmac } from 'node:crypto';
+import { verifyHostMutationReceiptSignature } from '../../extension-gateway/server-plugin/st-host-mutation-receipt-signature.mjs';
+import { createCommunicationDeliveryReceipt } from '../../extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs';
 import { resolve } from 'node:path';
 
 const CONFIG = {
@@ -432,6 +434,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     event_id: event.event_id,
     operation: event.operation,
     mutation_digest: event.mutation_digest,
+    target_kind: null,
   });
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-lifecycle/events');
   assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
@@ -646,4 +649,208 @@ test('digest proxy uses a bounded timeout signal after successful Host session a
   assert.equal(response.statusCode, 201);
   assert.ok(observedSignal instanceof AbortSignal);
   assert.equal(observedSignal.aborted, false);
+});
+
+
+test('communication delivery receipt requires one persisted user message in a one-to-one character chat', () => {
+  const installationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const accountId = '22222222-2222-4222-8222-222222222222';
+  const conversationUuid = '33333333-3333-4333-8333-333333333333';
+  const coreConversationId = [SESSION_ID, installationId, conversationUuid].join(':');
+  const priorMessage = {
+    message_id: '66666666-6666-4666-8666-666666666666',
+    role: 'assistant',
+    active_version_index: 0,
+    versions: [{
+      version_id: '77777777-7777-4777-8777-777777777777',
+      version_index: 0,
+      parent_version_id: null,
+      content_sha256: 'b'.repeat(64),
+      active: true,
+    }],
+  };
+  const newMessage = {
+    message_id: '88888888-8888-4888-8888-888888888888',
+    role: 'user',
+    active_version_index: 0,
+    versions: [{
+      version_id: '99999999-9999-4999-8999-999999999999',
+      version_index: 0,
+      parent_version_id: null,
+      content_sha256: 'c'.repeat(64),
+      active: true,
+    }],
+  };
+  const scope = {
+    operation: 'message-send',
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: SESSION_ID,
+    conversation_uuid: conversationUuid,
+    event_id: '44444444-4444-4444-8444-444444444444',
+    mutation_id: '55555555-5555-4555-8555-555555555555',
+    mutation_digest: 'a'.repeat(64),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  const before = {
+    target_kind: 'character-chat',
+    logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage] },
+  };
+  const after = {
+    target_kind: 'character-chat',
+    logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage, newMessage] },
+  };
+  const recipientBinding = {
+    adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
+    conversation_id: coreConversationId,
+    world_id: 'world-main',
+    actor_id: 'npc-alice',
+    actor_type: 'npc',
+  };
+  const receipt = createCommunicationDeliveryReceipt({
+    scope, before, after, recipientBinding, hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  });
+  assert.equal(receipt.evidence_type, 'communication_delivered');
+  assert.equal(receipt.status, 'delivered');
+  assert.deepEqual(receipt.recipient, {
+    world_id: 'world-main', actor_id: 'npc-alice', actor_type: 'npc',
+  });
+  assert.deepEqual(receipt.source, {
+    message_id: newMessage.message_id,
+    version_id: newMessage.versions[0].version_id,
+    content_sha256: 'c'.repeat(64),
+  });
+  assert.equal(JSON.stringify(receipt).includes('raw message text'), false);
+
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before: { ...before, target_kind: 'group-chat' },
+    after: { ...after, target_kind: 'group-chat' }, recipientBinding,
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after: { ...after, logical_identity: {
+      ...after.logical_identity,
+      messages: [priorMessage, { ...newMessage, role: 'assistant' }],
+    } }, recipientBinding, hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after, recipientBinding: null,
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+});
+
+test('Host lifecycle proxy returns a signed delivery receipt only for a prepared character-chat message send', async () => {
+  const installationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const accountId = '22222222-2222-4222-8222-222222222222';
+  const conversationUuid = '33333333-3333-4333-8333-333333333333';
+  const coreConversationId = [SESSION_ID, installationId, conversationUuid].join(':');
+  const recipientBinding = {
+    adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
+    conversation_id: coreConversationId,
+    world_id: 'world-main',
+    actor_id: 'npc-alice',
+    actor_type: 'npc',
+  };
+  const delivery = Object.freeze({
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    producer: 'logic-engine-host-delivery-receipt-v1',
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: SESSION_ID,
+    conversation_uuid: conversationUuid,
+    sender: { principal_type: 'host_authenticated_account', principal_id: accountId },
+    recipient: { world_id: 'world-main', actor_id: 'npc-alice', actor_type: 'npc' },
+    channel: 'sillytavern.character_chat',
+    source: {
+      message_id: '88888888-8888-4888-8888-888888888888',
+      version_id: '99999999-9999-4999-8999-999999999999',
+      content_sha256: 'c'.repeat(64),
+    },
+    status: 'delivered',
+    delivered_at: '2026-10-31T00:00:01.000Z',
+    host_event_id: '66666666-6666-4666-8666-666666666666',
+    mutation_id: '55555555-5555-4555-8555-555555555555',
+  });
+  let observed;
+  let recipientCalls = 0;
+  let commitOptions;
+  const receiptStore = {
+    assertOutsideRoot: async () => {},
+    prepare: async () => ({
+      status: 'appended',
+      prepared: { occurred_at: '2026-10-31T00:00:00.000Z', before: { target_kind: 'character-chat' } },
+    }),
+    commit: async (_scope, _directories, options) => {
+      commitOptions = options;
+      return {
+        status: 'appended',
+        receipt_digest: 'f'.repeat(64),
+        occurred_at: '2026-10-31T00:00:01.000Z',
+        communication_delivery: delivery,
+      };
+    },
+    abort: async () => ({ status: 'appended', occurred_at: '2026-10-31T00:00:01.000Z' }),
+    recover: async () => ({ status: 'RECOVERY_REQUIRED' }),
+  };
+  const proxy = createHostLifecycleJournalProxy({
+    env: CONFIG,
+    identityStore: {
+      assertOutsideRoot: async () => {},
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: installationId,
+        authenticated_account_id: accountId,
+      }),
+    },
+    receiptStore,
+    resolveCommunicationRecipient: async input => {
+      recipientCalls++;
+      assert.equal(input.hostSessionId, SESSION_ID);
+      assert.equal(input.conversationUuid, conversationUuid);
+      return recipientBinding;
+    },
+    fetchImpl: async (url, options) => {
+      observed = { url: String(url), options };
+      return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
+    },
+  });
+
+  const preparedEvent = {
+    conversation_id: LIFECYCLE_CONVERSATION_ID,
+    event_id: '44444444-4444-4444-8444-444444444444',
+    event_type: 'MUTATION_PREPARED',
+    mutation_id: '55555555-5555-4555-8555-555555555555',
+    operation: 'message-send',
+    mutation_digest: 'a'.repeat(64),
+    occurred_at: '2000-01-01T00:00:00.000Z',
+  };
+  const request = requestFor(preparedEvent);
+  const preparedResponse = responseRecorder();
+  await proxy.append(request, preparedResponse);
+  assert.equal(preparedResponse.statusCode, 201);
+  assert.equal(request.session.logicEngineHostPreparedMutation.target_kind, 'character-chat');
+
+  const committedResponse = responseRecorder();
+  request.body = {
+    ...preparedEvent,
+    event_id: '66666666-6666-4666-8666-666666666666',
+    event_type: 'MUTATION_COMMITTED',
+    occurred_at: '2000-01-01T00:00:01.000Z',
+  };
+  await proxy.append(request, committedResponse);
+  assert.equal(committedResponse.statusCode, 201);
+  assert.equal(recipientCalls, 1);
+  assert.deepEqual(commitOptions.recipientBinding, recipientBinding);
+  const envelope = committedResponse.payload.communication_delivery_receipt;
+  assert.equal(envelope.evidence_type, 'communication_delivered');
+  assert.deepEqual(envelope.delivery, delivery);
+  assert.equal(envelope.receipt_digest, createHash('sha256')
+    .update(canonical(delivery), 'utf8').digest('hex'));
+  assert.equal(verifyHostMutationReceiptSignature({
+    adapterId: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
+    adapterToken: CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN,
+    event: envelope.proof,
+  }), true);
+  assert.equal(JSON.stringify(envelope).includes('raw message text'), false);
 });
