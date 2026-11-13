@@ -25,11 +25,6 @@ const VERSION_NEW = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 const occurredAt = '2026-11-13T12:00:00.000Z';
 const digest = value => createHash('sha256').update(String(value)).digest('hex');
-const canonical = value => Array.isArray(value)
-  ? '[' + value.map(canonical).join(',') + ']'
-  : value && typeof value === 'object'
-    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
-    : JSON.stringify(value);
 
 const version = (id, content, index = 0, parent = null, active = true) => ({
   version_id: id,
