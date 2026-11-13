@@ -413,6 +413,7 @@ const logicEngine = new LogicEngine(store, {
   trustedInitialKnowledgeSources, worldPackCatalog,
   npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
   npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
+  hostVersionDigestLedger: hostVersionLedger,
 });
 const memoryProviderAdapters = [];
 if (memoryProviderPath !== undefined) {

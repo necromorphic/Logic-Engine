@@ -1554,8 +1554,6 @@ export class LogicEngine {
     assert(obj(delivery) && Object.keys(delivery).length === deliveryKeys.length
       && Object.keys(delivery).every(key => deliveryKeys.includes(key)),
     'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Delivery metadata must use the exact signed receipt schema.');
-    assert(input.receipt_digest === delivery.receipt_digest || /^[a-f0-9]{64}$/.test(input.receipt_digest ?? ''),
-      'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Receipt digest must be a lowercase SHA-256 digest.');
     assert(/^[a-f0-9]{64}$/.test(input.receipt_digest ?? '')
       && /^[a-f0-9]{64}$/.test(input.inventory_snapshot_digest ?? ''),
     'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Receipt and inventory snapshot digests are required.');
