@@ -517,6 +517,7 @@ test('every registered chat-completion sender keeps protected Memory inside a us
       assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system' }] }, senderRoute);
       assert.deepEqual(outbound.contents.map(item => item.role), ['user'], senderRoute);
       const parts = outbound.contents[0].parts;
+      assert.equal(parts[0].text, 'original request', senderRoute);
       envelopeText = parts[parts.length - 1].text;
     } else {
       if (claudeRoute) {
@@ -528,8 +529,10 @@ test('every registered chat-completion sender keeps protected Memory inside a us
       }
       const userMessage = outbound.messages.find(message => message.role === 'user');
       if (Array.isArray(userMessage.content)) {
+        assert.equal(userMessage.content[0].text, 'original request', senderRoute);
         envelopeText = userMessage.content[userMessage.content.length - 1].text;
       } else {
+        assert.ok(userMessage.content.startsWith('original request'), senderRoute);
         const marker = userMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
         assert.ok(marker > 0, senderRoute);
         envelopeText = userMessage.content.slice(marker);
