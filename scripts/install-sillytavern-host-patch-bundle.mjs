@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
-import { verifyLegacyHostBundle } from './verify-legacy-host-bundle.mjs';
+import { HOST_BUNDLE_ACCEPTED_IDENTITIES, verifyLegacyHostBundle } from './verify-legacy-host-bundle.mjs';
 import {
   PINNED_HOST_COMMIT,
   PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS,
@@ -183,40 +183,7 @@ try {
   // output above; arbitrary local edits remain a hard failure.
   const previousHostBundle = await verifyLegacyHostBundle({
     installRoot: stRoot,
-    expectedPredecessors: [
-      {
-        // Exact bundle installed in the isolated Windows ST test copy before
-        // the chat-locator recovery revision. Its complete manifest and every
-        // covered file are still independently verified by verifyLegacyHostBundle.
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: '502a48a2eb53249dfb53b250c74d7b5c83c4a672ea429c2c3ff5eebb34a3300d',
-        manifestSha256: 'd89d39d6f8449932db41a97a368aec941293943acb543697e1700d974ed629f4',
-      },
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
-        manifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
-      },
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'dd491fec699cf4a21b32480c2780b79d79a7665302e97624cbcfc8381aa64deb',
-        manifestSha256: '5d5490a939a13f94b83b4a407f09d61a18aeefe67e73b65b7e8200d3a0aa736b',
-      },
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
-        manifestSha256: '592c480cbf9ca3f3573c695961b1a11785353f16d2902e4d82dba9f849d90c62',
-      },
-      {
-        // Exact Host Bundle successfully installed in the isolated Windows ST
-        // test environment before the chat-locator correction. This pin allows
-        // a verified in-place upgrade; every file is still checked against the
-        // manifest's content-addressed entries before replacement.
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'efb7b0a0fa58779cdd7399ee6609ddb045d068158883c70c3fc080487c9684e1',
-        manifestSha256: 'fdac4e332c291cc4fff5ba47414917bdd1937ecf6752c5b8d7a137d0d6742257',
-      },
-    ],
+    expectedPredecessors: HOST_BUNDLE_ACCEPTED_IDENTITIES,
     expectedOverlayFiles,
   });
   // Final-Send remains independently verified. The legacy overlay exception
