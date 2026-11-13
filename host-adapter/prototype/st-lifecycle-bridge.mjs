@@ -665,7 +665,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const tombstones = [];
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
     const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
-    if (['delete-message', 'clear-chat'].includes(operation) && Array.isArray(priorIdentitySnapshot)) {
+    if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
       for (const priorMessage of priorIdentitySnapshot) {
         if (liveMessageIds.has(priorMessage.messageId)) continue;
         for (const version of priorMessage.versions ?? []) {
