@@ -407,14 +407,10 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
       // first user message, not emitted as a new message or a system prompt.
       appendUntrustedMemoryToChatMessages(body, untrustedMemory);
     } else {
-      // Text-completion backends have no role-bearing message structure.
-      // Append a JSON-encoded data envelope after the existing prompt instead
-      // of prepending Memory where it could be mistaken for setup instructions.
-      const promptKey = senderRoute === 'novelai-text' ? 'input' : 'prompt';
-      if (typeof body[promptKey] !== 'string') {
-        throw new Error('PROTECTED_MEMORY_FINAL_SEND_PROMPT_MISSING');
-      }
-      body[promptKey] = body[promptKey] + '\n\n' + untrustedMemory;
+      // Flat completion APIs have no message-role boundary. Sending Memory as
+      // prompt text could make it indistinguishable from trusted setup text.
+      // Protected Memory therefore fails closed on these routes.
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_ROLE_BOUNDARY_UNSUPPORTED');
     }
   }
   const serialized = JSON.stringify(body);
