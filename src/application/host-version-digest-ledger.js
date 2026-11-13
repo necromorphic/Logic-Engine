@@ -645,5 +645,74 @@ export class HostVersionDigestLedger {
       .get(worldId, conversationId) ?? null;
   }
 
+  /**
+   * Read one exact message version only from a complete, trusted conversation
+   * inventory. A captured row alone is not enough: the inventory must be READY,
+   * the version lineage must be verified, and the active pointer must still
+   * select this exact version. This method is read-only and never promotes
+   * inventory readiness.
+   */
+  getVersionState(worldId, conversationId, messageId, versionId) {
+    if (![worldId, conversationId, messageId, versionId].every(validId)) {
+      return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_LOOKUP_INVALID' });
+    }
+
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const inventory = this.db.prepare(
+        'SELECT status,snapshot_digest,failure_code FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?',
+      ).get(worldId, conversationId);
+      if (!inventory || inventory.status !== 'READY' || !validDigest(inventory.snapshot_digest)) {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({
+          status: 'non_ready',
+          code: inventory?.failure_code || 'HOST_VERSION_INVENTORY_NOT_READY',
+        });
+      }
+
+      const row = this.#get({
+        world_id: worldId,
+        conversation_id: conversationId,
+        message_id: messageId,
+        version_id: versionId,
+      });
+      if (!row || row.lifecycle !== 'present' || row.lineage_status !== 'VERIFIED') {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_NOT_PRESENT_OR_VERIFIED' });
+      }
+      const active = this.db.prepare(
+        'SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?',
+      ).get(worldId, conversationId, messageId);
+      if (active?.version_id !== versionId) {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' });
+      }
+
+      const result = Object.freeze({
+        status: 'ready',
+        world_id: worldId,
+        conversation_id: conversationId,
+        message_id: messageId,
+        version_id: versionId,
+        parent_version_id: row.parent_version_id,
+        content_sha256: row.content_sha256,
+        snapshot_digest: inventory.snapshot_digest,
+      });
+      this.db.exec('COMMIT');
+      began = false;
+      return result;
+    } catch {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_LOOKUP_UNAVAILABLE' });
+    }
+  }
+
   close() { this.db.close(); this.coordinator.close(); }
 }
