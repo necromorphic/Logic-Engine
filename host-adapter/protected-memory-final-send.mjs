@@ -316,7 +316,7 @@ function appendUntrustedMemoryToMessage(message, untrustedMemory) {
     throw new Error('PROTECTED_MEMORY_FINAL_SEND_USER_MESSAGE_INVALID');
   }
   if (typeof message.content === 'string') {
-    return { ...message, content: message.content + '\\n\\n' + untrustedMemory };
+    return { ...message, content: message.content + '\n\n' + untrustedMemory };
   }
   if (Array.isArray(message.content)) {
     const content = new Array(message.content.length + 1);
