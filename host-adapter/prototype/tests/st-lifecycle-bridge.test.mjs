@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { webcrypto } from 'node:crypto';
 import { HostLifecycleJournal, contentDigest } from '../lifecycle-journal.mjs';
 import { createStLifecycleBridge } from '../st-lifecycle-bridge.mjs';
@@ -1295,4 +1296,17 @@ test('chat-load enrollment entrypoint creates a baseline and is idempotent acros
   assert.equal(second.status, 'ALREADY_ENROLLED');
   assert.deepEqual(await f.journal.latestIdentitySnapshot('chat-1'), snapshot);
   assert.equal(f.saveCount, 1, 'repeated chat-load events must not rewrite or remint the baseline');
+});
+
+
+test('installed SillyTavern patch automatically enrolls and captures inventory on CHAT_CHANGED', async () => {
+  const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
+  const bridgeSource = await readFile(new URL('../st-lifecycle-bridge.mjs', import.meta.url), 'utf8');
+  assert.match(patch, /eventSource\\.on\\(event_types\\.CHAT_CHANGED, async changedLocator => \\{/);
+  assert.match(patch, /await captureLogicEngineHostChatOnLoad\\(changedLocator\\)/);
+  assert.match(patch, /const enrollment = await bridge\\.ensureCurrentConversationEnrolled\\(\\)/);
+  assert.match(patch, /const inventory = await bridge\\.syncCurrentDigestInventory\\(\\)/);
+  assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\\(\\)/);
+  assert.match(bridgeSource, /await assertIdentitySnapshotMatches\\(conversationId, chat\\)/);
+  assert.match(bridgeSource, /await journal\\.verifyIntegrity\\(conversationId\\)/);
 });
