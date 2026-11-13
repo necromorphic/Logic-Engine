@@ -1344,15 +1344,16 @@ test('repeated recovery of an incomplete persisted baseline is memoized for the 
   }
 });
 
-test('clear-chat is a single lifecycle mutation and records tombstones for the full prior snapshot', async () => {
-  const f = makeFixture();
-  await f.bridge.enrollCurrentConversation();
-  const before = await f.bridge.beforeMutation('clear-chat', [0, 1], { bulkClear: true });
-  assert.equal(before.operation, 'before:clear-chat');
-  f.setChat([]);
-  const after = await f.bridge.afterMutation('clear-chat', { bulkClear: true });
-  assert.equal(after.status, 'REVIEW_ONLY');
-  const ledger = await f.journal.exportCaptureLedger('chat-1');
-  assert.equal(ledger.records.filter(record => record.operation === 'before:clear-chat').length, 1);
-  assert.equal(ledger.records.filter(record => record.operation === 'after:clear-chat').length, 1);
+
+test('native chat unload does not wait for optional enrollment or record false deletion evidence', async () => {
+  const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
+  const start = patch.indexOf('export async function clearChat({ clearData = false } = {})');
+  const end = patch.indexOf('export async function deleteLastMessage()', start);
+  assert.ok(start >= 0 && end > start);
+  const clearChatPatch = patch.slice(start, end);
+  assert.ok(!clearChatPatch.includes('waitForEnrollment'));
+  assert.ok(!clearChatPatch.includes('getLogicEngineLifecycleBridge'));
+  assert.ok(clearChatPatch.includes('if (clearData) chat.length = 0;'));
+  assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, changedLocator => {'));
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator);'));
 });
