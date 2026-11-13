@@ -1318,4 +1318,4 @@ test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without 
   assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\(\)/);
   assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
   assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
-});;;;
+});
