@@ -63,7 +63,7 @@ test('a locator binding prevents silent identity replacement or metadata deletio
   metadata.logic_engine_conversation_id = CHAT_B;
   await assert.rejects(resolver({ metadata, storage }), /Host locator metadata is missing or inconsistent/);
   delete metadata.logic_engine_conversation_id;
-  await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
+  await assert.rejects(resolver({ metadata, storage }), /locator binding and enrollment marker do not form a valid recovery pair/);
 });
 
 test('an enrolled marker without a locator binding fails closed except during the guarded rename window', async () => {
