@@ -40,6 +40,18 @@ const isPlainDataArray = (value) => {
   }
   return true;
 };
+const clonePlainData = (value, depth = 0) => {
+  if (depth > 8) throw new TypeError('Host inventory attestation nesting is too deep');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) {
+    if (!isPlainDataArray(value)) throw new TypeError('Host inventory attestation array is invalid');
+    return Object.freeze(value.map(item => clonePlainData(item, depth + 1)));
+  }
+  if (!isPlainDataRecord(value)) throw new TypeError('Host inventory attestation must contain only plain JSON data');
+  return Object.freeze(Object.fromEntries(Object.keys(value)
+    .map(key => [key, clonePlainData(value[key], depth + 1)])));
+};
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
   const suffix = [];
@@ -429,18 +441,7 @@ export class HostVersionDigestLedger {
           ? Object.freeze({ ...v }) : v))
         : rawVersions;
       const rawAttestation = input.attestation;
-      const attestation = rawAttestation === undefined ? undefined : Object.freeze({
-        adapter_id: rawAttestation.adapter_id,
-        protocol_version: rawAttestation.protocol_version,
-        evidence_type: rawAttestation.evidence_type,
-        delivery: isPlainDataRecord(rawAttestation.delivery)
-          ? Object.freeze({ ...rawAttestation.delivery }) : rawAttestation.delivery,
-        conversation_inventory: isPlainDataRecord(rawAttestation.conversation_inventory)
-          ? Object.freeze({ ...rawAttestation.conversation_inventory }) : rawAttestation.conversation_inventory,
-        receipt_digest: rawAttestation.receipt_digest,
-        proof: isPlainDataRecord(rawAttestation.proof)
-          ? Object.freeze({ ...rawAttestation.proof }) : rawAttestation.proof,
-      });
+      const attestation = rawAttestation === undefined ? undefined : clonePlainData(rawAttestation);
       snapshot = Object.freeze({
         world_id: input.world_id,
         conversation_id: input.conversation_id,
