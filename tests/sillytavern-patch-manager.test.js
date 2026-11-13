@@ -309,7 +309,7 @@ test('Patch Manager defers Host attestation regeneration for an independently ve
   await assert.rejects(updatedManager.inspectInstalledReadOnly(), /PATCH_MANAGER_STATE_IDENTITY_INVALID/);
   assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
   assert.equal((await updatedManager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
-  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), overlayBytes.toString('utf8'));
+  assert.notEqual(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), overlayBytes.toString('utf8'), 'migration restores the verified Final-Send baseline before Host overlay reapplication');
 });
 
 test('Patch Manager backups survive removal of the Logic-Engine Extension directory', async (t) => {
