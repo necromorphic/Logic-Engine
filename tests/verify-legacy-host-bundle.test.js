@@ -164,7 +164,7 @@ test('current Host bundle identity is pinned for idempotent repeat installation'
 });
 
 test('current identity pin still requires the manifest and every installed file to verify', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'logic-engine-current-bundle-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'logic-engine-current-bundle-'));
   try {
     const relativePath = 'public/script.js';
     const bytes = Buffer.from("export const host = 'current';\\n", 'utf8');
@@ -179,11 +179,11 @@ test('current identity pin still requires the manifest and every installed file 
       ...proof,
       manifest_sha256: sha256(Buffer.from(canonical(proof), 'utf8')),
     };
-    await mkdir(join(root, 'plugins/logic-engine-extension-gateway'), { recursive: true });
-    await mkdir(join(root, 'public'), { recursive: true });
-    await writeFile(join(root, relativePath), bytes);
+    await mkdir(path.join(root, 'plugins/logic-engine-extension-gateway'), { recursive: true });
+    await mkdir(path.join(root, 'public'), { recursive: true });
+    await writeFile(path.join(root, relativePath), bytes);
     await writeFile(
-      join(root, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'),
+      path.join(root, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'),
       JSON.stringify(manifest),
     );
     const pin = {
@@ -198,7 +198,7 @@ test('current identity pin still requires the manifest and every installed file 
     });
     assert.equal(verified.verified, true);
 
-    await writeFile(join(root, relativePath), "export const host = 'unreviewed';\\n");
+    await writeFile(path.join(root, relativePath), "export const host = 'unreviewed';\\n");
     const drifted = await verifyLegacyHostBundle({
       installRoot: root,
       expectedPredecessors: [pin],
