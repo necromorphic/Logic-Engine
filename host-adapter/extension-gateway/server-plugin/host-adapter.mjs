@@ -158,7 +158,6 @@ export function createSillyTavernHostAdapter({
   const identityStore = identityDirectory
     ? new HostIdentityStore({ directory: identityDirectory })
     : null;
-  const authenticatedConversationTargets = new WeakMap();
   const lifecycleSourceEvidenceProvider = async ({ directories } = {}) => {
     try {
       const sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories?.extensions });
@@ -430,10 +429,6 @@ export function createSillyTavernHostAdapter({
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
-        authenticatedConversationTargets.set(request, Object.freeze({
-          kind: conversationFiles[0].kind,
-          locator: conversationFiles[0].locator,
-        }));
         return {
           host_installation_id: identityRecord.host_installation_id,
           authenticated_account_id: identityRecord.authenticated_account_id,
@@ -505,17 +500,6 @@ export function createSillyTavernHostAdapter({
       const result = await authentication.authenticate(request, conversationUuid, signal);
       if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (result.status !== 'READY') return result;
-      if (env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true') {
-        const configuredAvatarId = env.LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID;
-        const conversationTarget = authenticatedConversationTargets.get(request);
-        const targetAvatarId = typeof conversationTarget?.locator === 'string'
-          ? conversationTarget.locator.split('/')[0] : null;
-        if (!validCharacterAvatarId(configuredAvatarId)
-          || conversationTarget?.kind !== 'character-chat'
-          || targetAvatarId !== configuredAvatarId) {
-          return Object.freeze({ status: 'NON_READY', code: 'HOST_NPC_RECIPIENT_BINDING_REQUIRED' });
-        }
-      }
       // The embedded Gateway opens Core read-only. Persist the first-time
       // conversation→World binding through Core's authenticated API before the
       // in-process reader resolves that binding from the shared SQLite file.
