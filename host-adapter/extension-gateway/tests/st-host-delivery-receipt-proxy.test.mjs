@@ -74,7 +74,10 @@ test('production Host lifecycle proxy issues signed communication evidence only 
     host_session_id: sessionId,
     conversation_uuid: conversationUuid,
     sender: { principal_type: 'host_authenticated_account', principal_id: accountId },
-    recipient: { world_id: 'world-default', actor_id: 'npc-main', actor_type: 'npc' },
+    recipient: {
+      world_id: 'world-default', actor_id: 'npc-main', actor_type: 'npc',
+      host_character_avatar_id: 'avatar-main',
+    },
     channel: 'sillytavern.character_chat',
     source: {
       message_id: '88888888-8888-4888-8888-888888888888',
