@@ -199,6 +199,15 @@ try {
         patchBlobSha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
         manifestSha256: '592c480cbf9ca3f3573c695961b1a11785353f16d2902e4d82dba9f849d90c62',
       },
+      {
+        // Exact Host Bundle successfully installed in the isolated Windows ST
+        // test environment before the chat-locator correction. This pin allows
+        // a verified in-place upgrade; every file is still checked against the
+        // manifest's content-addressed entries before replacement.
+        commit: PINNED_HOST_COMMIT,
+        patchBlobSha: 'efb7b0a0fa58779cdd7399ee6609ddb045d068158883c70c3fc080487c9684e1',
+        manifestSha256: 'fdac4e332c291cc4fff5ba47414917bdd1937ecf6752c5b8d7a137d0d6742257',
+      },
     ],
     expectedOverlayFiles,
   });
