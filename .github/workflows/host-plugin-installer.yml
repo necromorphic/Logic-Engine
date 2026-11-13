@@ -153,8 +153,13 @@ jobs:
             }
           }
           $browserEntry = Get-Content -LiteralPath (Join-Path $browserRoot 'index.js') -Raw
-          if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
-            throw 'BROWSER_EXTENSION_AUTO_CAPTURE_NOT_REPAIRED_BY_UPDATER'
+          if (-not $browserEntry.Contains('registerHostGenerationIdentityOnce')) {
+            throw 'BROWSER_EXTENSION_GENERATION_IDENTITY_NOT_REPAIRED_BY_UPDATER'
+          }
+          $hostScript = Get-Content -LiteralPath (Join-Path $upgradeRoot 'public/script.js') -Raw
+          if (-not $hostScript.Contains('captureLogicEngineHostChatOnLoad') -or
+              -not $hostScript.Contains('event_types.CHAT_CHANGED')) {
+            throw 'HOST_CHAT_LOAD_AUTO_CAPTURE_NOT_REPAIRED_BY_UPDATER'
           }
 
           $pluginRoot = Join-Path $upgradeRoot 'plugins/logic-engine'
