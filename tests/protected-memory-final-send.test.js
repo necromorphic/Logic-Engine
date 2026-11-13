@@ -223,7 +223,16 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     }],
   };
   for (const [senderRoute, body, readPrompt] of [
-    ['google-ai-studio', JSON.stringify({ model: 'gemini-test', messages: [{ role: 'system', content: 'system' }, { role: 'user', content: 'hello' }], logic_engine_conversation_uuid: 'untrusted' }), parsed => parsed.messages.map(message => message.content).join('\\n')],
+    ['google-ai-studio', JSON.stringify({
+      model: 'gemini-test',
+      contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
+      logic_engine_conversation_uuid: 'untrusted',
+    }), parsed => parsed.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n')],
+    ['vertex-ai', JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
+    }), parsed => parsed.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n')],
     ['text-completions', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
     ['kobold', JSON.stringify({ prompt: 'hello', logic_engine_context_size: 9000 }), parsed => parsed.prompt],
     ['novelai-text', JSON.stringify({ input: 'hello', logic_engine_generation_type: 'untrusted' }), parsed => parsed.input],
@@ -252,8 +261,17 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     });
     assert.equal(dispatched.body, outbound, senderRoute);
     const parsed = JSON.parse(outbound);
-    assert.match(readPrompt(parsed), /Logic Engine NPC Memory Context/, senderRoute);
-    assert.match(readPrompt(parsed), /bridge is closed/, senderRoute);
+    const rendered = readPrompt(parsed);
+    assert.match(rendered, /logic_engine_untrusted_memory/, senderRoute);
+    assert.match(rendered, /Logic Engine NPC Memory Context/, senderRoute);
+    assert.match(rendered, /bridge is closed/, senderRoute);
+    if (senderRoute === 'google-ai-studio' || senderRoute === 'vertex-ai') {
+      assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
+      assert.equal(parsed.contents[0].role, 'user');
+      assert.equal(parsed.contents[0].parts.length, 1);
+    } else {
+      assert.ok(rendered.indexOf('hello') < rendered.indexOf('logic_engine_untrusted_memory'), senderRoute);
+    }
     assert.equal(JSON.stringify(parsed).includes('logic_engine_'), false, senderRoute);
     assert.equal(JSON.stringify(parsed).includes('memory_dispatch'), false, senderRoute);
   }
