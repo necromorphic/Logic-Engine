@@ -776,8 +776,23 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (reconciliation.status !== 'ready') {
           return send(res, 409, { reconciliation, inventory_status: 'NON_READY' });
         }
+        const acquisition = engine.recordTrustedCommunicationDelivery({
+          world_id: binding.world_id,
+          adapter_id: adapterId,
+          conversation_id: binding.conversation_id,
+          delivery: deliveryMetadata,
+          receipt_digest: receipt.receipt_digest,
+          receipt_proof: receipt.proof,
+          inventory_snapshot_digest: reconciliation.snapshot_sha256,
+        });
         return send(res, 200, {
-          reconciliation: { status: 'ready', snapshot_digest: reconciliation.snapshot_digest },
+          reconciliation: { status: 'ready', snapshot_digest: reconciliation.snapshot_sha256 },
+          acquisition: {
+            status: 'committed',
+            acquisition_id: acquisition.acquisition_id,
+            event_id: acquisition.event_id,
+            idempotent_replay: acquisition.idempotent_replay === true,
+          },
           inventory_status: 'READY',
         });
       }
