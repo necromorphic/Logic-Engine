@@ -180,8 +180,6 @@ test('delivery evidence rejects group chats, assistant output, historical insert
     before: {
       target_kind: 'character-chat',
       target_locator: 'avatar-main/chat-1.jsonl',
-      target_locator: 'avatar-main/chat-1.jsonl',
-      target_kind: 'character-chat',
       logical_identity: logical(beforeMessages),
       snapshot_proof: snapshotProof('snapshot-before', 'persisted-before'),
     },
