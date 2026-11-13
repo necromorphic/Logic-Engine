@@ -116,6 +116,7 @@ Inspected at base HEAD `df129425ecd5fccba45b4d9b7f6ee7c5d3e28d1f`:
 - `src/application/trusted-initial-knowledge-source.js` validates the existing initial/import source registry; it is not an observation or Host delivery-receipt verifier.
 - `src/application/npc-knowledge-read.js` validates the actor/purpose/snapshot-bound read request; it does not establish acquisition provenance.
 - `src/application/memory-npc-consumer.js` consumes provider candidates through Core authorization seams; retrieval is not an acquisition writer.
+- `src/npc/observe-target.js` is a real read-only observation helper: it resolves trusted Host actor/snapshot/policy context, calls Core `AuthorizedReadService` for one target attribute, and returns an immutable `npc.observe-target.receipt.v1`. Its tests prove authorization, actor-binding revocation, stale-snapshot rejection, and zero world/event/audit mutation. It does **not** identify a canonical observed event, establish scene/perception conditions, or write Core acquisition history; it is a useful primitive, not yet the ADR's `direct_observation` acquisition producer.
 - `host-adapter/extension-gateway/server-plugin/host-adapter.mjs` has lifecycle and account-mutation receipt stores, but these receipts attest Host filesystem/account mutations, not NPC message delivery.
 - `host-adapter/extension-gateway/host-context.mjs`, `host-adapter/extension-gateway/index.js`, `host-adapter/npc-context-receiver.mjs`, and `host-adapter/npc-generation-content-projection.mjs` contain no delivery/receipt producer path in the inspected versions.
 - `docs/48-npc-delivery-acquisition-boundary-matrix.md` explicitly describes itself as semantic acceptance design and states that it does not claim a delivery, acquisition, or belief runtime exists. It specifies important distinctions but is not a trusted Host receipt producer.
@@ -140,7 +141,7 @@ The existing Core path supplies reusable lifecycle primitives, but it is not a d
 
 - Semantic ownership and the two evidence meanings: **DEFINED** by the accepted ADR and this contract draft.
 - Exact trusted producer implementation identities/configuration: **NOT VERIFIED**.
-- Production observation producer: **NOT FOUND in inspected repository paths**.
+- Observation helper: **IMPLEMENTED / READ-ONLY**; ADR-compliant acquisition producer: **NOT VERIFIED / NOT FOUND**.
 - Production Host delivery-receipt producer: **NOT FOUND in inspected repository paths**.
 - Runtime schemas, Core event/effect representation, and end-to-end tests: **NOT STARTED**.
 
