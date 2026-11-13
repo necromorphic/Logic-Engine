@@ -467,6 +467,81 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
   }
 });
 
+test('every registered chat-completion sender keeps protected Memory inside a user turn', async () => {
+  const rolelessRoutes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'route coverage memory value' },
+    }],
+  };
+  for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
+    if (rolelessRoutes.includes(senderRoute)) continue;
+    const googleRoute = senderRoute === 'google-ai-studio' || senderRoute === 'vertex-ai';
+    const claudeRoute = senderRoute === 'claude';
+    const body = googleRoute
+      ? {
+        contents: [{ role: 'user', parts: [{ text: 'original request' }] }],
+        systemInstruction: { parts: [{ text: 'trusted system' }] },
+      }
+      : claudeRoute
+        ? {
+          system: [{ type: 'text', text: 'trusted system' }],
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'original request' }] }],
+        }
+        : {
+          messages: [
+            { role: 'system', content: 'trusted system' },
+            { role: 'user', content: 'original request' },
+          ],
+        };
+    let outbound;
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: { dispatchProtectedRequest: request => request.transport() },
+      resolveProtectedMemory: () => protectedContext,
+      fetchImpl: async (_url, request) => {
+        outbound = JSON.parse(request.body);
+        return { status: 200 };
+      },
+    });
+    await finalSend({
+      senderRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(JSON.stringify(body)),
+      hostRequestContext,
+    });
+    let envelopeText;
+    if (googleRoute) {
+      assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system' }] }, senderRoute);
+      assert.deepEqual(outbound.contents.map(item => item.role), ['user'], senderRoute);
+      const parts = outbound.contents[0].parts;
+      envelopeText = parts[parts.length - 1].text;
+    } else {
+      if (claudeRoute) {
+        assert.deepEqual(outbound.system, [{ type: 'text', text: 'trusted system' }], senderRoute);
+        assert.deepEqual(outbound.messages.map(message => message.role), ['user'], senderRoute);
+      } else {
+        assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'user'], senderRoute);
+        assert.equal(outbound.messages[0].content, 'trusted system', senderRoute);
+      }
+      const userMessage = outbound.messages.find(message => message.role === 'user');
+      if (Array.isArray(userMessage.content)) {
+        envelopeText = userMessage.content[userMessage.content.length - 1].text;
+      } else {
+        const marker = userMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
+        assert.ok(marker > 0, senderRoute);
+        envelopeText = userMessage.content.slice(marker);
+      }
+    }
+    const envelope = JSON.parse(envelopeText);
+    assert.equal(envelope.type, 'logic_engine_untrusted_memory', senderRoute);
+    assert.equal(envelope.trust_level, 'untrusted_data', senderRoute);
+    assert.match(envelope.data, /route coverage memory value/, senderRoute);
+  }
+});
+
 test('Horde text generation uses the protected Gateway and performs exactly one transport handoff', async () => {
   let calls = 0;
   let dispatched;
