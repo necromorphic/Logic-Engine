@@ -316,13 +316,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           const conversationId = [
             body.host_session_id, body.host_installation_id, body.conversation_uuid,
           ].join(':');
-          try {
-            const binding = hostConversationBindings.resolve({ adapterId, conversationId });
-            if (binding?.active === true) {
+          let binding = null;
+          try { binding = hostConversationBindings.resolve({ adapterId, conversationId }); } catch {}
+          if (binding?.active === true) {
+            try {
               hostVersionLedger.invalidateConversation(binding.world_id, binding.conversation_id);
-            }
-          } catch (error) {
-            if (error?.message !== 'HOST_CONVERSATION_NOT_AUTHORIZED') {
+            } catch {
               return send(res, 503, {
                 error: { code: 'HOST_VERSION_INVENTORY_INVALIDATION_FAILED',
                   message: 'Conversation inventory could not be invalidated before mutation.' },
