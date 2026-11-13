@@ -647,7 +647,13 @@ export class SillyTavernPatchManager {
     for (const [relativePath, before] of Object.entries(journal.sourceFilesBefore ?? {})) {
       const current = await this.hashAt(relativePath);
       const after = journal.sourceFilesAfter?.[relativePath];
-      if (current !== before && (!after || current !== after)) {
+      // A Host Bundle predecessor is trusted only when the orchestrator
+      // independently verified its pinned manifest and supplied this exact
+      // per-file hash. Permit that overlay during rollback so the saved
+      // Final-Send baseline can be restored before the new Host overlay is
+      // reconstructed and installed by the bundle transaction.
+      const trustedHostOverlay = this.trustedHostOverlayFiles.get(relativePath) === current;
+      if (current !== before && (!after || current !== after) && !trustedHostOverlay) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
     }
