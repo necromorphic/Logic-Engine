@@ -826,15 +826,35 @@ export function createHostLifecycleJournalProxy({
           adapterToken: target.adapterToken,
           event: proof,
         });
+        const deliveryReceipt = {
+          protocol_version: 1,
+          evidence_type: 'communication_delivered',
+          delivery: receipt.communication_delivery,
+          receipt_digest: deliveryDigest,
+          proof: { ...proof, receipt_signature: receiptSignature },
+        };
+        // Core accepts complete inventory only from this server-to-server
+        // signed receipt path. The browser-facing reconcile endpoint remains
+        // untrusted. Failure to reconcile suppresses Memory evidence but does
+        // not fail the already-persisted chat message.
+        const inventoryResult = await upstream('/v1/host-version-ledger/reconcile-delivery', 'POST', {
+          communication_delivery_receipt: deliveryReceipt,
+        }, {
+          host_installation_id: resolved.identity.host_installation_id,
+          authenticated_account_id: resolved.identity.authenticated_account_id,
+          host_session_id: resolved.hostSessionId,
+          conversation_uuid: resolved.conversationUuid,
+        });
+        const inventoryReady = inventoryResult.status === 200
+          && inventoryResult.payload?.inventory_status === 'READY';
         return response.status(result.status).json({
           ...result.payload,
-          communication_delivery_receipt: {
-            protocol_version: 1,
-            evidence_type: 'communication_delivered',
-            delivery: receipt.communication_delivery,
-            receipt_digest: deliveryDigest,
-            proof: { ...proof, receipt_signature: receiptSignature },
-          },
+          communication_delivery_status: inventoryReady ? 'READY' : 'NON_READY',
+          ...(inventoryReady ? { communication_delivery_receipt: deliveryReceipt } : {
+            communication_delivery_reason: inventoryResult.payload?.reconciliation?.code
+              ?? inventoryResult.payload?.error?.code
+              ?? 'HOST_VERSION_INVENTORY_RECONCILIATION_UNAVAILABLE',
+          }),
         });
       }
       return response.status(result.status).json(result.payload);
