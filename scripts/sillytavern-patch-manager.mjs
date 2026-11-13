@@ -478,6 +478,36 @@ export class SillyTavernPatchManager {
   }
 
   async preflightPatchApplicability() {
+    // If the separately installed Host Bundle is present, its pinned source
+    // attestation proves that the lifecycle and root-mutation patches are
+    // already applied. Reapplying those artifacts would fail on their own
+    // changed hunks; Final-Send itself must still be checked against this tree.
+    this._hostOverlayManifestPromise = null;
+    const hostManifest = await this.loadVerifiedHostOverlayManifest();
+    const attestedPaths = new Set(
+      (Array.isArray(hostManifest?.files) ? hostManifest.files : [])
+        .filter(file => typeof file?.path === 'string')
+        .map(file => file.path),
+    );
+    const preappliedHostArtifacts = new Set();
+    if (hostManifest) {
+      const hostArtifactPaths = new Set([
+        'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch',
+        'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch',
+      ]);
+      for (const artifact of this.patchArtifacts) {
+        if (!hostArtifactPaths.has(artifact.path)) continue;
+        const touchedPaths = [...artifact.bytes.toString('utf8').matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)]
+          .flatMap(([, oldPath, newPath]) => [oldPath, newPath])
+          .filter(filePath => filePath !== '/dev/null');
+        if (touchedPaths.length === 0 || touchedPaths.some(filePath => !attestedPaths.has(filePath))) {
+          throw new Error('PATCH_HOST_OVERLAY_ATTESTATION_INCOMPLETE: ' + artifact.path);
+        }
+        preappliedHostArtifacts.add(artifact.path);
+      }
+    }
+
+    const temporaryRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-preflight-'));
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-preflight-'));
     try {
       for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
@@ -490,6 +520,7 @@ export class SillyTavernPatchManager {
         await writeFile(target, bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
       }
       for (const [index, artifact] of this.patchArtifacts.entries()) {
+        if (preappliedHostArtifacts.has(artifact.path)) continue;
         const canonicalPatchPath = resolve(temporaryRoot, 'logic-engine-patch-' + index + '.patch');
         await writeFile(canonicalPatchPath, artifact.bytes, { flag: 'wx', mode: 0o600 });
         const args = ['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace'];
@@ -504,6 +535,7 @@ export class SillyTavernPatchManager {
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
+    return preappliedHostArtifacts;
   }
 
   async preflight() {
@@ -520,7 +552,7 @@ export class SillyTavernPatchManager {
       return { status: 'ALREADY_INSTALLED', patchVersion: state.patchVersion };
     }
     await this.verifyBaseline();
-    await this.preflightPatchApplicability();
+    const preappliedHostArtifacts = await this.preflightPatchApplicability();
 
     await mkdir(this.backupsRoot, { recursive: true });
     await assertNoSymlinkComponents(this.stRoot, this.backupsRoot);
@@ -559,6 +591,7 @@ export class SillyTavernPatchManager {
     try {
       await this.normalizePatchTargetsForApply();
       for (const [index, artifact] of this.patchArtifacts.entries()) {
+        if (preappliedHostArtifacts.has(artifact.path)) continue;
         const canonicalPatchPath = resolve(patchRoot, 'logic-engine-patch-' + index + '.patch');
         await writeFile(canonicalPatchPath, artifact.bytes, { flag: 'wx', mode: 0o600 });
         const args = ['-c', 'core.autocrlf=false', 'apply', '--ignore-whitespace'];
