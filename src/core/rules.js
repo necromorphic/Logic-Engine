@@ -398,7 +398,7 @@ export function validateEffects(effects, options = {}) {
             'protocol_version', 'evidence_type', 'producer', 'adapter_id', 'host_commit',
             'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
             'sender', 'recipient', 'source_attestation', 'channel', 'source', 'status', 'delivered_at',
-            'host_event_id', 'mutation_id', 'receipt_digest', 'receipt_signature', 'inventory_snapshot_digest',
+            'host_event_id', 'mutation_id', 'receipt_digest', 'receipt_signature', 'receipt_proof', 'inventory_snapshot_digest',
           ])
           || evidence.protocol_version !== 1 || evidence.evidence_type !== 'communication_delivered'
           || evidence.producer !== 'logic-engine-host-delivery-receipt-v1'
@@ -445,6 +445,23 @@ export function validateEffects(effects, options = {}) {
           || !uuid.test(evidence.host_event_id ?? '') || !uuid.test(evidence.mutation_id ?? '')
           || !digest.test(evidence.receipt_digest ?? '') || evidence.receipt_digest !== effect.provenance_digest
           || !digest.test(evidence.receipt_signature ?? '')
+          || !exactKeys(evidence.receipt_proof, [
+            'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+            'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
+            'occurred_at', 'receipt_signature',
+          ])
+          || evidence.receipt_proof.host_installation_id !== evidence.host_installation_id
+          || evidence.receipt_proof.authenticated_account_id !== evidence.authenticated_account_id
+          || evidence.receipt_proof.host_session_id !== evidence.host_session_id
+          || evidence.receipt_proof.conversation_uuid !== evidence.conversation_uuid
+          || evidence.receipt_proof.event_id !== evidence.host_event_id
+          || evidence.receipt_proof.event_type !== 'MUTATION_COMMITTED'
+          || evidence.receipt_proof.mutation_id !== evidence.mutation_id
+          || evidence.receipt_proof.operation !== 'message-send'
+          || !digest.test(evidence.receipt_proof.mutation_digest ?? '')
+          || evidence.receipt_proof.receipt_digest !== evidence.receipt_digest
+          || evidence.receipt_proof.occurred_at !== evidence.delivered_at
+          || evidence.receipt_proof.receipt_signature !== evidence.receipt_signature
           || !digest.test(evidence.inventory_snapshot_digest ?? '')) {
           throw new EngineError('INVALID_COMMUNICATION_DELIVERY_EVIDENCE',
             'Communication-delivered acquisition must contain an exact signed, digest-only Host receipt binding.', 400);
