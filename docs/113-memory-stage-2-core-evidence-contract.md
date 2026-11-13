@@ -1,6 +1,6 @@
 # Stage 2 — Core Evidence Contract: source audit and implementation boundary
 
-**Status:** DESIGN IN PROGRESS. No production Core code changed by this document. No tests or runtime workflows were run for this work block.
+**Status:** Stage 2A persistence direction selected; type-specific source validation design remains in progress. No production Core code changed by this document. No tests or runtime workflows were run for this work block.
 
 **Working branch:** `memory/development-2026-11-13`  
 **Inspected HEAD:** `f7584e820cd7bba02b7b7590cb34b72447651eaf`  
@@ -109,24 +109,37 @@ This type remains unsupported until a real World/Simulation producer exists. Its
 
 The existing `npc.observe-target` helper is read-only and is not this producer. No fallback to a Host hook, model assertion, example World Pack declaration, or Provider record is allowed.
 
-## 5. Persistence and event-sourcing constraints
+## 5. Persistence and event-sourcing decision
 
-The current canonical `world_events` log remains the sole source of truth for Core acquisition history. The `knowledge_acquisitions` table remains a derived projection and must be fully reconstructible from canonical events.
+**Selected direction: Option A — generalize the existing Core acquisition history and its derived projection.** This is the smallest design that preserves one Core-owned acquisition authority. It is not permission to weaken the current fact-backed path.
 
-The next implementation design must compare two options before choosing:
+The current canonical `world_events` log remains the sole source of truth for Core acquisition history. The `knowledge_acquisitions` table remains a derived projection and must be fully reconstructible from canonical events. No second event log, source registry, or acquisition store will be introduced.
 
-- **Option A — generalize the existing acquisition projection:** retain one acquisition history and add a discriminated source-evidence payload while preserving strict fact-backed validation for `author_initial`/`imported`. This requires a migration strategy for nullable/non-fact `fact_id`, source evidence fields, and rebuild/read behavior.
-- **Option B — represent producer receipts as typed canonical Core source events and link the existing acquisition effect to those events:** this must reuse the existing event log, rollback, replay, snapshot, and idempotency machinery; it must not introduce a second event log or a second acquisition store.
+The planned schema evolution is:
 
-Do not implement either option until it is proven that it preserves:
-- event replay and projection rebuild;
-- rollback/invalidation semantics;
-- source revocation and version freshness;
-- actor/World isolation;
-- belief-transition evidence references;
-- backward compatibility for existing `author_initial`/`imported` rows and old databases.
+- retain the existing `knowledge_acquisitions` table and its identity/event/revision fields;
+- make `fact_id` nullable only for the two new evidence kinds;
+- extend the SQL acquisition-kind constraint to exactly `author_initial`, `imported`, `direct_observation`, and `communication_delivered`;
+- add a nullable `source_evidence_json` projection column;
+- enforce a type split: `author_initial`/`imported` require a non-null `fact_id` and null `source_evidence_json`; `direct_observation`/`communication_delivered` require null `fact_id` and non-null `source_evidence_json`;
+- keep `acquired_value_json` and `acquired_source_event_ids_json` semantics unchanged for the legacy fact-backed kinds; new evidence kinds use the typed source-evidence object and must not pretend a Host message receipt is a Core world-event ID.
 
-The Host delivery receipt currently has no raw message body by design. The implementation must not invent a Core source event or treat an external receipt ID as a pre-existing World event. If the source validity contract cannot be verified synchronously at acquisition/read time, the evidence type remains non-ready.
+A new migration must rebuild the SQLite table transactionally, copy every existing row byte-for-byte at the value level, recreate indexes, and run `PRAGMA foreign_key_check`. Existing databases at schema version 17 must remain readable and upgrade without dropping or rewriting canonical event history. Read-only Core startup must require the new schema version after the migration ships.
+
+### 5.1 Why this direction fits the current event model
+
+The source audit confirms that:
+
+- `SQLiteStore.rebuild()` reads only canonical `world_events` whose validity is `valid`, then reconstructs projections;
+- rollback marks the affected canonical events `retracted`/`invalidated` and calls the same `rebuild()` path;
+- the current acquisition projection is already derived from `knowledge.acquire` effects and is not a separate authority;
+- belief transitions already reference acquisition IDs, so preserving one acquisition identity space avoids a parallel evidence-ID system.
+
+The implementation must extend the existing `knowledge.acquire` effect and projection rebuild with strict discriminated validation. Legacy fact-backed effects retain their existing active-fact checks and exact acquisition-time value/source-event comparison. New evidence effects must pass a type-specific trusted ingress before the internal Core capability can commit them; the generic public event API must remain unable to mint them.
+
+The Host delivery receipt currently has no raw message body by design. The implementation must not invent a Core source event or treat an external receipt ID as a pre-existing World event. The immutable receipt binding (message ID/version and content digest) is stored as typed source evidence. Any later Provider content must be matched to that binding before it can be disclosed. If source validity cannot be checked synchronously at acquisition/read time, the evidence type remains non-ready.
+
+The exact type-specific source-evidence schemas and verification functions are Stage 2B implementation work; they must be finalized before the migration is applied.
 
 ## 6. Read-path requirements
 
