@@ -160,7 +160,7 @@ function validOperationTransition(operation, before, after) {
 }
 
 
-function createCommunicationDeliveryReceipt({ scope, before, after, recipientBinding, hostCommit }) {
+export function createCommunicationDeliveryReceipt({ scope, before, after, recipientBinding, hostCommit }) {
   if (scope?.operation !== 'message-send'
     || before?.target_kind !== 'character-chat'
     || after?.target_kind !== 'character-chat'
