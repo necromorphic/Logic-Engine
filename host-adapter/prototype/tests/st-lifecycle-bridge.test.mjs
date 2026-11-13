@@ -653,11 +653,13 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
-test('clear-chat uses the supported sequential delete-message lifecycle hook', async () => {
+test('native chat unload is not treated as a lifecycle deletion mutation', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
-  assert.equal(before.operation, 'before:clear-chat');
+  await assert.rejects(
+    f.bridge.beforeMutation('clear-chat', [0, 1]),
+    /unsupported\/uninstrumented Host lifecycle operation clear-chat/,
+  );
   assert.equal(f.chat.length, 2);
 });
 
@@ -1353,7 +1355,7 @@ test('native chat unload does not wait for optional enrollment or record false d
   const clearChatPatch = patch.slice(start, end);
   assert.ok(!clearChatPatch.includes('waitForEnrollment'));
   assert.ok(!clearChatPatch.includes('getLogicEngineLifecycleBridge'));
-  assert.ok(clearChatPatch.includes('if (clearData) chat.length = 0;'));
+  assert.equal(clearChatPatch.includes('beforeMutation'), false);
   assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, changedLocator => {'));
   assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator);'));
 });
