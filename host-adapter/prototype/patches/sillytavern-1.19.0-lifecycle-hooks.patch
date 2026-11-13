@@ -117,7 +117,7 @@ diff --git a/public/script.js b/public/script.js
 +                const expectedCharacterId = this_chid;
 +                const isGroupConversation = Boolean(expectedGroupId);
 +                const request = isGroupConversation
-+                    ? { url: '/api/chats/group/get', body: { id: expectedGroupId } }
++                    ? { url: '/api/chats/group/get', body: { id: sourceLocator } }
 +                    : {
 +                        url: '/api/chats/get',
 +                        body: {
