@@ -180,3 +180,19 @@ Therefore:
 - ST lifecycle hooks do not provide a World/Simulation event or sensory/perception proof. They cannot be used as the `direct_observation` producer. Keep that type unsupported until the actual trusted World/Simulation producer is identified.
 
 **Status:** reusable ST integration points FOUND; compliant `communication_delivered` receipt producer NOT VERIFIED; `direct_observation` producer NOT FOUND in SillyTavern. Stage 1 remains IN PROGRESS and Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+
+## 10. Server-side generation dispatch boundary
+
+The repository already contains a deeper pinned-source route audit at `host-adapter/prototype/SILLYTAVERN-1.19.0-SOURCE-ROUTE-AUDIT.md` and lifecycle evidence at `host-adapter/prototype/HOST-SCENE-CAPTURE-SOURCE-EVIDENCE.md`. Their findings are relevant to the receipt design and prevent treating a browser hook as a completed Host receipt:
+
+- Browser `public/scripts/openai.js::sendOpenAIRequest()` awaits `CHAT_COMPLETION_SETTINGS_READY`, then POSTs `/api/backends/chat-completions/generate`. This is a pre-request hook and the browser→ST server boundary, not the provider-send boundary.
+- Pinned `src/endpoints/backends/chat-completions.js` dispatches to 13 provider-specific sender functions that return directly; the OpenAI-compatible fallback uses a separate fetch. A hook around only the generic fetch or route entry misses those provider branches.
+- Pinned Text Completion paths use a separate server dispatcher and multiple provider-specific fetches. The source route audit explicitly does not claim a universal generation egress wrapper.
+- The existing Host Gateway generation hook adds correlation locators to browser request data. It does not intercept or confirm the final provider dispatch and must not be described as a delivery receipt.
+
+**Implementation decision:** reuse the existing ST group-recipient context and Host generation correlation seam, but do not mint `communication_delivered` from the browser pre-request hook. The next implementation task is to define one narrowly supported ST generation path and establish a trusted terminal-success receipt on that path, or add the smallest pinned ST patch that emits an unambiguous success signal after the supported dispatch has completed. Any uninstrumented provider/API family remains unsupported and fail-closed. A generic route middleware or generic fetch hook is not acceptable unless the pinned sender inventory proves that every supported outbound path passes through it.
+
+This is a delivery-evidence task, not a final-send authorization redesign. Do not introduce a second identity mechanism, a second Gateway, or a new Core dispatch gate. Reuse existing Host session identity and the existing Core acquisition/commit lifecycle. Keep raw prompt/message text out of the receipt; use stable message/version references and a digest only where the trusted source boundary can verify it.
+
+**Updated Stage 1 status:** ST recipient-selection and request-correlation hooks FOUND; provider-specific dispatch paths identified; trusted terminal-success receipt NOT IMPLEMENTED / NOT VERIFIED. `direct_observation` remains unsupported until a real World/Simulation producer is identified. Memory → NPC remains DISABLED / FAIL-CLOSED.
