@@ -691,15 +691,28 @@ test('communication delivery receipt requires one persisted user message in a on
     mutation_digest: 'a'.repeat(64),
     occurred_at: '2026-10-31T00:00:01.000Z',
   };
+  const snapshotProof = snapshotId => ({
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    snapshot_id: snapshotId,
+    source_snapshot_id: snapshotId,
+    snapshot_sha256: '1'.repeat(64),
+    source_inventory_sha256: '2'.repeat(64),
+    source_manifest_sha256: '3'.repeat(64),
+    mutation_coverage_manifest_sha256: '4'.repeat(64),
+    mutation_coverage_source_files_sha256: '5'.repeat(64),
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+  });
   const before = {
     target_kind: 'character-chat',
     target_locator: 'avatar-main/chat-1.jsonl',
     logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage] },
+    snapshot_proof: snapshotProof('snapshot-before'),
   };
   const after = {
     target_kind: 'character-chat',
     target_locator: 'avatar-main/chat-1.jsonl',
     logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage, newMessage] },
+    snapshot_proof: snapshotProof('snapshot-after'),
   };
   const recipientBinding = {
     adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
