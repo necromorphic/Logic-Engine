@@ -101,8 +101,9 @@ export function createHostDigestProxyHandler({
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
-    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000
+    || !Number.isInteger(inventoryTimeoutMs) || inventoryTimeoutMs < timeoutMs || inventoryTimeoutMs > 30000) {
+    throw new TypeError('timeoutMs and inventoryTimeoutMs must be integers between 1 and 30000, with inventoryTimeoutMs >= timeoutMs');
   }
   return async function hostDigestProxy(request, response) {
     const target = configuredTarget(env);
@@ -145,7 +146,7 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
       let payload;
       try { payload = await upstream.json(); } catch {
@@ -572,6 +573,7 @@ export function createHostLifecycleJournalProxy({
   ensureRootInventory = null,
   resolveCommunicationRecipient = null,
   timeoutMs = 5000,
+  inventoryTimeoutMs = 15000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
@@ -616,7 +618,7 @@ export function createHostLifecycleJournalProxy({
     return conversationUuid ? { identity, conversationUuid, hostSessionId } : null;
   }
 
-  async function upstream(pathname, method, body, identity) {
+  async function upstream(pathname, method, body, identity, requestTimeoutMs = timeoutMs) {
     const target = configuredTarget(env);
     if (!target) return { status: 503, payload: {
       error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
@@ -844,7 +846,7 @@ export function createHostLifecycleJournalProxy({
           authenticated_account_id: resolved.identity.authenticated_account_id,
           host_session_id: resolved.hostSessionId,
           conversation_uuid: resolved.conversationUuid,
-        });
+        }, inventoryTimeoutMs);
         const inventoryReady = inventoryResult.status === 200
           && inventoryResult.payload?.inventory_status === 'READY';
         return response.status(result.status).json({
