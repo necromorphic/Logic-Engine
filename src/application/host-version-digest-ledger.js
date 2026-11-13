@@ -26,7 +26,7 @@ const isPlainDataRecord = (value) => {
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
 const asyncFunctionConstructor = asyncFunctionPrototype.constructor;
 const MAX_HOST_SNAPSHOT_VERSIONS = 25000;
-const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
+const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions', 'attestation']);
 const versionInputKeys = new Set([
   'world_id', 'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'
 ]);
@@ -395,7 +395,8 @@ export class HostVersionDigestLedger {
       || typeof input.complete !== 'boolean'
       || !Array.isArray(input.versions)
       || isProxy(input.versions)
-      || Object.getPrototypeOf(input.versions) !== Array.prototype) {
+      || Object.getPrototypeOf(input.versions) !== Array.prototype
+      || (input.attestation !== undefined && !isPlainDataRecord(input.attestation))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Reject Proxy and non-native arrays before reading length. A native array's
@@ -421,11 +422,25 @@ export class HostVersionDigestLedger {
         ? Object.freeze(rawVersions.map((v) => v && typeof v === 'object' && !Array.isArray(v)
           ? Object.freeze({ ...v }) : v))
         : rawVersions;
+      const rawAttestation = input.attestation;
+      const attestation = rawAttestation === undefined ? undefined : Object.freeze({
+        adapter_id: rawAttestation.adapter_id,
+        protocol_version: rawAttestation.protocol_version,
+        evidence_type: rawAttestation.evidence_type,
+        delivery: isPlainDataRecord(rawAttestation.delivery)
+          ? Object.freeze({ ...rawAttestation.delivery }) : rawAttestation.delivery,
+        conversation_inventory: isPlainDataRecord(rawAttestation.conversation_inventory)
+          ? Object.freeze({ ...rawAttestation.conversation_inventory }) : rawAttestation.conversation_inventory,
+        receipt_digest: rawAttestation.receipt_digest,
+        proof: isPlainDataRecord(rawAttestation.proof)
+          ? Object.freeze({ ...rawAttestation.proof }) : rawAttestation.proof,
+      });
       snapshot = Object.freeze({
         world_id: input.world_id,
         conversation_id: input.conversation_id,
         complete: input.complete,
-        versions
+        versions,
+        ...(attestation === undefined ? {} : { attestation }),
       });
     }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
@@ -478,7 +493,8 @@ export class HostVersionDigestLedger {
         complete: snapshot.complete,
         versions: Array.isArray(snapshot.versions)
           ? Object.freeze(snapshot.versions.map((v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.freeze({ ...v }) : v))
-          : snapshot.versions
+          : snapshot.versions,
+        ...(snapshot.attestation === undefined ? {} : { attestation: snapshot.attestation }),
       })) === true;
     } catch { trusted = false; }
     if (!trusted) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_NOT_AUTHORIZED');
