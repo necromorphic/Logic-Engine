@@ -42,15 +42,15 @@ The prior test fixture for Google incorrectly modeled its outbound body as `mess
 
 ## Changes in this stage
 
-- Chat Completions Memory is now serialized as one `role: 'user'` message, after leading system messages. The Memory content is a JSON envelope with `type: logic_engine_untrusted_memory`, `trust_level: untrusted_data`, and a string-valued `data` field.
-- Existing system messages and their contents are preserved; Memory content is never interpreted as a message object and cannot provide a message role.
-- Google AI Studio and Vertex AI now receive the same envelope in `contents[]` as `role: 'user'`. Their separate `systemInstruction` is left untouched.
+- Chat Completions Memory is now appended to the first existing `role: 'user'` message (after its existing content). The provider's message-role sequence is unchanged. If no user message exists, a user message is added after leading system messages. The Memory content is a JSON envelope with `type: logic_engine_untrusted_memory`, `trust_level: untrusted_data`, and a string-valued `data` field.
+- Existing system messages and their contents are preserved; Memory content is never interpreted as a message object and cannot provide a message role. Existing user messages remain user messages; no additional role is introduced when a user turn already exists.
+- Google AI Studio and Vertex AI receive the envelope as an additional text part in the first existing `contents[]` user turn. If no user turn exists, a user content is inserted before model turns. Their separate `systemInstruction` is left untouched.
 - Role-less prompt routes append the JSON data envelope after the existing prompt instead of prepending Memory ahead of the prompt.
 - Host-only locators continue to be removed before provider serialization.
 
 ## Security boundary and limitation
 
-This change proves a structural property: retrieved Memory is not assigned the provider's `system` role, is not placed in Google's `systemInstruction`, and cannot create additional message objects or roles through embedded text/JSON. Prompt-injection strings and fake `role: system` fields remain inside the serialized data string.
+This change proves a structural property: retrieved Memory is not assigned the provider's `system` role, is not placed in Google's `systemInstruction`, and cannot create additional message objects or roles through embedded text/JSON. When a user turn exists, the original role sequence is preserved and only that user turn's content is extended. Prompt-injection strings and fake `role: system` fields remain inside the serialized data string.
 
 No serialization scheme can prove that a language model will never follow malicious text placed in a user message or a flat prompt. This stage removes the privilege escalation to the system channel; it does not claim model-level immunity to all prompt injection. A stronger semantic policy would require separately reviewed trusted system instructions/model-side controls and is outside this stage.
 
