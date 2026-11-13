@@ -742,6 +742,7 @@ export class SillyTavernPatchManager {
         stdio: 'pipe',
         windowsHide: true,
       });
+      this._hostOverlayManifestPromise = null;
     }
 
     await rm(this.statePath, { force: true });
