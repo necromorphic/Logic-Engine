@@ -5,6 +5,7 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[a-f0-9]{64}$/;
+const MAX_COMMUNICATION_DELIVERY_VERSIONS = 25000;
 const OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe',
   'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
@@ -224,6 +225,42 @@ export function createCommunicationDeliveryReceipt({ scope, before, after, recip
     || !UUID.test(version.version_id ?? '')
     || !DIGEST.test(version.content_sha256 ?? '')) return null;
 
+  // Bind the complete server-observed conversation version inventory to the
+  // same receipt digest. This is digest-only: no message text enters Core.
+  const conversationVersions = [];
+  const seenMessageIds = new Set();
+  const seenVersionIds = new Set();
+  for (const entry of afterLogical.messages) {
+    if (!entry || !UUID.test(entry.message_id ?? '') || seenMessageIds.has(entry.message_id)
+      || !Array.isArray(entry.versions) || entry.versions.length === 0
+      || !Number.isInteger(entry.active_version_index)
+      || entry.active_version_index < 0 || entry.active_version_index >= entry.versions.length) return null;
+    seenMessageIds.add(entry.message_id);
+    let activeCount = 0;
+    for (let index = 0; index < entry.versions.length; index++) {
+      const candidate = entry.versions[index];
+      if (!candidate || candidate.version_index !== index
+        || !UUID.test(candidate.version_id ?? '') || seenVersionIds.has(candidate.version_id)
+        || (candidate.parent_version_id !== null
+          && !UUID.test(candidate.parent_version_id ?? ''))
+        || !DIGEST.test(candidate.content_sha256 ?? '')
+        || typeof candidate.active !== 'boolean'
+        || candidate.active !== (index === entry.active_version_index)) return null;
+      if (candidate.active) activeCount++;
+      seenVersionIds.add(candidate.version_id);
+      conversationVersions.push(Object.freeze({
+        message_id: entry.message_id,
+        version_id: candidate.version_id,
+        parent_version_id: candidate.parent_version_id,
+        content_sha256: candidate.content_sha256,
+        active: candidate.active,
+        deleted: false,
+      }));
+      if (conversationVersions.length > MAX_COMMUNICATION_DELIVERY_VERSIONS) return null;
+    }
+    if (activeCount !== 1) return null;
+  }
+
   // A one-to-one character chat is the supported Host communication channel.
   // Group chats are deliberately excluded because membership is not delivery
   // to every member. This receipt attests persisted delivery, never read or
@@ -252,6 +289,11 @@ export function createCommunicationDeliveryReceipt({ scope, before, after, recip
       message_id: message.message_id,
       version_id: version.version_id,
       content_sha256: version.content_sha256,
+    }),
+    conversation_inventory: Object.freeze({
+      protocol_version: 1,
+      complete: true,
+      versions: Object.freeze(conversationVersions),
     }),
     status: 'delivered',
     delivered_at: scope.occurred_at,
