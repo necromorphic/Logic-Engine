@@ -1279,3 +1279,20 @@ test('first instrumented Host mutation automatically establishes a review-only b
   assert.equal(inventoryCalls, 1, 'persisted Host inventory must be checked automatically after baseline persistence');
 });
 
+
+
+test('chat-load enrollment entrypoint creates a baseline and is idempotent across repeated CHAT_CHANGED events', async () => {
+  const f = makeFixture();
+  const first = await f.bridge.ensureCurrentConversationEnrolled();
+  assert.equal(first.status, 'ENROLLED');
+  assert.equal(first.conversationId, 'chat-1');
+  assert.equal(await f.journal.isEnrolled('chat-1'), true);
+  assert.ok(f.chat.every(message => message._logicEngineLifecycle?.messageId));
+  const snapshot = await f.journal.latestIdentitySnapshot('chat-1');
+  assert.equal(snapshot.length, 2);
+
+  const second = await f.bridge.ensureCurrentConversationEnrolled();
+  assert.equal(second.status, 'ALREADY_ENROLLED');
+  assert.deepEqual(await f.journal.latestIdentitySnapshot('chat-1'), snapshot);
+  assert.equal(f.saveCount, 1, 'repeated chat-load events must not rewrite or remint the baseline');
+});
