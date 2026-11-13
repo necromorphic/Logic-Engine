@@ -748,6 +748,7 @@ export function createHostLifecycleJournalProxy({
                 identity: resolved.identity,
                 hostSessionId: resolved.hostSessionId,
                 conversationUuid: resolved.conversationUuid,
+                targetLocator: preparedMutation.target_locator,
               });
             } catch {
               recipientBinding = null;
@@ -793,6 +794,7 @@ export function createHostLifecycleJournalProxy({
             operation: body.operation,
             mutation_digest: body.mutation_digest,
             target_kind: receipt.prepared?.before?.target_kind ?? null,
+            target_locator: receipt.prepared?.before?.target_locator ?? null,
           };
         } else if (session?.logicEngineHostPreparedMutation?.mutation_id === body.mutation_id) {
           delete session.logicEngineHostPreparedMutation;
