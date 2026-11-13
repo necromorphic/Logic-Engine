@@ -508,7 +508,6 @@ export class SillyTavernPatchManager {
     }
 
     const temporaryRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-preflight-'));
-    const temporaryRoot = await mkdtemp(resolve(tmpdir(), 'logic-engine-st-patch-preflight-'));
     try {
       for (const [relativePath, expected] of Object.entries(this.manifest.sourceFiles)) {
         if (typeof expected === 'string') continue;
