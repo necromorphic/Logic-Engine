@@ -418,7 +418,10 @@ export class SillyTavernPatchManager {
     }
     for (const [relativePath, expected] of expectedBackups) {
       const backupInfo = state.backups[relativePath];
-      if (!backupInfo || backupInfo.sha256 !== expected.before
+      const validBackupHash = /^[a-f0-9]{64}$/.test(backupInfo?.sha256 ?? '');
+      const validBaselineHash = backupInfo?.baselineSha256 === expected.before
+        || (backupInfo?.baselineSha256 === undefined && backupInfo?.sha256 === expected.before);
+      if (!backupInfo || !validBackupHash || !validBaselineHash
         || typeof backupInfo.backupPath !== 'string') {
         throw new Error('PATCH_MANAGER_BACKUP_RECORD_INVALID: ' + relativePath);
       }
@@ -568,8 +571,13 @@ export class SillyTavernPatchManager {
       const source = await assertRegularFile(this.stRoot, relativePath);
       const backup = resolve(backupDir, relativePath);
       await mkdir(dirname(backup), { recursive: true });
-      await copyFile(source, backup);
-      backups[relativePath] = { sha256: expected.before, backupPath: relative(this.managerDir, backup) };
+      const backupBytes = await readFile(source);
+      await writeFile(backup, backupBytes, { flag: 'wx', mode: 0o600 });
+      backups[relativePath] = {
+        sha256: canonicalTextHash(backupBytes),
+        baselineSha256: expected.before,
+        backupPath: relative(this.managerDir, backup),
+      };
     }
 
     const journal = {
