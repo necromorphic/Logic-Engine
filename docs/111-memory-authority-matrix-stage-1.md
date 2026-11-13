@@ -154,76 +154,75 @@ Stage 2 must first map these contracts onto existing Core event validation, sour
 **Activation remains DISABLED / FAIL-CLOSED.** This document makes no production-readiness claim.
 
 
-## 9. Pinned SillyTavern source audit — Host delivery boundary
+## 9. Pinned SillyTavern source audit — distinguish inbound delivery from outbound generation
 
-**Source inspected:** `SillyTavern/SillyTavern`, exact pinned commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. This supplements the earlier bounded audit; it does not change the accepted ADR semantics.
+**Source inspected:** `SillyTavern/SillyTavern@06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
-### Reusable extension hooks and call sites
+There are two different directions which must not be conflated:
 
-- `public/scripts/group-chats.js` sets the active character with `setCharacterId(chId)`, then emits `GROUP_MEMBER_DRAFTED(chId)`, then awaits `Generate(...)` for that member. This is the correct existing ST boundary for resolving which group NPC is about to receive a generation request. It proves selection/activation only, not delivery.
-- `public/script.js` emits `CHAT_COMPLETION_SETTINGS_READY` and `GENERATE_AFTER_DATA` before request serialization. The current Logic Engine `registerHostGenerationIdentity()` already subscribes to these same hooks and attaches server-validated conversation/request/generation locators. This is the existing integration seam to extend; prefer the public `SillyTavern.getContext()` event API over importing ST private implementation modules.
-- For Chat Completions, `CHAT_COMPLETION_SETTINGS_READY` carries the prepared settings/request data; `GENERATE_AFTER_DATA` is emitted after generation data is assembled for other API families. A future Host adapter may inspect the recipient-specific outbound payload at these points, but payload inspection alone is not a delivery receipt.
-- `public/script.js` successful streaming finalization emits `MESSAGE_RECEIVED` and `CHARACTER_MESSAGE_RENDERED` from `finalizeIntermediaryMessage()`, then `onFinishStreaming()` saves the chat. However, `onErrorStreaming()` also emits both events. The same message event is also used for command-inserted messages, first messages, swipes and append paths.
-- `MESSAGE_RECEIVED` arguments are the mutable chat-array index and generation type. They are not a stable message/version identity. `CHARACTER_MESSAGE_RENDERED` means UI rendering, not delivery to a specific NPC.
-- `GENERATION_ENDED` is emitted by `hideStopButton()`; it carries chat length and does not distinguish successful completion from an error/stop outcome. It is not a delivery receipt.
-- The pinned `StreamingProcessor.onProgressStreaming()` writes `gen_finished` while processing progress updates, not exclusively after a successful terminal result. Therefore that field alone cannot distinguish a complete response from a stream that later errors.
+- `communication_delivered` in the first evidence wave means an authenticated user's message was persisted in the one-to-one SillyTavern character chat bound to one canonical Core Actor. It is evidence that the message reached the NPC's conversation channel, not that the NPC read, interpreted, believed, or responded to it.
+- NPC-generated assistant output is a different direction and is **not** a `communication_delivered` receipt in this first slice. The hooks `MESSAGE_RECEIVED`, `CHARACTER_MESSAGE_RENDERED`, and `GENERATION_ENDED` remain unsuitable as independent proof of successful generation because error/stop paths and mutable indexes make them ambiguous.
 
-### Result and implementation constraint
+### Existing reusable ST integration points
 
-The pinned source provides reusable recipient-selection and outbound-payload hooks, and the existing Logic Engine Host extension already uses the latter. It does **not** expose a single verified event that proves all of: (1) the exact stable source message was present in the final request for (2) one canonical NPC recipient, and (3) the request crossed the approved delivery boundary with an outcome that excludes failed/aborted attempts.
+- In pinned `public/script.js`, `sendMessageAsUser()` inserts the user message and awaits `saveChatConditional()`. The existing Host lifecycle patch wraps this native mutation with `beforeMutation('message-send')` before the write and `afterMutation('message-send', { createdMessageIndex })` after the save.
+- The lifecycle bridge assigns stable message/version IDs and content digests, records the mutation checkpoint, and posts the bounded PREPARED/COMMITTED event through the existing Host Gateway.
+- The server does not trust the browser's message index or receipt claim. It independently inventories the persisted target chat before and after the mutation and checks the exact logical transition.
+- `GROUP_MEMBER_DRAFTED(chId)` remains a possible recipient-selection hook for future group-chat support, but group membership is not proof of delivery to every member and is not used by the first-wave receipt.
 
-Therefore:
+The earlier suggestion to use `onFinishStreaming()` for this evidence was incorrect: that hook concerns NPC-generated output. The accepted first-wave Host receipt is for the inbound user message persisted into the NPC's character chat.
 
-- Do not promote `GROUP_MEMBER_DRAFTED`, `MESSAGE_RECEIVED`, `CHARACTER_MESSAGE_RENDERED`, `GENERATION_ENDED`, a successful Host HTTP response, or prompt inclusion alone into `communication_delivered`.
-- Extend the existing Host generation hook rather than creating a parallel event bus or importing unstable ST internals. Bind recipient from the current ST group-generation context, capture the final per-recipient request evidence, and correlate it to a stable message reference—not a chat-array index.
-- Before issuing a trusted delivery receipt, establish a terminal success signal at the supported Host boundary. If the pinned ST API cannot provide one, use the smallest explicit, version-pinned ST patch/event needed to expose it, or leave `communication_delivered` unsupported. A receipt must not be minted from an ambiguous error path.
-- ST lifecycle hooks do not provide a World/Simulation event or sensory/perception proof. They cannot be used as the `direct_observation` producer. Keep that type unsupported until the actual trusted World/Simulation producer is identified.
+## 10. Server-side generation dispatch boundary — separate future requirement
 
-**Status:** reusable ST integration points FOUND; compliant `communication_delivered` receipt producer NOT VERIFIED; `direct_observation` producer NOT FOUND in SillyTavern. Stage 1 remains IN PROGRESS and Memory → NPC remains DISABLED / FAIL-CLOSED.
+The repository's pinned-source route audit at `host-adapter/prototype/SILLYTAVERN-1.19.0-SOURCE-ROUTE-AUDIT.md` remains relevant to future protected Memory disclosure, not to the inbound Host delivery receipt:
 
+- Browser `public/scripts/openai.js::sendOpenAIRequest()` awaits `CHAT_COMPLETION_SETTINGS_READY`, then POSTs `/api/backends/chat-completions/generate`. This is a pre-request hook, not the provider-send boundary.
+- Pinned `src/endpoints/backends/chat-completions.js` has 13 provider-specific sender branches with early returns plus a separate OpenAI-compatible fallback fetch.
+- Text Completion paths use a separate server dispatcher and multiple provider-specific fetches.
+- The existing Host Gateway generation hook adds correlation locators but does not intercept or confirm every final provider dispatch.
 
-## 10. Server-side generation dispatch boundary
+Do not use these outbound generation hooks to mint `communication_delivered`. They remain a separate final-disclosure/Memory→NPC gate requirement and must not be expanded in this producer change. No second Gateway, identity mechanism, or dispatch gate is introduced here.
 
-The repository already contains a deeper pinned-source route audit at `host-adapter/prototype/SILLYTAVERN-1.19.0-SOURCE-ROUTE-AUDIT.md` and lifecycle evidence at `host-adapter/prototype/HOST-SCENE-CAPTURE-SOURCE-EVIDENCE.md`. Their findings are relevant to the receipt design and prevent treating a browser hook as a completed Host receipt:
-
-- Browser `public/scripts/openai.js::sendOpenAIRequest()` awaits `CHAT_COMPLETION_SETTINGS_READY`, then POSTs `/api/backends/chat-completions/generate`. This is a pre-request hook and the browser→ST server boundary, not the provider-send boundary.
-- Pinned `src/endpoints/backends/chat-completions.js` dispatches to 13 provider-specific sender functions that return directly; the OpenAI-compatible fallback uses a separate fetch. A hook around only the generic fetch or route entry misses those provider branches.
-- Pinned Text Completion paths use a separate server dispatcher and multiple provider-specific fetches. The source route audit explicitly does not claim a universal generation egress wrapper.
-- The existing Host Gateway generation hook adds correlation locators to browser request data. It does not intercept or confirm the final provider dispatch and must not be described as a delivery receipt.
-
-**Implementation decision:** reuse the existing ST group-recipient context and Host generation correlation seam, but do not mint `communication_delivered` from the browser pre-request hook. The next implementation task is to define one narrowly supported ST generation path and establish a trusted terminal-success receipt on that path, or add the smallest pinned ST patch that emits an unambiguous success signal after the supported dispatch has completed. Any uninstrumented provider/API family remains unsupported and fail-closed. A generic route middleware or generic fetch hook is not acceptable unless the pinned sender inventory proves that every supported outbound path passes through it.
-
-This is a delivery-evidence task, not a final-send authorization redesign. Do not introduce a second identity mechanism, a second Gateway, or a new Core dispatch gate. Reuse existing Host session identity and the existing Core acquisition/commit lifecycle. Keep raw prompt/message text out of the receipt; use stable message/version references and a digest only where the trusted source boundary can verify it.
-
-**Updated Stage 1 status:** ST recipient-selection and request-correlation hooks FOUND; provider-specific dispatch paths identified; trusted terminal-success receipt NOT IMPLEMENTED / NOT VERIFIED. `direct_observation` remains unsupported until a real World/Simulation producer is identified. Memory → NPC remains DISABLED / FAIL-CLOSED.
-
-
-## 11. Host communication-delivery producer implementation
-
-**Implementation added on this branch:** the existing Host lifecycle receipt pipeline now derives a separate `communication_delivered` evidence envelope from a verified native SillyTavern `message-send` mutation. It does not treat a browser event name or prompt inclusion as delivery.
+## 11. Host communication-delivery producer — implementation and trust hardening
 
 ### Supported first slice
 
-The pinned ST `sendMessageAsUser()` path in `public/script.js` persists the user message with `saveChatConditional()` before emitting `MESSAGE_SENT`. The existing lifecycle patch wraps that native operation with PREPARED/COMMITTED Host mutation events. The server-owned `HostLifecycleReceiptStore` independently inventories the persisted chat before and after the mutation and accepts only the exact single-message append transition.
+The pinned ST `sendMessageAsUser()` path in `public/script.js` persists the user message with `saveChatConditional()` before the lifecycle bridge sends the COMMITTED event. The server-owned `HostLifecycleReceiptStore` independently inventories the persisted chat before and after the mutation and accepts only the exact single-message append transition.
 
-A delivery receipt is emitted only if all conditions hold:
+The server issues a `communication_delivered` receipt only if all conditions hold:
 
 1. operation is exactly `message-send`;
-2. target file kind is `character-chat` (not group chat, root chat, or group membership);
-3. before/after logical identities are complete and the after-state contains exactly one appended message, with every previous message unchanged;
+2. target kind is `character-chat`, not group chat, root chat, or a group transcript;
+3. before/after logical identities are complete and after-state contains exactly one appended message, with every previous message unchanged;
 4. the appended message role is `user`, with one stable message ID, one active version ID, and a verified SHA-256 payload digest;
-5. the Host session's PREPARED record binds the same installation, account, session, conversation and target locator;
-6. Core's existing `/v1/host-context/resolve` returns the canonical World/Actor binding for that Host conversation;
-7. the server-owned `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` equals the first directory component of the persisted character-chat locator.
+5. Host PREPARED state binds the same installation, account, session, conversation and target locator;
+6. Core's existing `/v1/host-context/resolve` returns the canonical World/Actor binding for this Host conversation;
+7. server-owned `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` matches the first directory component of the persisted character-chat locator;
+8. both before and after inventories are independently captured on aligned `SHARED_VSS_SNAPSHOT` snapshots, each bound to the exact pinned SillyTavern source and mutation-route-coverage attestations; the two snapshot IDs must differ and the pinned source/route attestations must remain identical.
 
-The emitted envelope contains only sender account identity, canonical Core World/Actor identity, the configured ST character avatar locator, conversation UUID, message/version UUIDs, content digest, channel, timestamp and mutation/event IDs. It contains no message text. It is signed with the existing Host adapter token using the existing Host mutation receipt proof format; no new secret, identity mechanism, event bus, or persistence store is introduced. The delivery envelope is stored inside the existing durable Host lifecycle receipt and returned by the existing lifecycle proxy response.
+The eighth condition was added as trust hardening in this implementation step. Non-Windows independent double scans and missing/changed source attestations may still support diagnostics, but cannot mint trusted `communication_delivered` evidence.
+
+The envelope contains only sender account identity, canonical Core World/Actor identity, configured ST character avatar locator, conversation UUID, message/version UUIDs, content digest, channel, timestamp and mutation/event IDs. It contains no message text. It is signed with the existing Host adapter token and stored inside the existing durable Host lifecycle receipt. No new secret, identity mechanism, event bus, or persistence store is introduced.
+
+### Automated coverage added in this implementation step
+
+New tests in `host-adapter/extension-gateway/tests/st-host-communication-delivery-receipt.test.mjs` cover:
+
+- real `HostLifecycleReceiptStore` before/after inventory and receipt creation;
+- exact one-to-one character-chat + appended user-message semantics;
+- rejection of group chat, assistant output, historical insertion, recipient mismatch and multi-version source messages;
+- rejection of non-VSS scans, mismatched source attestations and reused snapshot IDs;
+- end-to-end Host lifecycle proxy behavior with the real receipt store and HMAC signature verification.
+
+These tests are committed but remain **NOT VERIFIED** until CI executes on the current branch HEAD.
 
 ### Explicit limits
 
-- **One configured ST character per adapter binding** is supported by this first slice. Core's current `ActorBindingService` resolves exactly one active actor per `adapter_id`; it does not map an arbitrary ST character ID to a different actor. The Host therefore requires the explicit server-side `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` deployment mapping. Missing or mismatched mapping yields no delivery receipt. This Stage 1 producer does not change ordinary generation routing. Because Core currently resolves one Actor per adapter, the same recipient mapping must also be enforced on every protected Memory generation path before Memory → NPC can be enabled; that enforcement is not implemented in this step and remains a Stage 2 acceptance requirement.
-- Group chats remain unsupported: a group member selection or shared transcript does not prove delivery to each member.
-- NPC-to-NPC delivery and NPC-generated assistant messages are not inferred from `message-receive`.
-- This is Host evidence production only. No Core acquisition event/schema or Memory→NPC consumer was changed in this step. The receipt is not yet consumed as `knowledge.acquire`; Stage 2 must add the approved Core-side canonical source representation and verify this Host signature/digest before acquisition.
+- One configured ST character per adapter binding is supported by this first slice. Missing or mismatched mapping yields no delivery receipt.
+- Group chats remain unsupported: membership is not delivery to each member.
+- NPC-to-NPC delivery and NPC-generated assistant messages are not inferred from this receipt.
+- This is Host evidence production only. The receipt is not yet consumed as Core `knowledge.acquire`; Stage 2 must add the approved Core-side canonical source representation and verify the Host signature/digest before acquisition.
 - `direct_observation` remains unsupported; SillyTavern has no World/Simulation observation producer.
+- Local SillyTavern generation/save/reload/reopen behavior remains **NOT VERIFIED**. Repository CI cannot replace that live Host test.
 
-**Status:** Host producer implementation PRESENT; automated verification PENDING CI; local SillyTavern end-to-end delivery/restart test NOT VERIFIED; Core acquisition consumption NOT IMPLEMENTED. Memory → NPC remains DISABLED / FAIL-CLOSED.
+**Status:** Host `communication_delivered` producer IMPLEMENTED for the bounded direct-character-chat path; VSS/source-attestation hardening and regression tests ADDED; CI NOT VERIFIED pending run; Core acquisition consumption NOT IMPLEMENTED; `direct_observation` producer NOT FOUND. Memory → NPC remains DISABLED / FAIL-CLOSED.
