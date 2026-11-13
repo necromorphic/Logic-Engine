@@ -123,7 +123,20 @@ Inspected at base HEAD `df129425ecd5fccba45b4d9b7f6ee7c5d3e28d1f`:
 
 **Audit limitation:** this is a bounded repository source audit, not a live deployment inspection. It does not prove that no deployment-specific producer exists outside this repository.
 
-## 7. Stage 1 disposition and Stage 2 entry gate
+## 7. Core implementation readiness audit for Stage 2
+
+The existing Core path supplies reusable lifecycle primitives, but it is not a drop-in implementation of the two new evidence types:
+
+- `src/core/rules.js` accepts `knowledge.acquire` only through the internal Core capability and currently restricts `acquisition_kind` to `author_initial` / `imported`.
+- SQLite migration 13 defines `knowledge_acquisitions.acquisition_kind` with the same two-value CHECK constraint. Adding the two new kinds therefore requires a reviewed schema migration; changing only the JavaScript validator would fail at persistence.
+- The current acquisition effect requires `fact_id`, pins `acquired_value` and canonical fact source-event IDs, and the commit path requires an existing non-destroyed subject plus an active canonical fact. A direct observation or delivery receipt is not automatically a canonical fact. Stage 2 must decide how each producer's source is represented in Core without turning a report into world truth or inventing a fact solely to satisfy the current schema.
+- The event/effect path already provides Core-owned commit, idempotency, causal dependencies, replay, rollback, and derived acquisition projection. Those primitives are candidates for reuse only after the new source semantics fit them.
+- `LogicEngine.readNpcKnowledge()` already binds the read to authenticated adapter/actor request data, purpose, World snapshot, active fact value and source-event set, and rechecks the snapshot before returning. It currently reads the fact-backed acquisition projection.
+- `prepareNpcBeliefContext()` performs per-acquisition visibility checks, rejects incomplete reads, and rechecks snapshot freshness. `recordNpcBeliefTransition()` revalidates before canonical commit and enforces idempotency. The belief path cannot compensate for missing or untrusted acquisition evidence.
+
+**Stage 2 design constraint:** do not simply add `direct_observation` and `communication_delivered` to the existing enum or SQL CHECK. First specify the canonical source representation and source-validity rule for each type. Then decide whether the current fact-backed `knowledge.acquire` effect can represent it without semantic distortion, or whether the smallest Core-owned effect extension is required. Keep source-specific producer validation outside caller-controlled event fields.
+
+## 8. Stage 1 disposition and Stage 2 entry gate
 
 - Semantic ownership and the two evidence meanings: **DEFINED** by the accepted ADR and this contract draft.
 - Exact trusted producer implementation identities/configuration: **NOT VERIFIED**.
