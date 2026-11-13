@@ -741,6 +741,11 @@ test('communication delivery receipt requires one persisted user message in a on
     scope, before, after, recipientBinding: null,
     hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
   }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after,
+    recipientBinding: { ...recipientBinding, host_character_avatar_id: 'different-avatar' },
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
 });
 
 test('Host lifecycle proxy returns a signed delivery receipt only for a prepared character-chat message send', async () => {
