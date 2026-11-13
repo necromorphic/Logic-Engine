@@ -29,50 +29,50 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22.13.0'
       - name: Parse isolated deployment launcher with Windows PowerShell 5.1
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Get-Content -LiteralPath './scripts/Start-LogicEngine-PR870-Test.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Windows PowerShell 5.1 launcher syntax is valid.'
       - name: Parse Host plugin updater with Windows PowerShell 5.1
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Get-Content -LiteralPath './scripts/Update-LogicEngine-Host-Plugin.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Host plugin updater syntax is valid.'
       - name: Parse consolidated Phase 2 acceptance runner with Windows PowerShell 5.1
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $ErrorActionPreference = 'Stop'
           $source = Get-Content -LiteralPath './scripts/Run-Phase2-PC-Acceptance.ps1' -Raw
           [void][scriptblock]::Create($source)
           Write-Output 'Phase 2 acceptance runner syntax is valid.'
       - name: Check local Host acceptance bootstrap syntax
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           node --check ./scripts/bootstrap-windows-host-acceptance.mjs
       - name: Checkout pinned SillyTavern source
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $stRoot = Join-Path $env:RUNNER_TEMP 'SillyTavern'
           git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git $stRoot
           git -C $stRoot checkout 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           "ST_ROOT=$stRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install plugin copy and managed patch
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           ./scripts/install-sillytavern-host-plugin.ps1 -SillyTavernRoot $env:ST_ROOT
       - name: Verify installed plugin, browser extension and managed patch
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
           if (-not (Test-Path (Join-Path $pluginRoot 'index.mjs'))) { throw 'PLUGIN_ENTRYPOINT_MISSING' }
@@ -92,7 +92,7 @@ jobs:
             throw 'BROWSER_EXTENSION_AUTO_CAPTURE_ENTRYPOINT_MISSING'
           }
       - name: Verify upgrade from the previous Host candidate refreshes the complete ST patch bundle
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         timeout-minutes: 15
         run: |
           $ErrorActionPreference = 'Stop'
@@ -162,7 +162,7 @@ jobs:
           if (-not $bridge.Contains('persistedInventoryDiagnostics')) { throw 'INVENTORY_DIAGNOSTICS_MISSING_AFTER_UPGRADE' }
           Write-Output 'Previous Host candidate upgraded to the current complete patch bundle.'
       - name: Verify installer refuses an existing plugin directory without mutation
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) { exit $LASTEXITCODE }"
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
         run: |
           $pluginRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine'
           $gatewayRoot = Join-Path $env:ST_ROOT 'plugins/logic-engine-extension-gateway'
