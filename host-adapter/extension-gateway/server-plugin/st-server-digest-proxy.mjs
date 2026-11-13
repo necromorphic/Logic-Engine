@@ -848,7 +848,8 @@ export function createHostLifecycleJournalProxy({
           conversation_uuid: resolved.conversationUuid,
         }, inventoryTimeoutMs);
         const inventoryReady = inventoryResult.status === 200
-          && inventoryResult.payload?.inventory_status === 'READY';
+          && inventoryResult.payload?.inventory_status === 'READY'
+          && inventoryResult.payload?.acquisition?.status === 'committed';
         return response.status(result.status).json({
           ...result.payload,
           communication_delivery_status: inventoryReady ? 'READY' : 'NON_READY',
