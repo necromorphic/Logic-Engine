@@ -1299,14 +1299,18 @@ test('chat-load enrollment entrypoint creates a baseline and is idempotent acros
 });
 
 
-test('installed SillyTavern patch automatically enrolls and captures inventory on CHAT_CHANGED', async () => {
+test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without using full-root inventory as identity lookup', async () => {
   const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
   const bridgeSource = await readFile(new URL('../st-lifecycle-bridge.mjs', import.meta.url), 'utf8');
-  assert.match(patch, /eventSource\.on\(event_types\.CHAT_CHANGED, async changedLocator => \{/);
-  assert.match(patch, /await captureLogicEngineHostChatOnLoad\(changedLocator\)/);
-  assert.match(patch, /const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled\(\)/);
-  assert.match(patch, /const inventory = await window.logicEngineHostLifecycle.syncCurrentDigestInventory\(\)/);
-  assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\(\)/);
-  assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
-  assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
-});
+  assert.match(patch, /eventSource\\.on\\(event_types\\.CHAT_CHANGED, async changedLocator => \\{/);
+  assert.match(patch, /await captureLogicEngineHostChatOnLoad\\(changedLocator\\)/);
+  assert.match(patch, /const enrollment = await window\\.logicEngineHostLifecycle\\.ensureCurrentConversationEnrolled\\(\\)/);
+  assert.match(patch, /url: '\\/api\\/chats\\/group\\/get'/);
+  assert.match(patch, /url: '\\/api\\/chats\\/get'/);
+  assert.match(patch, /persistedChat\\[0\\]\\?\\.chat_metadata\\?\\.logic_engine_conversation_id === conversationUuid/);
+  assert.doesNotMatch(patch, /verifyPersistedIdentity: async conversationUuid => \\[\\s\\S\\]\\{0,1200\\}\\/api\\/plugins\\/logic-engine-extension-gateway\\/inventory/);
+  assert.doesNotMatch(patch, /const inventory = await window\\.logicEngineHostLifecycle\\.syncCurrentDigestInventory\\(\\)/);
+  assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\\(\\)/);
+  assert.match(bridgeSource, /await assertIdentitySnapshotMatches\\(conversationId, chat\\)/);
+  assert.match(bridgeSource, /await journal\\.verifyIntegrity\\(conversationId\\)/);
+});;
