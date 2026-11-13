@@ -496,6 +496,8 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
   assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\\r\\n/g, '\\n'), patched);
   assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), hostPatched,
     'Final-Send installation must preserve the attested Host overlay');
+  assert.equal((await bundled.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED',
+    'read-only inspection must verify the Host-overlay baseline backup');
 
   assert.equal((await bundled.execute('uninstall')).status, 'ROLLED_BACK');
   assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
