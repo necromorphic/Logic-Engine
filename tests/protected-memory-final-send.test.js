@@ -233,10 +233,6 @@ test('protected NPC content is serialized into the exact outbound request and Ho
       contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
       systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
     }), parsed => parsed.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n')],
-    ['text-completions', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
-    ['kobold', JSON.stringify({ prompt: 'hello', logic_engine_context_size: 9000 }), parsed => parsed.prompt],
-    ['novelai-text', JSON.stringify({ input: 'hello', logic_engine_generation_type: 'untrusted' }), parsed => parsed.input],
-    ['horde-text', JSON.stringify({ prompt: 'hello', logic_engine_request_id: 'untrusted' }), parsed => parsed.prompt],
   ]) {
     let dispatched;
     let outbound;
@@ -299,6 +295,38 @@ test('Gemini protected send fails closed when its pinned contents wire shape is 
     hostRequestContext,
   }), /PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING/);
   assert.equal(transportCalls, 0);
+});
+
+test('role-less generation routes fail closed when protected Memory would be injected', () => {
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'must never enter a flat prompt' },
+    }],
+  };
+  const routes = [
+    ['text-completions', { prompt: 'existing prompt' }],
+    ['kobold', { prompt: 'existing prompt' }],
+    ['novelai-text', { input: 'existing prompt' }],
+    ['horde-text', { prompt: 'existing prompt' }],
+  ];
+  for (const [senderRoute, body] of routes) {
+    let transportCalls = 0;
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: { dispatchProtectedRequest: request => request.transport() },
+      resolveProtectedMemory: () => protectedContext,
+      fetchImpl: async () => { transportCalls += 1; return { status: 200 }; },
+    });
+    assert.throws(() => finalSend({
+      senderRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(JSON.stringify(body)),
+      hostRequestContext,
+    }), /PROTECTED_MEMORY_FINAL_SEND_ROLE_BOUNDARY_UNSUPPORTED/, senderRoute);
+    assert.equal(transportCalls, 0, senderRoute);
+  }
 });
 
 test('retrieved Memory prompt injection and fake roles remain inert JSON data in every wire shape', async () => {
@@ -410,16 +438,6 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
         assert.deepEqual(parsed.contents.map(item => item.role), ['user']);
         const parts = parsed.contents[0].parts;
         return JSON.parse(parts[parts.length - 1].text);
-      },
-    },
-    {
-      senderRoute: 'text-completions',
-      body: { prompt: 'TRUSTED SETUP\\n\\nREAL USER REQUEST' },
-      readEnvelope: parsed => {
-        assert.ok(parsed.prompt.startsWith('TRUSTED SETUP\\n\\nREAL USER REQUEST'));
-        const marker = parsed.prompt.indexOf('{"type":"logic_engine_untrusted_memory"');
-        assert.ok(marker > 0);
-        return JSON.parse(parsed.prompt.slice(marker));
       },
     },
   ];
