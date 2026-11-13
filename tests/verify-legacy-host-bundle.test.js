@@ -164,7 +164,7 @@ test('current Host bundle identity is pinned for idempotent repeat installation'
 });
 
 test('current identity pin still requires the manifest and every installed file to verify', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'logic-engine-current-bundle-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'logic-engine-current-bundle-'));
   try {
     const relativePath = 'public/script.js';
     const bytes = Buffer.from("export const host = 'current';\\n", 'utf8');
