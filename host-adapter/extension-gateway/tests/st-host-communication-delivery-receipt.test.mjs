@@ -8,6 +8,8 @@ import {
   HostLifecycleReceiptStore,
   createCommunicationDeliveryReceipt,
 } from '../server-plugin/st-host-lifecycle-receipt-store.mjs';
+import { createHostLifecycleJournalProxy } from '../server-plugin/st-server-digest-proxy.mjs';
+import { verifyHostMutationReceiptSignature } from '../server-plugin/st-host-mutation-receipt-signature.mjs';
 
 const INSTALLATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ACCOUNT = '22222222-2222-4222-8222-222222222222';
@@ -278,4 +280,110 @@ test('delivery evidence remains unavailable for non-VSS scans or changed pinned-
     ...base,
     after: { ...base.after, snapshot_proof: { ...base.after.snapshot_proof, snapshot_id: 'snapshot-before', source_snapshot_id: 'snapshot-before' } },
   }), null);
+});
+
+
+test('authenticated Host lifecycle proxy returns the signed receipt from the real VSS-gated receipt store', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'st-host-delivery-proxy-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dataRoot = join(root, 'data');
+  const directoriesForTest = {
+    root: dataRoot,
+    chats: join(dataRoot, 'chats'),
+    groups: join(dataRoot, 'groups'),
+    groupChats: join(dataRoot, 'groupChats'),
+  };
+  const { mkdirSync } = await import('node:fs');
+  for (const directory of Object.values(directoriesForTest)) mkdirSync(directory, { recursive: true });
+  const previousDataRoot = globalThis.DATA_ROOT;
+  globalThis.DATA_ROOT = dataRoot;
+  t.after(() => {
+    if (previousDataRoot === undefined) delete globalThis.DATA_ROOT;
+    else globalThis.DATA_ROOT = previousDataRoot;
+  });
+
+  const beforeMessages = [message(MESSAGE_OLD, 'assistant', 'previous NPC reply', VERSION_OLD)];
+  const afterMessages = [...beforeMessages, message(MESSAGE_NEW, 'user', 'new user communication', VERSION_NEW)];
+  let scan = 0;
+  const states = [
+    { fileIdentity: '201', content: 'proxy-before', snapshotId: 'proxy-snapshot-before', messages: beforeMessages },
+    { fileIdentity: '201', content: 'proxy-after', snapshotId: 'proxy-snapshot-after', messages: afterMessages },
+  ];
+  const receiptStore = new HostLifecycleReceiptStore({
+    directory: join(root, 'receipts'),
+    hostCommit: HOST_COMMIT,
+    enumerate: async () => inventory(states[Math.min(scan++, states.length - 1)]),
+    sourceEvidenceProvider: async () => ({
+      status: 'VERIFIED',
+      source_manifest_sha256: digest('pinned-source-manifest'),
+      mutation_coverage_manifest_sha256: digest('mutation-coverage-manifest'),
+      mutation_coverage_source_files_sha256: digest('mutation-coverage-source-files'),
+    }),
+  });
+  const config = {
+    LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:52087',
+    LOGIC_ENGINE_API_TOKEN: 'a'.repeat(32),
+    LOGIC_ENGINE_ADAPTER_ID: recipientBinding.adapter_id,
+    LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(32),
+  };
+  const proxy = createHostLifecycleJournalProxy({
+    env: config,
+    identityStore: {
+      assertOutsideRoot: async () => {},
+      resolveAuthenticatedAccount: async () => ({
+        host_installation_id: INSTALLATION,
+        authenticated_account_id: ACCOUNT,
+      }),
+    },
+    receiptStore,
+    resolveCommunicationRecipient: async ({ targetLocator }) => {
+      assert.equal(targetLocator, 'avatar-main/chat-1.jsonl');
+      return recipientBinding;
+    },
+    fetchImpl: async () => ({
+      status: 201,
+      json: async () => ({ lifecycle: { status: 'appended' } }),
+    }),
+  });
+  const request = {
+    user: { profile: { handle: 'alice' }, directories: directoriesForTest },
+    session: { logicEngineSessionId: SESSION, logicEngineSessionHandle: 'alice', handle: 'alice' },
+    body: {
+      conversation_id: [INSTALLATION, ACCOUNT, CONVERSATION].join(':'),
+      event_id: PREPARED_EVENT,
+      event_type: 'MUTATION_PREPARED',
+      mutation_id: MUTATION,
+      operation: 'message-send',
+      mutation_digest: digest('message-send-operation'),
+      occurred_at: occurredAt,
+    },
+  };
+  const response = () => ({
+    statusCode: 200,
+    payload: null,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  });
+
+  const preparedResponse = response();
+  await proxy.append(request, preparedResponse);
+  assert.equal(preparedResponse.statusCode, 201);
+  assert.equal(request.session.logicEngineHostPreparedMutation.target_kind, 'character-chat');
+
+  request.body = { ...request.body, event_id: TERMINAL_EVENT, event_type: 'MUTATION_COMMITTED' };
+  const committedResponse = response();
+  await proxy.append(request, committedResponse);
+
+  const envelope = committedResponse.payload.communication_delivery_receipt;
+  assert.equal(committedResponse.statusCode, 201);
+  assert.equal(scan, 2);
+  assert.equal(envelope.evidence_type, 'communication_delivered');
+  assert.equal(envelope.delivery.source.message_id, MESSAGE_NEW);
+  assert.equal(envelope.delivery.recipient.actor_id, 'npc-main');
+  assert.equal(verifyHostMutationReceiptSignature({
+    adapterId: recipientBinding.adapter_id,
+    adapterToken: config.LOGIC_ENGINE_ADAPTER_TOKEN,
+    event: envelope.proof,
+  }), true);
+  assert.equal(JSON.stringify(envelope).includes('new user communication'), false);
 });
