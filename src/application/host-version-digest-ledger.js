@@ -146,9 +146,15 @@ export class HostVersionDigestLedger {
       .all(snapshot.world_id, snapshot.conversation_id);
     const expected = snapshot.versions.map((v) => ({
       world_id: v.world_id, conversation_id: v.conversation_id, message_id: v.message_id,
-      version_id: v.version_id, content_sha256: v.content_sha256, parent_version_id: v.parent_version_id, lineage_status: 'VERIFIED', lifecycle: v.deleted ? 'tombstoned' : 'present'
+      version_id: v.version_id, content_sha256: v.content_sha256, parent_version_id: v.parent_version_id,
+      lineage_status: 'VERIFIED', lifecycle: v.deleted ? 'tombstoned' : 'present'
     })).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
-    if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+    const expectedKeys = new Set(expected.map(row => JSON.stringify(tuple(row))));
+    // A complete trusted snapshot may omit versions that were deleted since the
+    // prior snapshot. Retained tombstone rows are expected history, not drift.
+    const relevantStored = stored.filter(row => row.lifecycle === 'present'
+      || expectedKeys.has(JSON.stringify(tuple(row))));
+    if (JSON.stringify(relevantStored) !== JSON.stringify(expected)) return false;
     const pointers = this.db.prepare('SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
       .all(snapshot.world_id, snapshot.conversation_id);
     const expectedPointers = snapshot.versions.filter((v) => v.active && !v.deleted)
@@ -591,9 +597,14 @@ export class HostVersionDigestLedger {
       const now = new Date().toISOString();
       for (const row of known) {
         const key = JSON.stringify([row.world_id, row.conversation_id, row.message_id, row.version_id]);
-        if (!seen.has(key)) {
-          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_INVENTORY_DISAPPEARANCE', now, snapshotDigest);
-          return { status: 'non_ready', code: 'HOST_INVENTORY_DISAPPEARANCE' };
+        if (!seen.has(key) && row.lifecycle !== 'tombstoned') {
+          // The snapshot has already passed the trusted completeness verifier.
+          // Absence is therefore an authoritative deletion: retain the immutable
+          // version row as a tombstone and clear its active pointer.
+          this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
+            .run(now, now, row.world_id, row.conversation_id, row.message_id, row.version_id);
+          this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+            .run(row.world_id, row.conversation_id, row.message_id, row.version_id);
         }
       }
       // Preflight the whole snapshot before applying any version mutations. A conflict
