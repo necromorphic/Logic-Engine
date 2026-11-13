@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
@@ -150,12 +150,13 @@ const hostAssertionNonceStore = new HostAssertionNonceStore({
   coordinatorPath,
   providerDatabasePath: memoryProviderPath === undefined ? null : resolve(memoryProviderPath),
 });
-// This deny-only verifier is deliberately not source authority. Until the trusted
-// Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
+// Only a signed, server-produced Host delivery receipt may establish a complete
+// conversation inventory. The browser-facing reconciliation route has no such
+// attestation and therefore remains deny-only.
 const hostVersionLedger = new HostVersionDigestLedger({
   path: hostVersionLedgerPath,
   coordinatorPath,
-  verifyInventorySnapshot: async () => false,
+  verifyInventorySnapshot: async snapshot => verifyHostVersionInventorySnapshot(snapshot),
 });
 let hostRootIdentityRegistry;
 try {
@@ -168,9 +169,11 @@ let hostRootInventoryJournal = null;
 let resolveHostRootIdentity = null;
 const hostLifecycleAuthorityId = process.env.ENGINE_HOST_AUTHORITY_ID;
 const hostLifecycleAuthorityGeneration = Number(process.env.ENGINE_HOST_AUTHORITY_GENERATION || '0');
-const canonicalHostReceiptProof = value => value && typeof value === 'object'
-  ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
-  : JSON.stringify(value);
+const canonicalHostReceiptProof = value => Array.isArray(value)
+  ? '[' + value.map(canonicalHostReceiptProof).join(',') + ']'
+  : value && typeof value === 'object'
+    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalHostReceiptProof(value[key])).join(',') + '}'
+    : JSON.stringify(value);
 function verifyHostRootInventoryAttestation({ attestation, identity }) {
   const secret = adapterTokens?.[identity?.adapter_id];
   if (typeof secret !== 'string' || secret.length < 16
@@ -204,6 +207,113 @@ function verifyHostLifecycleReceipt({ event, identity }) {
   const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
   const supplied = Buffer.from(event.receipt_signature, 'hex');
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function verifyHostVersionInventorySnapshot(snapshot) {
+  const exactKeys = (value, keys) => value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).sort().join('|') === [...keys].sort().join('|');
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const DIGEST = /^[a-f0-9]{64}$/;
+  const attestation = snapshot?.attestation;
+  if (!exactKeys(attestation, ['adapter_id', 'protocol_version', 'evidence_type', 'delivery',
+    'conversation_inventory', 'receipt_digest', 'proof'])
+    || !Object.hasOwn(adapterTokens, attestation.adapter_id)
+    || attestation.protocol_version !== 1
+    || attestation.evidence_type !== 'communication_delivered'
+    || !exactKeys(attestation.conversation_inventory, ['protocol_version', 'complete'])
+    || attestation.conversation_inventory.protocol_version !== 1
+    || attestation.conversation_inventory.complete !== true
+    || !exactKeys(attestation.delivery, [
+      'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
+      'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
+      'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+    ])
+    || !exactKeys(attestation.delivery.sender, ['principal_type', 'principal_id'])
+    || !exactKeys(attestation.delivery.recipient, ['world_id', 'actor_id', 'actor_type', 'host_character_avatar_id'])
+    || !exactKeys(attestation.delivery.source, ['message_id', 'version_id', 'content_sha256'])
+    || !exactKeys(attestation.proof, [
+      'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+      'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
+      'occurred_at', 'receipt_signature',
+    ])) return false;
+
+  const delivery = attestation.delivery;
+  const proof = attestation.proof;
+  if (snapshot.complete !== true || !Array.isArray(snapshot.versions)
+    || snapshot.versions.length === 0 || snapshot.versions.length > 25000
+    || delivery.protocol_version !== 1
+    || delivery.evidence_type !== 'communication_delivered'
+    || delivery.producer !== 'logic-engine-host-delivery-receipt-v1'
+    || delivery.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    || delivery.channel !== 'sillytavern.character_chat'
+    || delivery.status !== 'delivered'
+    || delivery.sender.principal_type !== 'host_authenticated_account'
+    || delivery.sender.principal_id !== delivery.authenticated_account_id
+    || delivery.recipient.world_id !== snapshot.world_id
+    || !UUID.test(delivery.host_installation_id ?? '')
+    || !UUID.test(delivery.authenticated_account_id ?? '')
+    || !UUID.test(delivery.host_session_id ?? '')
+    || !UUID.test(delivery.conversation_uuid ?? '')
+    || !UUID.test(delivery.host_event_id ?? '')
+    || !UUID.test(delivery.mutation_id ?? '')
+    || !UUID.test(delivery.source.message_id ?? '')
+    || !UUID.test(delivery.source.version_id ?? '')
+    || !DIGEST.test(delivery.source.content_sha256 ?? '')
+    || !DIGEST.test(proof.mutation_digest ?? '')
+    || !DIGEST.test(attestation.receipt_digest ?? '')
+    || proof.event_type !== 'MUTATION_COMMITTED'
+    || proof.operation !== 'message-send'
+    || proof.event_id !== delivery.host_event_id
+    || proof.mutation_id !== delivery.mutation_id
+    || proof.host_installation_id !== delivery.host_installation_id
+    || proof.authenticated_account_id !== delivery.authenticated_account_id
+    || proof.host_session_id !== delivery.host_session_id
+    || proof.conversation_uuid !== delivery.conversation_uuid
+    || proof.occurred_at !== delivery.delivered_at
+    || proof.receipt_digest !== attestation.receipt_digest
+    || snapshot.conversation_id !== [
+      delivery.host_session_id, delivery.host_installation_id, delivery.conversation_uuid,
+    ].join(':')) return false;
+
+  const versions = [];
+  const activeByMessage = new Map();
+  for (const version of snapshot.versions) {
+    if (!version || typeof version !== 'object' || Array.isArray(version)
+      || !UUID.test(version.message_id ?? '') || !UUID.test(version.version_id ?? '')
+      || (version.parent_version_id !== null && !UUID.test(version.parent_version_id ?? ''))
+      || !DIGEST.test(version.content_sha256 ?? '')
+      || typeof version.active !== 'boolean' || version.deleted !== false
+      || version.world_id !== snapshot.world_id || version.conversation_id !== snapshot.conversation_id) return false;
+    const activeCount = activeByMessage.get(version.message_id) ?? 0;
+    activeByMessage.set(version.message_id, activeCount + (version.active ? 1 : 0));
+    versions.push({
+      message_id: version.message_id,
+      version_id: version.version_id,
+      parent_version_id: version.parent_version_id,
+      content_sha256: version.content_sha256,
+      active: version.active,
+      deleted: version.deleted,
+    });
+  }
+  if ([...activeByMessage.values()].some(count => count !== 1)) return false;
+  if (!versions.some(version => version.message_id === delivery.source.message_id
+    && version.version_id === delivery.source.version_id
+    && version.content_sha256 === delivery.source.content_sha256
+    && version.active === true && version.deleted === false)) return false;
+
+  const fullDelivery = {
+    ...delivery,
+    conversation_inventory: {
+      protocol_version: attestation.conversation_inventory.protocol_version,
+      complete: attestation.conversation_inventory.complete,
+      versions,
+    },
+  };
+  const receiptDigest = createHash('sha256')
+    .update(canonicalHostReceiptProof(fullDelivery), 'utf8').digest('hex');
+  if (receiptDigest !== attestation.receipt_digest
+    || !verifyHostLifecycleReceipt({ event: proof, identity: { adapter_id: attestation.adapter_id } })) return false;
+  return true;
 }
 
 function bindHostLifecycleAuthority(resolved, { requireComplete = false } = {}) {
