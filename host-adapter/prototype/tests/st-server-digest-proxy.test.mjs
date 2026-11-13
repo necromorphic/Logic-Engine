@@ -751,6 +751,7 @@ test('Host lifecycle proxy returns a signed delivery receipt only for a prepared
   const recipientBinding = {
     adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
     conversation_id: coreConversationId,
+    host_character_avatar_id: 'avatar-main',
     world_id: 'world-main',
     actor_id: 'npc-alice',
     actor_type: 'npc',
