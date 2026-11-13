@@ -311,6 +311,80 @@ function serializeUntrustedMemoryContext(context) {
   });
 }
 
+function appendUntrustedMemoryToMessage(message, untrustedMemory) {
+  if (!message || typeof message !== 'object' || Array.isArray(message) || message.role !== 'user') {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_USER_MESSAGE_INVALID');
+  }
+  if (typeof message.content === 'string') {
+    return { ...message, content: message.content + '\\n\\n' + untrustedMemory };
+  }
+  if (Array.isArray(message.content)) {
+    const content = new Array(message.content.length + 1);
+    for (let index = 0; index < message.content.length; index += 1) content[index] = message.content[index];
+    content[message.content.length] = { type: 'text', text: untrustedMemory };
+    return { ...message, content };
+  }
+  throw new Error('PROTECTED_MEMORY_FINAL_SEND_USER_CONTENT_UNSUPPORTED');
+}
+
+function appendUntrustedMemoryToChatMessages(body, untrustedMemory) {
+  if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
+  const messages = body.messages;
+  let userIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index]?.role === 'user') {
+      userIndex = index;
+      break;
+    }
+  }
+  const updated = new Array(messages.length + (userIndex === -1 ? 1 : 0));
+  for (let index = 0; index < messages.length; index += 1) {
+    updated[index] = index === userIndex
+      ? appendUntrustedMemoryToMessage(messages[index], untrustedMemory)
+      : messages[index];
+  }
+  if (userIndex === -1) {
+    let insertionIndex = 0;
+    while (insertionIndex < messages.length && messages[insertionIndex]?.role === 'system') insertionIndex += 1;
+    for (let index = messages.length; index > insertionIndex; index -= 1) updated[index] = updated[index - 1];
+    updated[insertionIndex] = { role: 'user', content: untrustedMemory };
+  }
+  body.messages = updated;
+}
+
+function appendUntrustedMemoryToGoogleContents(body, untrustedMemory) {
+  if (!Array.isArray(body.contents)) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING');
+  }
+  const contents = body.contents;
+  let userIndex = -1;
+  for (let index = 0; index < contents.length; index += 1) {
+    if (contents[index]?.role === 'user') {
+      userIndex = index;
+      break;
+    }
+  }
+  if (userIndex === -1) {
+    const inserted = new Array(contents.length + 1);
+    inserted[0] = { role: 'user', parts: [{ text: untrustedMemory }] };
+    for (let index = 0; index < contents.length; index += 1) inserted[index + 1] = contents[index];
+    body.contents = inserted;
+    return;
+  }
+  const userContent = contents[userIndex];
+  if (!Array.isArray(userContent.parts)) {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_GOOGLE_USER_PARTS_INVALID');
+  }
+  const parts = new Array(userContent.parts.length + 1);
+  for (let index = 0; index < userContent.parts.length; index += 1) parts[index] = userContent.parts[index];
+  parts[userContent.parts.length] = { text: untrustedMemory };
+  const updated = new Array(contents.length);
+  for (let index = 0; index < contents.length; index += 1) {
+    updated[index] = index === userIndex ? { ...userContent, parts } : contents[index];
+  }
+  body.contents = updated;
+}
+
 function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
   let body;
   try { body = JSON.parse(requestInit.body); } catch {
@@ -326,29 +400,12 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
     if (arrayContains(GOOGLE_CONTENT_ROUTES, senderRoute)) {
       // SillyTavern 1.19.0 converts MakerSuite/Vertex prompts to the Gemini
       // wire shape: contents[] plus a separate systemInstruction field.
-      // Memory belongs only in a user content part; systemInstruction is left
-      // byte-for-byte untouched.
-      if (!Array.isArray(body.contents)) {
-        throw new Error('PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING');
-      }
-      const contents = body.contents;
-      const inserted = new Array(contents.length + 1);
-      inserted[0] = { role: 'user', parts: [{ text: untrustedMemory }] };
-      for (let index = 0; index < contents.length; index += 1) inserted[index + 1] = contents[index];
-      body.contents = inserted;
+      // Append a data part to an existing user turn; never touch systemInstruction.
+      appendUntrustedMemoryToGoogleContents(body, untrustedMemory);
     } else if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
-      if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
-      let insertionIndex = 0;
-      while (insertionIndex < body.messages.length
-        && body.messages[insertionIndex]?.role === 'system') insertionIndex += 1;
-      const messages = body.messages;
-      const inserted = new Array(messages.length + 1);
-      for (let index = 0; index < insertionIndex; index += 1) inserted[index] = messages[index];
-      inserted[insertionIndex] = { role: 'user', content: untrustedMemory };
-      for (let index = insertionIndex; index < messages.length; index += 1) {
-        inserted[index + 1] = messages[index];
-      }
-      body.messages = inserted;
+      // Keep the provider's role sequence unchanged. Memory is appended to the
+      // first user message, not emitted as a new message or a system prompt.
+      appendUntrustedMemoryToChatMessages(body, untrustedMemory);
     } else {
       // Text-completion backends have no role-bearing message structure.
       // Append a JSON-encoded data envelope after the existing prompt instead
