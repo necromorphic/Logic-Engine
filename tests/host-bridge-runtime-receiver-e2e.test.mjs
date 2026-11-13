@@ -585,7 +585,17 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       requestInit: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request.body),
+        // The Host request body is the ST frontend envelope; Final-Send
+        // intercepts after the pinned MakerSuite backend has converted it to
+        // Google's actual contents[] + systemInstruction provider wire shape.
+        body: JSON.stringify({
+          model: 'acceptance-fake-provider',
+          contents: [{
+            role: 'user',
+            parts: [{ text: 'Generate a response using relevant memories.' }],
+          }],
+          systemInstruction: { parts: [{ text: 'trusted test system instruction' }] },
+        }),
       },
       stream: false,
       transport: async (url, init) => {
