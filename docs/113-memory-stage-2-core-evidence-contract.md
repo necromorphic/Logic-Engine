@@ -180,3 +180,24 @@ Belief transitions continue to reference Core acquisition IDs only. They must no
 - Stage 2 tests: **NOT RUN / NOT DUE**.
 - Installed SillyTavern/provider/runtime tests: **NOT DUE**.
 - Memory→NPC activation: **DISABLED / FAIL-CLOSED**.
+
+
+## 10. Host → Core receipt transport audit
+
+The existing Host receipt producer is present, but the signed delivery evidence is not yet a Core acquisition input:
+
+- `HostLifecycleReceiptStore` creates `communication_delivery` only for the verified one-message append in a one-to-one `character-chat`. It binds the canonical recipient World/Actor, authenticated account, stable message/version IDs, content digest, `delivered` status and Host event/mutation IDs. It carries no raw message text.
+- The Host proxy hashes the exact `communication_delivery` object and signs a proof with the configured adapter token. The signature binds adapter ID, Host installation/account/session, conversation, event ID/type, mutation ID, operation, mutation digest, delivery receipt digest and timestamp.
+- Core's `POST /v1/host-lifecycle/events` accepts only the digest-only lifecycle envelope. The delivery object itself is not accepted or persisted by that route. Repository source inspection found no Core route that accepts `communication_delivery_receipt`.
+- Core's `verifyHostLifecycleReceipt` verifies the lifecycle event signature using the configured adapter secret, but this verifies the lifecycle envelope; it does not make the separate delivery payload available to Core.
+- `HostVersionDigestLedger` has capture/reconcile and inventory-state operations, but no public read operation for a specific message/version or active pointer. More importantly, `src/index.js` currently constructs it with `verifyInventorySnapshot: async () => false`. Therefore complete message-version inventory can never reach `READY` in this composition. A point-in-time delivery receipt alone cannot prove that the version remains active at later retrieval time.
+
+### Stage 2B prerequisite and safe sequence
+
+1. Add a bounded Core receipt-ingress contract that accepts only the signed receipt envelope, verifies its HMAC with the configured adapter principal, recomputes the delivery digest, checks the exact event/operation/status and resolves the existing adapter conversation binding to the same canonical World/Actor. No browser-supplied producer identity is trusted.
+2. Add a read-only Host version lookup on the existing `HostVersionDigestLedger` that returns the exact tuple and active-pointer state only when that conversation inventory is `READY`. It must not manufacture readiness or infer missing versions.
+3. Keep acquisition non-ready until the existing inventory verifier can legitimately establish `READY`. Do not bypass the current deny-only verifier, trust a single capture response, or infer completeness from the lifecycle receipt.
+4. Only after those checks can the internal Core evidence-ingestion method create the canonical acquisition event. The source evidence is the signed delivery receipt; the Host message body remains outside Core and must later be retrieved from Provider only by matching the immutable message/version/digest binding.
+5. Keep `direct_observation` unsupported until a real trusted World/Simulation producer is implemented.
+
+This identifies a real implementation dependency in the existing Host/Core composition. It is not a Provider or model-backend task, and it does not justify starting installed SillyTavern tests now.
