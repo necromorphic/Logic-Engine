@@ -166,6 +166,29 @@ export function createCommunicationDeliveryReceipt({ scope, before, after, recip
     || after?.target_kind !== 'character-chat'
     || !recipientBinding || typeof recipientBinding !== 'object' || Array.isArray(recipientBinding)) return null;
 
+  // A delivery receipt is trusted acquisition evidence, not a best-effort
+  // lifecycle diagnostic. Require the same pinned source/mutation-coverage
+  // attestations and independently captured, aligned VSS snapshots that the
+  // Host readiness contract requires. Non-Windows double scans remain useful
+  // for diagnostics, but cannot mint a trusted communication_delivered claim.
+  const validSnapshotProof = proof => proof && proof.host_commit === hostCommit
+    && proof.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+    && typeof proof.snapshot_id === 'string' && proof.snapshot_id.trim() === proof.snapshot_id
+    && proof.snapshot_id.length > 0 && proof.snapshot_id.length <= 512
+    && proof.source_snapshot_id === proof.snapshot_id
+    && DIGEST.test(proof.snapshot_sha256 ?? '')
+    && DIGEST.test(proof.source_inventory_sha256 ?? '')
+    && DIGEST.test(proof.source_manifest_sha256 ?? '')
+    && DIGEST.test(proof.mutation_coverage_manifest_sha256 ?? '')
+    && DIGEST.test(proof.mutation_coverage_source_files_sha256 ?? '');
+  const beforeProof = before.snapshot_proof;
+  const afterProof = after.snapshot_proof;
+  if (!validSnapshotProof(beforeProof) || !validSnapshotProof(afterProof)
+    || beforeProof.snapshot_id === afterProof.snapshot_id
+    || beforeProof.source_manifest_sha256 !== afterProof.source_manifest_sha256
+    || beforeProof.mutation_coverage_manifest_sha256 !== afterProof.mutation_coverage_manifest_sha256
+    || beforeProof.mutation_coverage_source_files_sha256 !== afterProof.mutation_coverage_source_files_sha256) return null;
+
   const coreConversationId = [
     scope.host_session_id, scope.host_installation_id, scope.conversation_uuid,
   ].join(':');
