@@ -152,3 +152,31 @@ Stage 1 cannot be marked PASS until each type has exactly one concrete trusted p
 Stage 2 must first map these contracts onto existing Core event validation, source validity, actor binding, snapshot, idempotency, and acquisition lifecycle. Reuse existing Core mechanisms where their semantics fit. Do not create a parallel event log, revision cursor, authorization system, acquisition store, or dispatch gate.
 
 **Activation remains DISABLED / FAIL-CLOSED.** This document makes no production-readiness claim.
+
+
+## 9. Pinned SillyTavern source audit — Host delivery boundary
+
+**Source inspected:** `SillyTavern/SillyTavern`, exact pinned commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. This supplements the earlier bounded audit; it does not change the accepted ADR semantics.
+
+### Reusable extension hooks and call sites
+
+- `public/scripts/group-chats.js` sets the active character with `setCharacterId(chId)`, then emits `GROUP_MEMBER_DRAFTED(chId)`, then awaits `Generate(...)` for that member. This is the correct existing ST boundary for resolving which group NPC is about to receive a generation request. It proves selection/activation only, not delivery.
+- `public/script.js` emits `CHAT_COMPLETION_SETTINGS_READY` and `GENERATE_AFTER_DATA` before request serialization. The current Logic Engine `registerHostGenerationIdentity()` already subscribes to these same hooks and attaches server-validated conversation/request/generation locators. This is the existing integration seam to extend; prefer the public `SillyTavern.getContext()` event API over importing ST private implementation modules.
+- For Chat Completions, `CHAT_COMPLETION_SETTINGS_READY` carries the prepared settings/request data; `GENERATE_AFTER_DATA` is emitted after generation data is assembled for other API families. A future Host adapter may inspect the recipient-specific outbound payload at these points, but payload inspection alone is not a delivery receipt.
+- `public/script.js` successful streaming finalization emits `MESSAGE_RECEIVED` and `CHARACTER_MESSAGE_RENDERED` from `finalizeIntermediaryMessage()`, then `onFinishStreaming()` saves the chat. However, `onErrorStreaming()` also emits both events. The same message event is also used for command-inserted messages, first messages, swipes and append paths.
+- `MESSAGE_RECEIVED` arguments are the mutable chat-array index and generation type. They are not a stable message/version identity. `CHARACTER_MESSAGE_RENDERED` means UI rendering, not delivery to a specific NPC.
+- `GENERATION_ENDED` is emitted by `hideStopButton()`; it carries chat length and does not distinguish successful completion from an error/stop outcome. It is not a delivery receipt.
+- The pinned `StreamingProcessor.onProgressStreaming()` writes `gen_finished` while processing progress updates, not exclusively after a successful terminal result. Therefore that field alone cannot distinguish a complete response from a stream that later errors.
+
+### Result and implementation constraint
+
+The pinned source provides reusable recipient-selection and outbound-payload hooks, and the existing Logic Engine Host extension already uses the latter. It does **not** expose a single verified event that proves all of: (1) the exact stable source message was present in the final request for (2) one canonical NPC recipient, and (3) the request crossed the approved delivery boundary with an outcome that excludes failed/aborted attempts.
+
+Therefore:
+
+- Do not promote `GROUP_MEMBER_DRAFTED`, `MESSAGE_RECEIVED`, `CHARACTER_MESSAGE_RENDERED`, `GENERATION_ENDED`, a successful Host HTTP response, or prompt inclusion alone into `communication_delivered`.
+- Extend the existing Host generation hook rather than creating a parallel event bus or importing unstable ST internals. Bind recipient from the current ST group-generation context, capture the final per-recipient request evidence, and correlate it to a stable message reference—not a chat-array index.
+- Before issuing a trusted delivery receipt, establish a terminal success signal at the supported Host boundary. If the pinned ST API cannot provide one, use the smallest explicit, version-pinned ST patch/event needed to expose it, or leave `communication_delivered` unsupported. A receipt must not be minted from an ambiguous error path.
+- ST lifecycle hooks do not provide a World/Simulation event or sensory/perception proof. They cannot be used as the `direct_observation` producer. Keep that type unsupported until the actual trusted World/Simulation producer is identified.
+
+**Status:** reusable ST integration points FOUND; compliant `communication_delivered` receipt producer NOT VERIFIED; `direct_observation` producer NOT FOUND in SillyTavern. Stage 1 remains IN PROGRESS and Memory → NPC remains DISABLED / FAIL-CLOSED.
