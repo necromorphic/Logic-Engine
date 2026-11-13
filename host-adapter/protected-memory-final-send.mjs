@@ -299,8 +299,6 @@ function renderNpcContext(laneAItems, contentBlocks) {
   return rendered;
 }
 
-const GOOGLE_CONTENT_ROUTES = Object.freeze(['google-ai-studio', 'vertex-ai']);
-
 function serializeUntrustedMemoryContext(context) {
   // Serialize the complete Memory projection as a JSON data value. Its content
   // is never parsed as a message array and cannot supply a provider role.
@@ -352,39 +350,6 @@ function appendUntrustedMemoryToChatMessages(body, untrustedMemory) {
   body.messages = updated;
 }
 
-function appendUntrustedMemoryToGoogleContents(body, untrustedMemory) {
-  if (!Array.isArray(body.contents)) {
-    throw new Error('PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING');
-  }
-  const contents = body.contents;
-  let userIndex = -1;
-  for (let index = 0; index < contents.length; index += 1) {
-    if (contents[index]?.role === 'user') {
-      userIndex = index;
-      break;
-    }
-  }
-  if (userIndex === -1) {
-    const inserted = new Array(contents.length + 1);
-    inserted[0] = { role: 'user', parts: [{ text: untrustedMemory }] };
-    for (let index = 0; index < contents.length; index += 1) inserted[index + 1] = contents[index];
-    body.contents = inserted;
-    return;
-  }
-  const userContent = contents[userIndex];
-  if (!Array.isArray(userContent.parts)) {
-    throw new Error('PROTECTED_MEMORY_FINAL_SEND_GOOGLE_USER_PARTS_INVALID');
-  }
-  const parts = new Array(userContent.parts.length + 1);
-  for (let index = 0; index < userContent.parts.length; index += 1) parts[index] = userContent.parts[index];
-  parts[userContent.parts.length] = { text: untrustedMemory };
-  const updated = new Array(contents.length);
-  for (let index = 0; index < contents.length; index += 1) {
-    updated[index] = index === userIndex ? { ...userContent, parts } : contents[index];
-  }
-  body.contents = updated;
-}
-
 function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
   let body;
   try { body = JSON.parse(requestInit.body); } catch {
@@ -397,21 +362,14 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   const context = renderNpcContext(laneAItems, contentBlocks);
   if (context) {
     const untrustedMemory = serializeUntrustedMemoryContext(context);
-    if (arrayContains(GOOGLE_CONTENT_ROUTES, senderRoute)) {
-      // SillyTavern 1.19.0 converts MakerSuite/Vertex prompts to the Gemini
-      // wire shape: contents[] plus a separate systemInstruction field.
-      // Append a data part to an existing user turn; never touch systemInstruction.
-      appendUntrustedMemoryToGoogleContents(body, untrustedMemory);
-    } else if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
-      // Keep the provider's role sequence unchanged. Memory is appended to the
-      // first user message, not emitted as a new message or a system prompt.
-      appendUntrustedMemoryToChatMessages(body, untrustedMemory);
-    } else {
-      // Flat completion APIs have no message-role boundary. Sending Memory as
-      // prompt text could make it indistinguishable from trusted setup text.
-      // Protected Memory therefore fails closed on these routes.
+    if (!arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
+      // A flat or otherwise non-message payload has no verified role boundary.
+      // Protected Memory is never flattened into an untrusted prompt string.
       throw new Error('PROTECTED_MEMORY_FINAL_SEND_ROLE_BOUNDARY_UNSUPPORTED');
     }
+    // Accept only the serialized role-bearing messages[] contract. Do not
+    // guess or rewrite backend-specific transformed request formats.
+    appendUntrustedMemoryToChatMessages(body, untrustedMemory);
   }
   const serialized = JSON.stringify(body);
   if (serialized.length === 0 || Buffer.byteLength(serialized, 'utf8') > 4_000_000) {
