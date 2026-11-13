@@ -62,10 +62,10 @@ const aliasesSameFile = (left, right) => {
 };
 
 /**
- * Draft-only digest ledger. Stores Host identity, digests and lifecycle state,
- * never raw message text. It is not the semantic Memory-record store and is
- * intentionally not wired to a public route or default runtime.
- * The inventory verifier must be a trusted Host/Core integration.
+ * Core-owned digest-only Host version ledger. Stores identities, digests and
+ * lifecycle state, never raw message text. Browser capture/reconcile inputs
+ * cannot establish READY; only the configured trusted Host/Core receipt verifier
+ * may publish a complete conversation inventory.
  */
 export class HostVersionDigestLedger {
   constructor(options) {
