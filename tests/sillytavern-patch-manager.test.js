@@ -245,7 +245,13 @@ test('Patch Manager updates a changed artifact even when its version label is un
     manifestPath,
     patchPath,
   });
+  await assert.rejects(
+    updatedManager.inspectInstalledReadOnly(),
+    /PATCH_MANAGER_STATE_IDENTITY_INVALID/,
+    'read-only inspection must reject the predecessor state before migration',
+  );
   assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
+  assert.equal((await updatedManager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
   assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\r\n/g, '\n'), patchedV2);
   assert.equal((await updatedManager.execute('verify')).status, 'INSTALLED_AND_VERIFIED');
 });
