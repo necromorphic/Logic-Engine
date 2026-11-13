@@ -49,3 +49,22 @@ Commits:
 - Actual pinned SillyTavern route coverage after this change: **NOT VERIFIED** until the updated Windows source-audit job completes.
 
 The updated test must run with `SILLYTAVERN_SOURCE_ROOT` set. A skipped test is not acceptance evidence.
+
+
+## 6. Follow-up patch-bundle pin mismatch found during Memory PR CI
+
+A later exact-HEAD run on this branch exposed a separate stale pin not reproduced by the earlier Stage 0A Runtime job:
+
+- The unified Host patch workflow recomputed the combined digest from the exact lifecycle and root-mutation patch Git blobs as `bd16629a92a4e00dd117aa8c55ae76be5fd79995386204af596c9443bd2c422b`.
+- The Host source attestation still pinned `b96cb62cadc3c9b478c7689e43a11d865d431dc833dda98f63185b797bb67f6a`.
+- Core's `HOST_INVENTORY_PATCH_BLOB_SHA` still pinned a different stale value `3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52`.
+
+Both Host and Core constants were synchronized to the digest actually recomputed by the workflow. The receipt-store source Git blob pin was also updated to the exact current Git blob after the VSS receipt hardening. No patch artifact bytes were changed as part of this pin correction.
+
+Commits:
+- `f04d0a016537f894064185dfa145f0cb0ce2f297` — require authoritative VSS/source proofs for delivery evidence.
+- `f78acebe45bbf786720c241b59205c9f93d7f6e9` — update the pinned receipt-store source blob.
+- `0df98899f5ac61c670b14dd8cce5fadc4293abc6` — synchronize Host patch bundle digest.
+- `560d765fb1cb6abff9a9f770c927b6357fe707ce` — synchronize Core's accepted patch bundle digest.
+
+**Verification:** the Host Extension Gateway candidate workflow on `560d765fb1cb6abff9a9f770c927b6357fe707ce` completed **PASS: 261/261 tests, 0 failures**, including the delivery receipt store/proxy and source-attestation regression tests. The unified patch-bundle workflow on that exact HEAD was still queued at the time of this update; its digest check therefore remains **NOT VERIFIED** until that workflow completes.
