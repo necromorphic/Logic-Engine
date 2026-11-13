@@ -1308,11 +1308,14 @@ test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without 
   assert.ok(patch.includes("url: '/api/chats/group/get'"));
   assert.ok(patch.includes("url: '/api/chats/get'"));
   assert.ok(patch.includes('persistedChat[0]?.chat_metadata?.logic_engine_conversation_id === conversationUuid'));
-  const identityLookup = patch.slice(patch.indexOf('verifyPersistedIdentity: async conversationUuid => {'), patch.indexOf('},', patch.indexOf('verifyPersistedIdentity: async conversationUuid => {')) + 2);
+  const lookupStart = patch.indexOf('verifyPersistedIdentity: async conversationUuid => {');
+  const lookupEnd = patch.indexOf('\n+            },', lookupStart);
+  assert.ok(lookupStart >= 0 && lookupEnd > lookupStart);
+  const identityLookup = patch.slice(lookupStart, lookupEnd);
   assert.ok(!identityLookup.includes('/api/plugins/logic-engine-extension-gateway/inventory'));
   assert.ok(!patch.includes('const inventory = await window.logicEngineHostLifecycle.syncCurrentDigestInventory()'));
   assert.ok(patch.includes('Do not'));
   assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\(\)/);
   assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
   assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
-});;;
+});;;;
