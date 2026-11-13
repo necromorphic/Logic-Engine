@@ -652,7 +652,10 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
       pending = finalSend({
         senderRoute: 'google-ai-studio',
         endpointUrl: 'https://provider.example/generate',
-        requestInit: init(JSON.stringify({ messages: [{ role: 'user', content: 'continue' }] })),
+        requestInit: init(JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'continue' }] }],
+          systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
+        })),
         hostRequestContext,
       });
     } catch (error) {
@@ -682,7 +685,8 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   }
   if (failure) throw new Error('Final-Send called a poisoned prototype method: ' + failure.message);
   assert.ok(outbound);
-  const prompt = outbound.messages[0].content;
+  assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
+  const prompt = outbound.contents[0].parts[outbound.contents[0].parts.length - 1].text;
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
   assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
   assert.match(prompt, /Lane B evidence/);
