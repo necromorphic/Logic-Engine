@@ -252,7 +252,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
@@ -261,6 +261,11 @@ export class LogicEngine {
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
+    if (hostVersionDigestLedger !== null
+      && typeof hostVersionDigestLedger.getVersionState !== 'function') {
+      throw new TypeError('hostVersionDigestLedger must provide getVersionState()');
+    }
+    this.hostVersionDigestLedger = hostVersionDigestLedger;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -1519,6 +1524,171 @@ export class LogicEngine {
       causal_links: causalLinks,
       effects: assignments,
     }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
+  }
+
+  /**
+   * Commits a Core-owned acquisition record for a signed Host communication
+   * delivery. The API layer must first verify the adapter HMAC, current Core
+   * conversation/Actor binding, and the complete Host version inventory.
+   * The acquisition stores only digest/provenance metadata, never message text.
+   */
+  recordTrustedCommunicationDelivery(input) {
+    assert(obj(input), 'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Communication delivery request must be an object.');
+    const allowed = [
+      'world_id', 'adapter_id', 'conversation_id', 'delivery',
+      'receipt_digest', 'receipt_proof', 'inventory_snapshot_digest',
+    ];
+    assert(Object.keys(input).every(key => allowed.includes(key)),
+      'UNSUPPORTED_COMMUNICATION_DELIVERY_FIELD', 'Communication delivery request contains an unsupported field.');
+    for (const key of ['world_id', 'adapter_id', 'conversation_id']) {
+      assert(typeof input[key] === 'string' && input[key].trim() === input[key]
+        && input[key].length > 0 && input[key].length <= 200,
+      'INVALID_COMMUNICATION_DELIVERY_REQUEST', key + ' must be a canonical non-empty identifier.');
+    }
+    const delivery = input.delivery;
+    const deliveryKeys = [
+      'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
+      'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
+      'source_attestation', 'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+    ];
+    assert(obj(delivery) && Object.keys(delivery).length === deliveryKeys.length
+      && Object.keys(delivery).every(key => deliveryKeys.includes(key)),
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Delivery metadata must use the exact signed receipt schema.');
+    assert(input.receipt_digest === delivery.receipt_digest || /^[a-f0-9]{64}$/.test(input.receipt_digest ?? ''),
+      'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Receipt digest must be a lowercase SHA-256 digest.');
+    assert(/^[a-f0-9]{64}$/.test(input.receipt_digest ?? '')
+      && /^[a-f0-9]{64}$/.test(input.inventory_snapshot_digest ?? ''),
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Receipt and inventory snapshot digests are required.');
+    assert(obj(input.receipt_proof)
+      && input.receipt_proof.receipt_digest === input.receipt_digest
+      && input.receipt_proof.receipt_signature
+      && input.receipt_proof.event_id === delivery.host_event_id
+      && input.receipt_proof.mutation_id === delivery.mutation_id
+      && input.receipt_proof.occurred_at === delivery.delivered_at,
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Signed Host receipt proof does not match delivery metadata.');
+    assert(delivery.protocol_version === 1
+      && delivery.evidence_type === 'communication_delivered'
+      && delivery.producer === 'logic-engine-host-delivery-receipt-v1'
+      && delivery.host_commit === '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+      && delivery.channel === 'sillytavern.character_chat'
+      && delivery.status === 'delivered'
+      && delivery.recipient?.world_id === input.world_id
+      && delivery.sender?.principal_id === delivery.authenticated_account_id
+      && delivery.source_attestation?.host_commit === delivery.host_commit
+      && delivery.source?.content_sha256,
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Delivery receipt is outside the pinned Host communication contract.', 403);
+    const expectedConversationId = [
+      delivery.host_session_id, delivery.host_installation_id, delivery.conversation_uuid,
+    ].join(':');
+    assert(expectedConversationId === input.conversation_id,
+      'HOST_DELIVERY_CONVERSATION_MISMATCH', 'Delivery receipt does not match its Core-bound conversation.', 403);
+
+    const actor = this.store.db.prepare(
+      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?",
+    ).get(input.world_id, delivery.recipient.actor_id);
+    assert(actor && actor.status !== 'destroyed',
+      'ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Delivered communication recipient must be a non-destroyed Core Actor.', 409);
+
+    const sourceEvidence = {
+      protocol_version: 1,
+      evidence_type: 'communication_delivered',
+      producer: delivery.producer,
+      adapter_id: input.adapter_id,
+      host_commit: delivery.host_commit,
+      host_installation_id: delivery.host_installation_id,
+      authenticated_account_id: delivery.authenticated_account_id,
+      host_session_id: delivery.host_session_id,
+      conversation_uuid: delivery.conversation_uuid,
+      sender: delivery.sender,
+      recipient: delivery.recipient,
+      source_attestation: delivery.source_attestation,
+      channel: delivery.channel,
+      source: delivery.source,
+      status: delivery.status,
+      delivered_at: delivery.delivered_at,
+      host_event_id: delivery.host_event_id,
+      mutation_id: delivery.mutation_id,
+      receipt_digest: input.receipt_digest,
+      receipt_signature: input.receipt_proof.receipt_signature,
+      receipt_proof: input.receipt_proof,
+      inventory_snapshot_digest: input.inventory_snapshot_digest,
+    };
+    const acquisitionId = 'acq:communication-delivered:' + hashRequest([
+      input.world_id, input.adapter_id, delivery.host_event_id, input.receipt_digest,
+    ]);
+    const idempotencyKey = 'host-delivery:' + hashRequest([input.adapter_id, delivery.host_event_id]);
+    const provenanceRef = 'host-delivery-event:' + delivery.host_event_id;
+    const authorizationRef = 'host-conversation-binding:' + hashRequest([input.adapter_id, input.conversation_id]);
+
+    const existing = this.store.db.prepare(`
+      SELECT a.event_id,a.committed_revision,a.source_evidence_json,e.validity,e.commit_sequence
+      FROM knowledge_acquisitions AS a
+      JOIN world_events AS e ON e.world_id=a.world_id AND e.event_id=a.event_id
+      WHERE a.world_id=? AND a.acquisition_id=?
+    `).get(input.world_id, acquisitionId);
+    if (existing) {
+      let storedEvidence;
+      try { storedEvidence = JSON.parse(existing.source_evidence_json); } catch {
+        throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+          'Existing communication acquisition evidence is not valid canonical JSON.', 409);
+      }
+      if (hashRequest(storedEvidence) !== hashRequest(sourceEvidence)) {
+        throw new EngineError('HOST_DELIVERY_IDEMPOTENCY_CONFLICT',
+          'The same Host delivery identity was previously committed with different evidence.', 409);
+      }
+      if (existing.validity !== 'valid') {
+        throw new EngineError('HOST_DELIVERY_ALREADY_RETRACTED',
+          'The original Host delivery acquisition was retracted and cannot be recommitted.', 409);
+      }
+      return {
+        accepted: true,
+        status: 'committed',
+        acquisition_id: acquisitionId,
+        event_id: existing.event_id,
+        world_id: input.world_id,
+        world_revision: existing.committed_revision,
+        commit_sequence: existing.commit_sequence,
+        effect_count: 1,
+        idempotent_replay: true,
+      };
+    }
+    const priorIdempotency = this.store.db.prepare(
+      'SELECT request_hash FROM idempotency_keys WHERE world_id=? AND idempotency_key=?',
+    ).get(input.world_id, idempotencyKey);
+    assert(!priorIdempotency, 'HOST_DELIVERY_ALREADY_PROCESSED_OR_RETRACTED',
+      'This Host delivery idempotency key already exists without an active acquisition projection.', 409);
+
+    const snapshot = this.getSnapshot(input.world_id);
+    assert(snapshot && snapshot.status === 'active',
+      'WORLD_NOT_FOUND', 'Target World is not active.', 404);
+    const entityRef = 'entity:' + delivery.recipient.actor_id;
+    return {
+      ...this.commitEvent(input.world_id, {
+        idempotency_key: idempotencyKey,
+        event_id: 'host-delivery-event:' + hashRequest([input.adapter_id, delivery.host_event_id]),
+        turn_id: 'host-delivery:' + delivery.host_event_id,
+        event_type: 'knowledge.acquisition.communication_delivered',
+        expected_revision: snapshot.world_revision,
+        expected_commit_sequence: snapshot.commit_sequence,
+        time_advance_seconds: 0,
+        caused_by: [],
+        depends_on: [entityRef],
+        read_set: [entityRef],
+        causal_links: [{ relation: 'READS_ENTITY', target_id: delivery.recipient.actor_id }],
+        effects: [{
+          kind: 'knowledge.acquire',
+          acquisition_id: acquisitionId,
+          subject_id: delivery.recipient.actor_id,
+          acquisition_kind: 'communication_delivered',
+          provenance_ref: provenanceRef,
+          provenance_digest: input.receipt_digest,
+          authorization_ref: authorizationRef,
+          source_evidence: sourceEvidence,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true }),
+      status: 'committed',
+      acquisition_id: acquisitionId,
+    };
   }
 
   commitEvent(id, x, options = {}) {
