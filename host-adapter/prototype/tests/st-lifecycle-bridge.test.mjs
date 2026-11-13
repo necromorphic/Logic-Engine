@@ -1306,6 +1306,7 @@ test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without 
   assert.ok(patch.includes('await captureLogicEngineHostChatOnLoad(changedLocator)'));
   assert.ok(patch.includes('const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled()'));
   assert.ok(patch.includes("url: '/api/chats/group/get'"));
+  assert.ok(patch.includes('body: { id: sourceLocator }'));
   assert.ok(patch.includes("url: '/api/chats/get'"));
   assert.ok(patch.includes('persistedChat[0]?.chat_metadata?.logic_engine_conversation_id === conversationUuid'));
   const lookupStart = patch.indexOf('verifyPersistedIdentity: async conversationUuid => {');
