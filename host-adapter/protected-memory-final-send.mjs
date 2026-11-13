@@ -297,6 +297,18 @@ function renderNpcContext(laneAItems, contentBlocks) {
   return rendered;
 }
 
+const GOOGLE_CONTENT_ROUTES = Object.freeze(['google-ai-studio', 'vertex-ai']);
+
+function serializeUntrustedMemoryContext(context) {
+  // Serialize the complete Memory projection as a JSON data value. Its content
+  // is never parsed as a message array and cannot supply a provider role.
+  return JSON.stringify({
+    type: 'logic_engine_untrusted_memory',
+    trust_level: 'untrusted_data',
+    data: context,
+  });
+}
+
 function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
   let body;
   try { body = JSON.parse(requestInit.body); } catch {
@@ -308,7 +320,21 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   removeHostOnlyFields(body);
   const context = renderNpcContext(laneAItems, contentBlocks);
   if (context) {
-    if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
+    const untrustedMemory = serializeUntrustedMemoryContext(context);
+    if (arrayContains(GOOGLE_CONTENT_ROUTES, senderRoute)) {
+      // SillyTavern 1.19.0 converts MakerSuite/Vertex prompts to the Gemini
+      // wire shape: contents[] plus a separate systemInstruction field.
+      // Memory belongs only in a user content part; systemInstruction is left
+      // byte-for-byte untouched.
+      if (!Array.isArray(body.contents)) {
+        throw new Error('PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING');
+      }
+      const contents = body.contents;
+      const inserted = new Array(contents.length + 1);
+      inserted[0] = { role: 'user', parts: [{ text: untrustedMemory }] };
+      for (let index = 0; index < contents.length; index += 1) inserted[index + 1] = contents[index];
+      body.contents = inserted;
+    } else if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
       if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
       let insertionIndex = 0;
       while (insertionIndex < body.messages.length
@@ -316,17 +342,20 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
       const messages = body.messages;
       const inserted = new Array(messages.length + 1);
       for (let index = 0; index < insertionIndex; index += 1) inserted[index] = messages[index];
-      inserted[insertionIndex] = { role: 'system', content: context };
+      inserted[insertionIndex] = { role: 'user', content: untrustedMemory };
       for (let index = insertionIndex; index < messages.length; index += 1) {
         inserted[index + 1] = messages[index];
       }
       body.messages = inserted;
     } else {
+      // Text-completion backends have no role-bearing message structure.
+      // Append a JSON-encoded data envelope after the existing prompt instead
+      // of prepending Memory where it could be mistaken for setup instructions.
       const promptKey = senderRoute === 'novelai-text' ? 'input' : 'prompt';
       if (typeof body[promptKey] !== 'string') {
         throw new Error('PROTECTED_MEMORY_FINAL_SEND_PROMPT_MISSING');
       }
-      body[promptKey] = context + '\n\n' + body[promptKey];
+      body[promptKey] = body[promptKey] + '\n\n' + untrustedMemory;
     }
   }
   const serialized = JSON.stringify(body);
