@@ -226,11 +226,17 @@ function verifyHostVersionInventorySnapshot(snapshot) {
     || !exactKeys(attestation.delivery, [
       'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
       'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
-      'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+      'source_attestation', 'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
     ])
     || !exactKeys(attestation.delivery.sender, ['principal_type', 'principal_id'])
     || !exactKeys(attestation.delivery.recipient, ['world_id', 'actor_id', 'actor_type', 'host_character_avatar_id'])
     || !exactKeys(attestation.delivery.source, ['message_id', 'version_id', 'content_sha256'])
+    || !exactKeys(attestation.delivery.source_attestation, [
+      'protocol_version', 'host_commit', 'snapshot_alignment', 'before_snapshot_id', 'after_snapshot_id',
+      'before_snapshot_sha256', 'after_snapshot_sha256', 'before_source_inventory_sha256',
+      'after_source_inventory_sha256', 'source_manifest_sha256',
+      'mutation_coverage_manifest_sha256', 'mutation_coverage_source_files_sha256',
+    ])
     || !exactKeys(attestation.proof, [
       'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
       'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
@@ -247,6 +253,21 @@ function verifyHostVersionInventorySnapshot(snapshot) {
     || delivery.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
     || delivery.channel !== 'sillytavern.character_chat'
     || delivery.status !== 'delivered'
+    || delivery.source_attestation.protocol_version !== 1
+    || delivery.source_attestation.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    || delivery.source_attestation.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+    || typeof delivery.source_attestation.before_snapshot_id !== 'string'
+    || !delivery.source_attestation.before_snapshot_id.trim()
+    || typeof delivery.source_attestation.after_snapshot_id !== 'string'
+    || !delivery.source_attestation.after_snapshot_id.trim()
+    || delivery.source_attestation.before_snapshot_id === delivery.source_attestation.after_snapshot_id
+    || !DIGEST.test(delivery.source_attestation.before_snapshot_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.after_snapshot_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.before_source_inventory_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.after_source_inventory_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.source_manifest_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.mutation_coverage_manifest_sha256 ?? '')
+    || !DIGEST.test(delivery.source_attestation.mutation_coverage_source_files_sha256 ?? '')
     || delivery.sender.principal_type !== 'host_authenticated_account'
     || delivery.sender.principal_id !== delivery.authenticated_account_id
     || delivery.recipient.world_id !== snapshot.world_id
