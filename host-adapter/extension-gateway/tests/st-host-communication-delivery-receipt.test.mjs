@@ -75,6 +75,20 @@ const directories = {
   groupChats: '/tmp/logic-engine-st-delivery-fixture/groupChats',
 };
 
+function snapshotProof(snapshotId, content) {
+  return {
+    host_commit: HOST_COMMIT,
+    snapshot_id: snapshotId,
+    source_snapshot_id: snapshotId,
+    snapshot_sha256: digest('filesystem:' + content),
+    source_inventory_sha256: digest(content + ':inventory'),
+    source_manifest_sha256: digest('pinned-source-manifest'),
+    mutation_coverage_manifest_sha256: digest('mutation-coverage-manifest'),
+    mutation_coverage_source_files_sha256: digest('mutation-coverage-source-files'),
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+  };
+}
+
 function inventory(state) {
   const target = {
     kind: state.kind ?? 'character-chat',
@@ -87,6 +101,8 @@ function inventory(state) {
   return {
     filesystem: {
       status: 'complete',
+      snapshot_id: state.snapshotId,
+      snapshot_sha256: digest('filesystem:' + state.content),
       entries: [{
         path: targetPath,
         identity: {
@@ -105,8 +121,9 @@ function inventory(state) {
       host_commit: HOST_COMMIT,
       files: [target],
       inventory_sha256: digest(state.content + ':inventory'),
+      snapshot_id: state.snapshotId,
     },
-    snapshot_alignment: 'INDEPENDENT_DOUBLE_SCAN',
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
   };
 }
 
@@ -120,13 +137,19 @@ test('delivery receipt is created only for one persisted appended user message i
   ];
   let scan = 0;
   const states = [
-    { fileIdentity: '101', content: 'persisted-before', messages: beforeMessages },
-    { fileIdentity: '101', content: 'persisted-after', messages: afterMessages },
+    { fileIdentity: '101', content: 'persisted-before', snapshotId: 'snapshot-before', messages: beforeMessages },
+    { fileIdentity: '101', content: 'persisted-after', snapshotId: 'snapshot-after', messages: afterMessages },
   ];
   const store = new HostLifecycleReceiptStore({
     directory: join(root, 'receipts'),
     hostCommit: HOST_COMMIT,
     enumerate: async () => inventory(states[Math.min(scan++, states.length - 1)]),
+    sourceEvidenceProvider: async () => ({
+      status: 'VERIFIED',
+      source_manifest_sha256: digest('pinned-source-manifest'),
+      mutation_coverage_manifest_sha256: digest('mutation-coverage-manifest'),
+      mutation_coverage_source_files_sha256: digest('mutation-coverage-source-files'),
+    }),
   });
 
   await store.prepare(scope(), directories);
@@ -157,12 +180,16 @@ test('delivery evidence rejects group chats, assistant output, historical insert
     before: {
       target_kind: 'character-chat',
       target_locator: 'avatar-main/chat-1.jsonl',
+      target_locator: 'avatar-main/chat-1.jsonl',
+      target_kind: 'character-chat',
       logical_identity: logical(beforeMessages),
+      snapshot_proof: snapshotProof('snapshot-before', 'persisted-before'),
     },
     after: {
-      target_kind: 'character-chat',
       target_locator: 'avatar-main/chat-1.jsonl',
+      target_kind: 'character-chat',
       logical_identity: logical([...beforeMessages, appendedUser]),
+      snapshot_proof: snapshotProof('snapshot-after', 'persisted-after'),
     },
     recipientBinding,
     hostCommit: HOST_COMMIT,
@@ -205,14 +232,52 @@ test('delivery evidence rejects a message with multiple or non-root versions', (
       target_kind: 'character-chat',
       target_locator: 'avatar-main/chat-1.jsonl',
       logical_identity: logical(beforeMessages),
+      snapshot_proof: snapshotProof('snapshot-before', 'before'),
     },
     after: {
       target_kind: 'character-chat',
       target_locator: 'avatar-main/chat-1.jsonl',
       logical_identity: logical([...beforeMessages, twoVersionMessage]),
+      snapshot_proof: snapshotProof('snapshot-after', 'after'),
     },
     recipientBinding,
     hostCommit: HOST_COMMIT,
   };
   assert.equal(createCommunicationDeliveryReceipt(base), null);
+});
+
+
+test('delivery evidence remains unavailable for non-VSS scans or changed pinned-source attestations', () => {
+  const beforeMessages = [message(MESSAGE_OLD, 'assistant', 'previous NPC reply', VERSION_OLD)];
+  const afterMessages = [...beforeMessages, message(MESSAGE_NEW, 'user', 'new user communication', VERSION_NEW)];
+  const base = {
+    scope: scope(),
+    before: {
+      target_kind: 'character-chat',
+      target_locator: 'avatar-main/chat-1.jsonl',
+      logical_identity: logical(beforeMessages),
+      snapshot_proof: snapshotProof('snapshot-before', 'before'),
+    },
+    after: {
+      target_kind: 'character-chat',
+      target_locator: 'avatar-main/chat-1.jsonl',
+      logical_identity: logical(afterMessages),
+      snapshot_proof: snapshotProof('snapshot-after', 'after'),
+    },
+    recipientBinding,
+    hostCommit: HOST_COMMIT,
+  };
+  assert.ok(createCommunicationDeliveryReceipt(base));
+  assert.equal(createCommunicationDeliveryReceipt({
+    ...base,
+    after: { ...base.after, snapshot_proof: { ...base.after.snapshot_proof, snapshot_alignment: 'INDEPENDENT_DOUBLE_SCAN' } },
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    ...base,
+    after: { ...base.after, snapshot_proof: { ...base.after.snapshot_proof, source_manifest_sha256: digest('changed-source') } },
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    ...base,
+    after: { ...base.after, snapshot_proof: { ...base.after.snapshot_proof, snapshot_id: 'snapshot-before', source_snapshot_id: 'snapshot-before' } },
+  }), null);
 });
