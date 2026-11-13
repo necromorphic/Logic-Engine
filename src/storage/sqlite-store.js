@@ -829,6 +829,56 @@ export class SQLiteStore {
             ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_source_event_ids_json TEXT;`);
         },
       },
+      {
+        version: 18,
+        apply: () => {
+          this.db.exec(`CREATE TABLE knowledge_acquisitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            fact_id TEXT,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN (
+              'author_initial','imported','direct_observation','communication_delivered'
+            )),
+            provenance_ref TEXT NOT NULL,
+            provenance_digest TEXT NOT NULL,
+            authorization_ref TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            acquired_value_json TEXT,
+            acquired_source_event_ids_json TEXT,
+            source_evidence_json TEXT,
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,event_id,acquisition_id),
+            CHECK(
+              (acquisition_kind IN ('author_initial','imported')
+                AND fact_id IS NOT NULL AND source_evidence_json IS NULL)
+              OR
+              (acquisition_kind IN ('direct_observation','communication_delivered')
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL)
+            )
+          );
+          INSERT INTO knowledge_acquisitions_new(
+            world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json
+          )
+          SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,NULL
+          FROM knowledge_acquisitions;
+          DROP TABLE knowledge_acquisitions;
+          ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
+          CREATE INDEX knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_id,acquisition_id);
+          `);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('KNOWLEDGE_ACQUISITION_EVIDENCE_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
@@ -1830,16 +1880,28 @@ export class SQLiteStore {
           }
           acquisitionEffectIds.add(effect.acquisition_id);
           const subject = currentEntities.get(effect.subject_id);
-          const source = this.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
-            .get(id, effect.fact_id);
           if (!subject || subject.status === 'destroyed') {
             throw new EngineError('ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Acquisition subject must be a non-destroyed entity in this world.', 409);
           }
-          if (!source || source.status !== 'active' || dec(source.source_event_ids_json).length === 0) {
-            throw new EngineError('ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Acquisition source must be an active canonical fact in this world.', 409);
-          }
           if (this.db.prepare('SELECT 1 FROM knowledge_acquisitions WHERE world_id=? AND acquisition_id=?').get(id, effect.acquisition_id)) {
             throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION', 'Acquisition ID already exists in this world.', 409);
+          }
+          if (['direct_observation', 'communication_delivered'].includes(effect.acquisition_kind)) {
+            const evidence = effect.source_evidence;
+            if (effect.fact_id !== undefined || !evidence
+              || evidence.evidence_type !== effect.acquisition_kind
+              || evidence.recipient?.world_id !== id
+              || evidence.recipient?.actor_id !== effect.subject_id
+              || evidence.receipt_digest !== effect.provenance_digest) {
+              throw new EngineError('ACQUISITION_EVIDENCE_NOT_ELIGIBLE',
+                'Typed evidence must bind the canonical World, subject Actor and provenance digest.', 409);
+            }
+          } else {
+            const source = this.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+              .get(id, effect.fact_id);
+            if (!source || source.status !== 'active' || dec(source.source_event_ids_json).length === 0) {
+              throw new EngineError('ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Acquisition source must be an active canonical fact in this world.', 409);
+            }
           }
           continue;
         }
@@ -3026,20 +3088,29 @@ export class SQLiteStore {
     // Derived projection only: canonical valid world_events remain the authority.
     const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
       world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision,
-      acquired_value_json,acquired_source_event_ids_json
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+      acquired_value_json,acquired_source_event_ids_json,source_evidence_json
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const eligibleSubjects = new Set(this.db.prepare("SELECT entity_id FROM entities WHERE world_id=? AND status<>'destroyed'").all(id).map((row) => row.entity_id));
     const eligibleFacts = new Set(this.db.prepare("SELECT fact_id,source_event_ids_json FROM facts WHERE world_id=? AND status='active'").all(id)
       .filter((row) => dec(row.source_event_ids_json).length > 0).map((row) => row.fact_id));
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind !== 'knowledge.acquire') continue;
-        if (!eligibleSubjects.has(effect.subject_id) || !eligibleFacts.has(effect.fact_id)) continue;
+        if (effect.kind !== 'knowledge.acquire' || !eligibleSubjects.has(effect.subject_id)) continue;
+        if (['direct_observation', 'communication_delivered'].includes(effect.acquisition_kind)) {
+          const evidence = effect.source_evidence;
+          if (!evidence || evidence.evidence_type !== effect.acquisition_kind
+            || evidence.recipient?.world_id !== id || evidence.recipient?.actor_id !== effect.subject_id) continue;
+          insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, null, effect.acquisition_kind,
+            effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
+            null, null, enc(evidence));
+          continue;
+        }
+        if (!eligibleFacts.has(effect.fact_id)) continue;
         // Old events without an acquisition-time version remain unprojected/fail-closed.
         if (!Object.hasOwn(effect, 'acquired_value') || !Array.isArray(effect.acquired_source_event_ids)) continue;
         insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, effect.fact_id, effect.acquisition_kind,
           effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
-          enc(effect.acquired_value), enc(effect.acquired_source_event_ids));
+          enc(effect.acquired_value), enc(effect.acquired_source_event_ids), null);
       }
     }
 
