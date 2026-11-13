@@ -33,6 +33,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   const persistedInventoryRevocationPublished = new Set();
   const persistedInventoryDiagnostics = new Map();
   const automaticEnrollmentPromises = new Map();
+  const persistedRecoveryPromises = new Map();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -226,7 +227,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   // the old origin's journal does not. Rebuild only a current-state baseline
   // from those already-persisted IDs and verified payload digests; never mint
   // replacement message/version IDs or claim the missing event history.
-  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+  async function restoreBaselineFromPersistedChatMetadataUncached(conversationId) {
     const sourceLocator = getSourceLocator();
     const chat = getChat();
     if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
@@ -283,6 +284,24 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       throw Error('NON_READY: Host conversation changed after origin recovery');
     }
     return restored;
+  }
+
+  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+    const locator = getSourceLocator();
+    const chat = getChat();
+    if (!locator || !Array.isArray(chat)) return null;
+    const fingerprint = await currentFingerprint(chat);
+    const key = conversationId + '\\u0000' + locator + '\\u0000' + fingerprint;
+    let pending = persistedRecoveryPromises.get(key);
+    if (!pending) {
+      pending = restoreBaselineFromPersistedChatMetadataUncached(conversationId);
+      persistedRecoveryPromises.set(key, pending);
+      if (persistedRecoveryPromises.size > 128) {
+        const oldest = persistedRecoveryPromises.keys().next().value;
+        if (oldest !== key) persistedRecoveryPromises.delete(oldest);
+      }
+    }
+    return pending;
   }
 
   async function enrollCurrentConversation() {
@@ -646,7 +665,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const tombstones = [];
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
     const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
-    if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
+    if (['delete-message', 'clear-chat'].includes(operation) && Array.isArray(priorIdentitySnapshot)) {
       for (const priorMessage of priorIdentitySnapshot) {
         if (liveMessageIds.has(priorMessage.messageId)) continue;
         for (const version of priorMessage.versions ?? []) {
