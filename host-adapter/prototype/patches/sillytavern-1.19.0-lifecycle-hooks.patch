@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,366 @@
+@@ -1583,6 +1593,409 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -394,6 +394,49 @@ diff --git a/public/script.js b/public/script.js
 +        },
 +    };
 +}
++
++// Capture the active conversation as soon as SillyTavern finishes loading it.
++// The bridge restores a persisted journal when possible and creates a baseline
++// only for a genuinely unmarked chat. The event is awaited so the first native
++// mutation cannot race the automatic enrollment.
++async function captureLogicEngineHostChatOnLoad(changedLocator) {
++    const sourceLocator = getCurrentChatId();
++    if (!sourceLocator || changedLocator !== sourceLocator) return;
++    if (logicEngineEnrollmentBarrier) await logicEngineEnrollmentBarrier;
++    let releaseEnrollment;
++    const barrier = new Promise(resolve => { releaseEnrollment = resolve; });
++    logicEngineEnrollmentBarrier = barrier;
++    try {
++        const bridge = await getLogicEngineLifecycleBridge();
++        const enrollment = await bridge.ensureCurrentConversationEnrolled();
++        if (getCurrentChatId() !== sourceLocator) {
++            throw Error('NON_READY: Host conversation changed after automatic chat-load enrollment');
++        }
++        const inventory = await bridge.syncCurrentDigestInventory();
++        if (getCurrentChatId() !== sourceLocator) {
++            throw Error('NON_READY: Host conversation changed after automatic inventory capture');
++        }
++        logicEngineHostDiagnostic = Object.freeze({
++            stage: 'CHAT_CHANGED_AUTO_CAPTURE',
++            status: enrollment.status,
++            captureStatus: inventory.status,
++        });
++    } catch (error) {
++        logicEngineHostDiagnostic = Object.freeze({
++            stage: 'CHAT_CHANGED_AUTO_CAPTURE',
++            status: 'NON_READY',
++            reasonCode: error?.code || 'HOST_CHAT_LOAD_CAPTURE_FAILED',
++        });
++        console.warn('Logic Engine automatic Host chat capture failed; native SillyTavern remains available.', error?.message || error);
++    } finally {
++        if (logicEngineEnrollmentBarrier === barrier) logicEngineEnrollmentBarrier = null;
++        releaseEnrollment();
++    }
++}
++
++eventSource.on(event_types.CHAT_CHANGED, async changedLocator => {
++    await captureLogicEngineHostChatOnLoad(changedLocator);
++});
 +
  export async function clearChat({ clearData = false } = {}) {
 +    await window.logicEngineHostLifecycle?.waitForEnrollment?.();
@@ -1706,7 +1749,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,1168 @@
+@@ -0,0 +1,1195 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2147,6 +2190,30 @@ new file mode 100644
 +    if (!(await journal.isEnrolled(conversationId))) {
 +      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
 +    }
++  }
++
++  async function ensureCurrentConversationEnrolled() {
++    const conversationId = await getConversationId();
++    if (!conversationId) return { status: 'NOT_ENROLLED', reason: 'NO_ACTIVE_CONVERSATION' };
++    const alreadyEnrolled = await journal.isEnrolled(conversationId);
++    if (!alreadyEnrolled) {
++      await ensureConversationEnrolled(conversationId);
++    } else {
++      const chat = getChat();
++      if (!Array.isArray(chat)) throw Error('NON_READY: active Host chat is unavailable');
++      await assertIdentitySnapshotMatches(conversationId, chat);
++      const integrity = await journal.verifyIntegrity(conversationId);
++      if (integrity.status !== 'INTEGRITY_OK') {
++        throw Error('NON_READY: Host lifecycle journal integrity is unavailable after chat load');
++      }
++    }
++    if (await getConversationId() !== conversationId) {
++      throw Error('NON_READY: Host conversation changed during automatic chat-load enrollment');
++    }
++    if (!(await journal.isEnrolled(conversationId))) {
++      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
++    }
++    return { status: alreadyEnrolled ? 'ALREADY_ENROLLED' : 'ENROLLED', conversationId };
 +  }
 +
 +  async function beforeMutation(operation, messageIndexes, details = {}) {
@@ -2837,6 +2904,7 @@ new file mode 100644
 +
 +  return Object.freeze({
 +    enrollCurrentConversation,
++    ensureCurrentConversationEnrolled,
 +    beforeMutation,
 +    afterMutation,
 +    syncCurrentDigestInventory,
@@ -2870,6 +2938,7 @@ new file mode 100644
 +
 +  return Object.freeze({
 +    enrollCurrentConversation: async () => { throw error; },
++    ensureCurrentConversationEnrolled: async () => { throw error; },
 +    beforeMutation: async () => assertUnavailableSafe(),
 +    afterMutation: async () => assertUnavailableSafe(),
 +    guardExport: async () => assertUnavailableSafe(),
