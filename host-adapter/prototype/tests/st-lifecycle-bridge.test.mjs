@@ -1320,3 +1320,39 @@ test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without 
   assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
   assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
 });
+
+
+test('repeated recovery of an incomplete persisted baseline is memoized for the same chat snapshot', async () => {
+  const f = makeFixture();
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [],
+  };
+  const original = globalThis.localStorage;
+  const values = new Map([['logic-engine-host-lifecycle:chat-1', 'enrolled:chat-file-1']]);
+  globalThis.localStorage = { getItem: key => values.has(key) ? values.get(key) : null };
+  try {
+    await assert.rejects(f.bridge.ensureCurrentConversationEnrolled(), error =>
+      error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE');
+    await assert.rejects(f.bridge.ensureCurrentConversationEnrolled(), error =>
+      error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE');
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+  } finally {
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+});
+
+test('clear-chat is a single lifecycle mutation and records tombstones for the full prior snapshot', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('clear-chat', [0, 1], { bulkClear: true });
+  assert.equal(before.operation, 'before:clear-chat');
+  f.setChat([]);
+  const after = await f.bridge.afterMutation('clear-chat', { bulkClear: true });
+  assert.equal(after.status, 'REVIEW_ONLY');
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(ledger.records.filter(record => record.operation === 'before:clear-chat').length, 1);
+  assert.equal(ledger.records.filter(record => record.operation === 'after:clear-chat').length, 1);
+});
