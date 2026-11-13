@@ -8,7 +8,9 @@ import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-
  * Every generation sender must call this helper exactly once after provider
  * transformations and final body serialization. Non-generation fetches must
  * not call it. Protected Memory context is supplied by trusted Host code, never
- * copied from request JSON. The sender registry is owned by the sole Gateway.
+ * copied from request JSON. It is serialized only as untrusted user-role data
+ * (or appended JSON data for role-less completion APIs), never as a system role.
+ * The sender registry is owned by the sole Gateway.
  */
 export { PROTECTED_MEMORY_SENDER_ROUTES };
 
