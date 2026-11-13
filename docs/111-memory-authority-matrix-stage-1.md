@@ -196,3 +196,34 @@ The repository already contains a deeper pinned-source route audit at `host-adap
 This is a delivery-evidence task, not a final-send authorization redesign. Do not introduce a second identity mechanism, a second Gateway, or a new Core dispatch gate. Reuse existing Host session identity and the existing Core acquisition/commit lifecycle. Keep raw prompt/message text out of the receipt; use stable message/version references and a digest only where the trusted source boundary can verify it.
 
 **Updated Stage 1 status:** ST recipient-selection and request-correlation hooks FOUND; provider-specific dispatch paths identified; trusted terminal-success receipt NOT IMPLEMENTED / NOT VERIFIED. `direct_observation` remains unsupported until a real World/Simulation producer is identified. Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+
+## 11. Host communication-delivery producer implementation
+
+**Implementation added on this branch:** the existing Host lifecycle receipt pipeline now derives a separate `communication_delivered` evidence envelope from a verified native SillyTavern `message-send` mutation. It does not treat a browser event name or prompt inclusion as delivery.
+
+### Supported first slice
+
+The pinned ST `sendMessageAsUser()` path in `public/script.js` persists the user message with `saveChatConditional()` before emitting `MESSAGE_SENT`. The existing lifecycle patch wraps that native operation with PREPARED/COMMITTED Host mutation events. The server-owned `HostLifecycleReceiptStore` independently inventories the persisted chat before and after the mutation and accepts only the exact single-message append transition.
+
+A delivery receipt is emitted only if all conditions hold:
+
+1. operation is exactly `message-send`;
+2. target file kind is `character-chat` (not group chat, root chat, or group membership);
+3. before/after logical identities are complete and the after-state contains exactly one appended message, with every previous message unchanged;
+4. the appended message role is `user`, with one stable message ID, one active version ID, and a verified SHA-256 payload digest;
+5. the Host session's PREPARED record binds the same installation, account, session, conversation and target locator;
+6. Core's existing `/v1/host-context/resolve` returns the canonical World/Actor binding for that Host conversation;
+7. the server-owned `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` equals the first directory component of the persisted character-chat locator.
+
+The emitted envelope contains only sender account identity, canonical Core World/Actor identity, conversation UUID, message/version UUIDs, content digest, channel, timestamp and mutation/event IDs. It contains no message text. It is signed with the existing Host adapter token using the existing Host mutation receipt proof format; no new secret, identity mechanism, event bus, or persistence store is introduced. The delivery envelope is stored inside the existing durable Host lifecycle receipt and returned by the existing lifecycle proxy response.
+
+### Explicit limits
+
+- **One configured ST character per adapter binding** is supported by this first slice. Core's current `ActorBindingService` resolves exactly one active actor per `adapter_id`; it does not map an arbitrary ST character ID to a different actor. The Host therefore requires the explicit server-side `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` deployment mapping. Missing or mismatched mapping yields no delivery receipt; when `LOGIC_ENGINE_MEMORY_NPC_ENABLED=true`, protected generation for a different character chat is rejected with `HOST_NPC_RECIPIENT_BINDING_REQUIRED`.
+- Group chats remain unsupported: a group member selection or shared transcript does not prove delivery to each member.
+- NPC-to-NPC delivery and NPC-generated assistant messages are not inferred from `message-receive`.
+- This is Host evidence production only. No Core acquisition event/schema or Memory→NPC consumer was changed in this step. The receipt is not yet consumed as `knowledge.acquire`; Stage 2 must add the approved Core-side canonical source representation and verify this Host signature/digest before acquisition.
+- `direct_observation` remains unsupported; SillyTavern has no World/Simulation observation producer.
+
+**Status:** Host producer implementation PRESENT; automated verification PENDING CI; local SillyTavern end-to-end delivery/restart test NOT VERIFIED; Core acquisition consumption NOT IMPLEMENTED. Memory → NPC remains DISABLED / FAIL-CLOSED.
