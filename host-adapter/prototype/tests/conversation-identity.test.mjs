@@ -61,7 +61,7 @@ test('a locator binding prevents silent identity replacement or metadata deletio
   const metadata = { logic_engine_conversation_id: CHAT_A };
   storage.setItem(locatorKey('chat-file.jsonl'), INSTALL_A + ':' + ACCOUNT_A + ':' + CHAT_A);
   metadata.logic_engine_conversation_id = CHAT_B;
-  await assert.rejects(resolver({ metadata, storage }), /binding and enrollment marker do not form a valid recovery pair/);
+  await assert.rejects(resolver({ metadata, storage }), /Host locator metadata is missing or inconsistent/);
   delete metadata.logic_engine_conversation_id;
   await assert.rejects(resolver({ metadata, storage }), /locator metadata is missing or inconsistent/);
 });
@@ -88,7 +88,7 @@ test('same-install copy with reused chat metadata is rejected by locator binding
   storage.setItem(locatorKey('original.jsonl'), resolvedId);
   await assert.rejects(
     resolver({ locator: 'copy.jsonl', metadata, storage }),
-    /marker does not match the active locator/,
+    /Host conversation identity is already mapped to another locator/,
   );
 });
 
