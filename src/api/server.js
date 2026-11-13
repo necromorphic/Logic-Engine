@@ -668,6 +668,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const receipt = body?.communication_delivery_receipt;
         const delivery = receipt?.delivery;
         const inventory = delivery?.conversation_inventory;
+        const receiptKeys = ['protocol_version', 'evidence_type', 'delivery', 'receipt_digest', 'proof'];
+        const versionKeys = ['message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'];
+        const validHostId = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some(key => ![
             'host_installation_id', 'authenticated_account_id', 'host_session_id',
@@ -676,13 +681,23 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || !['host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid']
             .every(key => validIdentity(body[key]))
           || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+          || Object.keys(receipt).length !== receiptKeys.length
+          || Object.keys(receipt).some(key => !receiptKeys.includes(key))
           || receipt.protocol_version !== 1 || receipt.evidence_type !== 'communication_delivered'
           || !delivery || typeof delivery !== 'object' || Array.isArray(delivery)
           || !inventory || typeof inventory !== 'object' || Array.isArray(inventory)
           || inventory.protocol_version !== 1 || inventory.complete !== true
           || !Array.isArray(inventory.versions)
           || inventory.versions.length === 0
-          || inventory.versions.length > MAX_HOST_VERSION_SNAPSHOT_ENTRIES) {
+          || inventory.versions.length > MAX_HOST_VERSION_SNAPSHOT_ENTRIES
+          || inventory.versions.some(version => !version || typeof version !== 'object' || Array.isArray(version)
+            || Object.keys(version).length !== versionKeys.length
+            || Object.keys(version).some(key => !versionKeys.includes(key))
+            || !validHostId(version.message_id) || !validHostId(version.version_id)
+            || !Object.hasOwn(version, 'parent_version_id')
+            || !(version.parent_version_id === null || validHostId(version.parent_version_id))
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || version.deleted !== false)) {
           throw new EngineError('INVALID_HOST_DELIVERY_RECONCILIATION',
             'A bounded signed communication-delivery receipt with a complete digest-only conversation inventory is required.', 400);
         }
@@ -717,7 +732,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               message: 'The signed delivery recipient does not match the Core-bound Actor.' },
           });
         }
-        const { conversation_inventory: ignoredInventory, ...deliveryMetadata } = delivery;
+        const deliveryMetadata = Object.fromEntries(Object.entries(delivery)
+          .filter(([key]) => key !== 'conversation_inventory'));
         const snapshot = {
           world_id: binding.world_id,
           conversation_id: binding.conversation_id,
