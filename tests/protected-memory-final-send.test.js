@@ -577,11 +577,13 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
     senderRoute: 'google-ai-studio',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(JSON.stringify({
-      messages: [{ role: 'user', content: 'continue' }],
+      contents: [{ role: 'user', parts: [{ text: 'continue' }] }],
+      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
     })),
     hostRequestContext,
   });
-  const prompt = outbound.messages.map(message => message.content).join('\\n');
+  const prompt = outbound.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n');
+  assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
   assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
   assert.match(prompt, /north gate/);
