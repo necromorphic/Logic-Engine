@@ -4,6 +4,11 @@ import { createHash } from 'node:crypto';
 import { createHostLifecycleJournalProxy } from '../server-plugin/st-server-digest-proxy.mjs';
 import { verifyHostMutationReceiptSignature } from '../server-plugin/st-host-mutation-receipt-signature.mjs';
 
+const canonical = value => Array.isArray(value)
+  ? '[' + value.map(canonical).join(',') + ']'
+  : value && typeof value === 'object'
+    ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+    : JSON.stringify(value);
 const CONFIG = {
   LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:52087',
   LOGIC_ENGINE_API_TOKEN: 'a'.repeat(32),
@@ -149,7 +154,7 @@ test('production Host lifecycle proxy issues signed communication evidence only 
   const envelope = committedResponse.payload.communication_delivery_receipt;
   assert.equal(envelope.evidence_type, 'communication_delivered');
   assert.deepEqual(envelope.delivery, delivery);
-  assert.equal(envelope.receipt_digest, createHash('sha256').update(JSON.stringify(delivery), 'utf8').digest('hex'));
+  assert.equal(envelope.receipt_digest, createHash('sha256').update(canonical(delivery), 'utf8').digest('hex'));
   assert.equal(verifyHostMutationReceiptSignature({
     adapterId: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
     adapterToken: CONFIG.LOGIC_ENGINE_ADAPTER_TOKEN,
