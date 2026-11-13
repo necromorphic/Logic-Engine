@@ -435,6 +435,7 @@ test('lifecycle journal proxy derives account identity and signs only server-ver
     operation: event.operation,
     mutation_digest: event.mutation_digest,
     target_kind: null,
+    target_locator: null,
   });
   assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-lifecycle/events');
   assert.equal(observed.options.headers['x-adapter-id'], CONFIG.LOGIC_ENGINE_ADAPTER_ID);
@@ -694,15 +695,18 @@ test('communication delivery receipt requires one persisted user message in a on
   };
   const before = {
     target_kind: 'character-chat',
+    target_locator: 'avatar-main/chat-1.jsonl',
     logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage] },
   };
   const after = {
     target_kind: 'character-chat',
+    target_locator: 'avatar-main/chat-1.jsonl',
     logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage, newMessage] },
   };
   const recipientBinding = {
     adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
     conversation_id: coreConversationId,
+    host_character_avatar_id: 'avatar-main',
     world_id: 'world-main',
     actor_id: 'npc-alice',
     actor_type: 'npc',
@@ -780,7 +784,9 @@ test('Host lifecycle proxy returns a signed delivery receipt only for a prepared
     assertOutsideRoot: async () => {},
     prepare: async () => ({
       status: 'appended',
-      prepared: { occurred_at: '2026-10-31T00:00:00.000Z', before: { target_kind: 'character-chat' } },
+      prepared: { occurred_at: '2026-10-31T00:00:00.000Z', before: {
+        target_kind: 'character-chat', target_locator: 'avatar-main/chat-1.jsonl',
+      } },
     }),
     commit: async (_scope, _directories, options) => {
       commitOptions = options;
@@ -808,6 +814,7 @@ test('Host lifecycle proxy returns a signed delivery receipt only for a prepared
       recipientCalls++;
       assert.equal(input.hostSessionId, SESSION_ID);
       assert.equal(input.conversationUuid, conversationUuid);
+      assert.equal(input.targetLocator, 'avatar-main/chat-1.jsonl');
       return recipientBinding;
     },
     fetchImpl: async (url, options) => {
