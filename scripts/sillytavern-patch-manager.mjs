@@ -577,7 +577,16 @@ export class SillyTavernPatchManager {
         this.stRoot,
         'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
       );
-      if (await exists(hostAttestationPath)) {
+      if (await exists(hostAttestationPath) && this.trustedHostOverlayFiles.size === 0) {
+        // Standalone Patch Manager updates must regenerate and verify the
+        // combined Host/Final-Send manifest. During the Host Bundle installer's
+        // predecessor migration, however, the orchestrator has already
+        // independently verified the legacy Host overlay and supplied its
+        // exact file hashes. Regenerating here would compare that old overlay
+        // against the new Host source tree before the orchestrator can replace
+        // it. verifyInstalled() still checks every Final-Send output and accepts
+        // only those exact verified predecessor hashes; the bundle installer
+        // then stages and installs the new combined Host attestation.
         await assertRegularFile(
           this.stRoot,
           'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
