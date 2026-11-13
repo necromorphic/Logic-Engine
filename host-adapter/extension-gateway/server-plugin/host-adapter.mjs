@@ -30,6 +30,10 @@ import {
 import { fileURLToPath } from 'node:url';
 
 const PINNED_SILLYTAVERN_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+const validCharacterAvatarId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 200 && value !== '.' && value !== '..'
+  && !value.includes('/') && !value.includes('\\')
+  && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 const SILLYTAVERN_INSTALL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const verifySourceIdentity = ({ userExtensionsPath } = {}) => verifyPinnedSourceIdentity({
   installRoot: SILLYTAVERN_INSTALL_ROOT,
@@ -236,7 +240,10 @@ export function createSillyTavernHostAdapter({
       ensureRootInventory: (request, conversationUuid) => authentication
         ? authentication.authenticate(request, conversationUuid)
         : Promise.resolve({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' }),
-      resolveCommunicationRecipient: async ({ identity, hostSessionId, conversationUuid }) => {
+      resolveCommunicationRecipient: async ({ identity, hostSessionId, conversationUuid, targetLocator }) => {
+        const configuredAvatarId = env.LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID;
+        const targetAvatarId = typeof targetLocator === 'string' ? targetLocator.split('/')[0] : null;
+        if (!validCharacterAvatarId(configuredAvatarId) || targetAvatarId !== configuredAvatarId) return null;
         const resolved = await ensureCoreConversationWorldBinding({
           env,
           fetchImpl,
@@ -247,7 +254,9 @@ export function createSillyTavernHostAdapter({
             conversation_uuid: conversationUuid,
           },
         });
-        return resolved.status === 'READY' ? resolved.binding : null;
+        return resolved.status === 'READY'
+          ? Object.freeze({ ...resolved.binding, host_character_avatar_id: configuredAvatarId })
+          : null;
       },
     });
     lifecycleEvents = lifecycle.append;
@@ -429,6 +438,8 @@ export function createSillyTavernHostAdapter({
           root_id: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
           root_inventory_sequence: rootProof.sequence,
           root_manifest_sha256: rootProof.manifest_sha256,
+          conversation_kind: conversationFiles[0].kind,
+          conversation_locator: conversationFiles[0].locator,
         };
       },
     });
@@ -491,6 +502,16 @@ export function createSillyTavernHostAdapter({
       const result = await authentication.authenticate(request, conversationUuid, signal);
       if (signal?.aborted === true) return Object.freeze({ status: 'NON_READY', code: 'HOST_GENERATION_CANCELLED' });
       if (result.status !== 'READY') return result;
+      if (env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true') {
+        const configuredAvatarId = env.LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID;
+        const targetAvatarId = typeof result.context?.conversation_locator === 'string'
+          ? result.context.conversation_locator.split('/')[0] : null;
+        if (!validCharacterAvatarId(configuredAvatarId)
+          || result.context?.conversation_kind !== 'character-chat'
+          || targetAvatarId !== configuredAvatarId) {
+          return Object.freeze({ status: 'NON_READY', code: 'HOST_NPC_RECIPIENT_BINDING_REQUIRED' });
+        }
+      }
       // The embedded Gateway opens Core read-only. Persist the first-time
       // conversation→World binding through Core's authenticated API before the
       // in-process reader resolves that binding from the shared SQLite file.
