@@ -115,7 +115,7 @@ test('native clearChat remains a non-blocking chat-unload primitive', async () =
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const clearStart = patch.indexOf('export async function clearChat({ clearData = false } = {})');
-  const nextHunk = patch.indexOf('\\n@@ ', clearStart);
+  const nextHunk = patch.indexOf('export async function deleteLastMessage()', clearStart);
   assert.ok(clearStart >= 0 && nextHunk > clearStart, 'pinned patch must retain the native clearChat boundary');
   const clearChatHunk = patch.slice(clearStart, nextHunk);
   assert.equal(clearChatHunk.includes('waitForEnrollment'), false,
