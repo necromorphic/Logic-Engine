@@ -685,7 +685,8 @@ export class SillyTavernPatchManager {
       // per-file hash. Permit that overlay during rollback so the saved
       // Final-Send baseline can be restored before the new Host overlay is
       // reconstructed and installed by the bundle transaction.
-      const trustedHostOverlay = this.trustedHostOverlayFiles.get(relativePath) === current;
+      const trustedHostOverlay = this.trustedHostOverlayFiles.get(relativePath) === current
+        || await this.verifyHostOverlay(relativePath);
       if (current !== before && (!after || current !== after) && !trustedHostOverlay) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
@@ -713,6 +714,29 @@ export class SillyTavernPatchManager {
     for (const relativePath of Object.keys(journal.createdFiles ?? {})) {
       await rm(resolve(this.stRoot, relativePath), { force: true });
     }
+
+    // The Host source attestation was regenerated after Final-Send installation.
+    // Once the exact pre-Final-Send files are restored, rebuild the Host-only
+    // attestation. Legacy predecessor migration defers this to its orchestrator.
+    const hostAttestationPath = resolve(
+      this.stRoot,
+      'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
+    );
+    if (this.trustedHostOverlayFiles.size === 0 && await exists(hostAttestationPath)) {
+      await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/st-source-attestation.mjs');
+      await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json');
+      const generatorPath = await assertRegularFile(
+        this.extensionRoot,
+        'host-adapter/prototype/generate-pinned-source-manifest.mjs',
+      );
+      execFileSync(process.execPath, [generatorPath], {
+        cwd: this.extensionRoot,
+        env: { ...process.env, SILLYTAVERN_DIR: this.stRoot },
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+    }
+
     await rm(this.statePath, { force: true });
     await rm(this.journalPath, { force: true });
   }
