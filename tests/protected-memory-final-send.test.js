@@ -353,6 +353,33 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       },
     },
     {
+      senderRoute: 'ai21',
+      body: {
+        messages: [
+          { role: 'system', content: 'TRUSTED AI21 SYSTEM PROMPT' },
+          { role: 'user', content: 'REAL USER REQUEST' },
+        ],
+      },
+      readEnvelope: parsed => {
+        assert.equal(parsed.messages[0].role, 'system');
+        assert.equal(parsed.messages[0].content, 'TRUSTED AI21 SYSTEM PROMPT');
+        assert.equal(parsed.messages[1].role, 'user');
+        return JSON.parse(parsed.messages[1].content);
+      },
+    },
+    {
+      senderRoute: 'vertex-ai',
+      body: {
+        systemInstruction: { parts: [{ text: 'TRUSTED VERTEX SYSTEM PROMPT' }] },
+        contents: [{ role: 'user', parts: [{ text: 'REAL USER REQUEST' }] }],
+      },
+      readEnvelope: parsed => {
+        assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'TRUSTED VERTEX SYSTEM PROMPT' }] });
+        assert.equal(parsed.contents[0].role, 'user');
+        return JSON.parse(parsed.contents[0].parts[0].text);
+      },
+    },
+    {
       senderRoute: 'text-completions',
       body: { prompt: 'TRUSTED SETUP\\n\\nREAL USER REQUEST' },
       readEnvelope: parsed => {
