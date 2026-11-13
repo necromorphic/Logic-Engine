@@ -268,10 +268,9 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     if (senderRoute === 'google-ai-studio' || senderRoute === 'vertex-ai') {
       assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
       assert.equal(parsed.contents[0].role, 'user');
-      assert.equal(parsed.contents[0].parts.length, 1);
-    } else {
-      assert.ok(rendered.indexOf('hello') < rendered.indexOf('logic_engine_untrusted_memory'), senderRoute);
+      assert.equal(parsed.contents[0].parts.length, 2);
     }
+    assert.ok(rendered.indexOf('hello') < rendered.indexOf('logic_engine_untrusted_memory'), senderRoute);
     assert.equal(Object.keys(parsed).some(key => key.startsWith('logic_engine_')), false, senderRoute);
     assert.equal(JSON.stringify(parsed).includes('memory_dispatch'), false, senderRoute);
   }
@@ -334,8 +333,10 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
         assert.equal(parsed.messages[0].content, 'TRUSTED SYSTEM PROMPT');
         const memoryMessage = parsed.messages[1];
         assert.equal(memoryMessage.role, 'user');
-        assert.equal(parsed.messages[2].role, 'user');
-        return JSON.parse(memoryMessage.content);
+        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
+        const marker = memoryMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
+        assert.ok(marker > 0);
+        return JSON.parse(memoryMessage.content.slice(marker));
       },
     },
     {
@@ -346,8 +347,9 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       },
       readEnvelope: parsed => {
         assert.deepEqual(parsed.system, [{ type: 'text', text: 'TRUSTED CLAUDE SYSTEM PROMPT' }]);
-        assert.equal(parsed.messages[0].role, 'user');
-        return JSON.parse(parsed.messages[0].content);
+        assert.deepEqual(parsed.messages.map(message => message.role), ['user']);
+        const blocks = parsed.messages[0].content;
+        return JSON.parse(blocks[blocks.length - 1].text);
       },
     },
     {
@@ -358,8 +360,9 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       },
       readEnvelope: parsed => {
         assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'TRUSTED GEMINI SYSTEM PROMPT' }] });
-        assert.equal(parsed.contents[0].role, 'user');
-        return JSON.parse(parsed.contents[0].parts[0].text);
+        assert.deepEqual(parsed.contents.map(item => item.role), ['user']);
+        const parts = parsed.contents[0].parts;
+        return JSON.parse(parts[parts.length - 1].text);
       },
     },
     {
@@ -373,8 +376,10 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       readEnvelope: parsed => {
         assert.equal(parsed.messages[0].role, 'system');
         assert.equal(parsed.messages[0].content, 'TRUSTED COHERE SYSTEM PROMPT');
-        assert.equal(parsed.messages[1].role, 'user');
-        return JSON.parse(parsed.messages[1].content);
+        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
+        const content = parsed.messages[1].content;
+        const marker = content.indexOf('{"type":"logic_engine_untrusted_memory"');
+        return JSON.parse(content.slice(marker));
       },
     },
     {
@@ -388,8 +393,10 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       readEnvelope: parsed => {
         assert.equal(parsed.messages[0].role, 'system');
         assert.equal(parsed.messages[0].content, 'TRUSTED AI21 SYSTEM PROMPT');
-        assert.equal(parsed.messages[1].role, 'user');
-        return JSON.parse(parsed.messages[1].content);
+        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
+        const content = parsed.messages[1].content;
+        const marker = content.indexOf('{"type":"logic_engine_untrusted_memory"');
+        return JSON.parse(content.slice(marker));
       },
     },
     {
@@ -400,8 +407,9 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
       },
       readEnvelope: parsed => {
         assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'TRUSTED VERTEX SYSTEM PROMPT' }] });
-        assert.equal(parsed.contents[0].role, 'user');
-        return JSON.parse(parsed.contents[0].parts[0].text);
+        assert.deepEqual(parsed.contents.map(item => item.role), ['user']);
+        const parts = parsed.contents[0].parts;
+        return JSON.parse(parts[parts.length - 1].text);
       },
     },
     {
