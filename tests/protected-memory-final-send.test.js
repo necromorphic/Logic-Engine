@@ -978,11 +978,11 @@ test('provider-native Google contents and flattened chat-completion prompts fail
   };
   const cases = [
     ['google-ai-studio', {
-      system_instruction: { parts: [{ text: 'trusted Google system instruction' }] },
+      systemInstruction: { parts: [{ text: 'trusted Google system instruction' }] },
       contents: [{ role: 'user', parts: [{ text: 'original Google user input' }] }],
     }],
     ['vertex-ai', {
-      system_instruction: { parts: [{ text: 'trusted Vertex system instruction' }] },
+      systemInstruction: { parts: [{ text: 'trusted Vertex system instruction' }] },
       contents: [{ role: 'user', parts: [{ text: 'original Vertex user input' }] }],
     }],
     ['openai', {
