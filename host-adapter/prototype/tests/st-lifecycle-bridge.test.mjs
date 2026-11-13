@@ -771,6 +771,28 @@ test('create-message assigns identity only to the explicitly appended tail messa
   assert.ok(f.chat[2]._logicEngineLifecycle.messageId);
 });
 
+test('message-send returns the signed Host communication delivery receipt to its caller', async () => {
+  const deliveryReceipt = {
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    delivery: { source: { message_id: 'message-id', version_id: 'version-id' } },
+    receipt_digest: 'a'.repeat(64),
+    proof: { receipt_signature: 'b'.repeat(64) },
+  };
+  const f = makeFixture(undefined, {
+    publishLifecycleEvent: async event => ({
+      lifecycle: { status: 'appended' },
+      ...(event.event_type === 'MUTATION_COMMITTED'
+        ? { communication_delivery_receipt: deliveryReceipt } : {}),
+    }),
+  });
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('message-send', []);
+  f.chat.push({ is_user: true, mes: 'new user turn' });
+  const result = await f.bridge.afterMutation('message-send', { createdMessageIndex: 2 });
+  assert.deepEqual(result.communicationDeliveryReceipt, deliveryReceipt);
+});
+
 test('message-send checkpoint records the inserted user message and receive preserves the lineage', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
