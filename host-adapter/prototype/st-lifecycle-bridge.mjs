@@ -440,6 +440,30 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
   }
 
+  async function ensureCurrentConversationEnrolled() {
+    const conversationId = await getConversationId();
+    if (!conversationId) return { status: 'NOT_ENROLLED', reason: 'NO_ACTIVE_CONVERSATION' };
+    const alreadyEnrolled = await journal.isEnrolled(conversationId);
+    if (!alreadyEnrolled) {
+      await ensureConversationEnrolled(conversationId);
+    } else {
+      const chat = getChat();
+      if (!Array.isArray(chat)) throw Error('NON_READY: active Host chat is unavailable');
+      await assertIdentitySnapshotMatches(conversationId, chat);
+      const integrity = await journal.verifyIntegrity(conversationId);
+      if (integrity.status !== 'INTEGRITY_OK') {
+        throw Error('NON_READY: Host lifecycle journal integrity is unavailable after chat load');
+      }
+    }
+    if (await getConversationId() !== conversationId) {
+      throw Error('NON_READY: Host conversation changed during automatic chat-load enrollment');
+    }
+    if (!(await journal.isEnrolled(conversationId))) {
+      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
+    }
+    return { status: alreadyEnrolled ? 'ALREADY_ENROLLED' : 'ENROLLED', conversationId };
+  }
+
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId) return { status: 'NOT_ENROLLED' };
@@ -1128,6 +1152,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   return Object.freeze({
     enrollCurrentConversation,
+    ensureCurrentConversationEnrolled,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
@@ -1161,6 +1186,7 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
 
   return Object.freeze({
     enrollCurrentConversation: async () => { throw error; },
+    ensureCurrentConversationEnrolled: async () => { throw error; },
     beforeMutation: async () => assertUnavailableSafe(),
     afterMutation: async () => assertUnavailableSafe(),
     guardExport: async () => assertUnavailableSafe(),
