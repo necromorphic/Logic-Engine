@@ -107,7 +107,17 @@ export async function ensureCoreConversationWorldBinding({ env = process.env, fe
           ? payload.error.code : 'HOST_WORLD_ACTOR_BINDING_UNAVAILABLE',
       });
     }
-    return Object.freeze({ status: 'READY' });
+    return Object.freeze({
+      status: 'READY',
+      coreConversationId: conversationId,
+      binding: Object.freeze({
+        adapter_id: binding.adapter_id,
+        conversation_id: binding.conversation_id,
+        world_id: binding.world_id,
+        actor_id: binding.actor_id,
+        actor_type: binding.actor_type,
+      }),
+    });
   } catch {
     return Object.freeze({ status: 'NON_READY', code: 'LOGIC_ENGINE_UNREACHABLE' });
   }
@@ -226,6 +236,19 @@ export function createSillyTavernHostAdapter({
       ensureRootInventory: (request, conversationUuid) => authentication
         ? authentication.authenticate(request, conversationUuid)
         : Promise.resolve({ status: 'NON_READY', code: 'HOST_IDENTITY_STORE_UNCONFIGURED' }),
+      resolveCommunicationRecipient: async ({ identity, hostSessionId, conversationUuid }) => {
+        const resolved = await ensureCoreConversationWorldBinding({
+          env,
+          fetchImpl,
+          context: {
+            host_installation_id: identity.host_installation_id,
+            authenticated_account_id: identity.authenticated_account_id,
+            host_session_id: hostSessionId,
+            conversation_uuid: conversationUuid,
+          },
+        });
+        return resolved.status === 'READY' ? resolved.binding : null;
+      },
     });
     lifecycleEvents = lifecycle.append;
     lifecycleStatus = lifecycle.status;
