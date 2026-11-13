@@ -1,7 +1,9 @@
 # Stage 0A — protected Memory prompt boundary audit
 
-**Audit base:** PR #949 head `4e57147475db805cc538c51b323f1b3eebfc7cb6`  
-**SillyTavern source:** release archive supplied for this task, version `1.19.0`; the five server generation files below match the repository's pinned `before` SHA-256 values.  
+**Audit base:** PR #949 head `4e57147475db805cc538c51b323f1b3eebfc7cb6`
+
+**SillyTavern source:** release archive supplied for this task, version `1.19.0`; the five server generation files below match the repository's pinned `before` SHA-256 values.
+
 **Scope:** prompt serialization and role boundary only. No Core authority/acquisition/belief changes, no Gateway/authentication rewrite, no ST-VectorService changes, and no new Memory→NPC mechanism.
 
 ## Findings
