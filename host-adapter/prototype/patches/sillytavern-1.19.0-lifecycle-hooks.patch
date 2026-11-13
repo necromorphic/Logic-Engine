@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,432 @@
+@@ -1583,6 +1593,426 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -374,20 +374,14 @@ diff --git a/public/script.js b/public/script.js
 +                if (!conversationId || !sourceLocator || getCurrentChatId() !== sourceLocator) {
 +                    throw Error('NON_READY: Host conversation changed before automatic enrollment');
 +                }
++                const result = await (await getLogicEngineLifecycleBridge()).ensureCurrentConversationEnrolled();
++                if (getCurrentChatId() !== sourceLocator) {
++                    throw Error('NON_READY: Host conversation changed during automatic enrollment');
++                }
 +                localStorage.setItem('logic-engine-host-lifecycle-locator:' + sourceLocator, conversationId);
 +                const marker = 'logic-engine-host-lifecycle:' + conversationId;
-+                localStorage.setItem(marker, 'enrolling:' + sourceLocator);
-+                try {
-+                    const result = await (await getLogicEngineLifecycleBridge()).ensureCurrentConversationEnrolled();
-+                    if (getCurrentChatId() !== sourceLocator) {
-+                        throw Error('NON_READY: Host conversation changed during automatic enrollment');
-+                    }
-+                    localStorage.setItem(marker, 'enrolled:' + sourceLocator);
-+                    return result;
-+                } catch (error) {
-+                    localStorage.setItem(marker, 'NON_READY:' + sourceLocator);
-+                    throw error;
-+                }
++                localStorage.setItem(marker, 'enrolled:' + sourceLocator);
++                return result;
 +            } finally {
 +                if (logicEngineEnrollmentBarrier === barrier) logicEngineEnrollmentBarrier = null;
 +                releaseEnrollment();
