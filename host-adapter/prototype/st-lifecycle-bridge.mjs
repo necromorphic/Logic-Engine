@@ -331,10 +331,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
-    // Verify the just-persisted baseline automatically once. This is a bounded
-    // per-conversation scan, not a full-root scan on every message mutation.
-    const persistedInventory = getPersistedInventory
-      ? await verifyPersistedInventory(conversationId) : null;
+    // Full-root inventory is independent of conversation enrollment. Do not
+    // trigger account-wide filesystem/VSS work during chat loading; reconciliation
+    // remains an explicit operation with its own readiness contract.
     await assertEnrollmentSourceUnchanged();
     return {
       conversationId,
@@ -343,7 +342,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
       coreCaptureStatus: coreCapture.status,
-      persistedInventoryStatus: persistedInventory?.status ?? 'NOT_CONFIGURED',
+      persistedInventoryStatus: 'NOT_CHECKED_ON_CHAT_LOAD',
     };
   }
 
