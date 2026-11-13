@@ -257,6 +257,61 @@ test('Patch Manager updates a changed artifact even when its version label is un
 });
 
 
+test('Patch Manager defers Host attestation regeneration for an independently verified predecessor overlay', async (t) => {
+  const { manager, stRoot, extensionRoot } = await fixture(t);
+  await manager.execute('install');
+
+  const overlayBytes = Buffer.from("export const nativeRoute = 'legacy-host-overlay';\\n", 'utf8');
+  const overlayHash = hash(overlayBytes);
+  await writeFile(join(stRoot, 'src/native-route.js'), overlayBytes);
+
+  const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
+  await mkdir(gatewayDir, { recursive: true });
+  await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+  await writeFile(join(gatewayDir, 'pinned-source-manifest.json'),
+    JSON.stringify({ files: [{ path: 'src/native-route.js', sha256: overlayHash }] }));
+
+  const generatorDir = join(extensionRoot, 'host-adapter/prototype');
+  await mkdir(generatorDir, { recursive: true });
+  await writeFile(join(generatorDir, 'generate-pinned-source-manifest.mjs'),
+    "throw new Error('LEGACY_HOST_GENERATOR_MUST_NOT_RUN_DURING_PREDECESSOR_MIGRATION');\\n");
+
+  const manifestPath = join(extensionRoot, 'patches/manifest.json');
+  const patchPath = join(extensionRoot, 'patches/test.patch');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const patchedV2 = "export const host = 'patched-v2';\\n";
+  const patchV2 = [
+    '--- a/src/host.js',
+    '+++ b/src/host.js',
+    '@@ -1 +1 @@',
+    "-export const host = 'stock';",
+    "+export const host = 'patched-v2';",
+    '--- /dev/null',
+    '+++ b/src/hook.js',
+    '@@ -0,0 +1 @@',
+    "+export const finalSendHook = 'v2';",
+    '',
+  ].join('\\n');
+  manifest.patch.sha256 = hash(patchV2);
+  manifest.sourceFiles['src/host.js'].after = hash(patchedV2);
+  manifest.createdFiles['src/hook.js'] = hash("export const finalSendHook = 'v2';\\n");
+  await writeFile(manifestPath, JSON.stringify(manifest));
+  await writeFile(patchPath, patchV2);
+
+  const updatedManager = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath,
+    patchPath,
+    trustedHostOverlayFiles: new Map([['src/native-route.js', overlayHash]]),
+  });
+  await assert.rejects(updatedManager.inspectInstalledReadOnly(), /PATCH_MANAGER_STATE_IDENTITY_INVALID/);
+  assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
+  assert.equal((await updatedManager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
+  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), overlayBytes.toString('utf8'));
+});
+
 test('Patch Manager backups survive removal of the Logic-Engine Extension directory', async (t) => {
   const { manager, stRoot, extensionRoot, original } = await fixture(t);
   await manager.execute('install');
