@@ -10,7 +10,7 @@ async function rawContentDigest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
 const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering', 'copy-branch', 'create-branch']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
