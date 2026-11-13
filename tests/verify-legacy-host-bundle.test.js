@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { verifyLegacyHostBundle } from '../scripts/verify-legacy-host-bundle.mjs';
+import { HOST_BUNDLE_ACCEPTED_IDENTITIES, verifyLegacyHostBundle } from '../scripts/verify-legacy-host-bundle.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => Array.isArray(value)
@@ -151,5 +151,60 @@ test('legacy Host bundle is rejected when its manifest pin is not the expected p
     assert.equal(result.verified, false);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+
+test('current Host bundle identity is pinned for idempotent repeat installation', () => {
+  assert.ok(HOST_BUNDLE_ACCEPTED_IDENTITIES.some(pin =>
+    pin.commit === '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    && pin.patchBlobSha === '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52'
+    && pin.manifestSha256 === '069b75d60b256d4b5e98dce164e614fee8422af3f54a110b4e8dcd5b47143792'),
+  'the exact current bundle and source manifest digests must be accepted');
+});
+
+test('current identity pin still requires the manifest and every installed file to verify', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'logic-engine-current-bundle-'));
+  try {
+    const relativePath = 'public/script.js';
+    const bytes = Buffer.from("export const host = 'current';\\n", 'utf8');
+    const patchBlobSha = '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52';
+    const proof = {
+      pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+      patch_blob_sha: patchBlobSha,
+      protocol_version: 1,
+      files: [{ path: relativePath, sha256: sha256(bytes) }],
+    };
+    const manifest = {
+      ...proof,
+      manifest_sha256: sha256(Buffer.from(canonical(proof), 'utf8')),
+    };
+    await mkdir(join(root, 'plugins/logic-engine-extension-gateway'), { recursive: true });
+    await mkdir(join(root, 'public'), { recursive: true });
+    await writeFile(join(root, relativePath), bytes);
+    await writeFile(
+      join(root, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'),
+      JSON.stringify(manifest),
+    );
+    const pin = {
+      commit: proof.pinned_host_commit,
+      patchBlobSha,
+      manifestSha256: manifest.manifest_sha256,
+    };
+
+    const verified = await verifyLegacyHostBundle({
+      installRoot: root,
+      expectedPredecessors: [pin],
+    });
+    assert.equal(verified.verified, true);
+
+    await writeFile(join(root, relativePath), "export const host = 'unreviewed';\\n");
+    const drifted = await verifyLegacyHostBundle({
+      installRoot: root,
+      expectedPredecessors: [pin],
+    });
+    assert.equal(drifted.verified, false, 'a local edit must invalidate the previously trusted bundle');
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
