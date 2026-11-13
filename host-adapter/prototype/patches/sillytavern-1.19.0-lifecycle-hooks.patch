@@ -1786,7 +1786,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +21,1194 @@
+@@ -0,0 +21,1193 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2120,10 +2120,9 @@ new file mode 100644
 +      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
 +    }
 +    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
-+    // Verify the just-persisted baseline automatically once. This is a bounded
-+    // per-conversation scan, not a full-root scan on every message mutation.
-+    const persistedInventory = getPersistedInventory
-+      ? await verifyPersistedInventory(conversationId) : null;
++    // Full-root inventory is independent of conversation enrollment. Do not
++    // trigger account-wide filesystem/VSS work during chat loading; reconciliation
++    // remains an explicit operation with its own readiness contract.
 +    await assertEnrollmentSourceUnchanged();
 +    return {
 +      conversationId,
@@ -2132,7 +2131,7 @@ new file mode 100644
 +      messageCount: chat.length,
 +      status: 'REVIEW_ONLY',
 +      coreCaptureStatus: coreCapture.status,
-+      persistedInventoryStatus: persistedInventory?.status ?? 'NOT_CONFIGURED',
++      persistedInventoryStatus: 'NOT_CHECKED_ON_CHAT_LOAD',
 +    };
 +  }
 +
@@ -2985,7 +2984,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/p
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-@@ -0,0 +21,261 @@
+@@ -0,0 +20,261 @@
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 +const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
 +const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
