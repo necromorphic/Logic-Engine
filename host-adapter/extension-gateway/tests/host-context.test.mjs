@@ -123,7 +123,17 @@ test('Host persists the server-derived Core conversation binding before the read
       conversation_uuid: conversationUuid,
     },
   });
-  assert.deepEqual(result, { status: 'READY' });
+  assert.deepEqual(result, {
+    status: 'READY',
+    coreConversationId: sessionId + ':' + installationId + ':' + conversationUuid,
+    binding: {
+      adapter_id: 'sillytavern-main',
+      conversation_id: sessionId + ':' + installationId + ':' + conversationUuid,
+      world_id: 'world-default',
+      actor_id: 'actor-main',
+      actor_type: 'character',
+    },
+  });
   assert.equal(captured.url.pathname, '/v1/host-context/resolve');
   assert.equal(captured.options.headers['x-adapter-id'], 'sillytavern-main');
   assert.deepEqual(captured.body, {
