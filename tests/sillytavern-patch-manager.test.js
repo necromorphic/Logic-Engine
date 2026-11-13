@@ -425,3 +425,84 @@ test('Patch Manager rejects a patch bundle with a path escape before reading art
   });
   await assert.rejects(bundled.execute('preflight'), /PATCH_ARTIFACT_BUNDLE_INVALID/);
 });
+
+
+test('Patch Manager skips Host Bundle patches only when the installed Host overlay is attested', async (t) => {
+  const { manager, stRoot, extensionRoot, original, patched, patchPath } = await fixture(t);
+  const hostOriginal = "export const nativeRoute = 'stock';\\n";
+  const hostPatched = "export const nativeRoute = 'host-overlay';\\n";
+  const hostPatch = [
+    'diff --git a/src/native-route.js b/src/native-route.js',
+    '--- a/src/native-route.js',
+    '+++ b/src/native-route.js',
+    '@@ -1 +1 @@',
+    "-export const nativeRoute = 'stock';",
+    "+export const nativeRoute = 'host-overlay';",
+    '',
+  ].join('\\n');
+  const hostPatchPath = 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch';
+  const hostPatchAbsolutePath = join(extensionRoot, hostPatchPath);
+  await mkdir(join(extensionRoot, 'host-adapter/prototype/patches'), { recursive: true });
+  await writeFile(hostPatchAbsolutePath, hostPatch);
+  await writeFile(join(stRoot, 'src/native-route.js'), hostPatched);
+
+  const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
+  await mkdir(gatewayDir, { recursive: true });
+  await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+  const overlayManifestPath = join(gatewayDir, 'pinned-source-manifest.json');
+  await writeFile(overlayManifestPath, JSON.stringify({
+    files: [{ path: 'src/native-route.js', sha256: hash(Buffer.from(hostPatched, 'utf8')) }],
+  }));
+
+  const generatorPath = join(extensionRoot, 'host-adapter/prototype/generate-pinned-source-manifest.mjs');
+  await writeFile(generatorPath, [
+    "import { createHash } from 'node:crypto';",
+    "import { readFile, writeFile } from 'node:fs/promises';",
+    "import { join } from 'node:path';",
+    "const root = process.env.SILLYTAVERN_DIR;",
+    "const bytes = await readFile(join(root, 'src/native-route.js'));",
+    "const sha256 = createHash('sha256').update(bytes).digest('hex');",
+    "await writeFile(join(root, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'), JSON.stringify({ files: [{ path: 'src/native-route.js', sha256 }] }));",
+    '',
+  ].join('\\n'));
+
+  const firstPatch = await readFile(patchPath);
+  const artifacts = [
+    { path: 'patches/test.patch', sha256: hash(firstPatch), allowUnidiffZero: false },
+    { path: hostPatchPath, sha256: hash(Buffer.from(hostPatch, 'utf8')), allowUnidiffZero: true },
+  ];
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  manifest.patch.path = 'patches/test.patch';
+  manifest.patch.sha256 = artifacts[0].sha256;
+  manifest.patch.artifacts = artifacts;
+  manifest.patch.bundleSha256 = hash(Buffer.from(JSON.stringify(artifacts), 'utf8'));
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+
+  const bundled = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath,
+  });
+
+  assert.equal((await bundled.execute('preflight')).status, 'PREFLIGHT_OK');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original,
+    'preflight must not mutate Final-Send source');
+  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), hostPatched,
+    'preflight must not reapply the already installed Host patch');
+
+  assert.equal((await bundled.execute('install')).status, 'INSTALLED');
+  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\\r\\n/g, '\\n'), patched);
+  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), hostPatched,
+    'Final-Send installation must preserve the attested Host overlay');
+
+  assert.equal((await bundled.execute('uninstall')).status, 'ROLLED_BACK');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), original);
+  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), hostPatched,
+    'Final-Send rollback must restore the Host overlay, not the upstream file');
+  await assert.rejects(readFile(join(stRoot, 'src/hook.js')), { code: 'ENOENT' });
+  const restoredManifest = JSON.parse(await readFile(overlayManifestPath, 'utf8'));
+  assert.equal(restoredManifest.files[0].sha256, hash(Buffer.from(hostPatched, 'utf8')),
+    'rollback must regenerate a valid Host-only source manifest');
+});
