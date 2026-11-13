@@ -716,6 +716,7 @@ test('communication delivery receipt requires one persisted user message in a on
   assert.equal(receipt.status, 'delivered');
   assert.deepEqual(receipt.recipient, {
     world_id: 'world-main', actor_id: 'npc-alice', actor_type: 'npc',
+    host_character_avatar_id: 'avatar-main',
   });
   assert.deepEqual(receipt.source, {
     message_id: newMessage.message_id,
