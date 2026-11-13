@@ -158,6 +158,7 @@ export function createSillyTavernHostAdapter({
   const identityStore = identityDirectory
     ? new HostIdentityStore({ directory: identityDirectory })
     : null;
+  const authenticatedConversationTargets = new WeakMap();
   const lifecycleSourceEvidenceProvider = async ({ directories } = {}) => {
     try {
       const sourceIdentity = await injectedVerifySourceIdentity({ userExtensionsPath: directories?.extensions });
@@ -429,6 +430,10 @@ export function createSillyTavernHostAdapter({
           return { status: 'NON_READY', code: 'HOST_INVENTORY_NOT_AUTHORITATIVE' };
         }
 
+        authenticatedConversationTargets.set(request, Object.freeze({
+          kind: conversationFiles[0].kind,
+          locator: conversationFiles[0].locator,
+        }));
         return {
           host_installation_id: identityRecord.host_installation_id,
           authenticated_account_id: identityRecord.authenticated_account_id,
@@ -438,8 +443,6 @@ export function createSillyTavernHostAdapter({
           root_id: createHash('sha256').update(path.resolve(directories.root), 'utf8').digest('hex'),
           root_inventory_sequence: rootProof.sequence,
           root_manifest_sha256: rootProof.manifest_sha256,
-          conversation_kind: conversationFiles[0].kind,
-          conversation_locator: conversationFiles[0].locator,
         };
       },
     });
@@ -504,10 +507,11 @@ export function createSillyTavernHostAdapter({
       if (result.status !== 'READY') return result;
       if (env.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true') {
         const configuredAvatarId = env.LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID;
-        const targetAvatarId = typeof result.context?.conversation_locator === 'string'
-          ? result.context.conversation_locator.split('/')[0] : null;
+        const conversationTarget = authenticatedConversationTargets.get(request);
+        const targetAvatarId = typeof conversationTarget?.locator === 'string'
+          ? conversationTarget.locator.split('/')[0] : null;
         if (!validCharacterAvatarId(configuredAvatarId)
-          || result.context?.conversation_kind !== 'character-chat'
+          || conversationTarget?.kind !== 'character-chat'
           || targetAvatarId !== configuredAvatarId) {
           return Object.freeze({ status: 'NON_READY', code: 'HOST_NPC_RECIPIENT_BINDING_REQUIRED' });
         }
