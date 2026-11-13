@@ -272,7 +272,7 @@ test('Patch Manager defers Host attestation regeneration for an independently ve
   await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
     "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\n");
   await writeFile(join(gatewayDir, 'pinned-source-manifest.json'),
-    JSON.stringify({ files: [{ path: 'src/native-route.js', sha256: overlayHash }] }));
+    JSON.stringify({ files: [{ path: 'src/host.js', sha256: overlayHash }] }));
 
   const generatorDir = join(extensionRoot, 'host-adapter/prototype');
   await mkdir(generatorDir, { recursive: true });
