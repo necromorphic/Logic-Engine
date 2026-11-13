@@ -88,8 +88,14 @@ jobs:
           $browserManifest = Get-Content -LiteralPath (Join-Path $browserRoot 'manifest.json') -Raw | ConvertFrom-Json
           if ($browserManifest.js -ne 'index.js') { throw 'BROWSER_EXTENSION_MANIFEST_INVALID' }
           $browserEntry = Get-Content -LiteralPath (Join-Path $browserRoot 'index.js') -Raw
-          if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
-            throw 'BROWSER_EXTENSION_AUTO_CAPTURE_ENTRYPOINT_MISSING'
+          if (-not $browserEntry.Contains('registerHostGenerationIdentityOnce')) {
+            throw 'BROWSER_EXTENSION_GENERATION_IDENTITY_ENTRYPOINT_MISSING'
+          }
+
+          $hostScript = Get-Content -LiteralPath (Join-Path $env:ST_ROOT 'public/script.js') -Raw
+          if (-not $hostScript.Contains('captureLogicEngineHostChatOnLoad') -or
+              -not $hostScript.Contains('event_types.CHAT_CHANGED')) {
+            throw 'HOST_CHAT_LOAD_AUTO_CAPTURE_HOOK_MISSING'
           }
       - name: Verify upgrade from the previous Host candidate refreshes the complete ST patch bundle
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; . '{0}'; if (Test-Path variable:LASTEXITCODE) {{ exit $LASTEXITCODE }}"
