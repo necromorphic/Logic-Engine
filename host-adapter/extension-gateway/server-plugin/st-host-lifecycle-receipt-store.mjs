@@ -222,6 +222,7 @@ export function createCommunicationDeliveryReceipt({ scope, before, after, recip
       world_id: recipientBinding.world_id,
       actor_id: recipientBinding.actor_id,
       actor_type: recipientBinding.actor_type,
+      host_character_avatar_id: recipientBinding.host_character_avatar_id,
     }),
     channel: 'sillytavern.character_chat',
     source: Object.freeze({
