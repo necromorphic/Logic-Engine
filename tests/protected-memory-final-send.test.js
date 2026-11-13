@@ -889,3 +889,123 @@ test('replay identity is stable across provider and model changes to the same Ho
   assert.equal(identities.length, 2);
   assert.equal(identities[0], identities[1]);
 });
+
+
+test('Memory is inserted as a user message after leading system messages when no user message exists', async () => {
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'no-user-message memory canary' },
+    }],
+  };
+  let outbound;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: request => request.transport() },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async (_url, request) => {
+      outbound = JSON.parse(request.body);
+      return { status: 200 };
+    },
+  });
+  await finalSend({
+    senderRoute: 'custom',
+    endpointUrl: 'https://provider.example/generate',
+    requestInit: init(JSON.stringify({
+      messages: [
+        { role: 'system', content: 'trusted system one' },
+        { role: 'system', content: 'trusted system two' },
+        { role: 'assistant', content: 'assistant prefill' },
+      ],
+    })),
+    hostRequestContext,
+  });
+  assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'system', 'user', 'assistant']);
+  assert.equal(outbound.messages[0].content, 'trusted system one');
+  assert.equal(outbound.messages[1].content, 'trusted system two');
+  assert.equal(outbound.messages[3].content, 'assistant prefill');
+  const envelope = JSON.parse(outbound.messages[2].content);
+  assert.equal(envelope.type, 'logic_engine_untrusted_memory');
+  assert.equal(envelope.trust_level, 'untrusted_data');
+  assert.match(envelope.data, /no-user-message memory canary/);
+});
+
+test('provider-native Claude system field remains separate from user-role Memory data', async () => {
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'Claude provider-shaped memory canary' },
+    }],
+  };
+  let outbound;
+  const finalSend = createProtectedMemoryFinalSend({
+    gateway: { dispatchProtectedRequest: request => request.transport() },
+    resolveProtectedMemory: () => protectedContext,
+    fetchImpl: async (_url, request) => {
+      outbound = JSON.parse(request.body);
+      return { status: 200 };
+    },
+  });
+  await finalSend({
+    senderRoute: 'claude',
+    endpointUrl: 'https://api.anthropic.com/v1/messages',
+    requestInit: init(JSON.stringify({
+      system: [{ type: 'text', text: 'trusted Claude system instruction' }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'original Claude user input' }] }],
+    })),
+    hostRequestContext,
+  });
+  assert.deepEqual(outbound.system, [{ type: 'text', text: 'trusted Claude system instruction' }]);
+  assert.deepEqual(outbound.messages.map(message => message.role), ['user']);
+  assert.equal(outbound.messages[0].content[0].text, 'original Claude user input');
+  const envelope = JSON.parse(outbound.messages[0].content[1].text);
+  assert.equal(envelope.type, 'logic_engine_untrusted_memory');
+  assert.equal(envelope.trust_level, 'untrusted_data');
+  assert.match(envelope.data, /Claude provider-shaped memory canary/);
+});
+
+test('provider-native Google contents and flattened chat-completion prompts fail closed before transport', () => {
+  const protectedContext = {
+    ...context,
+    contentBlocks: [{
+      epistemic_kind: 'acquired_report',
+      evidence_assessment: 'supported',
+      content: { note: 'must not enter an unsupported provider shape' },
+    }],
+  };
+  const cases = [
+    ['google-ai-studio', {
+      system_instruction: { parts: [{ text: 'trusted Google system instruction' }] },
+      contents: [{ role: 'user', parts: [{ text: 'original Google user input' }] }],
+    }],
+    ['vertex-ai', {
+      system_instruction: { parts: [{ text: 'trusted Vertex system instruction' }] },
+      contents: [{ role: 'user', parts: [{ text: 'original Vertex user input' }] }],
+    }],
+    ['openai', {
+      model: 'gpt-3.5-turbo-instruct',
+      prompt: 'flattened text-completion prompt',
+    }],
+  ];
+  for (const [senderRoute, body] of cases) {
+    let transportCalls = 0;
+    const finalSend = createProtectedMemoryFinalSend({
+      gateway: { dispatchProtectedRequest: request => request.transport() },
+      resolveProtectedMemory: () => protectedContext,
+      fetchImpl: async () => {
+        transportCalls += 1;
+        return { status: 200 };
+      },
+    });
+    assert.throws(() => finalSend({
+      senderRoute,
+      endpointUrl: 'https://provider.example/generate',
+      requestInit: init(JSON.stringify(body)),
+      hostRequestContext,
+    }), /PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING/, senderRoute);
+    assert.equal(transportCalls, 0, senderRoute);
+  }
+});
