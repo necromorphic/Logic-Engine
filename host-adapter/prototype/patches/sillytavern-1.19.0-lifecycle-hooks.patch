@@ -471,31 +471,19 @@ diff --git a/public/script.js b/public/script.js
 +    }
 +}
 +
-+eventSource.on(event_types.CHAT_CHANGED, async changedLocator => {
-+    await captureLogicEngineHostChatOnLoad(changedLocator);
++eventSource.on(event_types.CHAT_CHANGED, changedLocator => {
++    // Never hold SillyTavern's native chat transition on optional Host recovery.
++    // Mutation hooks share the same idempotent enrollment promise if the user
++    // sends a message before this background capture finishes.
++    void captureLogicEngineHostChatOnLoad(changedLocator);
 +});
 +
  export async function clearChat({ clearData = false } = {}) {
-+    await window.logicEngineHostLifecycle?.waitForEnrollment?.();
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604,1 +1892,15 @@
+@@ -1604,1 +1892,1 @@
 -    if (clearData) chat.length = 0;
-+    if (clearData && chat.length > 0) {
-+        const lifecycleBridge = await getLogicEngineLifecycleBridge();
-+        const messageIndexes = Array.from({ length: chat.length }, (_, index) => index);
-+        try {
-+            const lifecycleBefore = await lifecycleBridge.beforeMutation('clear-chat', messageIndexes, { bulkClear: true });
-+            chat.length = 0;
-+            if (lifecycleBefore.status !== 'NOT_ENROLLED') {
-+                await saveChatConditional();
-+                await lifecycleBridge.afterMutation('clear-chat', { bulkClear: true });
-+            }
-+        } catch (error) {
-+            await printMessages();
-+            throw error;
-+        }
-+    }
++    if (clearData) chat.length = 0;
 +
 @@ -1605,8 +1910,14 @@
  }
