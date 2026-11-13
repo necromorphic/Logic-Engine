@@ -493,7 +493,11 @@ export class SillyTavernPatchManager {
         .map(file => file.path),
     );
     const preappliedHostArtifacts = new Set();
+    this._verifiedHostOverlayFiles = new Map(this.trustedHostOverlayFiles);
     if (hostManifest) {
+      for (const file of hostManifest.files) {
+        this._verifiedHostOverlayFiles.set(file.path, file.sha256);
+      }
       const hostArtifactPaths = new Set([
         'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch',
         'host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch',
@@ -588,6 +592,7 @@ export class SillyTavernPatchManager {
       createdFiles: this.manifest.createdFiles,
       sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
       sourceFilesBefore: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.before])),
+      hostOverlayFiles: Object.fromEntries(this._verifiedHostOverlayFiles ?? []),
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
@@ -659,6 +664,7 @@ export class SillyTavernPatchManager {
         createdFiles: this.manifest.createdFiles,
         sourceFilesAfter: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.after])),
         sourceFilesBefore: Object.fromEntries(Object.entries(this.manifest.sourceFiles).map(([path, value]) => [path, typeof value === 'string' ? value : value.before])),
+        hostOverlayFiles: Object.fromEntries(this._verifiedHostOverlayFiles ?? []),
         installedAt: new Date().toISOString(),
       };
       await atomicWrite(this.statePath, JSON.stringify(installed, null, 2) + '\n');
@@ -693,6 +699,7 @@ export class SillyTavernPatchManager {
       // Final-Send baseline can be restored before the new Host overlay is
       // reconstructed and installed by the bundle transaction.
       const trustedHostOverlay = this.trustedHostOverlayFiles.get(relativePath) === current
+        || journal.hostOverlayFiles?.[relativePath] === current
         || await this.verifyHostOverlay(relativePath);
       if (current !== before && (!after || current !== after) && !trustedHostOverlay) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
@@ -770,6 +777,7 @@ export class SillyTavernPatchManager {
       createdFiles: state.createdFiles,
       sourceFilesAfter: state.sourceFilesAfter,
       sourceFilesBefore: state.sourceFilesBefore,
+      hostOverlayFiles: state.hostOverlayFiles ?? {},
       startedAt: new Date().toISOString(),
     };
     await this.writeJournal(journal);
