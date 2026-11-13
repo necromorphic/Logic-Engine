@@ -322,8 +322,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
               hostVersionLedger.invalidateConversation(binding.world_id, binding.conversation_id);
             }
           } catch (error) {
-            if (error?.message !== 'HOST_CONVERSATION_BINDING_NOT_FOUND'
-              && error?.message !== 'HOST_CONVERSATION_BINDING_REVOKED') {
+            if (error?.message !== 'HOST_CONVERSATION_NOT_AUTHORIZED') {
               return send(res, 503, {
                 error: { code: 'HOST_VERSION_INVENTORY_INVALIDATION_FAILED',
                   message: 'Conversation inventory could not be invalidated before mutation.' },
