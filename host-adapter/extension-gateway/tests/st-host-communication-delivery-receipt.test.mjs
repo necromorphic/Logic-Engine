@@ -292,6 +292,7 @@ test('authenticated Host lifecycle proxy returns the signed receipt from the rea
     chats: join(dataRoot, 'chats'),
     groups: join(dataRoot, 'groups'),
     groupChats: join(dataRoot, 'groupChats'),
+    extensions: join(dataRoot, 'extensions'),
   };
   const { mkdirSync } = await import('node:fs');
   for (const directory of Object.values(directoriesForTest)) mkdirSync(directory, { recursive: true });
