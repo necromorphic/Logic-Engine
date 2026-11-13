@@ -261,9 +261,11 @@ test('Patch Manager defers Host attestation regeneration for an independently ve
   const { manager, stRoot, extensionRoot } = await fixture(t);
   await manager.execute('install');
 
-  const overlayBytes = Buffer.from("export const nativeRoute = 'legacy-host-overlay';\n", 'utf8');
+  // src/host.js is a Final-Send managed file. This exercises the exact
+  // rollback exception rather than an unrelated Host-only file.
+  const overlayBytes = Buffer.from("export const host = 'legacy-host-overlay';\n", 'utf8');
   const overlayHash = hash(overlayBytes);
-  await writeFile(join(stRoot, 'src/native-route.js'), overlayBytes);
+  await writeFile(join(stRoot, 'src/host.js'), overlayBytes);
 
   const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
   await mkdir(gatewayDir, { recursive: true });
@@ -304,12 +306,12 @@ test('Patch Manager defers Host attestation regeneration for an independently ve
     stRoot,
     manifestPath,
     patchPath,
-    trustedHostOverlayFiles: new Map([['src/native-route.js', overlayHash]]),
+    trustedHostOverlayFiles: new Map([['src/host.js', overlayHash]]),
   });
   await assert.rejects(updatedManager.inspectInstalledReadOnly(), /PATCH_MANAGER_STATE_IDENTITY_INVALID/);
   assert.equal((await updatedManager.execute('update')).status, 'INSTALLED');
   assert.equal((await updatedManager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
-  assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), overlayBytes.toString('utf8'), 'verified Host-only overlay remains byte-exact during Final-Send migration');
+  assert.equal(await readFile(join(stRoot, 'src/host.js'), 'utf8'), patchedV2, 'migration safely restores the trusted shared-file baseline and applies the new Final-Send patch');
 });
 
 test('Patch Manager backups survive removal of the Logic-Engine Extension directory', async (t) => {
