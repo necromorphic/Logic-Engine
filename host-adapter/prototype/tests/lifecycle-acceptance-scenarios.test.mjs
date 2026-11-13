@@ -71,7 +71,7 @@ test('lifecycle authority requires complete mutation coverage plus verified sour
     'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
     'delete-swipe', 'delete-message', 'delete-chat', 'delete-group-chat',
     'delete-character-chat-recursive', 'edit-message', 'persistence-ordering',
-    'clear-chat', 'import', 'import-character-chat', 'import-group-chat', 'export',
+    'import', 'import-character-chat', 'import-group-chat', 'export',
     'copy-branch', 'restore', 'backup-restore', 'create-branch',
     'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay',
   ];
@@ -111,40 +111,23 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('clear-chat is implemented as sequential delete-message receipts in the pinned ST patch', async () => {
+test('native clearChat remains a non-blocking chat-unload primitive', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
-  assert.ok(patch.includes('while (chat.length > 0)'), 'clear-chat must remove messages one at a time');
-  assert.ok(patch.includes("beforeMutation('delete-message', [messageIndex], { bulkClear: true })"));
-  assert.ok(patch.includes("afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex })"));
-  const f = fixture();
-  await f.bridge.enrollCurrentConversation();
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  assert.ok(!readiness.missingPaths?.includes('clear-chat'));
-  assert.match(readiness.reason ?? '', /trusted source identity and Core-authoritative root inventory are required/);
-});
-
-test('chat switching waits for explicit enrollment to finish before clearChat mutates the active chat', async () => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
-  assert.ok(patch.includes('let logicEngineEnrollmentBarrier = null;'));
-  assert.ok(patch.includes('if (logicEngineEnrollmentBarrier) throw Error(\'NON_READY: enrollment already in progress\');'));
-  const enrollStart = patch.indexOf('logicEngineEnrollmentBarrier = barrier;');
-  const identityAwait = patch.indexOf('conversationId = await getLogicEngineConversationId();', enrollStart);
-  assert.ok(enrollStart >= 0 && identityAwait > enrollStart,
-    'the barrier must be installed synchronously before the first enrollment await');
-  assert.ok(patch.includes('waitForEnrollment: async () => {'));
   const clearStart = patch.indexOf('export async function clearChat({ clearData = false } = {})');
-  const wait = patch.indexOf('await window.logicEngineHostLifecycle?.waitForEnrollment?.();', clearStart);
-  const clearMutation = patch.indexOf('cancelDebouncedChatSave();', clearStart);
-  assert.ok(clearStart >= 0 && wait > clearStart && clearMutation > wait,
-    'clearChat must wait before it starts changing the active chat');
-  assert.ok(patch.includes('if (logicEngineEnrollmentBarrier === barrier) logicEngineEnrollmentBarrier = null;'));
-  assert.ok(patch.includes('releaseEnrollment();'),
-    'the barrier must be released on both success and failure');
+  const nextHunk = patch.indexOf('\\n@@ ', clearStart);
+  assert.ok(clearStart >= 0 && nextHunk > clearStart, 'pinned patch must retain the native clearChat boundary');
+  const clearChatHunk = patch.slice(clearStart, nextHunk);
+  assert.equal(clearChatHunk.includes('waitForEnrollment'), false,
+    'chat unload must not wait for optional Host enrollment');
+  assert.equal(clearChatHunk.includes('getLogicEngineLifecycleBridge'), false,
+    'chat unload must not start lifecycle deletion work');
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator);'),
+    'CHAT_CHANGED recovery must run without blocking the native transition');
+  assert.equal(patch.includes('while (chat.length > 0)'), false,
+    'native chat unload must not be rewritten as sequential message deletion');
+  assert.equal(patch.includes("beforeMutation('delete-message', [messageIndex], { bulkClear: true })"), false);
 });
-
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
