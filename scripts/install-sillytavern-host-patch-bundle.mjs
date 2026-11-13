@@ -185,6 +185,14 @@ try {
     installRoot: stRoot,
     expectedPredecessors: [
       {
+        // Exact bundle installed in the isolated Windows ST test copy before
+        // the chat-locator recovery revision. Its complete manifest and every
+        // covered file are still independently verified by verifyLegacyHostBundle.
+        commit: PINNED_HOST_COMMIT,
+        patchBlobSha: '502a48a2eb53249dfb53b250c74d7b5c83c4a672ea429c2c3ff5eebb34a3300d',
+        manifestSha256: 'd89d39d6f8449932db41a97a368aec941293943acb543697e1700d974ed629f4',
+      },
+      {
         commit: PINNED_HOST_COMMIT,
         patchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
         manifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
