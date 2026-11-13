@@ -1302,8 +1302,8 @@ test('chat-load enrollment entrypoint creates a baseline and is idempotent acros
 test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without using full-root inventory as identity lookup', async () => {
   const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
   const bridgeSource = await readFile(new URL('../st-lifecycle-bridge.mjs', import.meta.url), 'utf8');
-  assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, async changedLocator => {'));
-  assert.ok(patch.includes('await captureLogicEngineHostChatOnLoad(changedLocator)'));
+  assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, changedLocator => {'));
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator)'));
   assert.ok(patch.includes('const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled()'));
   assert.ok(patch.includes("url: '/api/chats/group/get'"));
   assert.ok(patch.includes('body: { id: sourceLocator }'));
