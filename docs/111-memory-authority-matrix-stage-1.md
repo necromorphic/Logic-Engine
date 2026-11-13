@@ -116,7 +116,9 @@ Inspected at base HEAD `df129425ecd5fccba45b4d9b7f6ee7c5d3e28d1f`:
 - `src/application/trusted-initial-knowledge-source.js` validates the existing initial/import source registry; it is not an observation or Host delivery-receipt verifier.
 - `src/application/npc-knowledge-read.js` validates the actor/purpose/snapshot-bound read request; it does not establish acquisition provenance.
 - `src/application/memory-npc-consumer.js` consumes provider candidates through Core authorization seams; retrieval is not an acquisition writer.
-- `docs/48-npc-delivery-acquisition-boundary-matrix.md` specifies important delivery distinctions, but is a semantic test matrix, not a trusted Host receipt producer.
+- `host-adapter/extension-gateway/server-plugin/host-adapter.mjs` has lifecycle and account-mutation receipt stores, but these receipts attest Host filesystem/account mutations, not NPC message delivery.
+- `host-adapter/extension-gateway/host-context.mjs`, `host-adapter/extension-gateway/index.js`, `host-adapter/npc-context-receiver.mjs`, and `host-adapter/npc-generation-content-projection.mjs` contain no delivery/receipt producer path in the inspected versions.
+- `docs/48-npc-delivery-acquisition-boundary-matrix.md` explicitly describes itself as semantic acceptance design and states that it does not claim a delivery, acquisition, or belief runtime exists. It specifies important distinctions but is not a trusted Host receipt producer.
 - Repository search found `direct_observation` in an example World Pack declaration, not evidence of a trusted runtime producer. No `communication_delivered` runtime producer was located in the inspected source/search results.
 
 **Audit limitation:** this is a bounded repository source audit, not a live deployment inspection. It does not prove that no deployment-specific producer exists outside this repository.
