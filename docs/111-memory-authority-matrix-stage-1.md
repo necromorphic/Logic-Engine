@@ -216,7 +216,7 @@ A delivery receipt is emitted only if all conditions hold:
 6. Core's existing `/v1/host-context/resolve` returns the canonical World/Actor binding for that Host conversation;
 7. the server-owned `LOGIC_ENGINE_HOST_CHARACTER_AVATAR_ID` equals the first directory component of the persisted character-chat locator.
 
-The emitted envelope contains only sender account identity, canonical Core World/Actor identity, conversation UUID, message/version UUIDs, content digest, channel, timestamp and mutation/event IDs. It contains no message text. It is signed with the existing Host adapter token using the existing Host mutation receipt proof format; no new secret, identity mechanism, event bus, or persistence store is introduced. The delivery envelope is stored inside the existing durable Host lifecycle receipt and returned by the existing lifecycle proxy response.
+The emitted envelope contains only sender account identity, canonical Core World/Actor identity, the configured ST character avatar locator, conversation UUID, message/version UUIDs, content digest, channel, timestamp and mutation/event IDs. It contains no message text. It is signed with the existing Host adapter token using the existing Host mutation receipt proof format; no new secret, identity mechanism, event bus, or persistence store is introduced. The delivery envelope is stored inside the existing durable Host lifecycle receipt and returned by the existing lifecycle proxy response.
 
 ### Explicit limits
 
