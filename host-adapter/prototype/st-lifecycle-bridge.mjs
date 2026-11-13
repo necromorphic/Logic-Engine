@@ -10,7 +10,7 @@ async function rawContentDigest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
 const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering', 'copy-branch', 'create-branch']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -33,6 +33,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   const persistedInventoryRevocationPublished = new Set();
   const persistedInventoryDiagnostics = new Map();
   const automaticEnrollmentPromises = new Map();
+  const persistedRecoveryPromises = new Map();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -167,11 +168,58 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return fingerprintSource(chat, getSourceLocator());
   }
 
+  function hostLifecycleFailure(code, message) {
+    const error = Error('NON_READY: ' + message);
+    error.code = code;
+    return error;
+  }
+
   async function enrolledOrFailClosed(conversationId) {
     const enrolled = await journal.isEnrolled(conversationId);
+    if (enrolled) return true;
+
     const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
-    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
-    return enrolled;
+    if (!marker) return false;
+
+    // A marker is only a recovery hint, never authority. Recover only when its
+    // recorded state and locator match this exact active chat, and every
+    // persisted message/version ID and digest independently verifies.
+    const locator = getSourceLocator();
+    const allowedMarkers = locator ? new Set([
+      'enrolled:' + locator,
+      'enrolling:' + locator,
+      'NON_READY:' + locator,
+    ]) : new Set();
+    if (!allowedMarkers.has(marker)) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+        'an old enrollment marker does not identify the active chat unambiguously',
+      );
+    }
+
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'the old enrollment marker exists but its persisted identity snapshot could not be restored',
+      );
+    }
+    if (!restored) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_METADATA_INCOMPLETE',
+        'the old enrollment marker exists but complete persisted message/version identities are unavailable',
+      );
+    }
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity?.status !== 'INTEGRITY_OK') {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_INTEGRITY_FAILED',
+        'the recovered current-state baseline failed journal integrity verification',
+      );
+    }
+    return true;
   }
 
   // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
@@ -179,7 +227,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   // the old origin's journal does not. Rebuild only a current-state baseline
   // from those already-persisted IDs and verified payload digests; never mint
   // replacement message/version IDs or claim the missing event history.
-  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+  async function restoreBaselineFromPersistedChatMetadataUncached(conversationId) {
     const sourceLocator = getSourceLocator();
     const chat = getChat();
     if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
@@ -238,6 +286,24 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return restored;
   }
 
+  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+    const locator = getSourceLocator();
+    const chat = getChat();
+    if (!locator || !Array.isArray(chat)) return null;
+    const fingerprint = await currentFingerprint(chat);
+    const key = conversationId + '\\u0000' + locator + '\\u0000' + fingerprint;
+    let pending = persistedRecoveryPromises.get(key);
+    if (!pending) {
+      pending = restoreBaselineFromPersistedChatMetadataUncached(conversationId);
+      persistedRecoveryPromises.set(key, pending);
+      if (persistedRecoveryPromises.size > 128) {
+        const oldest = persistedRecoveryPromises.keys().next().value;
+        if (oldest !== key) persistedRecoveryPromises.delete(oldest);
+      }
+    }
+    return pending;
+  }
+
   async function enrollCurrentConversation() {
     const conversationId = await getConversationId();
     const sourceLocator = getSourceLocator();
@@ -284,10 +350,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
-    // Verify the just-persisted baseline automatically once. This is a bounded
-    // per-conversation scan, not a full-root scan on every message mutation.
-    const persistedInventory = getPersistedInventory
-      ? await verifyPersistedInventory(conversationId) : null;
+    // Full-root inventory is independent of conversation enrollment. Do not
+    // trigger account-wide filesystem/VSS work during chat loading; reconciliation
+    // remains an explicit operation with its own readiness contract.
     await assertEnrollmentSourceUnchanged();
     return {
       conversationId,
@@ -296,7 +361,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
       coreCaptureStatus: coreCapture.status,
-      persistedInventoryStatus: persistedInventory?.status ?? 'NOT_CONFIGURED',
+      persistedInventoryStatus: 'NOT_CHECKED_ON_CHAT_LOAD',
     };
   }
 
@@ -340,8 +405,37 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function ensureConversationEnrolled(conversationId) {
-    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'persisted Host identity metadata could not be restored into the local journal',
+      );
+    }
     if (restored) return;
+
+    // Never replace partial, malformed, or stale per-message identities with
+    // freshly minted IDs. Automatic enrollment is allowed only for a genuinely
+    // unmarked chat whose messages have no Host lifecycle identity metadata.
+    const chat = getChat();
+    const hasPersistedIdentity = Array.isArray(chat)
+      && chat.some(message => message && Object.hasOwn(message, '_logicEngineLifecycle'));
+    if (hasPersistedIdentity) {
+      throw hostLifecycleFailure(
+        'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+        'some persisted Host message identities exist but do not form a complete verifiable baseline',
+      );
+    }
+    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
+    if (marker) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_MARKER_WITHOUT_RECOVERABLE_IDENTITIES',
+        'an old enrollment marker exists but no complete persisted identity snapshot can be recovered',
+      );
+    }
+
     let pending = automaticEnrollmentPromises.get(conversationId);
     if (!pending) {
       pending = (async () => {
@@ -362,6 +456,30 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!(await journal.isEnrolled(conversationId))) {
       throw Error('NON_READY: automatic Host conversation enrollment did not persist');
     }
+  }
+
+  async function ensureCurrentConversationEnrolled() {
+    const conversationId = await getConversationId();
+    if (!conversationId) return { status: 'NOT_ENROLLED', reason: 'NO_ACTIVE_CONVERSATION' };
+    const alreadyEnrolled = await journal.isEnrolled(conversationId);
+    if (!alreadyEnrolled) {
+      await ensureConversationEnrolled(conversationId);
+    } else {
+      const chat = getChat();
+      if (!Array.isArray(chat)) throw Error('NON_READY: active Host chat is unavailable');
+      await assertIdentitySnapshotMatches(conversationId, chat);
+      const integrity = await journal.verifyIntegrity(conversationId);
+      if (integrity.status !== 'INTEGRITY_OK') {
+        throw Error('NON_READY: Host lifecycle journal integrity is unavailable after chat load');
+      }
+    }
+    if (await getConversationId() !== conversationId) {
+      throw Error('NON_READY: Host conversation changed during automatic chat-load enrollment');
+    }
+    if (!(await journal.isEnrolled(conversationId))) {
+      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
+    }
+    return { status: alreadyEnrolled ? 'ALREADY_ENROLLED' : 'ENROLLED', conversationId };
   }
 
   async function beforeMutation(operation, messageIndexes, details = {}) {
@@ -1052,6 +1170,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   return Object.freeze({
     enrollCurrentConversation,
+    ensureCurrentConversationEnrolled,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
@@ -1085,6 +1204,7 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
 
   return Object.freeze({
     enrollCurrentConversation: async () => { throw error; },
+    ensureCurrentConversationEnrolled: async () => { throw error; },
     beforeMutation: async () => assertUnavailableSafe(),
     afterMutation: async () => assertUnavailableSafe(),
     guardExport: async () => assertUnavailableSafe(),

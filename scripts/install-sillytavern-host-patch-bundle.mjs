@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
-import { verifyLegacyHostBundle } from './verify-legacy-host-bundle.mjs';
+import { HOST_BUNDLE_ACCEPTED_IDENTITIES, verifyLegacyHostBundle } from './verify-legacy-host-bundle.mjs';
 import {
   PINNED_HOST_COMMIT,
   PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS,
@@ -183,23 +183,7 @@ try {
   // output above; arbitrary local edits remain a hard failure.
   const previousHostBundle = await verifyLegacyHostBundle({
     installRoot: stRoot,
-    expectedPredecessors: [
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
-        manifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
-      },
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'dd491fec699cf4a21b32480c2780b79d79a7665302e97624cbcfc8381aa64deb',
-        manifestSha256: '5d5490a939a13f94b83b4a407f09d61a18aeefe67e73b65b7e8200d3a0aa736b',
-      },
-      {
-        commit: PINNED_HOST_COMMIT,
-        patchBlobSha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
-        manifestSha256: '592c480cbf9ca3f3573c695961b1a11785353f16d2902e4d82dba9f849d90c62',
-      },
-    ],
+    expectedPredecessors: HOST_BUNDLE_ACCEPTED_IDENTITIES,
     expectedOverlayFiles,
   });
   // Final-Send remains independently verified. The legacy overlay exception
@@ -209,7 +193,20 @@ try {
     stRoot,
     trustedHostOverlayFiles: previousHostBundle.verified ? previousHostBundle.files : new Map(),
   });
-  const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  let finalSendInspection;
+  try {
+    finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  } catch (error) {
+    // A pinned predecessor can be intact while its artifact digest/created-file
+    // manifest differs from this release. Migrate it through Patch Manager's
+    // journaled update path; never bypass backup or installed-file verification.
+    if (error.message !== 'PATCH_MANAGER_STATE_IDENTITY_INVALID') throw error;
+    const migration = await finalSendManager.execute('update');
+    if (!['INSTALLED', 'UP_TO_DATE'].includes(migration.status)) {
+      throw new Error('FINAL_SEND_PATCH_MIGRATION_FAILED: ' + migration.status);
+    }
+    finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  }
   const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
   const finalSendManifest = finalSendManager.manifest;
 

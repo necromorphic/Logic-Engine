@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { webcrypto } from 'node:crypto';
 import { HostLifecycleJournal, contentDigest } from '../lifecycle-journal.mjs';
 import { createStLifecycleBridge } from '../st-lifecycle-bridge.mjs';
@@ -547,6 +548,101 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   assert.ok(readiness.reason.length > 0);
 });
 
+test('old enrollment marker is recovered only from the exact active locator and verified persisted identities', async () => {
+  const original = makeFixture();
+  await original.bridge.enrollCurrentConversation();
+  const chat = structuredClone(original.chat);
+  const expected = chat.map(message => ({
+    messageId: message._logicEngineLifecycle.messageId,
+    versionIds: message._logicEngineLifecycle.versions.map(version => version.versionId),
+  }));
+  const recovered = makeFixture(chat);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: {
+    getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:chat-file-1' : null,
+  } });
+  try {
+    const before = await recovered.bridge.beforeMutation('delete-message', [0]);
+    assert.equal(before.operation, 'before:delete-message');
+    assert.equal((await recovered.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+    const snapshot = await recovered.journal.latestIdentitySnapshot('chat-1');
+    assert.deepEqual(snapshot.map(message => ({
+      messageId: message.messageId,
+      versionIds: message.versions.map(version => version.versionId),
+    })), expected);
+    assert.equal(
+      globalThis.localStorage.getItem('logic-engine-host-lifecycle:chat-1'),
+      'enrolled:chat-file-1',
+      'recovery must preserve the old marker as historical evidence',
+    );
+    const baseline = (await recovered.journal.exportCaptureLedger('chat-1')).records[0];
+    assert.equal(baseline.payload.captureBoundary, 'origin-recovery-current-state-baseline');
+    assert.equal(baseline.payload.preRecoveryHistory, 'UNKNOWN_UNRECOVERABLE');
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('ambiguous enrollment marker blocks recovery with a stable diagnostic code', async () => {
+  const f = makeFixture();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, writable: true, value: {
+    getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:another-chat-file' : null,
+  } });
+  try {
+    await assert.rejects(
+      f.bridge.beforeMutation('delete-message', [0]),
+      error => error.code === 'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+    );
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('journal restore conflicts produce a stable diagnostic without changing persisted message IDs', async () => {
+  const original = makeFixture();
+  await original.bridge.enrollCurrentConversation();
+  const chat = structuredClone(original.chat);
+  const expected = chat.map(message => structuredClone(message._logicEngineLifecycle));
+  const recovered = makeFixture(chat);
+  recovered.journal.restoreBaseline = async () => { throw Error('simulated existing journal conflict'); };
+
+  await assert.rejects(
+    recovered.bridge.beforeMutation('delete-message', [0]),
+    error => error.code === 'HOST_ENROLLMENT_RECOVERY_REJECTED',
+  );
+  assert.deepEqual(
+    recovered.chat.map(message => message._logicEngineLifecycle),
+    expected,
+  );
+  assert.equal(await recovered.journal.isEnrolled('chat-1'), false);
+});
+
+test('partial persisted Host identities are never replaced by automatic enrollment', async () => {
+  const f = makeFixture();
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [{
+      versionId: '33333333-3333-4333-8333-333333333333',
+      versionIndex: 0,
+      payloadDigest: await contentDigest(f.chat[0].mes),
+      parentVersionId: null,
+    }],
+  };
+  const before = structuredClone(f.chat[0]._logicEngineLifecycle);
+  await assert.rejects(
+    f.bridge.beforeMutation('message-send', []),
+    error => error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+  );
+  assert.deepEqual(f.chat[0]._logicEngineLifecycle, before);
+  assert.equal(f.chat[1]._logicEngineLifecycle, undefined);
+  assert.equal(await f.journal.isEnrolled('chat-1'), false);
+});
+
 test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
@@ -557,11 +653,13 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
-test('clear-chat uses the supported sequential delete-message lifecycle hook', async () => {
+test('native chat unload is not treated as a lifecycle deletion mutation', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
-  assert.equal(before.operation, 'before:clear-chat');
+  await assert.rejects(
+    f.bridge.beforeMutation('clear-chat', [0, 1]),
+    /unsupported\/uninstrumented Host lifecycle operation clear-chat/,
+  );
   assert.equal(f.chat.length, 2);
 });
 
@@ -1165,7 +1263,7 @@ test('persisted inventory transport failures retain safe status and server diagn
   assert.equal((await f.bridge.getCoreCaptureStatus()).diagnostic, null);
 });
 
-test('first instrumented Host mutation automatically establishes a review-only baseline and verifies persisted inventory', async () => {
+test('first instrumented Host mutation establishes a review-only baseline without scanning full-root inventory', async () => {
   const conversationId = '3e6b0a80-4e73-4c66-aaf3-7a6e62c7f402:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:4e6b0a80-4e73-4c66-aaf3-7a6e62c7f403';
   let inventoryCalls = 0;
   const f = makeFixture(undefined, {
@@ -1181,6 +1279,83 @@ test('first instrumented Host mutation automatically establishes a review-only b
   assert.equal(ledger.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledger.status, 'REVIEW_ONLY');
   assert.equal(ledger.records.some(record => record.operation === 'before:message-send'), true);
-  assert.equal(inventoryCalls, 1, 'persisted Host inventory must be checked automatically after baseline persistence');
+  assert.equal(inventoryCalls, 0, 'chat enrollment must not trigger a full-root inventory scan');
 });
 
+
+
+test('chat-load enrollment entrypoint creates a baseline and is idempotent across repeated CHAT_CHANGED events', async () => {
+  const f = makeFixture();
+  const first = await f.bridge.ensureCurrentConversationEnrolled();
+  assert.equal(first.status, 'ENROLLED');
+  assert.equal(first.conversationId, 'chat-1');
+  assert.equal(await f.journal.isEnrolled('chat-1'), true);
+  assert.ok(f.chat.every(message => message._logicEngineLifecycle?.messageId));
+  const snapshot = await f.journal.latestIdentitySnapshot('chat-1');
+  assert.equal(snapshot.length, 2);
+
+  const second = await f.bridge.ensureCurrentConversationEnrolled();
+  assert.equal(second.status, 'ALREADY_ENROLLED');
+  assert.deepEqual(await f.journal.latestIdentitySnapshot('chat-1'), snapshot);
+  assert.equal(f.saveCount, 1, 'repeated chat-load events must not rewrite or remint the baseline');
+});
+
+
+test('installed SillyTavern patch automatically enrolls on CHAT_CHANGED without using full-root inventory as identity lookup', async () => {
+  const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
+  const bridgeSource = await readFile(new URL('../st-lifecycle-bridge.mjs', import.meta.url), 'utf8');
+  assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, changedLocator => {'));
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator)'));
+  assert.ok(patch.includes('const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled()'));
+  assert.ok(patch.includes("url: '/api/chats/group/get'"));
+  assert.ok(patch.includes('body: { id: sourceLocator }'));
+  assert.ok(patch.includes("url: '/api/chats/get'"));
+  assert.ok(patch.includes('persistedChat[0]?.chat_metadata?.logic_engine_conversation_id === conversationUuid'));
+  const lookupStart = patch.indexOf('verifyPersistedIdentity: async conversationUuid => {');
+  const lookupEnd = patch.indexOf('\n+            },', lookupStart);
+  assert.ok(lookupStart >= 0 && lookupEnd > lookupStart);
+  const identityLookup = patch.slice(lookupStart, lookupEnd);
+  assert.ok(!identityLookup.includes('/api/plugins/logic-engine-extension-gateway/inventory'));
+  assert.ok(!patch.includes('const inventory = await window.logicEngineHostLifecycle.syncCurrentDigestInventory()'));
+  assert.ok(patch.includes('Do not'));
+  assert.match(bridgeSource, /async function ensureCurrentConversationEnrolled\(\)/);
+  assert.match(bridgeSource, /await assertIdentitySnapshotMatches\(conversationId, chat\)/);
+  assert.match(bridgeSource, /await journal\.verifyIntegrity\(conversationId\)/);
+});
+
+
+test('repeated recovery of an incomplete persisted baseline is memoized for the same chat snapshot', async () => {
+  const f = makeFixture();
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [],
+  };
+  const original = globalThis.localStorage;
+  const values = new Map([['logic-engine-host-lifecycle:chat-1', 'enrolled:chat-file-1']]);
+  globalThis.localStorage = { getItem: key => values.has(key) ? values.get(key) : null };
+  try {
+    await assert.rejects(f.bridge.ensureCurrentConversationEnrolled(), error =>
+      error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE');
+    await assert.rejects(f.bridge.ensureCurrentConversationEnrolled(), error =>
+      error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE');
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+  } finally {
+    if (original === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = original;
+  }
+});
+
+
+test('native chat unload does not wait for optional enrollment or record false deletion evidence', async () => {
+  const patch = await readFile(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url), 'utf8');
+  const start = patch.indexOf('export async function clearChat({ clearData = false } = {})');
+  const end = patch.indexOf('export async function deleteLastMessage()', start);
+  assert.ok(start >= 0 && end > start);
+  const clearChatPatch = patch.slice(start, end);
+  assert.ok(!clearChatPatch.includes('waitForEnrollment'));
+  assert.ok(!clearChatPatch.includes('getLogicEngineLifecycleBridge'));
+  assert.equal(clearChatPatch.includes('beforeMutation'), false);
+  assert.ok(patch.includes('eventSource.on(event_types.CHAT_CHANGED, changedLocator => {'));
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator);'));
+});

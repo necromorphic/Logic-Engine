@@ -577,7 +577,16 @@ export class SillyTavernPatchManager {
         this.stRoot,
         'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
       );
-      if (await exists(hostAttestationPath)) {
+      if (await exists(hostAttestationPath) && this.trustedHostOverlayFiles.size === 0) {
+        // Standalone Patch Manager updates must regenerate and verify the
+        // combined Host/Final-Send manifest. During the Host Bundle installer's
+        // predecessor migration, however, the orchestrator has already
+        // independently verified the legacy Host overlay and supplied its
+        // exact file hashes. Regenerating here would compare that old overlay
+        // against the new Host source tree before the orchestrator can replace
+        // it. verifyInstalled() still checks every Final-Send output and accepts
+        // only those exact verified predecessor hashes; the bundle installer
+        // then stages and installs the new combined Host attestation.
         await assertRegularFile(
           this.stRoot,
           'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
@@ -638,7 +647,13 @@ export class SillyTavernPatchManager {
     for (const [relativePath, before] of Object.entries(journal.sourceFilesBefore ?? {})) {
       const current = await this.hashAt(relativePath);
       const after = journal.sourceFilesAfter?.[relativePath];
-      if (current !== before && (!after || current !== after)) {
+      // A Host Bundle predecessor is trusted only when the orchestrator
+      // independently verified its pinned manifest and supplied this exact
+      // per-file hash. Permit that overlay during rollback so the saved
+      // Final-Send baseline can be restored before the new Host overlay is
+      // reconstructed and installed by the bundle transaction.
+      const trustedHostOverlay = this.trustedHostOverlayFiles.get(relativePath) === current;
+      if (current !== before && (!after || current !== after) && !trustedHostOverlay) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
     }

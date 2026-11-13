@@ -34,144 +34,30 @@ export async function attachHostConversationLocator(data, getHostContext, resolv
     return data;
 }
 
-const REGISTRATION_KEY = Symbol.for('logic-engine.host-generation-identity.registration.v1');
-
-export async function registerHostLifecycleAutoCapture(context = null) {
-    const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
-    if (!hostContext?.eventSource || !hostContext?.eventTypes?.CHAT_CHANGED
-        || typeof hostContext.getCurrentChatId !== 'function') {
-        console.warn('[Logic Engine] Automatic Host inventory capture is unavailable: CHAT_CHANGED context missing.');
-        return () => {};
+let stContextModulePromise;
+async function getSillyTavernContext() {
+    if (!stContextModulePromise) {
+        stContextModulePromise = import(new URL('/scripts/st-context.js', import.meta.url).href)
+            .catch(error => {
+                stContextModulePromise = null;
+                throw error;
+            });
     }
-
-    const activeByLocator = new Map();
-    const completedLocators = new Set();
-    const notified = new Set();
-
-    const notify = (message) => {
-        const toast = globalThis.toastr;
-        if (typeof toast?.warning === 'function') {
-            toast.warning(message, 'Logic Engine Host');
-        } else {
-            console.warn('[Logic Engine Host]', message);
-        }
-    };
-
-    const captureConversation = async locator => {
-        const sourceLocator = typeof locator === 'string' && locator.trim()
-            ? locator
-            : hostContext.getCurrentChatId();
-        if (typeof sourceLocator !== 'string' || !sourceLocator.trim()) {
-            return { status: 'NO_ACTIVE_CONVERSATION' };
-        }
-        if (hostContext.getCurrentChatId() !== sourceLocator) {
-            return { status: 'STALE_CONVERSATION' };
-        }
-        if (completedLocators.has(sourceLocator)) {
-            return { status: 'ALREADY_CHECKED' };
-        }
-        const active = activeByLocator.get(sourceLocator);
-        if (active) return active;
-
-        const operation = (async () => {
-            const lifecycle = globalThis.logicEngineHostLifecycle;
-            if (!lifecycle
-                || typeof lifecycle.syncCurrentDigestInventory !== 'function'
-                || typeof lifecycle.enrollCurrentConversation !== 'function'
-                || typeof lifecycle.getCoreCaptureStatus !== 'function') {
-                throw new Error('HOST_LIFECYCLE_BRIDGE_UNAVAILABLE');
-            }
-
-            // Existing conversations restore their persisted baseline and verify
-            // Inventory here. New conversations return NOT_ENROLLED; enrollment
-            // then creates the baseline and performs the same persisted check.
-            let capture = await lifecycle.syncCurrentDigestInventory();
-            if (hostContext.getCurrentChatId() !== sourceLocator) {
-                return { status: 'STALE_CONVERSATION' };
-            }
-            if (capture?.status === 'NOT_ENROLLED') {
-                capture = await lifecycle.enrollCurrentConversation();
-            }
-            if (hostContext.getCurrentChatId() !== sourceLocator) {
-                return { status: 'STALE_CONVERSATION' };
-            }
-
-            const state = await lifecycle.getCoreCaptureStatus();
-            if (hostContext.getCurrentChatId() !== sourceLocator) {
-                return { status: 'STALE_CONVERSATION' };
-            }
-
-            const expectedReviewOnlyRejection = capture?.status === 'NON_READY'
-                && capture.code === 'HOST_INVENTORY_NOT_READY';
-            const diagnostic = state?.diagnostic
-                ?? capture?.diagnostic
-                ?? (capture?.status === 'NON_READY' && !expectedReviewOnlyRejection ? capture : null)
-                ?? (capture?.persistedInventoryStatus === 'NON_READY'
-                    ? { code: 'HOST_INVENTORY_NOT_READY', httpStatus: null }
-                    : null);
-
-            completedLocators.add(sourceLocator);
-            if (diagnostic) {
-                const code = typeof diagnostic.code === 'string'
-                    ? diagnostic.code
-                    : 'HOST_INVENTORY_NOT_READY';
-                const httpStatus = Number.isInteger(diagnostic.httpStatus)
-                    ? ' (HTTP ' + diagnostic.httpStatus + ')'
-                    : '';
-                const noticeKey = sourceLocator + ':' + code + ':' + (diagnostic.httpStatus ?? '');
-                if (!notified.has(noticeKey)) {
-                    notified.add(noticeKey);
-                    notify('Persisted Host inventory is not ready: ' + code + httpStatus);
-                }
-                return { status: 'NON_READY', diagnostic };
-            }
-
-            return { status: 'CHECKED', capture, state };
-        })();
-
-        activeByLocator.set(sourceLocator, operation);
-        try {
-            return await operation;
-        } catch (error) {
-            completedLocators.add(sourceLocator);
-            const noticeKey = sourceLocator + ':HOST_AUTO_CAPTURE_FAILED';
-            if (!notified.has(noticeKey)) {
-                notified.add(noticeKey);
-                notify('Automatic Host enrollment/inventory verification failed. See the SillyTavern server log for details.');
-            }
-            console.warn('[Logic Engine] Automatic Host enrollment/inventory verification failed:', error?.message ?? error);
-            return { status: 'NON_READY', reason: error?.message ?? 'HOST_AUTO_CAPTURE_FAILED' };
-        } finally {
-            if (activeByLocator.get(sourceLocator) === operation) {
-                activeByLocator.delete(sourceLocator);
-            }
-        }
-    };
-
-    const onChatChanged = locator => captureConversation(locator);
-    hostContext.eventSource.on(hostContext.eventTypes.CHAT_CHANGED, onChatChanged);
-
-    // The initial chat may have loaded before this third-party extension module.
-    const initialLocator = hostContext.getCurrentChatId();
-    if (typeof initialLocator === 'string' && initialLocator.trim()) {
-        void captureConversation(initialLocator);
-    }
-
-    return () => {
-        hostContext.eventSource.removeListener(hostContext.eventTypes.CHAT_CHANGED, onChatChanged);
-        activeByLocator.clear();
-        completedLocators.clear();
-        notified.clear();
-    };
+    const module = await stContextModulePromise;
+    return module.getContext();
 }
 
+const REGISTRATION_KEY = Symbol.for('logic-engine.host-generation-identity.registration.v1');
+
 export async function registerHostGenerationIdentity(context = null, { resolveHostContext = resolveGatewayHostContext } = {}) {
-    const hostContext = context ?? (await import(new URL('/scripts/st-context.js', import.meta.url).href)).getContext();
+    const hostContext = context ?? await getSillyTavernContext();
     if (!hostContext?.eventSource || !hostContext?.eventTypes) {
         throw new Error('HOST_GENERATION_EVENTS_UNAVAILABLE');
     }
-    const attach = data => attachHostConversationLocator(data, hostContext, resolveHostContext);
-    const removeAutoCapture = await registerHostLifecycleAutoCapture(hostContext);
+    // The event bus is stable, but chatMetadata is replaced on chat switches.
+    // Pass a provider so each generation resolves the current ST context snapshot.
+    const contextSource = context ?? getSillyTavernContext;
+    const attach = data => attachHostConversationLocator(data, contextSource, resolveHostContext);
     // ST awaits each listener before serializing the generation request.
     // CHAT_COMPLETION_SETTINGS_READY is the last mutable point for Chat
     // Completions; GENERATE_AFTER_DATA covers Text Completions, Kobold,
@@ -179,7 +65,6 @@ export async function registerHostGenerationIdentity(context = null, { resolveHo
     hostContext.eventSource.on(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
     hostContext.eventSource.on(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
     return () => {
-        removeAutoCapture();
         hostContext.eventSource.removeListener(hostContext.eventTypes.CHAT_COMPLETION_SETTINGS_READY, attach);
         hostContext.eventSource.removeListener(hostContext.eventTypes.GENERATE_AFTER_DATA, attach);
     };

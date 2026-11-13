@@ -3,6 +3,40 @@ import { isUtf8 } from 'node:buffer';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+export const HOST_BUNDLE_ACCEPTED_IDENTITIES = Object.freeze([
+  {
+    // Current bundle identity: permits an exact, fully verified repeat install.
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52',
+    manifestSha256: '069b75d60b256d4b5e98dce164e614fee8422af3f54a110b4e8dcd5b47143792',
+  },
+  {
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: '502a48a2eb53249dfb53b250c74d7b5c83c4a672ea429c2c3ff5eebb34a3300d',
+    manifestSha256: 'd89d39d6f8449932db41a97a368aec941293943acb543697e1700d974ed629f4',
+  },
+  {
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'c24cece59b928f56a514cc191256d01370ccda8e58e3edfbc56cdb96af9b8067',
+    manifestSha256: '9cca279d6f4340ee0f5455622c1ef4d8404e29ac0ed73e309f76d7f74fdd9acc',
+  },
+  {
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'dd491fec699cf4a21b32480c2780b79d79a7665302e97624cbcfc8381aa64deb',
+    manifestSha256: '5d5490a939a13f94b83b4a407f09d61a18aeefe67e73b65b7e8200d3a0aa736b',
+  },
+  {
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'f8042ce97486c109144859ab02d0ef973a2ef56992915bf4602666cb19d19469',
+    manifestSha256: '592c480cbf9ca3f3573c695961b1a11785353f16d2902e4d82dba9f849d90c62',
+  },
+  {
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'efb7b0a0fa58779cdd7399ee6609ddb045d068158883c70c3fc080487c9684e1',
+    manifestSha256: 'fdac4e332c291cc4fff5ba47414917bdd1937ecf6752c5b8d7a137d0d6742257',
+  },
+]);
+
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonicalTextHash = bytes => {
   if (!isUtf8(bytes)) throw new Error('LEGACY_HOST_SOURCE_ENCODING_INVALID');

@@ -40,9 +40,11 @@ Enable SillyTavern's native `enableServerPlugins: true` setting. Keep server-plu
 
 
 
-### Automatic chat-load enrollment and Inventory verification
+### Chat lifecycle ownership
 
-The browser extension listens for SillyTavern `CHAT_CHANGED` events and also checks the initially loaded chat when the extension starts. For each conversation it first calls the lifecycle bridge's persisted-inventory synchronization; if the conversation has no enrollment, it creates the review-only baseline and verifies Inventory as part of enrollment. A failed Inventory request is retained as a bounded diagnostic and shown as a SillyTavern notification with the error code and HTTP status. No DevTools console command is required. The check is coalesced per conversation during the page session; the first instrumented mutation remains a fallback if chat-load capture was unavailable. Review-only or incomplete inventory remains NON_READY and does not authorize Memory retrieval or model disclosure.
+The pinned SillyTavern lifecycle patch is the sole owner of `CHAT_CHANGED` enrollment. Its listener starts the idempotent baseline/recovery operation in the background and returns immediately, so SillyTavern's awaited event bus does not wait for Host recovery. The Gateway browser extension registers only generation-identity hooks; it must not add another `CHAT_CHANGED` listener, call `syncCurrentDigestInventory()` on chat load, or trigger a full-root inventory scan during chat switching.
+
+A new or reopened chat is enrolled through `ensureCurrentConversationEnrolled()`. The first instrumented mutation remains a fallback if chat-load capture was unavailable. Full-root inventory verification is a separate authority check performed by the Host Adapter when required for protected generation or explicit reconciliation. Review-only or incomplete inventory remains NON_READY and does not authorize Memory retrieval or model disclosure.
 
 ## Identity and inventory contract
 

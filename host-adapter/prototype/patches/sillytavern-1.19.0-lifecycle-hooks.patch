@@ -32,7 +32,7 @@ diff --git a/public/script.js b/public/script.js
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
  
-@@ -1583,6 +1593,283 @@
+@@ -1583,6 +1593,448 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -90,42 +90,142 @@ diff --git a/public/script.js b/public/script.js
 +    return logicEngineHostIdentityPromise;
 +}
 +let logicEngineLifecyclePendingRenameId = null;
++let logicEngineHostDiagnostic = null;
 +async function getLogicEngineConversationId() {
-+    const identity = await getLogicEngineHostIdentity();
-+    const hostSessionId = identity.host_session_id;
-+    const result = await resolveStableHostConversationIdentity({
-+        locator: getCurrentChatId(),
-+        hostSessionId,
-+        hostInstallationId: identity.host_installation_id,
-+        authenticatedAccountId: identity.authenticated_account_id,
-+        metadata: chat_metadata,
-+        storage: localStorage,
-+        saveMetadata: () => saveChatConditional(),
-+        getCurrentLocator: getCurrentChatId,
-+        getCurrentMetadata: () => chat_metadata,
-+        pendingRenameId: logicEngineLifecyclePendingRenameId,
-+    });
-+    return result.status === 'NON_READY' ? null : result.conversationId;
++    try {
++        const session = await getLogicEngineHostSession();
++        const identity = await getLogicEngineHostIdentity();
++        const hostSessionId = identity.host_session_id;
++        const result = await resolveStableHostConversationIdentity({
++            locator: getCurrentChatId(),
++            hostSessionId,
++            hostInstallationId: identity.host_installation_id,
++            authenticatedAccountId: identity.authenticated_account_id,
++            metadata: chat_metadata,
++            storage: localStorage,
++            saveMetadata: () => saveChatConditional(),
++            getCurrentLocator: getCurrentChatId,
++            getCurrentMetadata: () => chat_metadata,
++            pendingRenameId: logicEngineLifecyclePendingRenameId,
++            verifyPersistedIdentity: async conversationUuid => {
++                // Reuse SillyTavern's own chat-read routes for this one file.
++                // The full-root inventory route is a separate, expensive evidence
++                // layer and must not be used as a conversation identity lookup.
++                const sourceLocator = getCurrentChatId();
++                if (!sourceLocator) return false;
++                const expectedGroupId = selected_group;
++                const expectedCharacterId = this_chid;
++                const isGroupConversation = Boolean(expectedGroupId);
++                const request = isGroupConversation
++                    ? { url: '/api/chats/group/get', body: { id: sourceLocator } }
++                    : {
++                        url: '/api/chats/get',
++                        body: {
++                            avatar_url: characters[expectedCharacterId]?.avatar,
++                            file_name: sourceLocator,
++                        },
++                    };
++                if (!isGroupConversation && typeof request.body.avatar_url !== 'string') return false;
++                const response = await fetch(request.url, {
++                    method: 'POST',
++                    credentials: 'same-origin',
++                    headers: { ...getRequestHeaders(), 'Content-Type': 'application/json' },
++                    body: JSON.stringify(request.body),
++                    cache: 'no-store',
++                });
++                const persistedChat = await response.json().catch(() => null);
++                return response.ok
++                    && Array.isArray(persistedChat)
++                    && persistedChat[0]?.chat_metadata?.logic_engine_conversation_id === conversationUuid
++                    && getCurrentChatId() === sourceLocator
++                    && selected_group === expectedGroupId
++                    && this_chid === expectedCharacterId
++                    && chat_metadata?.logic_engine_conversation_id === conversationUuid;
++            },
++        });
++        logicEngineHostDiagnostic = null;
++        return result.status === 'NON_READY' ? null : result.conversationId;
++    } catch (error) {
++        const message = String(error?.message || '');
++        const classifications = [
++            [/locator binding and enrollment marker|recovery pair/i, 'HOST_ENROLLMENT_RECOVERY_PAIR_INVALID'],
++            [/marker does not match the active locator/i, 'HOST_ENROLLMENT_MARKER_LOCATOR_MISMATCH'],
++            [/locator is associated with another conversation identity/i, 'HOST_ENROLLMENT_IDENTITY_COLLISION'],
++            [/server confirmation is required/i, 'HOST_ENROLLMENT_SERVER_CONFIRMATION_REQUIRED'],
++            [/server did not confirm/i, 'HOST_ENROLLMENT_PERSISTENCE_MISMATCH'],
++            [/legacy.*marker|legacy identity migration/i, 'HOST_LEGACY_ENROLLMENT_MARKER_CONFLICT'],
++            [/locator metadata.*inconsistent|locator is bound/i, 'HOST_LOCATOR_BINDING_MISMATCH'],
++            [/already enrolled elsewhere|already mapped to another locator|duplicated or associated elsewhere/i, 'HOST_ENROLLMENT_IDENTITY_COLLISION'],
++            [/stable metadata identity/i, 'HOST_ENROLLMENT_METADATA_MISSING'],
++            [/malformed stable Host conversation identity/i, 'HOST_CONVERSATION_METADATA_INVALID'],
++        ];
++        const match = classifications.find(([pattern]) => pattern.test(message));
++        const code = match?.[1] || 'HOST_CONVERSATION_IDENTITY_UNAVAILABLE';
++        let enrollmentMarkerCount = 0;
++        let locatorBindingCount = 0;
++        try {
++            for (let index = 0; index < localStorage.length; index++) {
++                const key = localStorage.key(index);
++                if (key?.startsWith('logic-engine-host-lifecycle:')) enrollmentMarkerCount++;
++                if (key?.startsWith('logic-engine-host-lifecycle-locator:')) locatorBindingCount++;
++            }
++        } catch { /* diagnostics must not turn storage denial into a native ST failure */ }
++        let currentLocatorBindingPresent = false;
++        try {
++            currentLocatorBindingPresent = localStorage.getItem(
++                'logic-engine-host-lifecycle-locator:' + getCurrentChatId(),
++            ) !== null;
++        } catch { /* keep the diagnostic available when browser storage is denied */ }
++        logicEngineHostDiagnostic = Object.freeze({
++            status: 'NON_READY',
++            stage: 'CONVERSATION_IDENTITY',
++            code,
++            conversationMetadataPresent: typeof chat_metadata?.logic_engine_conversation_id === 'string',
++            currentLocatorBindingPresent,
++            enrollmentMarkerCount,
++            locatorBindingCount,
++            observedAt: new Date().toISOString(),
++        });
++        console.warn('Logic Engine Host diagnostic', logicEngineHostDiagnostic);
++        const diagnosticError = Error('NON_READY: ' + code);
++        diagnosticError.code = code;
++        throw diagnosticError;
++    }
 +}
 +
 +function wrapNativeSafeLifecycleBridge(bridge) {
-+    const safe = async (label, callback) => {
++    const safe = async (label, callback, nativeFallback = true) => {
 +        try {
 +            return await callback();
 +        } catch (error) {
-+            console.warn('Logic Engine ' + label + ' unavailable; continuing native SillyTavern operation.', error?.message || error);
-+            return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++            const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code)
++                ? error.code : 'HOST_LIFECYCLE_OBSERVATION_UNAVAILABLE';
++            const diagnostic = Object.freeze({
++                status: 'NON_READY',
++                stage: label,
++                code,
++                observedAt: new Date().toISOString(),
++            });
++            logicEngineHostDiagnostic = diagnostic;
++            console.warn('Logic Engine Host diagnostic', diagnostic);
++            console.warn('Logic Engine lifecycle observer unavailable; continuing native SillyTavern operation.');
++            if (nativeFallback) {
++                return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };
++            }
++            return diagnostic;
 +        }
 +    };
 +    return {
 +        ...bridge,
 +        beforeMutation: (...args) => safe('lifecycle preparation', () => bridge.beforeMutation(...args)),
 +        afterMutation: (...args) => safe('lifecycle receipt', () => bridge.afterMutation(...args)),
-+        syncCurrentDigestInventory: (...args) => safe('digest sync', () => bridge.syncCurrentDigestInventory(...args)),
-+        verifyPersistedInventory: (...args) => safe('inventory verification', () => bridge.verifyPersistedInventory(...args)),
-+        reconcileCurrentConversation: (...args) => safe('conversation reconciliation', () => bridge.reconcileCurrentConversation(...args)),
++        syncCurrentDigestInventory: (...args) => safe('digest sync', () => bridge.syncCurrentDigestInventory(...args), false),
++        verifyPersistedInventory: (...args) => safe('inventory verification', () => bridge.verifyPersistedInventory(...args), false),
++        reconcileCurrentConversation: (...args) => safe('conversation reconciliation', () => bridge.reconcileCurrentConversation(...args), false),
++        // Native SillyTavern export remains available if optional lifecycle
++        // observation is unavailable; server-side protected mutation gates remain authoritative.
 +        guardExport: (...args) => safe('export verification', () => bridge.guardExport(...args)),
-+        getCoreCaptureStatus: (...args) => safe('capture status', () => bridge.getCoreCaptureStatus(...args)),
++        getCoreCaptureStatus: (...args) => safe('capture status', () => bridge.getCoreCaptureStatus(...args), false),
 +    };
 +}
 +
@@ -242,6 +342,10 @@ diff --git a/public/script.js b/public/script.js
 +            const pending = logicEngineEnrollmentBarrier;
 +            if (pending) await pending;
 +        },
++        getDiagnostics: async () => ({
++            lastHostDiagnostic: logicEngineHostDiagnostic,
++            lifecycle: await (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus?.() ?? { status: 'UNAVAILABLE' },
++        }),
 +        guardOperation: async (operation, messageIndexes = [], details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).beforeMutation(operation, messageIndexes, details),
 +        completeOperation: async (operation, details = {}) =>
@@ -274,6 +378,31 @@ diff --git a/public/script.js b/public/script.js
 +                    localStorage.setItem(marker, 'NON_READY:' + sourceLocator);
 +                    throw error;
 +                }
++            } finally {
++                if (logicEngineEnrollmentBarrier === barrier) logicEngineEnrollmentBarrier = null;
++                releaseEnrollment();
++            }
++        },
++        ensureCurrentConversationEnrolled: async () => {
++            if (logicEngineEnrollmentBarrier) await logicEngineEnrollmentBarrier;
++            let releaseEnrollment;
++            const barrier = new Promise(resolve => { releaseEnrollment = resolve; });
++            logicEngineEnrollmentBarrier = barrier;
++            const sourceLocator = getCurrentChatId();
++            let conversationId = null;
++            try {
++                conversationId = await getLogicEngineConversationId();
++                if (!conversationId || !sourceLocator || getCurrentChatId() !== sourceLocator) {
++                    throw Error('NON_READY: Host conversation changed before automatic enrollment');
++                }
++                const result = await (await getLogicEngineLifecycleBridge()).ensureCurrentConversationEnrolled();
++                if (getCurrentChatId() !== sourceLocator) {
++                    throw Error('NON_READY: Host conversation changed during automatic enrollment');
++                }
++                localStorage.setItem('logic-engine-host-lifecycle-locator:' + sourceLocator, conversationId);
++                const marker = 'logic-engine-host-lifecycle:' + conversationId;
++                localStorage.setItem(marker, 'enrolled:' + sourceLocator);
++                return result;
 +            } finally {
 +                if (logicEngineEnrollmentBarrier === barrier) logicEngineEnrollmentBarrier = null;
 +                releaseEnrollment();
@@ -312,31 +441,47 @@ diff --git a/public/script.js b/public/script.js
 +    };
 +}
 +
++// Capture the active conversation as soon as SillyTavern finishes loading it.
++// The bridge restores a persisted journal when possible and creates a baseline
++// only for a genuinely unmarked chat. The event is awaited so the first native
++// mutation cannot race the automatic enrollment.
++async function captureLogicEngineHostChatOnLoad(changedLocator) {
++    const sourceLocator = getCurrentChatId();
++    if (!sourceLocator || changedLocator !== sourceLocator) return;
++    try {
++        const enrollment = await window.logicEngineHostLifecycle.ensureCurrentConversationEnrolled();
++        if (getCurrentChatId() !== sourceLocator) {
++            throw Error('NON_READY: Host conversation changed after automatic chat-load enrollment');
++        }
++        // A new enrollment already publishes its digest-only baseline. For an
++        // existing enrollment, local journal integrity is checked above. Do not
++        // rescan the entire account root on every CHAT_CHANGED event.
++        logicEngineHostDiagnostic = Object.freeze({
++            stage: 'CHAT_CHANGED_AUTO_CAPTURE',
++            status: enrollment.status,
++            captureStatus: enrollment.status,
++        });
++    } catch (error) {
++        logicEngineHostDiagnostic = Object.freeze({
++            stage: 'CHAT_CHANGED_AUTO_CAPTURE',
++            status: 'NON_READY',
++            reasonCode: error?.code || 'HOST_CHAT_LOAD_CAPTURE_FAILED',
++        });
++        console.warn('Logic Engine automatic Host chat capture failed; native SillyTavern remains available.', error?.message || error);
++    }
++}
++
++eventSource.on(event_types.CHAT_CHANGED, changedLocator => {
++    // Never hold SillyTavern's native chat transition on optional Host recovery.
++    // Mutation hooks share the same idempotent enrollment promise if the user
++    // sends a message before this background capture finishes.
++    void captureLogicEngineHostChatOnLoad(changedLocator);
++});
++
  export async function clearChat({ clearData = false } = {}) {
-+    await window.logicEngineHostLifecycle?.waitForEnrollment?.();
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604,1 +1872,18 @@
--    if (clearData) chat.length = 0;
-+    if (clearData) {
-+        const lifecycleBridge = await getLogicEngineLifecycleBridge();
-+        try {
-+            while (chat.length > 0) {
-+                const messageIndex = chat.length - 1;
-+                const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', [messageIndex], { bulkClear: true });
-+                chat.splice(messageIndex, 1);
-+                if (lifecycleBefore.status !== 'NOT_ENROLLED') {
-+                    await saveChatConditional();
-+                    await lifecycleBridge.afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex });
-+                }
-+            }
-+        } catch (error) {
-+            await printMessages();
-+            throw error;
-+        }
-+    }
-+
-@@ -1605,8 +1890,14 @@
+@@ -1605,8 +1910,14 @@
  }
  
  export async function deleteLastMessage() {
@@ -351,7 +496,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1676,6 +1967,8 @@
+@@ -1676,6 +1987,8 @@
  
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
@@ -360,7 +505,7 @@ diff --git a/public/script.js b/public/script.js
  
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
-@@ -1689,6 +1982,8 @@
+@@ -1689,6 +2002,8 @@
      const startIndex = firstMessageId <= minId ? firstMessageId : null;
      updateViewMessageIds(startIndex);
      saveChatDebounced();
@@ -369,7 +514,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
-@@ -5904,9 +6199,13 @@
+@@ -5904,9 +6219,13 @@
  
      chat_metadata.tainted = true;
  
@@ -383,7 +528,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, insertAt);
          await reloadCurrentChat();
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, insertAt);
-@@ -5914,6 +6213,7 @@
+@@ -5914,6 +6233,7 @@
          chat.push(message);
          await saveChatConditional();
          const chat_id = (chat.length - 1);
@@ -391,7 +536,7 @@ diff --git a/public/script.js b/public/script.js
          await eventSource.emit(event_types.MESSAGE_SENT, chat_id);
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
-@@ -6653,6 +6953,15 @@
+@@ -6653,6 +6973,15 @@
          type = 'normal';
      }
  
@@ -407,7 +552,7 @@ diff --git a/public/script.js b/public/script.js
      if (chat.length && (!lastMessage.extra || typeof lastMessage.extra !== 'object')) {
          lastMessage.extra = {};
      }
-@@ -6825,6 +7134,9 @@
+@@ -6825,6 +7154,9 @@
          item.swipe_info.push(...swipeInfoArray);
      }
  
@@ -417,7 +562,7 @@ diff --git a/public/script.js b/public/script.js
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
  }
-@@ -8400,6 +8712,8 @@
+@@ -8400,6 +8732,8 @@
          return;
      }
  
@@ -426,7 +571,7 @@ diff --git a/public/script.js b/public/script.js
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
      await eventSource.emit(event_types.MESSAGE_EDITED, this_edit_mes_id);
-@@ -8431,6 +8745,7 @@
+@@ -8431,6 +8765,7 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
@@ -434,7 +579,7 @@ diff --git a/public/script.js b/public/script.js
      showSwipeButtons();
  }
  
-@@ -9364,6 +9679,8 @@
+@@ -9364,6 +9699,8 @@
          return;
      }
  
@@ -443,7 +588,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9401,6 +9718,7 @@
+@@ -9401,6 +9738,7 @@
      }
  
      await saveChatConditional();
@@ -451,7 +596,7 @@ diff --git a/public/script.js b/public/script.js
  
      return newSwipeId;
  }
-@@ -9446,6 +9764,8 @@
+@@ -9446,6 +9784,8 @@
   * @returns {Promise<string[]>} List of imported file names.
   */
  export async function importCharacterChat(formData, { refresh = true } = {}) {
@@ -460,7 +605,7 @@ diff --git a/public/script.js b/public/script.js
      const fetchResult = await fetch('/api/chats/import', {
          method: 'POST',
          body: formData,
-@@ -10095,6 +10415,11 @@
+@@ -10095,6 +10435,11 @@
              saveChatDebounced();
          }
  
@@ -472,7 +617,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,6 +10429,14 @@
+@@ -10104,6 +10449,14 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -487,7 +632,7 @@ diff --git a/public/script.js b/public/script.js
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
              //Transition to the new chat.
-@@ -10729,13 +11062,32 @@
+@@ -10729,13 +11082,32 @@
   * @param {string} newName New name for the chat (no JSONL extension)
   */
  export async function renameChat(oldFileName, newName) {
@@ -527,7 +672,7 @@ diff --git a/public/script.js b/public/script.js
  }
  
  /**
-@@ -10826,6 +11178,8 @@
+@@ -10826,6 +11198,8 @@
   * @return {Promise<boolean>} - A promise that resolves when the character is successfully deleted
   */
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
@@ -536,7 +681,7 @@ diff --git a/public/script.js b/public/script.js
      if (!Array.isArray(characterKey)) {
          characterKey = [characterKey];
      }
-@@ -11501,6 +11855,7 @@
+@@ -11501,6 +11875,7 @@
      $(document).on('click', '.exportChatButton, .exportRawChatButton', async function (e) {
          e.stopPropagation();
          const format = $(this).data('format') || 'txt';
@@ -1254,7 +1399,7 @@ new file mode 100644
 +++ b/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
 @@ -0,0 +1,365 @@
 +// Generation start/stop signals do not independently mutate persisted chat files; their resulting messages are covered by message-send/receive receipts.
-+const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','clear-chat','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
++const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','delete-chat','delete-group-chat','delete-character-chat-recursive','edit-message','persistence-ordering','import','import-character-chat','import-group-chat','export','copy-branch','restore','backup-restore','create-branch','group-metadata-migration','chat-switch','external-edit','rollback','restart','replay']);
 +const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 +const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
 +const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
@@ -1618,12 +1763,11 @@ new file mode 100644
 +  return digest({ sourceLocator: sourceLocator ?? null, projection });
 +}
 +export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
-
 diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,1092 @@
+@@ -0,0 +1,1212 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -1636,7 +1780,7 @@ new file mode 100644
 +  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
 +    .map(value => value.toString(16).padStart(2, '0')).join('');
 +}
-+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
++const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
 +const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering', 'copy-branch', 'create-branch']);
 +const newId = () => {
 +  if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -1659,6 +1803,7 @@ new file mode 100644
 +  const persistedInventoryRevocationPublished = new Set();
 +  const persistedInventoryDiagnostics = new Map();
 +  const automaticEnrollmentPromises = new Map();
++  const persistedRecoveryPromises = new Map();
 +
 +  function sortParentFirst(entries) {
 +    const groups = new Map();
@@ -1793,11 +1938,58 @@ new file mode 100644
 +    return fingerprintSource(chat, getSourceLocator());
 +  }
 +
++  function hostLifecycleFailure(code, message) {
++    const error = Error('NON_READY: ' + message);
++    error.code = code;
++    return error;
++  }
++
 +  async function enrolledOrFailClosed(conversationId) {
 +    const enrolled = await journal.isEnrolled(conversationId);
++    if (enrolled) return true;
++
 +    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
-+    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
-+    return enrolled;
++    if (!marker) return false;
++
++    // A marker is only a recovery hint, never authority. Recover only when its
++    // recorded state and locator match this exact active chat, and every
++    // persisted message/version ID and digest independently verifies.
++    const locator = getSourceLocator();
++    const allowedMarkers = locator ? new Set([
++      'enrolled:' + locator,
++      'enrolling:' + locator,
++      'NON_READY:' + locator,
++    ]) : new Set();
++    if (!allowedMarkers.has(marker)) {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
++        'an old enrollment marker does not identify the active chat unambiguously',
++      );
++    }
++
++    let restored;
++    try {
++      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    } catch {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_RECOVERY_REJECTED',
++        'the old enrollment marker exists but its persisted identity snapshot could not be restored',
++      );
++    }
++    if (!restored) {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_RECOVERY_METADATA_INCOMPLETE',
++        'the old enrollment marker exists but complete persisted message/version identities are unavailable',
++      );
++    }
++    const integrity = await journal.verifyIntegrity(conversationId);
++    if (integrity?.status !== 'INTEGRITY_OK') {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_RECOVERY_INTEGRITY_FAILED',
++        'the recovered current-state baseline failed journal integrity verification',
++      );
++    }
++    return true;
 +  }
 +
 +  // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
@@ -1805,7 +1997,7 @@ new file mode 100644
 +  // the old origin's journal does not. Rebuild only a current-state baseline
 +  // from those already-persisted IDs and verified payload digests; never mint
 +  // replacement message/version IDs or claim the missing event history.
-+  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
++  async function restoreBaselineFromPersistedChatMetadataUncached(conversationId) {
 +    const sourceLocator = getSourceLocator();
 +    const chat = getChat();
 +    if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
@@ -1864,6 +2056,24 @@ new file mode 100644
 +    return restored;
 +  }
 +
++  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
++    const locator = getSourceLocator();
++    const chat = getChat();
++    if (!locator || !Array.isArray(chat)) return null;
++    const fingerprint = await currentFingerprint(chat);
++    const key = conversationId + '\\u0000' + locator + '\\u0000' + fingerprint;
++    let pending = persistedRecoveryPromises.get(key);
++    if (!pending) {
++      pending = restoreBaselineFromPersistedChatMetadataUncached(conversationId);
++      persistedRecoveryPromises.set(key, pending);
++      if (persistedRecoveryPromises.size > 128) {
++        const oldest = persistedRecoveryPromises.keys().next().value;
++        if (oldest !== key) persistedRecoveryPromises.delete(oldest);
++      }
++    }
++    return pending;
++  }
++
 +  async function enrollCurrentConversation() {
 +    const conversationId = await getConversationId();
 +    const sourceLocator = getSourceLocator();
@@ -1910,10 +2120,9 @@ new file mode 100644
 +      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
 +    }
 +    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
-+    // Verify the just-persisted baseline automatically once. This is a bounded
-+    // per-conversation scan, not a full-root scan on every message mutation.
-+    const persistedInventory = getPersistedInventory
-+      ? await verifyPersistedInventory(conversationId) : null;
++    // Full-root inventory is independent of conversation enrollment. Do not
++    // trigger account-wide filesystem/VSS work during chat loading; reconciliation
++    // remains an explicit operation with its own readiness contract.
 +    await assertEnrollmentSourceUnchanged();
 +    return {
 +      conversationId,
@@ -1922,7 +2131,7 @@ new file mode 100644
 +      messageCount: chat.length,
 +      status: 'REVIEW_ONLY',
 +      coreCaptureStatus: coreCapture.status,
-+      persistedInventoryStatus: persistedInventory?.status ?? 'NOT_CONFIGURED',
++      persistedInventoryStatus: 'NOT_CHECKED_ON_CHAT_LOAD',
 +    };
 +  }
 +
@@ -1966,8 +2175,37 @@ new file mode 100644
 +  }
 +
 +  async function ensureConversationEnrolled(conversationId) {
-+    const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    let restored;
++    try {
++      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
++    } catch {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_RECOVERY_REJECTED',
++        'persisted Host identity metadata could not be restored into the local journal',
++      );
++    }
 +    if (restored) return;
++
++    // Never replace partial, malformed, or stale per-message identities with
++    // freshly minted IDs. Automatic enrollment is allowed only for a genuinely
++    // unmarked chat whose messages have no Host lifecycle identity metadata.
++    const chat = getChat();
++    const hasPersistedIdentity = Array.isArray(chat)
++      && chat.some(message => message && Object.hasOwn(message, '_logicEngineLifecycle'));
++    if (hasPersistedIdentity) {
++      throw hostLifecycleFailure(
++        'HOST_PERSISTED_IDENTITY_INCOMPLETE',
++        'some persisted Host message identities exist but do not form a complete verifiable baseline',
++      );
++    }
++    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
++    if (marker) {
++      throw hostLifecycleFailure(
++        'HOST_ENROLLMENT_MARKER_WITHOUT_RECOVERABLE_IDENTITIES',
++        'an old enrollment marker exists but no complete persisted identity snapshot can be recovered',
++      );
++    }
++
 +    let pending = automaticEnrollmentPromises.get(conversationId);
 +    if (!pending) {
 +      pending = (async () => {
@@ -1988,6 +2226,30 @@ new file mode 100644
 +    if (!(await journal.isEnrolled(conversationId))) {
 +      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
 +    }
++  }
++
++  async function ensureCurrentConversationEnrolled() {
++    const conversationId = await getConversationId();
++    if (!conversationId) return { status: 'NOT_ENROLLED', reason: 'NO_ACTIVE_CONVERSATION' };
++    const alreadyEnrolled = await journal.isEnrolled(conversationId);
++    if (!alreadyEnrolled) {
++      await ensureConversationEnrolled(conversationId);
++    } else {
++      const chat = getChat();
++      if (!Array.isArray(chat)) throw Error('NON_READY: active Host chat is unavailable');
++      await assertIdentitySnapshotMatches(conversationId, chat);
++      const integrity = await journal.verifyIntegrity(conversationId);
++      if (integrity.status !== 'INTEGRITY_OK') {
++        throw Error('NON_READY: Host lifecycle journal integrity is unavailable after chat load');
++      }
++    }
++    if (await getConversationId() !== conversationId) {
++      throw Error('NON_READY: Host conversation changed during automatic chat-load enrollment');
++    }
++    if (!(await journal.isEnrolled(conversationId))) {
++      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
++    }
++    return { status: alreadyEnrolled ? 'ALREADY_ENROLLED' : 'ENROLLED', conversationId };
 +  }
 +
 +  async function beforeMutation(operation, messageIndexes, details = {}) {
@@ -2678,6 +2940,7 @@ new file mode 100644
 +
 +  return Object.freeze({
 +    enrollCurrentConversation,
++    ensureCurrentConversationEnrolled,
 +    beforeMutation,
 +    afterMutation,
 +    syncCurrentDigestInventory,
@@ -2711,6 +2974,7 @@ new file mode 100644
 +
 +  return Object.freeze({
 +    enrollCurrentConversation: async () => { throw error; },
++    ensureCurrentConversationEnrolled: async () => { throw error; },
 +    beforeMutation: async () => assertUnavailableSafe(),
 +    afterMutation: async () => assertUnavailableSafe(),
 +    guardExport: async () => assertUnavailableSafe(),
@@ -2720,7 +2984,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/conversation-identity.mjs b/p
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,261 @@
 +const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 +const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
 +const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
@@ -2747,6 +3011,7 @@ new file mode 100644
 +  getCurrentLocator = () => locator,
 +  getCurrentMetadata = () => metadata,
 +  pendingRenameId = null,
++  verifyPersistedIdentity = null,
 +  cryptoProvider = globalThis.crypto,
 +}) {
 +  if (typeof locator !== 'string' || !locator.trim()) return { status: 'NON_READY', reason: 'NO_ACTIVE_CONVERSATION' };
@@ -2758,6 +3023,9 @@ new file mode 100644
 +    throw Error('NON_READY: Host identity storage unavailable');
 +  }
 +  if (typeof saveMetadata !== 'function') throw TypeError('saveMetadata is required');
++  if (verifyPersistedIdentity !== null && typeof verifyPersistedIdentity !== 'function') {
++    throw TypeError('verifyPersistedIdentity must be a trusted callback');
++  }
 +  if (typeof cryptoProvider?.randomUUID !== 'function') throw Error('NON_READY: crypto.randomUUID unavailable');
 +  if (!validUuid(hostSessionId)) return { status: 'NON_READY', reason: 'HOST_SESSION_ID_UNAVAILABLE' };
 +  if (!validUuid(hostInstallationId)) return { status: 'NON_READY', reason: 'HOST_INSTALLATION_ID_UNAVAILABLE' };
@@ -2790,17 +3058,63 @@ new file mode 100644
 +  const legacyMarker = MARKER_PREFIX + locator;
 +  const currentLocatorKey = locatorKey(locator);
 +  const mappedId = storage.getItem(currentLocatorKey);
++  const markerValueMatchesLocator = value => typeof value === 'string'
++    && ['enrolled:', 'enrolling:', 'NON_READY:'].some(prefix => value === prefix + locator);
++  const verifyServerPersistence = async conversationUuid => {
++    if (typeof verifyPersistedIdentity !== 'function') return false;
++    try {
++      const confirmed = await verifyPersistedIdentity(conversationUuid) === true;
++      return confirmed
++        && getCurrentMetadata() === metadata
++        && getCurrentLocator() === locator
++        && metadata.logic_engine_conversation_id === conversationUuid;
++    } catch {
++      return false;
++    }
++  };
++  const persistConversationUuid = async (conversationUuid, { requireServerVerification = false } = {}) => {
++    const originalMetadata = metadata;
++    const hadPriorIdentity = Object.hasOwn(originalMetadata, 'logic_engine_conversation_id');
++    const priorIdentity = originalMetadata.logic_engine_conversation_id;
++    originalMetadata.logic_engine_conversation_id = conversationUuid;
++    if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator) {
++      delete originalMetadata.logic_engine_conversation_id;
++      throw Error('NON_READY: Host conversation changed during identity recovery');
++    }
++    try {
++      await saveMetadata();
++    } catch (error) {
++      if (hadPriorIdentity) originalMetadata.logic_engine_conversation_id = priorIdentity;
++      else delete originalMetadata.logic_engine_conversation_id;
++      throw Error('NON_READY: durable Host conversation identity could not be saved: ' + (error?.message || error));
++    }
++    if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator
++      || originalMetadata.logic_engine_conversation_id !== conversationUuid) {
++      throw Error('NON_READY: Host conversation identity changed during persistence');
++    }
++    if (requireServerVerification && !(await verifyServerPersistence(conversationUuid))) {
++      throw Error('NON_READY: server did not confirm the recovered conversation identity in the persisted chat');
++    }
++  };
 +
-+  if (existing !== undefined && !validUuid(existing)) {
++  if (existing !== undefined && existing !== null && !validUuid(existing)) {
 +    throw Error('NON_READY: malformed stable Host conversation identity');
-+  }
-+  if (mappedId && (!validUuid(existing) || mappedId !== installationId + ':' + accountId + ':' + existing)) {
-+    throw Error('NON_READY: Host locator metadata is missing or inconsistent');
 +  }
 +
 +  if (validUuid(existing)) {
 +    const resolvedId = installationId + ':' + accountId + ':' + existing;
 +    const activeMarker = MARKER_PREFIX + resolvedId;
++    if (mappedId && mappedId !== resolvedId) {
++      throw Error('NON_READY: Host locator metadata is missing or inconsistent');
++    }
++    if (mappedId && storage.getItem(activeMarker) !== null
++      && !markerValueMatchesLocator(storage.getItem(activeMarker))) {
++      throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
++    }
++    if (mappedId && typeof verifyPersistedIdentity === 'function'
++      && !(await verifyServerPersistence(existing))) {
++      throw Error('NON_READY: server did not confirm the current conversation identity in the persisted chat');
++    }
 +    if (storage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
 +      throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
 +    }
@@ -2815,14 +3129,70 @@ new file mode 100644
 +        && value.endsWith(':' + locator) && key !== activeMarker) {
 +        throw Error('NON_READY: Host locator is associated with another conversation identity');
 +      }
++      if (key.startsWith(LOCATOR_PREFIX) && value === resolvedId && key !== currentLocatorKey) {
++        throw Error('NON_READY: Host conversation identity is already mapped to another locator');
++      }
 +    }
-+    if (!mappedId && storage.getItem(activeMarker) && pendingRenameId !== resolvedId) {
-+      throw Error('NON_READY: enrolled Host conversation has no matching locator binding');
++    if (!mappedId && storage.getItem(activeMarker)) {
++      const markerValue = storage.getItem(activeMarker);
++      const markerMatchesCurrentLocator = markerValueMatchesLocator(markerValue);
++      // A rename is the only permitted exception: the exact conversation ID
++      // must have been captured by renameChat before ST changes the locator.
++      if (!markerMatchesCurrentLocator && pendingRenameId !== resolvedId) {
++        throw Error('NON_READY: enrolled Host conversation marker does not match the active locator');
++      }
++      if (markerMatchesCurrentLocator && pendingRenameId !== resolvedId) {
++        // An exact marker/metadata pair can repair only its missing locator cache.
++        if (!(await verifyServerPersistence(existing))) {
++          throw Error('NON_READY: server confirmation is required before repairing a Host locator binding');
++        }
++        storage.setItem(currentLocatorKey, resolvedId);
++        if (storage.getItem(currentLocatorKey) !== resolvedId) {
++          throw Error('NON_READY: Host locator binding repair failed');
++        }
++      }
 +    }
 +    return { status: 'READY_FOR_REVIEW', conversationId: resolvedId, hostSessionId, installationId, conversationUuid: existing };
 +  }
 +
-+  if (mappedId) throw Error('NON_READY: Host locator is bound but its stable metadata identity is missing');
++  if (mappedId) {
++    const prefix = installationId + ':' + accountId + ':';
++    const conversationUuid = mappedId.startsWith(prefix) ? mappedId.slice(prefix.length) : null;
++    const markerKey = MARKER_PREFIX + mappedId;
++    const markerValue = storage.getItem(markerKey);
++    if (!validUuid(conversationUuid) || !markerValueMatchesLocator(markerValue)) {
++      throw Error('NON_READY: Host locator binding and enrollment marker do not form a valid recovery pair');
++    }
++    if (storage.getItem(legacyMarker) !== null) {
++      throw Error('NON_READY: legacy filename marker conflicts with the stable enrollment mapping');
++    }
++    for (let i = 0; i < storage.length; i++) {
++      const key = storage.key(i);
++      if (typeof key !== 'string' || key === markerKey || key === currentLocatorKey) continue;
++      const value = storage.getItem(key);
++      if ((key.startsWith(MARKER_PREFIX) && key.endsWith(':' + accountId + ':' + conversationUuid))
++        || (key.startsWith(MARKER_PREFIX) && typeof value === 'string' && value.endsWith(':' + locator))
++        || (key.startsWith(LOCATOR_PREFIX) && value === mappedId)) {
++        throw Error('NON_READY: Host enrollment recovery pair is duplicated or associated elsewhere');
++      }
++    }
++    if (typeof verifyPersistedIdentity !== 'function') {
++      throw Error('NON_READY: server confirmation is required before restoring missing chat identity metadata');
++    }
++    await persistConversationUuid(conversationUuid);
++    if (!(await verifyServerPersistence(conversationUuid))) {
++      throw Error('NON_READY: server did not confirm the restored conversation identity in the persisted chat');
++    }
++    return {
++      status: 'READY_FOR_REVIEW',
++      conversationId: mappedId,
++      hostSessionId,
++      installationId,
++      conversationUuid,
++      recoveredFromVerifiedEnrollmentPair: true,
++    };
++  }
++
 +  if (storage.getItem(legacyMarker)) throw Error('NON_READY: legacy identity migration required');
 +  for (let i = 0; i < storage.length; i++) {
 +    const key = storage.key(i);
@@ -2833,23 +3203,8 @@ new file mode 100644
 +    }
 +  }
 +
-+  const originalMetadata = metadata;
 +  const conversationUuid = cryptoProvider.randomUUID();
-+  metadata.logic_engine_conversation_id = conversationUuid;
-+  if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator) {
-+    delete originalMetadata.logic_engine_conversation_id;
-+    throw Error('NON_READY: Host conversation changed during identity enrollment');
-+  }
-+  try {
-+    await saveMetadata();
-+  } catch (error) {
-+    delete originalMetadata.logic_engine_conversation_id;
-+    throw Error('NON_READY: durable Host conversation identity could not be saved: ' + (error?.message || error));
-+  }
-+  if (getCurrentMetadata() !== originalMetadata || getCurrentLocator() !== locator
-+    || originalMetadata.logic_engine_conversation_id !== conversationUuid) {
-+    throw Error('NON_READY: Host conversation identity changed during persistence');
-+  }
++  await persistConversationUuid(conversationUuid);
 +  return {
 +    status: 'READY_FOR_REVIEW',
 +    conversationId: installationId + ':' + accountId + ':' + conversationUuid,

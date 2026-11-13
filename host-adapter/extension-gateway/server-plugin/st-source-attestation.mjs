@@ -5,13 +5,13 @@ import path from 'node:path';
 export const PINNED_HOST_COMMIT = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 export const HOST_INVENTORY_COVERAGE_ID = 'ST-1.19.0-HOST-LIFECYCLE-P0-V1';
 // Updated together with Core's accepted deployment constants.
-export const PINNED_PATCH_BUNDLE_SHA256 = '7604a539722013e9c62cf4c2473fafd9e49e987574126ddd43701babe1dcdf0a';
+export const PINNED_PATCH_BUNDLE_SHA256 = '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52';
 export const PINNED_HOST_HANDLER_GIT_BLOB_SHA = 'fdef69ca12da10bb5cdd8b98330e79fdcebd26d3';
 export const PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS = Object.freeze({
   'index.mjs': 'b00c08d2db01134e2dd6cabd2010f344fad251dc',
   'manifest.json': '258d3ba951db402d293b04854022a96d9fa24c08',
   'package.json': '7f19277fe4aae24722ea8ceb913cba366efefccb',
-  'scripts/sillytavern-patch-manager.mjs': '14324ea7cda0ad760d496123b69827a0a25b1247',
+  'scripts/sillytavern-patch-manager.mjs': 'fe158cede5fd6c2785dde0bb373cc5576f1d598c',
   'host-adapter/sillytavern-final-send-adapter.mjs': '8678a611ad66978355f39cbd844efb6b4a6359e9',
   'host-adapter/embedded-gateway-runtime.mjs': 'f553db2690370490ea63208ecc0a824817e4e23c',
   'host-adapter/extension-gateway/server-plugin/host-adapter.mjs': 'f81dd3612920b92f6aa7ac100b9ab277dcc021bd',

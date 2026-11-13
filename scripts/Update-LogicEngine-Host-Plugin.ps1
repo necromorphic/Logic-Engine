@@ -225,8 +225,13 @@ try {
     $browserManifest = Get-Content -LiteralPath (Join-Path $browserPluginRoot 'manifest.json') -Raw | ConvertFrom-Json
     if ($browserManifest.js -ne 'index.js') { throw 'HOST_PLUGIN_BROWSER_EXTENSION_MANIFEST_INVALID' }
     $browserEntry = Get-Content -LiteralPath (Join-Path $browserPluginRoot 'index.js') -Raw
-    if (-not $browserEntry.Contains('registerHostLifecycleAutoCapture')) {
-        throw 'HOST_PLUGIN_BROWSER_AUTO_CAPTURE_MISSING'
+    if (-not $browserEntry.Contains('registerHostGenerationIdentityOnce')) {
+        throw 'HOST_PLUGIN_BROWSER_GENERATION_IDENTITY_MISSING'
+    }
+    $hostScript = Get-Content -LiteralPath (Join-Path $stRoot 'public/script.js') -Raw
+    if (-not $hostScript.Contains('captureLogicEngineHostChatOnLoad') -or
+        -not $hostScript.Contains('event_types.CHAT_CHANGED')) {
+        throw 'HOST_PLUGIN_CHAT_LOAD_AUTO_CAPTURE_MISSING'
     }
 
     $completed = $true
