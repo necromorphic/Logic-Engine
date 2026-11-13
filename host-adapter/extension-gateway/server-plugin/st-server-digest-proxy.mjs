@@ -570,6 +570,7 @@ export function createHostLifecycleJournalProxy({
   identityStore,
   receiptStore = null,
   ensureRootInventory = null,
+  resolveCommunicationRecipient = null,
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
@@ -584,6 +585,9 @@ export function createHostLifecycleJournalProxy({
   }
   if (ensureRootInventory !== null && typeof ensureRootInventory !== 'function') {
     throw new TypeError('ensureRootInventory must be a trusted Host inventory initializer');
+  }
+  if (resolveCommunicationRecipient !== null && typeof resolveCommunicationRecipient !== 'function') {
+    throw new TypeError('resolveCommunicationRecipient must be a trusted Core binding resolver');
   }
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
@@ -727,7 +731,29 @@ export function createHostLifecycleJournalProxy({
           receipt = await durableReceiptStore.prepare(scope, directories);
           scope.occurred_at = receipt.prepared.occurred_at;
         } else if (body.event_type === 'MUTATION_COMMITTED') {
-          receipt = await durableReceiptStore.commit(scope, directories);
+          let recipientBinding = null;
+          const preparedMutation = request?.session?.logicEngineHostPreparedMutation;
+          const isBoundCharacterMessageSend = body.operation === 'message-send'
+            && preparedMutation?.mutation_id === body.mutation_id
+            && preparedMutation?.operation === 'message-send'
+            && preparedMutation?.target_kind === 'character-chat'
+            && preparedMutation?.host_installation_id === resolved.identity.host_installation_id
+            && preparedMutation?.authenticated_account_id === resolved.identity.authenticated_account_id
+            && preparedMutation?.host_session_id === resolved.hostSessionId
+            && preparedMutation?.conversation_uuid === resolved.conversationUuid;
+          if (isBoundCharacterMessageSend && resolveCommunicationRecipient) {
+            try {
+              recipientBinding = await resolveCommunicationRecipient({
+                request,
+                identity: resolved.identity,
+                hostSessionId: resolved.hostSessionId,
+                conversationUuid: resolved.conversationUuid,
+              });
+            } catch {
+              recipientBinding = null;
+            }
+          }
+          receipt = await durableReceiptStore.commit(scope, directories, { recipientBinding });
           scope.occurred_at = receipt.occurred_at;
         } else {
           receipt = await durableReceiptStore.abort(scope, directories);
@@ -766,10 +792,48 @@ export function createHostLifecycleJournalProxy({
             event_id: body.event_id,
             operation: body.operation,
             mutation_digest: body.mutation_digest,
+            target_kind: receipt.prepared?.before?.target_kind ?? null,
           };
         } else if (session?.logicEngineHostPreparedMutation?.mutation_id === body.mutation_id) {
           delete session.logicEngineHostPreparedMutation;
         }
+      }
+      if (body.event_type === 'MUTATION_COMMITTED' && receipt?.communication_delivery) {
+        const target = configuredTarget(env);
+        if (!target) return response.status(503).json({
+          error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The signed Host delivery receipt could not be issued.' },
+        });
+        const deliveryDigest = createHash('sha256')
+          .update(canonical(receipt.communication_delivery), 'utf8')
+          .digest('hex');
+        const proof = {
+          host_installation_id: resolved.identity.host_installation_id,
+          authenticated_account_id: resolved.identity.authenticated_account_id,
+          host_session_id: resolved.hostSessionId,
+          conversation_uuid: resolved.conversationUuid,
+          event_id: body.event_id,
+          event_type: 'MUTATION_COMMITTED',
+          mutation_id: body.mutation_id,
+          operation: body.operation,
+          mutation_digest: body.mutation_digest,
+          receipt_digest: deliveryDigest,
+          occurred_at: scope.occurred_at,
+        };
+        const receiptSignature = signHostMutationReceipt({
+          adapterId: target.adapterId,
+          adapterToken: target.adapterToken,
+          event: proof,
+        });
+        return response.status(result.status).json({
+          ...result.payload,
+          communication_delivery_receipt: {
+            protocol_version: 1,
+            evidence_type: 'communication_delivered',
+            delivery: receipt.communication_delivery,
+            receipt_digest: deliveryDigest,
+            proof: { ...proof, receipt_signature: receiptSignature },
+          },
+        });
       }
       return response.status(result.status).json(result.payload);
     },
