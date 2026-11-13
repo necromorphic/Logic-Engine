@@ -182,6 +182,9 @@ export function createCommunicationDeliveryReceipt({ scope, before, after, recip
       canonical(message) === canonical(afterLogical.messages[index]))
     || recipientBinding.conversation_id !== coreConversationId
     || !safeId(recipientBinding.adapter_id)
+    || !safeId(recipientBinding.host_character_avatar_id)
+    || before.target_locator?.split('/')?.[0] !== recipientBinding.host_character_avatar_id
+    || after.target_locator?.split('/')?.[0] !== recipientBinding.host_character_avatar_id
     || !safeId(recipientBinding.world_id)
     || !safeId(recipientBinding.actor_id)
     || typeof recipientBinding.actor_type !== 'string'
