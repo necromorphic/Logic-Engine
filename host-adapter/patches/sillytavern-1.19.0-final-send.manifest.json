@@ -33,7 +33,7 @@
     "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
     "public/script.js": {
       "before": "955c603d0bad84bac5a716f0818d85c2543e44d4c43878e0d63ef1e55ca91855",
-      "after": "5003257228625cc2012b9e74c0fa9947c44c39c3da462fe73a6950ae39a6ea85"
+      "after": "a95de29b1db81f457687355e324e96e8bbbe03f90f94974dee573b6a50beaede"
     },
     "public/scripts/bookmarks.js": {
       "before": "5c3a68aa82e58c0d82777065b8466572fc1b202cad98a92ba4daa852c386ad1b",
