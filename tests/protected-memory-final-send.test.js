@@ -11,7 +11,7 @@ const context = {
   runId: '77777777-7777-4777-8777-777777777777',
   contextDigest: 'c'.repeat(64),
   coreEnvelopeDigest: 'd'.repeat(64),
-  model: 'google/gemini-test',
+  model: 'test-model',
   worldId: 'world-1',
   actorId: 'npc-1',
   purpose: 'recall',
@@ -38,7 +38,7 @@ const init = (body = '{"messages":[{"role":"user","content":"exact bytes"}]}') =
   body,
 });
 
-test('all registered provider sender families share the same protected final-send adapter', async () => {
+test('all registered SillyTavern sender routes share the same protected final-send adapter', async () => {
   for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
     let calls = 0;
     let dispatched;
@@ -88,7 +88,7 @@ test('protected transport remains dormant until Gateway invokes the capability',
     },
   });
   const result = finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -138,7 +138,7 @@ test('indeterminate trusted Memory classification fails closed instead of using 
     fetchImpl: async () => { calls += 1; return { status: 200 }; },
   });
   assert.throws(() => finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext: {},
@@ -182,7 +182,7 @@ test('stream forwarding is inside the transport promise so forwarding failure is
     },
   });
   await assert.rejects(finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/stream',
     requestInit: init(),
     hostRequestContext,
@@ -193,7 +193,7 @@ test('stream forwarding is inside the transport promise so forwarding failure is
   assert.equal(typeof captured.transport, 'function');
 });
 
-test('ordinary non-Memory generation keeps its direct provider path', async () => {
+test('ordinary non-Memory generation keeps its direct native transport path', async () => {
   let calls = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: { dispatchProtectedRequest: () => { throw new Error('Gateway must not be called'); } },
@@ -204,7 +204,7 @@ test('ordinary non-Memory generation keeps its direct provider path', async () =
     },
   });
   const result = await finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -223,16 +223,10 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     }],
   };
   for (const [senderRoute, body, readPrompt] of [
-    ['google-ai-studio', JSON.stringify({
-      model: 'gemini-test',
-      contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
-      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
+    ['custom', JSON.stringify({
+      messages: [{ role: 'user', content: 'hello' }],
       logic_engine_conversation_uuid: 'untrusted',
-    }), parsed => parsed.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n')],
-    ['vertex-ai', JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
-      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
-    }), parsed => parsed.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n')],
+    }), parsed => parsed.messages.map(message => message.content).join('\\n')],
   ]) {
     let dispatched;
     let outbound;
@@ -261,18 +255,13 @@ test('protected NPC content is serialized into the exact outbound request and Ho
     assert.match(rendered, /logic_engine_untrusted_memory/, senderRoute);
     assert.match(rendered, /Logic Engine NPC Memory Context/, senderRoute);
     assert.match(rendered, /bridge is closed/, senderRoute);
-    if (senderRoute === 'google-ai-studio' || senderRoute === 'vertex-ai') {
-      assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
-      assert.equal(parsed.contents[0].role, 'user');
-      assert.equal(parsed.contents[0].parts.length, 2);
-    }
     assert.ok(rendered.indexOf('hello') < rendered.indexOf('logic_engine_untrusted_memory'), senderRoute);
     assert.equal(Object.keys(parsed).some(key => key.startsWith('logic_engine_')), false, senderRoute);
     assert.equal(JSON.stringify(parsed).includes('memory_dispatch'), false, senderRoute);
   }
 });
 
-test('Gemini protected send fails closed when its pinned contents wire shape is absent', () => {
+test('protected Memory fails closed for serialized payloads without messages[]', () => {
   let transportCalls = 0;
   const finalSend = createProtectedMemoryFinalSend({
     gateway: { dispatchProtectedRequest: request => request.transport() },
@@ -287,13 +276,11 @@ test('Gemini protected send fails closed when its pinned contents wire shape is 
     fetchImpl: async () => { transportCalls += 1; return { status: 200 }; },
   });
   assert.throws(() => finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
-    requestInit: init(JSON.stringify({
-      messages: [{ role: 'user', content: 'not the Gemini wire shape' }],
-    })),
+    requestInit: init(JSON.stringify({ prompt: 'no role-bearing message structure' })),
     hostRequestContext,
-  }), /PROTECTED_MEMORY_FINAL_SEND_CONTENTS_MISSING/);
+  }), /PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING/);
   assert.equal(transportCalls, 0);
 });
 
@@ -349,7 +336,7 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
   };
   const cases = [
     {
-      senderRoute: 'openai',
+      senderRoute: 'custom',
       body: {
         messages: [
           { role: 'system', content: 'TRUSTED SYSTEM PROMPT' },
@@ -357,87 +344,12 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
         ],
       },
       readEnvelope: parsed => {
-        assert.equal(parsed.messages[0].role, 'system');
+        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
         assert.equal(parsed.messages[0].content, 'TRUSTED SYSTEM PROMPT');
-        const memoryMessage = parsed.messages[1];
-        assert.equal(memoryMessage.role, 'user');
-        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
-        const marker = memoryMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
+        const userMessage = parsed.messages[1];
+        const marker = userMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
         assert.ok(marker > 0);
-        return JSON.parse(memoryMessage.content.slice(marker));
-      },
-    },
-    {
-      senderRoute: 'claude',
-      body: {
-        system: [{ type: 'text', text: 'TRUSTED CLAUDE SYSTEM PROMPT' }],
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'REAL USER REQUEST' }] }],
-      },
-      readEnvelope: parsed => {
-        assert.deepEqual(parsed.system, [{ type: 'text', text: 'TRUSTED CLAUDE SYSTEM PROMPT' }]);
-        assert.deepEqual(parsed.messages.map(message => message.role), ['user']);
-        const blocks = parsed.messages[0].content;
-        return JSON.parse(blocks[blocks.length - 1].text);
-      },
-    },
-    {
-      senderRoute: 'google-ai-studio',
-      body: {
-        systemInstruction: { parts: [{ text: 'TRUSTED GEMINI SYSTEM PROMPT' }] },
-        contents: [{ role: 'user', parts: [{ text: 'REAL USER REQUEST' }] }],
-      },
-      readEnvelope: parsed => {
-        assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'TRUSTED GEMINI SYSTEM PROMPT' }] });
-        assert.deepEqual(parsed.contents.map(item => item.role), ['user']);
-        const parts = parsed.contents[0].parts;
-        return JSON.parse(parts[parts.length - 1].text);
-      },
-    },
-    {
-      senderRoute: 'cohere',
-      body: {
-        messages: [
-          { role: 'system', content: 'TRUSTED COHERE SYSTEM PROMPT' },
-          { role: 'user', content: 'REAL USER REQUEST' },
-        ],
-      },
-      readEnvelope: parsed => {
-        assert.equal(parsed.messages[0].role, 'system');
-        assert.equal(parsed.messages[0].content, 'TRUSTED COHERE SYSTEM PROMPT');
-        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
-        const content = parsed.messages[1].content;
-        const marker = content.indexOf('{"type":"logic_engine_untrusted_memory"');
-        return JSON.parse(content.slice(marker));
-      },
-    },
-    {
-      senderRoute: 'ai21',
-      body: {
-        messages: [
-          { role: 'system', content: 'TRUSTED AI21 SYSTEM PROMPT' },
-          { role: 'user', content: 'REAL USER REQUEST' },
-        ],
-      },
-      readEnvelope: parsed => {
-        assert.equal(parsed.messages[0].role, 'system');
-        assert.equal(parsed.messages[0].content, 'TRUSTED AI21 SYSTEM PROMPT');
-        assert.deepEqual(parsed.messages.map(message => message.role), ['system', 'user']);
-        const content = parsed.messages[1].content;
-        const marker = content.indexOf('{"type":"logic_engine_untrusted_memory"');
-        return JSON.parse(content.slice(marker));
-      },
-    },
-    {
-      senderRoute: 'vertex-ai',
-      body: {
-        systemInstruction: { parts: [{ text: 'TRUSTED VERTEX SYSTEM PROMPT' }] },
-        contents: [{ role: 'user', parts: [{ text: 'REAL USER REQUEST' }] }],
-      },
-      readEnvelope: parsed => {
-        assert.deepEqual(parsed.systemInstruction, { parts: [{ text: 'TRUSTED VERTEX SYSTEM PROMPT' }] });
-        assert.deepEqual(parsed.contents.map(item => item.role), ['user']);
-        const parts = parsed.contents[0].parts;
-        return JSON.parse(parts[parts.length - 1].text);
+        return JSON.parse(userMessage.content.slice(marker));
       },
     },
   ];
@@ -467,7 +379,7 @@ test('retrieved Memory prompt injection and fake roles remain inert JSON data in
   }
 });
 
-test('every registered chat-completion sender keeps protected Memory inside a user turn', async () => {
+test('registered chat-completion routes preserve roles and serialize Memory only in user content', async () => {
   const rolelessRoutes = ['text-completions', 'kobold', 'novelai-text', 'horde-text'];
   const protectedContext = {
     ...context,
@@ -479,24 +391,12 @@ test('every registered chat-completion sender keeps protected Memory inside a us
   };
   for (const senderRoute of PROTECTED_MEMORY_SENDER_ROUTES) {
     if (rolelessRoutes.includes(senderRoute)) continue;
-    const googleRoute = senderRoute === 'google-ai-studio' || senderRoute === 'vertex-ai';
-    const claudeRoute = senderRoute === 'claude';
-    const body = googleRoute
-      ? {
-        contents: [{ role: 'user', parts: [{ text: 'original request' }] }],
-        systemInstruction: { parts: [{ text: 'trusted system' }] },
-      }
-      : claudeRoute
-        ? {
-          system: [{ type: 'text', text: 'trusted system' }],
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'original request' }] }],
-        }
-        : {
-          messages: [
-            { role: 'system', content: 'trusted system' },
-            { role: 'user', content: 'original request' },
-          ],
-        };
+    const body = {
+      messages: [
+        { role: 'system', content: 'trusted system' },
+        { role: 'user', content: 'original request' },
+      ],
+    };
     let outbound;
     const finalSend = createProtectedMemoryFinalSend({
       gateway: { dispatchProtectedRequest: request => request.transport() },
@@ -512,33 +412,13 @@ test('every registered chat-completion sender keeps protected Memory inside a us
       requestInit: init(JSON.stringify(body)),
       hostRequestContext,
     });
-    let envelopeText;
-    if (googleRoute) {
-      assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system' }] }, senderRoute);
-      assert.deepEqual(outbound.contents.map(item => item.role), ['user'], senderRoute);
-      const parts = outbound.contents[0].parts;
-      assert.equal(parts[0].text, 'original request', senderRoute);
-      envelopeText = parts[parts.length - 1].text;
-    } else {
-      if (claudeRoute) {
-        assert.deepEqual(outbound.system, [{ type: 'text', text: 'trusted system' }], senderRoute);
-        assert.deepEqual(outbound.messages.map(message => message.role), ['user'], senderRoute);
-      } else {
-        assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'user'], senderRoute);
-        assert.equal(outbound.messages[0].content, 'trusted system', senderRoute);
-      }
-      const userMessage = outbound.messages.find(message => message.role === 'user');
-      if (Array.isArray(userMessage.content)) {
-        assert.equal(userMessage.content[0].text, 'original request', senderRoute);
-        envelopeText = userMessage.content[userMessage.content.length - 1].text;
-      } else {
-        assert.ok(userMessage.content.startsWith('original request'), senderRoute);
-        const marker = userMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
-        assert.ok(marker > 0, senderRoute);
-        envelopeText = userMessage.content.slice(marker);
-      }
-    }
-    const envelope = JSON.parse(envelopeText);
+    assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'user'], senderRoute);
+    assert.equal(outbound.messages[0].content, 'trusted system', senderRoute);
+    const userMessage = outbound.messages[1];
+    assert.ok(userMessage.content.startsWith('original request'), senderRoute);
+    const marker = userMessage.content.indexOf('{"type":"logic_engine_untrusted_memory"');
+    assert.ok(marker > 0, senderRoute);
+    const envelope = JSON.parse(userMessage.content.slice(marker));
     assert.equal(envelope.type, 'logic_engine_untrusted_memory', senderRoute);
     assert.equal(envelope.trust_level, 'untrusted_data', senderRoute);
     assert.match(envelope.data, /route coverage memory value/, senderRoute);
@@ -577,7 +457,7 @@ test('protected complete-empty context is not misrepresented as an admitted sour
     fetchImpl: async () => { directCalls += 1; return { status: 200 }; },
   });
   await finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
   });
@@ -600,7 +480,7 @@ test('Final-Send blocks unsupported Lane B assessments before provider egress', 
     fetchImpl: async () => { calls += 1; return { status: 200 }; },
   });
   assert.throws(() => finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -652,16 +532,19 @@ test('Core Lane A and Provider Lane B are projected separately with Lane A prove
     },
   });
   await finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: 'continue' }] }],
-      systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
-    })),
+          messages: [
+            { role: 'system', content: 'trusted system instruction' },
+            { role: 'user', content: 'continue' },
+          ],
+        })),
     hostRequestContext,
   });
-  const prompt = outbound.contents.map(item => item.parts.map(part => part.text).join('\\n')).join('\\n');
-  assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
+  const prompt = outbound.messages.map(message => message.content).join('\\n');
+  assert.equal(outbound.messages[0].role, 'system');
+  assert.equal(outbound.messages[0].content, 'trusted system instruction');
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
   assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
   assert.match(prompt, /north gate/);
@@ -728,11 +611,13 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
     }
     try {
       pending = finalSend({
-        senderRoute: 'google-ai-studio',
+        senderRoute: 'custom',
         endpointUrl: 'https://provider.example/generate',
         requestInit: init(JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'continue' }] }],
-          systemInstruction: { parts: [{ text: 'trusted system instruction' }] },
+          messages: [
+            { role: 'system', content: 'trusted system instruction' },
+            { role: 'user', content: 'continue' },
+          ],
         })),
         hostRequestContext,
       });
@@ -763,8 +648,9 @@ test('Final-Send projection is independent of mutable Array and Set prototype me
   }
   if (failure) throw new Error('Final-Send called a poisoned prototype method: ' + failure.message);
   assert.ok(outbound);
-  assert.deepEqual(outbound.systemInstruction, { parts: [{ text: 'trusted system instruction' }] });
-  const prompt = outbound.contents[0].parts[outbound.contents[0].parts.length - 1].text;
+  assert.equal(outbound.messages[0].role, 'system');
+  assert.equal(outbound.messages[0].content, 'trusted system instruction');
+  const prompt = outbound.messages[1].content;
   assert.match(prompt, /Logic Engine Core Knowledge — Lane A/);
   assert.match(prompt, /Logic Engine NPC Memory Context — Lane B/);
   assert.match(prompt, /Lane B evidence/);
@@ -796,7 +682,7 @@ test('Final-Send rejects missing or malformed run and context digests before Gat
       },
     });
     assert.throws(() => finalSend({
-      senderRoute: 'google-ai-studio',
+      senderRoute: 'custom',
       endpointUrl: 'https://provider.example/generate',
       requestInit: init(),
       hostRequestContext,
@@ -819,7 +705,7 @@ test('Final-Send rejects top-level and Lane A accessors without executing them',
     fetchImpl: async () => { throw new Error('must not fetch'); },
   });
   assert.throws(() => finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -836,7 +722,7 @@ test('Final-Send rejects top-level and Lane A accessors without executing them',
     fetchImpl: async () => { throw new Error('must not fetch'); },
   });
   assert.throws(() => nestedFinalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -874,7 +760,7 @@ test('Lane A projection rejects accessors instead of invoking them', async () =>
     fetchImpl: async () => { throw new Error('must not fetch'); },
   });
   assert.throws(() => finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: init(),
     hostRequestContext,
@@ -917,7 +803,7 @@ test('Host cancellation signal reaches the actual protected upstream fetch and i
   });
 
   const pending = finalSend({
-    senderRoute: 'google-ai-studio',
+    senderRoute: 'custom',
     endpointUrl: 'https://provider.example/generate',
     requestInit: { ...init(), signal: controller.signal },
     hostRequestContext,
@@ -931,7 +817,7 @@ test('Host cancellation signal reaches the actual protected upstream fetch and i
 
 test('replay identity is stable across provider and model changes to the same Host prompt', async () => {
   const identities = [];
-  for (const [senderRoute, model] of [['openai', 'model-a'], ['google-ai-studio', 'model-b']]) {
+  for (const [senderRoute, model] of [['custom', 'model-a'], ['custom', 'model-b']]) {
     const finalSend = createProtectedMemoryFinalSend({
       gateway: {
         dispatchProtectedRequest(request) {
