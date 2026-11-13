@@ -159,6 +159,80 @@ function validOperationTransition(operation, before, after) {
   return false;
 }
 
+
+function createCommunicationDeliveryReceipt({ scope, before, after, recipientBinding, hostCommit }) {
+  if (scope?.operation !== 'message-send'
+    || before?.target_kind !== 'character-chat'
+    || after?.target_kind !== 'character-chat'
+    || !recipientBinding || typeof recipientBinding !== 'object' || Array.isArray(recipientBinding)) return null;
+
+  const coreConversationId = [
+    scope.host_session_id, scope.host_installation_id, scope.conversation_uuid,
+  ].join(':');
+  const safeId = value => typeof value === 'string' && value === value.trim()
+    && value.length > 0 && value.length <= 200
+    && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+  const beforeLogical = before.logical_identity;
+  const afterLogical = after.logical_identity;
+  if (beforeLogical?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+    || afterLogical?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+    || !Array.isArray(beforeLogical.messages) || !Array.isArray(afterLogical.messages)
+    || afterLogical.messages.length !== beforeLogical.messages.length + 1
+    || !beforeLogical.messages.every((message, index) =>
+      canonical(message) === canonical(afterLogical.messages[index]))
+    || recipientBinding.conversation_id !== coreConversationId
+    || !safeId(recipientBinding.adapter_id)
+    || !safeId(recipientBinding.world_id)
+    || !safeId(recipientBinding.actor_id)
+    || typeof recipientBinding.actor_type !== 'string'
+    || !/^[a-z][a-z0-9_-]{0,63}$/i.test(recipientBinding.actor_type)) return null;
+
+  const message = afterLogical.messages.at(-1);
+  if (!message || message.role !== 'user'
+    || !UUID.test(message.message_id ?? '')
+    || message.active_version_index !== 0
+    || !Array.isArray(message.versions) || message.versions.length !== 1) return null;
+  const version = message.versions[0];
+  if (!version || version.version_index !== 0 || version.active !== true
+    || version.parent_version_id !== null
+    || !UUID.test(version.version_id ?? '')
+    || !DIGEST.test(version.content_sha256 ?? '')) return null;
+
+  // A one-to-one character chat is the supported Host communication channel.
+  // Group chats are deliberately excluded because membership is not delivery
+  // to every member. This receipt attests persisted delivery, never read or
+  // comprehension, and carries no raw message text.
+  return Object.freeze({
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    producer: 'logic-engine-host-delivery-receipt-v1',
+    host_commit: hostCommit,
+    host_installation_id: scope.host_installation_id,
+    authenticated_account_id: scope.authenticated_account_id,
+    host_session_id: scope.host_session_id,
+    conversation_uuid: scope.conversation_uuid,
+    sender: Object.freeze({
+      principal_type: 'host_authenticated_account',
+      principal_id: scope.authenticated_account_id,
+    }),
+    recipient: Object.freeze({
+      world_id: recipientBinding.world_id,
+      actor_id: recipientBinding.actor_id,
+      actor_type: recipientBinding.actor_type,
+    }),
+    channel: 'sillytavern.character_chat',
+    source: Object.freeze({
+      message_id: message.message_id,
+      version_id: version.version_id,
+      content_sha256: version.content_sha256,
+    }),
+    status: 'delivered',
+    delivered_at: scope.occurred_at,
+    host_event_id: scope.event_id,
+    mutation_id: scope.mutation_id,
+  });
+}
+
 /**
  * Durable server-owned receipt evidence for the pinned SillyTavern Host.
  * It stores only identities and digests; no chat text or file bytes are retained.
@@ -453,7 +527,7 @@ export class HostLifecycleReceiptStore {
     return { status: result.status, prepared: result.record };
   }
 
-  async commit(scope, directories) {
+  async commit(scope, directories, { recipientBinding = null } = {}) {
     if (!validScope(scope)) throw new TypeError('Invalid Host lifecycle receipt commit scope.');
     await this.#prepareDirectory();
     const prepared = await this.#read(this.#recordPath(scope, 'prepared'));
@@ -472,7 +546,12 @@ export class HostLifecycleReceiptStore {
         || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
-      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
+      return {
+        status: 'duplicate',
+        receipt_digest: priorTerminal.receipt_digest,
+        occurred_at: priorTerminal.occurred_at,
+        communication_delivery: priorTerminal.receipt.communication_delivery ?? null,
+      };
     }
     const after = await this.#snapshot(scope, directories);
     const rename = scope.operation === 'rename-chat';
@@ -532,6 +611,14 @@ export class HostLifecycleReceiptStore {
         after: after.logical_identity,
       }), 'utf8')),
     };
+    const communicationDelivery = createCommunicationDeliveryReceipt({
+      scope,
+      before: prepared.before,
+      after,
+      recipientBinding,
+      hostCommit: this.hostCommit,
+    });
+    if (communicationDelivery) receipt.communication_delivery = communicationDelivery;
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     const record = {
       schema_version: 1,
@@ -548,7 +635,12 @@ export class HostLifecycleReceiptStore {
       && existing.event_id === record.event_id
       && existing.receipt_digest === record.receipt_digest
       && canonical(existing.receipt) === canonical(record.receipt));
-    return { status: stored.status, receipt_digest: stored.record.receipt_digest, occurred_at: stored.record.occurred_at };
+    return {
+      status: stored.status,
+      receipt_digest: stored.record.receipt_digest,
+      occurred_at: stored.record.occurred_at,
+      communication_delivery: stored.record.receipt.communication_delivery ?? null,
+    };
   }
 
   async recover(scope, directories) {
