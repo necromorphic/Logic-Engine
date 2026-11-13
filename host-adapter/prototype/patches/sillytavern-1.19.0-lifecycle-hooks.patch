@@ -479,19 +479,17 @@ diff --git a/public/script.js b/public/script.js
 +    await window.logicEngineHostLifecycle?.waitForEnrollment?.();
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
-@@ -1604,1 +1892,18 @@
+@@ -1604,1 +1892,15 @@
 -    if (clearData) chat.length = 0;
-+    if (clearData) {
++    if (clearData && chat.length > 0) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
++        const messageIndexes = Array.from({ length: chat.length }, (_, index) => index);
 +        try {
-+            while (chat.length > 0) {
-+                const messageIndex = chat.length - 1;
-+                const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', [messageIndex], { bulkClear: true });
-+                chat.splice(messageIndex, 1);
-+                if (lifecycleBefore.status !== 'NOT_ENROLLED') {
-+                    await saveChatConditional();
-+                    await lifecycleBridge.afterMutation('delete-message', { bulkClear: true, deletedMessageIndex: messageIndex });
-+                }
++            const lifecycleBefore = await lifecycleBridge.beforeMutation('clear-chat', messageIndexes, { bulkClear: true });
++            chat.length = 0;
++            if (lifecycleBefore.status !== 'NOT_ENROLLED') {
++                await saveChatConditional();
++                await lifecycleBridge.afterMutation('clear-chat', { bulkClear: true });
 +            }
 +        } catch (error) {
 +            await printMessages();
