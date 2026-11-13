@@ -209,7 +209,20 @@ try {
     stRoot,
     trustedHostOverlayFiles: previousHostBundle.verified ? previousHostBundle.files : new Map(),
   });
-  const finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  let finalSendInspection;
+  try {
+    finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  } catch (error) {
+    // A pinned predecessor can be intact while its artifact digest/created-file
+    // manifest differs from this release. Migrate it through Patch Manager's
+    // journaled update path; never bypass backup or installed-file verification.
+    if (error.message !== 'PATCH_MANAGER_STATE_IDENTITY_INVALID') throw error;
+    const migration = await finalSendManager.execute('update');
+    if (!['INSTALLED', 'UP_TO_DATE'].includes(migration.status)) {
+      throw new Error('FINAL_SEND_PATCH_MIGRATION_FAILED: ' + migration.status);
+    }
+    finalSendInspection = await finalSendManager.inspectInstalledReadOnly();
+  }
   const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
   const finalSendManifest = finalSendManager.manifest;
 
