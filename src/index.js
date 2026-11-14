@@ -122,6 +122,7 @@ const npcKnowledgeAuthorizers = createHostBoundNpcKnowledgeAuthorizers({
   store,
   adapterIds: Object.keys(adapterTokens),
   trustedInitialKnowledgeSources,
+  hostCommunicationEvidenceVerifier: verifyHostCommunicationEvidence,
 });
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
@@ -207,6 +208,28 @@ function verifyHostLifecycleReceipt({ event, identity }) {
   const expected = createHmac('sha256', secret).update(canonicalHostReceiptProof(proof), 'utf8').digest();
   const supplied = Buffer.from(event.receipt_signature, 'hex');
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function verifyHostCommunicationEvidence({
+  adapter_id, world_id, conversation_id, actor_id, receipt_digest, receipt_proof, source_evidence,
+}) {
+  if (!source_evidence || source_evidence.adapter_id !== adapter_id
+    || source_evidence.receipt_digest !== receipt_digest
+    || source_evidence.receipt_proof?.receipt_digest !== receipt_digest
+    || source_evidence.receipt_proof?.receipt_signature !== source_evidence.receipt_signature
+    || source_evidence.recipient?.world_id !== world_id
+    || source_evidence.recipient?.actor_id !== actor_id
+    || [source_evidence.host_session_id, source_evidence.host_installation_id,
+      source_evidence.conversation_uuid].join(':') !== conversation_id
+    || receipt_proof?.event_id !== source_evidence.host_event_id
+    || receipt_proof?.mutation_id !== source_evidence.mutation_id
+    || receipt_proof?.occurred_at !== source_evidence.delivered_at
+    || receipt_proof?.receipt_digest !== receipt_digest
+    || receipt_proof?.host_installation_id !== source_evidence.host_installation_id
+    || receipt_proof?.authenticated_account_id !== source_evidence.authenticated_account_id
+    || receipt_proof?.host_session_id !== source_evidence.host_session_id
+    || receipt_proof?.conversation_uuid !== source_evidence.conversation_uuid) return false;
+  return verifyHostLifecycleReceipt({ event: receipt_proof, identity: { adapter_id } });
 }
 
 function verifyHostVersionInventorySnapshot(snapshot) {
@@ -414,6 +437,7 @@ const logicEngine = new LogicEngine(store, {
   npcKnowledgeReadAuthorizer: npcKnowledgeAuthorizers.readAuthorizer,
   npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   hostVersionDigestLedger: hostVersionLedger,
+  hostCommunicationReceiptVerifier: verifyHostCommunicationEvidence,
 });
 const memoryProviderAdapters = [];
 if (memoryProviderPath !== undefined) {
