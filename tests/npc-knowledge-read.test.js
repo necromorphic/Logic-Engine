@@ -1887,6 +1887,12 @@ test('reader returns typed communication evidence only while its signed source v
   });
   assert.equal(nestedOpaqueHandleAsValue.status, 'non_ready');
   assert.equal(nestedOpaqueHandleAsValue.reason, 'proposal_object_contains_internal_reference');
+  const opaqueHandleAsKey = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: { [modelProposition.evidence[0].handle]: 'quoted value' } },
+  });
+  assert.equal(opaqueHandleAsKey.status, 'non_ready');
+  assert.equal(opaqueHandleAsKey.reason, 'proposal_object_contains_internal_reference');
 
   const rawRead = engine.readNpcKnowledge(readRequest);
   const fixedNow = 1_800_000_000_000;
