@@ -208,6 +208,8 @@ function containsInternalReference(value, forbiddenIds, depth = 0) {
   if (depth > 32) return true;
   if (typeof value === 'string') {
     return /^(?:world|actor|entity|fact|acq|acquisition|event|conversation|adapter|provenance|authorization):/i.test(value)
+      || /^(?:npc|actor|entity|fact|world|conversation|acq|event|adapter)[_-][A-Za-z0-9_-]+$/i.test(value)
+      || /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value)
       || forbiddenIds.some(id => value.includes(id));
   }
   if (Array.isArray(value)) return value.some(child => containsInternalReference(child, forbiddenIds, depth + 1));
