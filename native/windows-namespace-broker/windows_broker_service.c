@@ -157,6 +157,25 @@ static BOOL open_role_file_for_operation(
  }
  return TRUE;
 }
+static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129],char kind[16]) {
+ const BYTE *separator;DWORD role_length,kind_length,i;
+ if(!payload||!role||!kind||length<5u||length>137u)return FALSE;
+ separator=(const BYTE *)memchr(payload,0,length);
+ if(!separator)return FALSE;
+ role_length=(DWORD)(separator-payload);kind_length=length-role_length-1u;
+ if(!role_length||role_length>128u||!kind_length||kind_length>7u
+     ||memchr(separator+1,0,kind_length)!=NULL)return FALSE;
+ for(i=0;i<role_length;i++){
+  BYTE ch=payload[i];
+  if(!((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z')||(ch>='0'&&ch<='9')
+      ||(i>0&&(ch=='.'||ch=='_'||ch=='-'))))return FALSE;
+ }
+ memcpy(role,payload,role_length);role[role_length]=0;
+ memcpy(kind,separator+1,kind_length);kind[kind_length]=0;
+ if(strcmp(kind,"main")!=0&&strcmp(kind,"wal")!=0
+     &&strcmp(kind,"shm")!=0&&strcmp(kind,"journal")!=0)return FALSE;
+ return TRUE;
+}
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
  HANDLE opened=INVALID_HANDLE_VALUE;DWORD response_status=LEB_STATUS_BAD_REQUEST;
