@@ -236,6 +236,11 @@ function eligibleEvidenceItems(items, scope) {
       || !validId(item.subject_ref)
       || !validId(item.predicate)
       || !validId(item.provenance_ref)
+      || !validId(item.acquisition_authorization_ref)
+      || item.evidence_type !== item.acquisition_kind
+      || !denseArray(item.source_event_ids, 200)
+      || item.source_event_ids.length === 0
+      || item.source_event_ids.some(sourceEventId => !validId(sourceEventId))
       || !validDigest(item.provenance_digest)
       || !safeJsonTree(item.value, new Set(), 0, valueBudget)
       || containsInternalReference(item.value, [
