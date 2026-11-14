@@ -343,7 +343,10 @@ function appendUntrustedMemoryToChatMessages(body, untrustedMemory) {
   }
   if (userIndex === -1) {
     let insertionIndex = 0;
-    while (insertionIndex < messages.length && messages[insertionIndex]?.role === 'system') insertionIndex += 1;
+    while (insertionIndex < messages.length
+      && (messages[insertionIndex]?.role === 'system' || messages[insertionIndex]?.role === 'developer')) {
+      insertionIndex += 1;
+    }
     for (let index = messages.length; index > insertionIndex; index -= 1) updated[index] = updated[index - 1];
     updated[insertionIndex] = { role: 'user', content: untrustedMemory };
   }
