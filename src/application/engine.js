@@ -891,17 +891,85 @@ export class LogicEngine {
       }
   
       const rows = this.store.db.prepare(`
-        SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        SELECT a.acquisition_id, a.event_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
           a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
+          a.source_evidence_json, a.source_adapter_id, a.source_conversation_id,
+          a.source_message_id, a.source_version_id, a.source_content_sha256,
           f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
         FROM knowledge_acquisitions AS a
-        JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
-        WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
+        LEFT JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
+        WHERE a.world_id=? AND a.subject_id=? AND (
+          (a.acquisition_kind IN ('author_initial','imported') AND f.status='active')
+          OR a.acquisition_kind='communication_delivered'
+        )
         ORDER BY a.acquisition_id
         LIMIT ?
       `).all(request.world_id, request.actor_id, checked.request.limit + 1);
       const truncated = rows.length > checked.request.limit;
       const items = rows.slice(0, checked.request.limit).map((row) => {
+        if (row.acquisition_kind === 'communication_delivered') {
+          const evidence = validateCommunicationDeliveryProjection(row, request);
+          assert(typeof this.hostVersionDigestLedger?.getVersionState === 'function',
+            'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+            'A trusted Host version ledger is required to read delivered communication.', 503);
+          const versionState = this.hostVersionDigestLedger.getVersionState(
+            request.world_id,
+            request.conversation_id,
+            row.source_message_id,
+            row.source_version_id,
+          );
+          assert(versionState?.status === 'ready'
+            && versionState.world_id === request.world_id
+            && versionState.conversation_id === request.conversation_id
+            && versionState.message_id === row.source_message_id
+            && versionState.version_id === row.source_version_id
+            && versionState.content_sha256 === row.source_content_sha256
+            && validSha256(versionState.snapshot_digest),
+          'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+          'The delivered message version is not present, verified and active in the current trusted Host inventory.', 409);
+          assert(typeof this.hostCommunicationReceiptVerifier === 'function',
+            'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+            'A trusted Host receipt verifier is required to read delivered communication.', 403);
+          let receiptVerified = false;
+          try {
+            receiptVerified = this.hostCommunicationReceiptVerifier(Object.freeze({
+              adapter_id: request.adapter_id,
+              world_id: request.world_id,
+              conversation_id: request.conversation_id,
+              actor_id: request.actor_id,
+              receipt_digest: evidence.receipt_digest,
+              receipt_proof: evidence.receipt_proof,
+              source_evidence: evidence,
+            })) === true;
+          } catch { receiptVerified = false; }
+          assert(receiptVerified, 'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+            'The stored Host delivery receipt signature is no longer verifiable for this adapter.', 403);
+          return Object.freeze({
+            acquisition_id: row.acquisition_id,
+            event_id: row.event_id,
+            fact_id: null,
+            evidence_type: 'communication_delivered',
+            acquisition_kind: row.acquisition_kind,
+            provenance_ref: row.provenance_ref,
+            provenance_digest: row.provenance_digest,
+            acquisition_authorization_ref: row.authorization_ref,
+            source: Object.freeze({
+              kind: 'host_message_version',
+              adapter_id: row.source_adapter_id,
+              conversation_id: row.source_conversation_id,
+              message_id: row.source_message_id,
+              version_id: row.source_version_id,
+              content_sha256: row.source_content_sha256,
+              inventory_snapshot_digest_at_delivery: evidence.inventory_snapshot_digest,
+              current_inventory_snapshot_digest: versionState.snapshot_digest,
+            }),
+            delivery: Object.freeze({
+              status: evidence.status,
+              delivered_at: evidence.delivered_at,
+              sender_principal_id: evidence.sender.principal_id,
+            }),
+          });
+        }
         let value;
         let sourceEventIds;
         try {
