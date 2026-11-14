@@ -2018,7 +2018,7 @@ static int probe_win_pipe_read_all(HANDLE pipe, void *data, DWORD length) {
 static int probe_win_broker_role_request(const char *role, uint16_t operation,
     const char *kind, uint32_t *status) {
   ProbeWinBrokerHeader request,response;
-  char payload[146];size_t role_length,kind_length;DWORD available=0;
+  char payload[146];size_t role_length,kind_length;
   uint64_t request_id;HANDLE pipe=INVALID_HANDLE_VALUE;int ok=0;
   if (!role || !kind || !status) return 0;
   role_length=strlen(role);kind_length=strlen(kind);
@@ -2049,8 +2049,7 @@ static int probe_win_broker_role_request(const char *role, uint16_t operation,
   if (response.magic!=PROBE_WIN_BROKER_MAGIC
       ||response.version!=PROBE_WIN_BROKER_VERSION
       ||response.operation!=operation||response.request_id!=request_id
-      ||response.payload_length!=0
-      ||!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available!=0) goto done;
+      ||response.payload_length!=0) goto done;
   *status=response.flags;ok=1;
 done:
   CloseHandle(pipe);
@@ -2060,7 +2059,7 @@ done:
 static int probe_win_broker_open_role_request(const char *role,uint16_t operation,
     const char *kind,uint32_t *status,HANDLE *opened) {
   ProbeWinBrokerHeader request,response;
-  char payload[146];size_t role_length,kind_length;DWORD available=0;
+  char payload[146];size_t role_length,kind_length;
   uint64_t request_id,wire_handle=0,handle_value=0;
   HANDLE pipe=INVALID_HANDLE_VALUE,received=INVALID_HANDLE_VALUE;int ok=0;
   if (opened) *opened=INVALID_HANDLE_VALUE;
@@ -2106,7 +2105,6 @@ static int probe_win_broker_open_role_request(const char *role,uint16_t operatio
     }
     *opened=received;received=INVALID_HANDLE_VALUE;
   } else if (response.payload_length!=0) goto done;
-  if (!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available!=0) goto done;
   *status=response.flags;ok=1;
 done:
   if (received!=INVALID_HANDLE_VALUE && received!=NULL) CloseHandle(received);
