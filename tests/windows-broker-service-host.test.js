@@ -65,6 +65,8 @@ test('manifest-bound Windows VFS opens main and sidecar handles through the brok
 
 test('Windows native smoke launches a separate broker process and verifies transferred handles', () => {
   assert.match(source, /LE_BROKER_ENABLE_CONSOLE_TEST/);
+  assert.match(source, /BOOL first_instance=TRUE/);
+  assert.match(source, /first_instance\?FILE_FLAG_FIRST_PIPE_INSTANCE:0u/);
   assert.match(source, /--console-test/);
   assert.match(smoke, /CreateProcessW/);
   assert.match(smoke, /LOGIC_ENGINE_BROKER_EXE/);
