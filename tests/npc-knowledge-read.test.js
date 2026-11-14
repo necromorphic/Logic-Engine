@@ -1723,6 +1723,12 @@ test('reader returns typed communication evidence only while its signed source v
   });
   assert.equal(expiredResolution.status, 'non_ready');
   assert.equal(expiredResolution.reason, 'invalid_expired_or_wrong_scope_context_handle');
+  assert.throws(() => createOpaqueNpcBeliefProposalContext({
+    read: rawRead,
+    visibleItems: [{ ...factItem, value: 'entity:unresolved-internal-id' }],
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    limit: readRequest.limit,
+  }), /fail closed/);
 
   assert.throws(() => engine.resolveNpcBeliefProposalHandles({
     authorization_context: proposalContext.authorization_context,
