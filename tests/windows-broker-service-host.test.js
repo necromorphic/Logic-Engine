@@ -35,6 +35,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.match(source, /DuplicateHandle\(GetCurrentProcess\(\),source,process,&remote,desired_access,FALSE,0\)/);
   assert.match(source, /read_only\?FILE_GENERIC_READ:\(FILE_GENERIC_READ\|FILE_GENERIC_WRITE\)/);
   assert.match(source, /q\.flags>1u\|\|\(q\.flags==1u&&\(q\.operation==5\|\|q\.operation==7\)\)/);
+  assert.match(source, /if\(bad_flags\)response_status=LEB_STATUS_BAD_REQUEST/);
   assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
   assert.match(source, /r\.payload_length=net32\(has_remote_handle\?/);
   assert.match(source, /wire_handle=net64\(remote_handle\)/);
@@ -73,6 +74,7 @@ test('Windows native smoke launches a separate broker process and verifies trans
   assert.match(smoke, /broker_test_request\(2,"main","main"/);
   assert.match(smoke, /broker_test_request\(2,"main","main",1,&status,&opened\)/);
   assert.match(smoke, /broker_test_write_denied/);
+  assert.match(smoke, /broker_test_request\(5,"main","shm",1,&status,&opened\)/);
   assert.match(smoke, /request\.flags=broker_test_net32\(request_flags\)/);
   assert.match(smoke, /broker_test_request\(7,"main","wal"/);
   assert.match(smoke, /broker_test_request\(3,"main","wal"/);
