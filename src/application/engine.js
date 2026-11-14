@@ -1245,12 +1245,18 @@ export class LogicEngine {
       const withheld = new Set(visibleRead.withheld_proposition_refs);
       const visibleItems = visibleRead.items.filter(item =>
         !withheld.has(npcPropositionRefFor(item)));
-      const handles = createOpaqueNpcBeliefProposalContext({
-        read: visibleRead,
-        visibleItems,
-        key,
-        limit: input.limit,
-      });
+      let handles;
+      try {
+        handles = createOpaqueNpcBeliefProposalContext({
+          read: visibleRead,
+          visibleItems,
+          key,
+          limit: input.limit,
+        });
+      } catch {
+        throw new EngineError('NPC_BELIEF_CONTEXT_UNSAFE',
+          'Current fact evidence cannot be projected without exposing internal Core references.', 409);
+      }
       assert(handles.status === 'ready' && handles.model_context.propositions.length > 0,
         'NPC_BELIEF_EVIDENCE_UNAVAILABLE',
         'No complete authorized fact-backed proposition is available for a belief proposal.', 409);
