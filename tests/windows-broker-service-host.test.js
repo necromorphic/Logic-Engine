@@ -16,7 +16,8 @@ const vfsSource = await readFile(new URL('../native/secure-vfs-probe/secure_vfs_
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
   assert.match(source, /OpenThreadToken/);
-  assert.match(source, /EqualSid\(u->User\.Sid,allowed_sid\)/);
+  assert.match(source, /CheckTokenMembership\(token,allowed_sid,&member\)/);
+  assert.doesNotMatch(source, /EqualSid\(u->User\.Sid,allowed_sid\)/);
   assert.match(source, /PIPE_REJECT_REMOTE_CLIENTS/);
   assert.match(source, /readn_timeout\(pipe,&q,sizeof\(q\),5000\)/);
   assert.match(source, /readn_timeout\(pipe,payload,q\.payload_length,5000\)/);
@@ -35,6 +36,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
   assert.match(source, /r\.payload_length=net32\(has_remote_handle\?/);
   assert.match(source, /wire_handle=net64\(remote_handle\)/);
+  assert.match(source, /logic_engine_win_identity_equal\(&created_identity,&reopened_identity\)/);
   assert.match(source, /PROCESS_DUP_HANDLE/);
   assert.match(source, /q\.operation==8/);
   assert.match(source, /q\.operation==4/);
