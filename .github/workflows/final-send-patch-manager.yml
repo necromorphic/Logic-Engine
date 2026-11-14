@@ -21,6 +21,7 @@ on:
       - "tests/sillytavern-server-plugin-bootstrap.test.js"
       - "scripts/install-logic-engine-extension.mjs"
       - "scripts/sillytavern-patch-manager.mjs"
+      - "scripts/install-sillytavern-host-patch-bundle.mjs"
       - "manifest.json"
       - "tests/sillytavern-patch-manager.test.js"
       - "tests/sillytavern-final-send-patch-artifact.test.js"

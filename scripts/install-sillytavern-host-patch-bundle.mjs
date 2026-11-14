@@ -223,7 +223,7 @@ try {
   for (const relativePath of finalSendRuntimeRelativePaths) {
     if (typeof relativePath !== 'string' || !relativePath || relativePath.includes('\\')
       || path.posix.isAbsolute(relativePath)
-      || relativePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\\0'))) {
+      || relativePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\0'))) {
       throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_INVALID');
     }
     const source = path.resolve(repoRoot, ...relativePath.split('/'));
