@@ -225,19 +225,19 @@ The schema's `direct_observation` discriminant is storage compatibility only. `s
 
 The Core `readNpcKnowledge()` path now returns a discriminated `communication_delivered` item in addition to existing fact-backed acquisitions. The read is scoped to the exact active adapter/conversation and Actor, and it:
 
-- joins the acquisition projection to a valid canonical `world_events` row and checks event type plus committed-revision consistency;
+- joins the acquisition projection to a valid canonical `world_events` row, checks event type plus committed-revision consistency, and requires the canonical event's single `knowledge.acquire` effect/source evidence to match the projection exactly;
 - validates the exact stored delivery-evidence schema and every normalized source identity/digest column against it;
 - verifies the receipt proof HMAC through the deployment-owned adapter-token verifier;
 - checks the current Host version ledger is `READY` and still selects the exact message/version/content digest;
 - performs these checks while the existing shared Coordinator lease is held, so Host invalidation cannot race the read;
 - returns only delivery metadata and source message/version IDs plus content digest. No message text or model prompt content is returned.
 
-Per-acquisition visibility now has a separate signed-receipt path. The fact-backed author_initial/imported path remains tied to the exact World Pack trusted-source registry. Missing verifier, invalid signature, inactive version, digest mismatch, invalidated Core event or scope mismatch fails closed.
+Per-acquisition visibility now has a separate signed-receipt path. It requires the exact Core provenance/authorization references and rejects a trusted-source-registry-only shortcut for `communication_delivered`. The fact-backed author_initial/imported path remains tied to the exact World Pack trusted-source registry. Missing verifier, invalid signature, inactive version, digest mismatch, invalidated Core event or scope mismatch fails closed.
 
 Communication delivery is not promoted to a canonical fact. The existing belief reducer still rejects communication acquisitions as proposition evidence; the current belief-context projection only forwards fact-backed evidence. This preserves the distinction between delivery, reading, understanding and truth.
 
 Regression coverage was added but not run:
 - `tests/npc-knowledge-read.test.js`: Core event commit → typed read; active-version/digest/signature failure paths; communication metadata excluded from fact-only belief context.
-- `tests/npc-knowledge-authorization.test.js`: signed receipt verifier required; wrong/revoked Actor or conversation denied; async verifier rejected.
+- `tests/npc-knowledge-authorization.test.js`: signed receipt verifier required; wrong/revoked Actor or conversation denied; async verifier and registry-only communication authorization rejected.
 
 Verification status remains **NOT VERIFIED** until tests run. Real Host ledger concurrency, API route HMAC integration, migration execution, and runtime read behavior remain unverified. Stage 2C implementation is not a completion claim for Provider retrieval or Memory → NPC prompt projection.
