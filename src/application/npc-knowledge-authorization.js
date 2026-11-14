@@ -1,3 +1,4 @@
+import { hashRequest } from '../core/request-hash.js';
 import { isAuthenticatedHostSessionContext } from './host-session-context.js';
 
 const validId = value => typeof value === 'string' && value === value.trim()
@@ -114,6 +115,14 @@ export function createHostBoundNpcKnowledgeAuthorizers({
     let communicationAllowed = false;
     if (!source && scope?.acquisition_kind === 'communication_delivered'
       && activeHostAndActorBinding(scope)
+      && validId(scope.acquisition_authorization_ref)
+      && scope.acquisition_authorization_ref === 'host-conversation-binding:' + hashRequest([
+        scope.adapter_id, scope.conversation_id,
+      ])
+      && validId(scope.provenance_ref)
+      && scope.provenance_ref === 'host-delivery-event:' + scope.source_evidence?.host_event_id
+      && /^[a-f0-9]{64}$/.test(scope.provenance_digest ?? '')
+      && scope.provenance_digest === scope.receipt_digest
       && typeof hostCommunicationEvidenceVerifier === 'function') {
       try { communicationAllowed = hostCommunicationEvidenceVerifier(scope) === true; }
       catch { communicationAllowed = false; }
