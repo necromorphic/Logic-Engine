@@ -8,7 +8,6 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
-import { hashRequest } from '../src/core/request-hash.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -1613,23 +1612,22 @@ test('reader returns typed communication evidence only while its signed source v
     hostVersionDigestLedger,
     hostCommunicationReceiptVerifier,
   });
-  const acquisitionId = 'acq:communication-delivered:' + hashRequest([
-    'world-a', 'adapter-st', hostEventId, receiptDigest,
-  ]);
-  const eventId = 'host-delivery-event:' + hashRequest(['adapter-st', hostEventId]);
-  const authorizationRef = 'host-conversation-binding:' + hashRequest(['adapter-st', conversationId]);
-  store.db.prepare(`
-    INSERT INTO knowledge_acquisitions(
-      world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
-      provenance_digest,authorization_ref,event_id,committed_revision,
-      acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
-      source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
-    ) VALUES(?,?,?,NULL,'communication_delivered',?,?,?,?,2,NULL,NULL,?,?,?,?,?,?)
-  `).run(
-    'world-a', acquisitionId, 'npc-a', 'host-delivery-event:' + hostEventId, receiptDigest,
-    authorizationRef, eventId, JSON.stringify(sourceEvidence), 'adapter-st', conversationId,
-    messageId, versionId, contentDigest,
-  );
+  const deliveryKeys = [
+    'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
+    'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
+    'source_attestation', 'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+  ];
+  const delivery = Object.fromEntries(deliveryKeys.map(key => [key, sourceEvidence[key]]));
+  const acquisition = engine.recordTrustedCommunicationDelivery({
+    world_id: 'world-a',
+    adapter_id: 'adapter-st',
+    conversation_id: conversationId,
+    delivery,
+    receipt_digest: receiptDigest,
+    receipt_proof: receiptProof,
+    inventory_snapshot_digest: inventoryDigest,
+  });
+  assert.equal(acquisition.status, 'committed');
 
   const readRequest = request(store, { conversation_id: conversationId });
   const result = engine.readNpcKnowledge(readRequest);
