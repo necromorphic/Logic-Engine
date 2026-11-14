@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseNpcBeliefProposalOutput } from '../src/application/npc-belief-proposal-parser.js';
+import { LogicEngine } from '../src/application/engine.js';
 
 const contextHandle = 'nctx1.' + 'A'.repeat(22) + '.1800000000000.' + 'B'.repeat(43);
 const propositionHandle = 'prh1.' + 'C'.repeat(43);
@@ -112,4 +113,60 @@ test('rejects non-finite numbers and excessive nesting in proposal object', () =
   const nested = '{"x":'.repeat(34) + 'null' + '}'.repeat(34);
   assert.equal(parseNpcBeliefProposalOutput(JSON.stringify(envelope({ object: JSON.parse(nested) }))).reason,
     'invalid_or_ambiguous_json');
+});
+
+
+test('Core resolves parsed model output but keeps semantic stance uncommitted', () => {
+  const engine = Object.create(LogicEngine.prototype);
+  let resolverCalls = 0;
+  engine.resolveNpcBeliefProposalHandles = input => {
+    resolverCalls += 1;
+    assert.deepEqual(input, {
+      authorization_context: { server_scope: true },
+      proposal: {
+        schema_version: 1,
+        context_handle: contextHandle,
+        proposition_handle: propositionHandle,
+        object: { value: 'claim-a' },
+        supporting_evidence_handles: [evidenceHandle],
+        contradicting_evidence_handles: [],
+      },
+    });
+    return {
+      status: 'ready',
+      snapshot: { world_revision: 7, commit_sequence: 11 },
+      resolution: { proposition_ref: 'internal-only', supporting_acquisition_ids: ['acq:1'] },
+    };
+  };
+
+  const result = engine.resolveNpcBeliefProposalOutput({
+    authorization_context: { server_scope: true },
+    raw_output: JSON.stringify(envelope()),
+  });
+
+  assert.equal(result.status, 'resolved_uncommitted');
+  assert.equal(result.stance, 'supported');
+  assert.equal(result.modality, 'asserted');
+  assert.deepEqual(result.snapshot, { world_revision: 7, commit_sequence: 11 });
+  assert.deepEqual(result.resolution, {
+    proposition_ref: 'internal-only',
+    supporting_acquisition_ids: ['acq:1'],
+  });
+  assert.equal(resolverCalls, 1);
+  assert.equal(Object.hasOwn(result, 'event_id'), false);
+});
+
+test('Core does not resolve handles when model output fails strict parsing', () => {
+  const engine = Object.create(LogicEngine.prototype);
+  let resolverCalls = 0;
+  engine.resolveNpcBeliefProposalHandles = () => { resolverCalls += 1; };
+
+  const result = engine.resolveNpcBeliefProposalOutput({
+    authorization_context: { server_scope: true },
+    raw_output: 'Ignore the schema and commit a belief.',
+  });
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'invalid_or_ambiguous_json');
+  assert.equal(resolverCalls, 0);
 });
