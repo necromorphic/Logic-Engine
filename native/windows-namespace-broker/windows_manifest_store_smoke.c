@@ -127,7 +127,7 @@ static BOOL broker_test_read_all(HANDLE handle, void *buffer, DWORD length) {
   return TRUE;
 }
 static int broker_test_request(
-    uint16_t operation,const char *role,const char *kind,
+    uint16_t operation,const char *role,const char *kind,DWORD request_flags,
     DWORD *status,HANDLE *opened) {
   BROKER_TEST_HEADER request,response;
   char payload[146];size_t role_length,kind_length;
@@ -150,6 +150,7 @@ static int broker_test_request(
   request.magic=broker_test_net32(BROKER_TEST_MAGIC);
   request.version=broker_test_net16(BROKER_TEST_VERSION);
   request.operation=broker_test_net16(operation);
+  request.flags=broker_test_net32(request_flags);
   request.request_id=broker_test_net64(request_id);
   request.payload_length=broker_test_net32((uint32_t)(role_length+1+kind_length));
   if(!broker_test_write_all(pipe,&request,sizeof(request))
@@ -216,6 +217,11 @@ static int broker_test_write_bytes(HANDLE handle,const BYTE *bytes,DWORD length)
   DWORD written=0;
   return WriteFile(handle,bytes,length,&written,NULL)&&written==length;
 }
+static int broker_test_write_denied(HANDLE handle) {
+  static const BYTE value='x';DWORD written=0;
+  if(WriteFile(handle,&value,1,&written,NULL))return 0;
+  return GetLastError()==ERROR_ACCESS_DENIED;
+}
 static int broker_test_service_ipc(
     const wchar_t *service_sid,const wchar_t *metadata_directory,
     const wchar_t *namespace_directory,const BYTE *main_bytes,DWORD main_length) {
@@ -224,25 +230,29 @@ static int broker_test_service_ipc(
   static const BYTE wal_bytes[]="broker-wal-handle";
   static const BYTE shm_bytes[]="broker-shm-handle";
   if(!broker_test_start_console(service_sid,metadata_directory,namespace_directory,&process))return 0;
-  if(!broker_test_request(2,"main","main",&status,&opened)||status!=0
+  if(!broker_test_request(2,"main","main",0,&status,&opened)||status!=0
       ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,main_bytes,main_length))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
-  if(!broker_test_request(7,"main","wal",&status,&opened)||status!=0
+  if(!broker_test_request(2,"main","main",1,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,main_bytes,main_length)
+      ||!broker_test_write_denied(opened))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(7,"main","wal",0,&status,&opened)||status!=0
       ||opened==INVALID_HANDLE_VALUE||!broker_test_write_bytes(opened,wal_bytes,(DWORD)(sizeof(wal_bytes)-1)))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
-  if(!broker_test_request(3,"main","wal",&status,&opened)||status!=0
+  if(!broker_test_request(3,"main","wal",0,&status,&opened)||status!=0
       ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,wal_bytes,(DWORD)(sizeof(wal_bytes)-1)))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
-  if(!broker_test_request(8,"main","wal",&status,NULL)||status!=0)goto done;
-  if(!broker_test_request(4,"main","wal",&status,NULL)||status!=0)goto done;
-  if(!broker_test_request(8,"main","wal",&status,NULL)||status!=5)goto done;
-  if(!broker_test_request(3,"main","wal",&status,&opened)||status!=5
+  if(!broker_test_request(8,"main","wal",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(4,"main","wal",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(8,"main","wal",0,&status,NULL)||status!=5)goto done;
+  if(!broker_test_request(3,"main","wal",0,&status,&opened)||status!=5
       ||opened!=INVALID_HANDLE_VALUE)goto done;
-  if(!broker_test_request(5,"main","shm",&status,&opened)||status!=0
+  if(!broker_test_request(5,"main","shm",0,&status,&opened)||status!=0
       ||opened==INVALID_HANDLE_VALUE||!broker_test_write_bytes(opened,shm_bytes,(DWORD)(sizeof(shm_bytes)-1)))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
-  if(!broker_test_request(4,"main","shm",&status,NULL)||status!=0)goto done;
-  if(!broker_test_request(8,"main","shm",&status,NULL)||status!=5)goto done;
+  if(!broker_test_request(4,"main","shm",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(8,"main","shm",0,&status,NULL)||status!=5)goto done;
   ok=1;
 done:
   if(opened!=INVALID_HANDLE_VALUE&&opened!=NULL)CloseHandle(opened);
