@@ -119,6 +119,8 @@ function validateCommunicationDeliveryProjection(row, request) {
   ];
   if (row.fact_id !== null || row.acquired_value_json !== null
     || row.acquired_source_event_ids_json !== null
+    || row.canonical_event_type !== 'knowledge.acquisition.communication_delivered'
+    || row.event_committed_revision !== row.committed_revision
     || row.acquisition_id !== expectedAcquisitionId || row.event_id !== expectedEventId
     || row.provenance_ref !== 'host-delivery-event:' + evidence.host_event_id
     || row.authorization_ref !== expectedAuthorizationRef
@@ -899,7 +901,8 @@ export class LogicEngine {
       }
   
       const rows = this.store.db.prepare(`
-        SELECT a.acquisition_id, a.event_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        SELECT a.acquisition_id, a.event_id, a.committed_revision, e.event_type AS canonical_event_type,
+          e.committed_revision AS event_committed_revision, a.fact_id, a.acquisition_kind, a.provenance_ref,
           a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
           a.source_evidence_json, a.source_adapter_id, a.source_conversation_id,
           a.source_message_id, a.source_version_id, a.source_content_sha256,
