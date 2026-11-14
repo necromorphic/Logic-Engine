@@ -47,7 +47,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.doesNotMatch(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
   assert.match(docs, /OPEN_MAIN,[\s\S]*OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR/);
   assert.match(docs, /DuplicateHandle/);
-  assert.match(docs, /must not be treated as production-ready/);
+  assert.match(docs, /not yet proof of complete SQLite VFS closure or production readiness/);
 });
 
 test('manifest-bound Windows VFS opens main and sidecar handles through the broker', () => {
