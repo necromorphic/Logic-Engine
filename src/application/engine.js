@@ -1020,6 +1020,7 @@ export class LogicEngine {
         return Object.freeze({
           acquisition_id: row.acquisition_id,
           fact_id: row.fact_id,
+          evidence_type: row.acquisition_kind,
           subject_ref: row.subject_ref,
           predicate: row.predicate,
           value: freezeTree(value),
