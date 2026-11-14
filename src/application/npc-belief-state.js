@@ -346,7 +346,8 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     if (proposal.stance === 'dropped') {
       let priorValue;
       try { priorValue = stableJson(currentBelief.proposition_value); } catch { priorValue = null; }
-      if (priorValue === null || priorValue !== propositionValueKey) {
+      if (priorValue === null || priorValue !== propositionValueKey
+        || currentBelief.modality !== (proposal.modality ?? 'asserted')) {
         return Object.freeze({ status: 'non_ready', reason: 'dropped_stance_requires_matching_existing_belief', transition: null });
       }
     }
