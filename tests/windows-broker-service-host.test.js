@@ -56,6 +56,8 @@ test('manifest-bound Windows VFS opens main and sidecar handles through the brok
   assert.match(vfsSource, /PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u/);
   assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u/);
   assert.match(vfsSource, /probe_win_broker_open_role_request/);
+  assert.match(vfsSource, /request\.flags=probe_win_net32\(read_only\?1u:0u\)/);
+  assert.match(vfsSource, /broker_allowed_access/);
   assert.match(vfsSource, /role->manifest_bound/);
   assert.match(vfsSource, /probe_win_sidecar_identity_record_locked\(role_index, suffix, &info_identity, role->manifest_bound\)/);
   assert.match(vfsSource, /GetHandleInformation\(candidate,&handle_flags\)/);
@@ -69,6 +71,7 @@ test('Windows native smoke launches a separate broker process and verifies trans
   assert.match(smoke, /broker_test_request\(2,"main","main"/);
   assert.match(smoke, /broker_test_request\(2,"main","main",1,&status,&opened\)/);
   assert.match(smoke, /broker_test_write_denied/);
+  assert.match(smoke, /request\.flags=broker_test_net32\(request_flags\)/);
   assert.match(smoke, /broker_test_request\(7,"main","wal"/);
   assert.match(smoke, /broker_test_request\(3,"main","wal"/);
   assert.match(smoke, /broker_test_request\(8,"main","wal"/);
