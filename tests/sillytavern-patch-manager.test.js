@@ -508,3 +508,30 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
   assert.equal(restoredManifest.files[0].sha256, hash(Buffer.from(hostPatched, 'utf8')),
     'rollback must regenerate a valid Host-only source manifest');
 });
+
+
+test('Patch Manager rollback preserves a Host-owned file listed by a legacy Final-Send createdFiles manifest', async (t) => {
+  const { manager, stRoot, extensionRoot, patchPath } = await fixture(t);
+  const hostPath = 'src/host-inventory-handler.mjs';
+  const hostBytes = "export const owner = 'host-bundle';\\n";
+  const hostHash = hash(Buffer.from(hostBytes, 'utf8'));
+  await writeFile(join(stRoot, hostPath), hostBytes);
+
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  // Reproduce the faulty predecessor manifest: it claims a Host-owned path.
+  manifest.createdFiles[hostPath] = hostHash;
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+
+  const overlayAwareManager = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath,
+    trustedHostOverlayFiles: new Map([[hostPath, hostHash]]),
+  });
+
+  assert.equal((await overlayAwareManager.execute('install')).status, 'INSTALLED');
+  assert.equal((await overlayAwareManager.execute('uninstall')).status, 'ROLLED_BACK');
+  assert.equal(await readFile(join(stRoot, hostPath), 'utf8'), hostBytes,
+    'Final-Send rollback must not delete an independently attested Host-owned file');
+});
