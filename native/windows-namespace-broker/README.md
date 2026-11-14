@@ -24,8 +24,8 @@ OPEN_MAIN and OPEN_SIDECAR resolve only a registered main DB or active sidecar
 by File ID. CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR use the durable
 create-sidecar intent transaction. The service reopens the committed object without DELETE rights, then
 duplicates that exact HANDLE into the authenticated client process with
-`DuplicateHandle`. The duplicate receives only `GENERIC_READ` for a read-only
-request or `GENERIC_READ|GENERIC_WRITE` for a writable request; unsupported
+`DuplicateHandle`. The duplicate receives only `FILE_GENERIC_READ` for a read-only
+request or `FILE_GENERIC_READ|FILE_GENERIC_WRITE` for a writable request; unsupported
 access masks fail closed, and sidecar create/open-or-create requires write
 access. The bounded response contains only the client-process HANDLE value. It
 never exports a path or parent-directory HANDLE. If response delivery fails,
