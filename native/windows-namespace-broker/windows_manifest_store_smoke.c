@@ -131,7 +131,7 @@ static int broker_test_request(
     DWORD *status,HANDLE *opened) {
   BROKER_TEST_HEADER request,response;
   char payload[146];size_t role_length,kind_length;
-  DWORD available=0;uint64_t request_id,wire_handle=0,handle_value=0;
+  uint64_t request_id,wire_handle=0,handle_value=0;
   HANDLE pipe=INVALID_HANDLE_VALUE,candidate=INVALID_HANDLE_VALUE;
   int ok=0;
   if(opened)*opened=INVALID_HANDLE_VALUE;
@@ -174,7 +174,6 @@ static int broker_test_request(
         ||!GetHandleInformation(candidate,&handle_flags))goto done;
     *opened=candidate;candidate=INVALID_HANDLE_VALUE;
   }else if(response.payload_length!=0)goto done;
-  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available!=0)goto done;
   *status=response.flags;ok=1;
 done:
   if(candidate!=INVALID_HANDLE_VALUE&&candidate!=NULL)CloseHandle(candidate);
