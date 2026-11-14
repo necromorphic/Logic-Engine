@@ -558,7 +558,7 @@ test('Patch Manager recovery preserves an attested Host-owned created file when 
   const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
   await mkdir(gatewayDir, { recursive: true });
   await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
-    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }");
   await writeFile(join(gatewayDir, 'pinned-source-manifest.json'), JSON.stringify({
     files: [
       { path: nativePath, sha256: nativeHash },
@@ -569,7 +569,7 @@ test('Patch Manager recovery preserves an attested Host-owned created file when 
   const generatorDir = join(extensionRoot, 'host-adapter/prototype');
   await mkdir(generatorDir, { recursive: true });
   await writeFile(join(generatorDir, 'generate-pinned-source-manifest.mjs'),
-    "process.stdout.write('manifest regeneration simulated\\n');\\n");
+    "process.stdout.write('manifest regeneration simulated\\n');");
 
   // Simulate a predecessor journal whose Host overlay map omits the handler,
   // even though the current verified Host manifest still attests that file.
