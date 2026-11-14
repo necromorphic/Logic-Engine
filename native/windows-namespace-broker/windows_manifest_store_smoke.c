@@ -237,6 +237,8 @@ static int broker_test_service_ipc(
       ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,main_bytes,main_length)
       ||!broker_test_write_denied(opened))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(5,"main","shm",1,&status,&opened)||status!=1
+      ||opened!=INVALID_HANDLE_VALUE)goto done;
   if(!broker_test_request(7,"main","wal",0,&status,&opened)||status!=0
       ||opened==INVALID_HANDLE_VALUE||!broker_test_write_bytes(opened,wal_bytes,(DWORD)(sizeof(wal_bytes)-1)))goto done;
   CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
