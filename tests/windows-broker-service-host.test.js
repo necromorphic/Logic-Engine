@@ -76,6 +76,7 @@ test('Windows native smoke launches a separate broker process and verifies trans
   assert.match(source, /--console-test/);
   assert.match(smoke, /CreateProcessW/);
   assert.match(smoke, /LOGIC_ENGINE_BROKER_EXE/);
+  assert.match(smoke, /GetEnvironmentVariableW\(L"LOGIC_ENGINE_BROKER_EXE",NULL,0\)==0/);
   assert.match(smoke, /broker_test_request\(2,"main","main"/);
   assert.match(smoke, /broker_test_request\(2,"main","main",1,&status,&opened\)/);
   assert.match(smoke, /broker_test_write_denied/);
