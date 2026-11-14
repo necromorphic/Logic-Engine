@@ -214,6 +214,14 @@ function verifyHostCommunicationEvidence({
   adapter_id, world_id, conversation_id, actor_id, receipt_digest, receipt_proof, source_evidence,
 }) {
   if (!source_evidence || source_evidence.adapter_id !== adapter_id
+    || source_evidence.evidence_type !== 'communication_delivered'
+    || source_evidence.producer !== 'logic-engine-host-delivery-receipt-v1'
+    || source_evidence.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    || source_evidence.source_attestation?.host_commit !== source_evidence.host_commit
+    || source_evidence.source_attestation?.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+    || source_evidence.channel !== 'sillytavern.character_chat'
+    || source_evidence.status !== 'delivered'
+    || !/^[a-f0-9]{64}$/.test(source_evidence.source?.content_sha256 ?? '')
     || source_evidence.receipt_digest !== receipt_digest
     || source_evidence.receipt_proof?.receipt_digest !== receipt_digest
     || source_evidence.receipt_proof?.receipt_signature !== source_evidence.receipt_signature
