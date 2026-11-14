@@ -2,6 +2,10 @@ name: SQLite VFS extension bootstrap probe
 
 # Run on pushes and pull requests. The checkout is pinned to the PR head SHA so
 # the Windows/Linux results validate the exact reviewed source commit, not a merge ref.
+concurrency:
+  group: secure-vfs-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
