@@ -222,9 +222,13 @@ function verifyHostCommunicationEvidence({
     || [source_evidence.host_session_id, source_evidence.host_installation_id,
       source_evidence.conversation_uuid].join(':') !== conversation_id
     || receipt_proof?.event_id !== source_evidence.host_event_id
+    || receipt_proof?.event_type !== 'MUTATION_COMMITTED'
     || receipt_proof?.mutation_id !== source_evidence.mutation_id
+    || receipt_proof?.operation !== 'message-send'
+    || !/^[a-f0-9]{64}$/.test(receipt_proof?.mutation_digest ?? '')
     || receipt_proof?.occurred_at !== source_evidence.delivered_at
     || receipt_proof?.receipt_digest !== receipt_digest
+    || receipt_proof?.receipt_signature !== source_evidence.receipt_signature
     || receipt_proof?.host_installation_id !== source_evidence.host_installation_id
     || receipt_proof?.authenticated_account_id !== source_evidence.authenticated_account_id
     || receipt_proof?.host_session_id !== source_evidence.host_session_id
