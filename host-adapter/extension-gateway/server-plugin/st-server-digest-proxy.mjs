@@ -145,7 +145,7 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       let payload;
       try { payload = await upstream.json(); } catch {
@@ -656,7 +656,7 @@ export function createHostLifecycleJournalProxy({
           'x-adapter-token': target.adapterToken,
         },
         ...(method === 'POST' ? { body: JSON.stringify(outgoingBody) } : {}),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
       let payload;
       try { payload = await response.json(); } catch {
