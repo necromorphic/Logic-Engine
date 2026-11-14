@@ -23,6 +23,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   store,
   adapterIds,
   trustedInitialKnowledgeSources,
+  hostCommunicationEvidenceVerifier = null,
 }) {
   if (!store?.db || typeof store.world !== 'function') {
     throw new TypeError('A persistent Core store is required for NPC knowledge authorization.');
@@ -33,6 +34,11 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array.');
+  }
+  if (hostCommunicationEvidenceVerifier !== null
+    && (typeof hostCommunicationEvidenceVerifier !== 'function'
+      || hostCommunicationEvidenceVerifier.constructor?.name === 'AsyncFunction')) {
+    throw new TypeError('hostCommunicationEvidenceVerifier must be a synchronous deployment-owned function.');
   }
 
   const configuredAdapters = new Set(adapterIds);
@@ -102,8 +108,15 @@ export function createHostBoundNpcKnowledgeAuthorizers({
         && candidate.authorization_ref === scope.acquisition_authorization_ref
         && validId(candidate.authorization_ref)) ?? null;
     }
+    let communicationAllowed = false;
+    if (!source && scope?.acquisition_kind === 'communication_delivered'
+      && activeHostAndActorBinding(scope)
+      && typeof hostCommunicationEvidenceVerifier === 'function') {
+      try { communicationAllowed = hostCommunicationEvidenceVerifier(scope) === true; }
+      catch { communicationAllowed = false; }
+    }
     return Object.freeze({
-      status: source ? 'allowed' : 'denied',
+      status: source || communicationAllowed ? 'allowed' : 'denied',
       world_id: scope.world_id,
       conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
@@ -113,7 +126,8 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
       acquisition_id: scope.acquisition_id,
-      authorization_ref: source?.authorization_ref ?? DENY_VISIBILITY_REF,
+      authorization_ref: source?.authorization_ref
+        ?? (communicationAllowed ? 'core:host-communication-delivery-v1' : DENY_VISIBILITY_REF),
     });
   }
 
