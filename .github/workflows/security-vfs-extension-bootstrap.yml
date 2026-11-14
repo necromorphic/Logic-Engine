@@ -95,7 +95,7 @@ jobs:
         with:
           node-version: '22.13.0'
       - name: Parse and test Windows service installer path guards
-        shell: powershell
+        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $tokens = $null
           $errors = $null
