@@ -6,6 +6,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import {
+  createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
+  resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+} from '../src/application/npc-belief-proposal-handles.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
 
@@ -1691,6 +1695,35 @@ test('reader returns typed communication evidence only while its signed source v
   assert.equal(resolvedProposal.resolution.proposition_value, factItem.value);
   assert.deepEqual(resolvedProposal.resolution.supporting_acquisition_ids, [factItem.acquisition_id]);
   assert.deepEqual(resolvedProposal.resolution.contradicting_acquisition_ids, []);
+
+  const rawRead = engine.readNpcKnowledge(readRequest);
+  const fixedNow = 1_800_000_000_000;
+  const expiringContext = createOpaqueNpcBeliefProposalContext({
+    read: rawRead,
+    visibleItems: rawRead.items,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    limit: readRequest.limit,
+    now: () => fixedNow,
+  });
+  const expiringProposition = expiringContext.model_context.propositions[0];
+  const expiryProposal = {
+    schema_version: 1,
+    context_handle: expiringContext.model_context.context_handle,
+    proposition_handle: expiringProposition.handle,
+    object: expiringProposition.evidence[0].object,
+    supporting_evidence_handles: [expiringProposition.evidence[0].handle],
+    contradicting_evidence_handles: [],
+  };
+  const expiredResolution = resolveOpaqueNpcBeliefProposalHandles({
+    read: rawRead,
+    visibleItems: rawRead.items,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    authorizationContext: proposalContext.authorization_context,
+    proposal: expiryProposal,
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+  });
+  assert.equal(expiredResolution.status, 'non_ready');
+  assert.equal(expiredResolution.reason, 'invalid_expired_or_wrong_scope_context_handle');
 
   assert.throws(() => engine.resolveNpcBeliefProposalHandles({
     authorization_context: proposalContext.authorization_context,
