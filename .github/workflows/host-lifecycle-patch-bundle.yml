@@ -90,9 +90,9 @@ jobs:
           }
           process.stdout.write('PASS: ' + actual.size + ' exact patched files syntax-checked\\n');
           NODE
-      - name: Test Host lifecycle enrollment recovery before Patch Manager suite
+      - name: Test Host lifecycle enrollment and bundle identity recovery before Patch Manager suite
         run: |
-          node --test host-adapter/prototype/tests/st-lifecycle-bridge.test.mjs
+          node --test host-adapter/prototype/tests/st-lifecycle-bridge.test.mjs tests/verify-legacy-host-bundle.test.js
       - name: Test transactional Patch Manager and Final-Send artifact
         run: |
           node --test tests/sillytavern-patch-manager.test.js tests/sillytavern-final-send-patch-artifact.test.js
