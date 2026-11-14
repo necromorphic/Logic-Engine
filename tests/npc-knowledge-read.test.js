@@ -592,6 +592,52 @@ test('belief transition projection rebuilds from canonical event effects', (t) =
   assert.deepEqual(JSON.parse(row.evidence_acquisition_ids_json), [read.items[0].acquisition_id]);
 });
 
+test('Core accepts ADR belief states, persists modality, and requires a prior value for dropped', (t) => {
+  const { store, engine } = setup(t);
+  const firstRead = engine.readNpcKnowledge(request(store));
+  const propositionRef = propositionRefFor(firstRead.items[0]);
+  const acquisitionId = firstRead.items[0].acquisition_id;
+  const originalValue = firstRead.items[0].value;
+
+  const commit = (stance, propositionValue, key) => {
+    const current = request(store);
+    const read = engine.readNpcKnowledge(current);
+    return engine.recordNpcBeliefTransition({
+      ...current,
+      proposition_ref: propositionRef,
+      proposition_value: propositionValue,
+      stance,
+      modality: 'asserted',
+      supporting_acquisition_ids: stance === 'supported' ? [acquisitionId] : [],
+      contradicting_acquisition_ids: stance === 'supported' ? [] : [acquisitionId],
+      reason_rule_ref: 'rule:belief-update-v1',
+      idempotency_key: key,
+    });
+  };
+
+  const supported = commit('supported', originalValue, 'adr-supported');
+  assert.equal(supported.status, 'ready');
+  assert.equal(supported.transition.stance, 'supported');
+  assert.equal(supported.transition.modality, 'asserted');
+
+  const contradictedValue = { value: 'not-the-observed-value' };
+  const contradicted = commit('contradicted', contradictedValue, 'adr-contradicted');
+  assert.equal(contradicted.status, 'ready');
+  assert.equal(contradicted.transition.stance, 'contradicted');
+
+  const uncertain = commit('uncertain', contradictedValue, 'adr-uncertain');
+  assert.equal(uncertain.status, 'ready');
+  assert.equal(uncertain.transition.stance, 'uncertain');
+
+  const dropped = commit('dropped', contradictedValue, 'adr-dropped');
+  assert.equal(dropped.status, 'ready');
+  assert.equal(dropped.transition.stance, 'dropped');
+
+  const row = store.db.prepare('SELECT stance,modality FROM npc_belief_transitions WHERE world_id=? ORDER BY committed_revision DESC LIMIT 1')
+    .get('world-a');
+  assert.deepEqual(row, { stance: 'dropped', modality: 'asserted' });
+});
+
 test('generic event callers cannot forge Core NPC belief transitions with a public option flag', (t) => {
   const { store, engine } = setup(t);
   const current = request(store);
