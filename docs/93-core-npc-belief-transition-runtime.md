@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** implementation present on main; internal-only and not production-enabled. No prompt dispatch or HTTP route is added.
+**Status:** Core transition prototype plus Stage 3A opaque-handle projection/resolution are implemented on the Memory development branch; internal-only and not production-enabled. No model-output parser, prompt dispatch or HTTP route is added.
 
 ## Ownership
 
@@ -13,8 +13,8 @@
 ## Runtime path
 
 1. Read actor-scoped Core acquisitions at an exact current snapshot. The reader probes one item beyond the configured limit; if the acquisition window is truncated, belief-context preparation and belief-state reconciliation fail closed rather than assuming the unseen remainder contains no conflicting evidence.
-2. Apply per-acquisition visibility decisions. Denied items are omitted; malformed, unbound, or failing decisions abort context preparation. Each decision is bound to the same Host conversation, adapter and recipient (`model`) as the read request, as well as actor, purpose and snapshot. If any acquisition for the proposed proposition is withheld, the reducer rejects that belief update without exposing the hidden value or identifying which source was withheld.
-3. Validate every proposed evidence reference against the visible acquisition set.
+2. Apply per-acquisition visibility decisions. Denied items are omitted; malformed, unbound, or failing decisions abort context preparation. Each decision is bound to the same Host conversation, adapter and recipient (`model`) as the read request, as well as actor, purpose and snapshot. If any acquisition for the proposed proposition is withheld, the reducer rejects that belief update without exposing the hidden value or identifying which source was withheld. Only fact-backed `author_initial`/`imported` acquisitions enter belief proposal context; `communication_delivered` receipts remain separately authorized but are not proposition evidence.
+3. The model-facing proposal context exposes only short-lived HMAC-scoped proposition, subject and evidence handles. Core resolves submitted handles against a fresh authorized read; raw acquisition, fact, event, provenance and authorization IDs are not accepted from model output.
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
 5. Recheck world revision and commit sequence immediately before returning the context.
 6. Immediately before the canonical write, `recordNpcBeliefTransition()` reruns the actor-scoped read and every per-acquisition visibility check against the same expected snapshot. If visibility was revoked after initial context preparation, the final check blocks the commit. The prepared transition must still match the final validated transition.
@@ -23,17 +23,25 @@
 
 ## API contract (internal Core methods only)
 
-- `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` returns a validated, actor/snapshot-bound context. It requires both trusted read and visibility authorizers. It is not registered as HTTP.
+- `createNpcBeliefProposalContext(readRequest)` returns two deliberately separate objects: `model_context` (prompt-safe proposition/evidence data plus opaque handles) and `authorization_context` (server-side scope/snapshot data). The latter must never be serialized into a model prompt. Handles are HMAC-bound to adapter secret, actor, conversation, purpose, recipient, snapshot, acquisition provenance and a 15-minute expiry.
+- `resolveNpcBeliefProposalHandles({ authorization_context, proposal })` re-reads Core, re-applies visibility, checks context MAC/expiry/scope/snapshot and resolves only handles from the current visible evidence set. It requires all current evidence for the selected proposition to be accounted for and returns Core IDs only to trusted in-process callers.
+- `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` is now an internal transition-validation seam; it returns snapshot and validated transition, not a model prompt context. It requires both trusted read and visibility authorizers. It is not registered as HTTP.
 - `recordNpcBeliefTransition(input)` validates evidence, reruns read and per-acquisition visibility authorization immediately before the Core write, persists only an unchanged validated transition, and requires an idempotency key plus the exact pre-transition revision and commit sequence.
 - `getNpcBeliefState(input)` reads the latest valid belief transition and reports current evidence support.
 
-A proposal identifies both a canonical proposition reference (subject + predicate, or fact ID where no subject reference exists) and the explicit `proposition_value`. The reducer verifies that cited evidence belongs to that proposition and that every currently visible acquisition for the proposition is accounted for. Evidence matching the value supports the proposition; evidence with another value contradicts it. A conflict cannot be hidden by omitting the conflicting acquisition.
+A resolved Core proposal identifies a canonical proposition reference (subject + predicate, or fact ID where no subject reference exists) and explicit `proposition_value`. The model-facing projection replaces the proposition and subject references with opaque handles; the model selects an object value already present in current evidence. The resolver verifies that cited evidence belongs to that proposition and that every currently visible acquisition for it is accounted for. Evidence matching the selected value supports it; evidence with another value contradicts it. A conflict cannot be hidden by omitting the conflicting acquisition.
 
 Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_true`, `suspects_false`, and `unresolved_conflict`. Numeric confidence is intentionally absent.
 
-The model-facing context uses `belief_stance_class` (`believed`, `suspected`, or `conflicted`) only to summarize the resulting stance. It is deliberately not named `epistemic_status`: a belief stance is not the epistemic class of its source evidence.
+The legacy Core-internal transition projection uses `belief_stance_class` (`believed`, `suspected`, or `conflicted`) only to summarize a resulting stance. It is deliberately not named `epistemic_status`: a belief stance is not the epistemic class of its source evidence. That internal projection is no longer returned by `prepareNpcBeliefContext`; the separate model-safe proposal context uses opaque handles.
 
 **Epistemic-source limitation:** the current Core acquisition reader returns canonical acquired fact values and provenance, but it does not carry the Memory classes `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, or `unknown`. No mapping from Memory metadata into Core acquisition/belief events is implemented or approved in this candidate. Do not infer `confirmed` merely from a successful acquisition read, and do not use this context seam to promote a Memory report, rumor, or inference. End-to-end R3 remains partial until the source classification is explicitly represented and validated at the owning boundary.
+
+## Stage 3A boundary and unresolved proposal schema
+
+The opaque-handle projection/resolver is implemented but is not a raw model-output parser and is not wired to a generation route. A future parser must accept only a strict structured response, attach scope and idempotency server-side, resolve handles, and call the existing Core transition path. It must not accept model-supplied Core IDs or scope fields.
+
+The agreed ADR describes proposal stances as `supported`, `contradicted`, `uncertain`, and `dropped`, and includes proposition `modality`. The existing Core reducer instead persists `believes_true`, `believes_false`, `suspects_true`, `suspects_false`, and `unresolved_conflict`, with no modality field and no `dropped` transition. No mapping is implemented in this block; Stage 3B parser/commit work must not guess this semantic contract.
 
 ## Failure behavior
 
@@ -49,7 +57,9 @@ The model-facing context uses `belief_stance_class` (`believed`, `suspected`, or
 - Replayed idempotency key with identical request: return the existing transition. Reuse with different request: reject.
 - Projection deletion/rebuild: reconstruct transition rows from canonical event effects. Rolling back the transition event removes it from the rebuilt projection; rolling back source evidence leaves valid belief history and reports reduced support.
 - Accessor-backed or proxy-backed model input fails closed before executing getters or proxy traps.
+- Forged, cross-actor, cross-conversation, stale-snapshot, expired or unknown opaque handles fail closed.
+- Fact values containing known Core identifiers, ID-shaped fields or common typed Core-reference forms are not projected to the model; context creation fails closed instead.
 
 ## Boundaries still not enabled
 
-This is the Core transition and context-preparation seam only. `src/index.js` now wires the read and visibility authorizers from the persistent Core store, configured adapter IDs, and trusted source registry. Both checks require active Core Host conversation and actor bindings; visibility also requires exact trusted source provenance. Missing or revoked bindings and unknown provenance deny or withhold the acquisition. The read request carries `conversation_id`, but this value is still input to an internal Core method, not proof of an authenticated Host session. The method is not exposed over HTTP; any future caller must derive adapter identity from the authenticated adapter token and conversation identity from the authenticated SillyTavern session. No production NPC model receiver, context serializer, or SillyTavern Memory dispatch is wired. No model prompt is sent here. Independent Core/security review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
+This is the Core transition and proposal-handle seam only. `src/index.js` wires the read and visibility authorizers from the persistent Core store, configured adapter IDs, and trusted source registry, and derives the opaque-handle HMAC key from the existing adapter token. Both checks require active Core Host conversation and actor bindings; visibility also requires exact trusted source provenance. Missing or revoked bindings and unknown provenance deny or withhold the acquisition. The read request carries `conversation_id`, but this value is still input to an internal Core method, not proof of an authenticated Host session. The method is not exposed over HTTP; any future caller must derive adapter identity from the authenticated adapter token and conversation identity from the authenticated SillyTavern session. No production NPC model receiver, context serializer, or SillyTavern Memory dispatch is wired. No model prompt is sent here. Independent Core/security review and end-to-end Host/Provider egress verification remain mandatory before Memory → NPC can be enabled.
