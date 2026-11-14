@@ -160,7 +160,7 @@ static void client(HANDLE pipe) {
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.payload_length>sizeof(payload))goto done;
- if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){if(q.flags>1u)goto done;read_only=q.flags==1u;}
+ if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){if(q.flags>1u||(q.flags==1u&&(q.operation==5||q.operation==7)))goto done;read_only=q.flags==1u;}
  else if(q.flags)goto done;
  if(q.payload_length&&!readn_timeout(pipe,payload,q.payload_length,5000))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
