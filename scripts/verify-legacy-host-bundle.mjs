@@ -7,7 +7,7 @@ export const HOST_BUNDLE_ACCEPTED_IDENTITIES = Object.freeze([
   {
     // Current bundle identity: permits an exact, fully verified repeat install.
     commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
-    patchBlobSha: '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52',
+    patchBlobSha: '27f65e72e691f779806104df45e49b155a65545234c1e9accdc00a11c6cc1e5d',
     manifestSha256: '069b75d60b256d4b5e98dce164e614fee8422af3f54a110b4e8dcd5b47143792',
   },
   {

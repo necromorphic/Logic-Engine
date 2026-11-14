@@ -1767,7 +1767,7 @@ diff --git a/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs b/pub
 new file mode 100644
 --- /dev/null
 +++ b/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-@@ -0,0 +1,1212 @@
+@@ -0,0 +1,1224 @@
 +import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 +
 +const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
@@ -2200,10 +2200,22 @@ new file mode 100644
 +    }
 +    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
 +    if (marker) {
-+      throw hostLifecycleFailure(
-+        'HOST_ENROLLMENT_MARKER_WITHOUT_RECOVERABLE_IDENTITIES',
-+        'an old enrollment marker exists but no complete persisted identity snapshot can be recovered',
-+      );
++      // A marker is a recovery hint, not proof that message identities were
++      // durably enrolled. With no per-message identity metadata (checked above),
++      // rebuild a forward-only baseline only when the marker names this exact
++      // active locator. The new baseline explicitly leaves prior history unknown.
++      const locator = getSourceLocator();
++      const allowedMarkers = locator ? new Set([
++        'enrolled:' + locator,
++        'enrolling:' + locator,
++        'NON_READY:' + locator,
++      ]) : new Set();
++      if (!allowedMarkers.has(marker)) {
++        throw hostLifecycleFailure(
++          'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
++          'an old enrollment marker does not identify the active chat unambiguously',
++        );
++      }
 +    }
 +
 +    let pending = automaticEnrollmentPromises.get(conversationId);

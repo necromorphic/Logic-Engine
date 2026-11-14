@@ -10,7 +10,7 @@
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
     "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "197b3cf0d7d3226b1d0e1a48fbdc4bc60f295819a62a8f8b0fa30c8817644337",
+    "bundleSha256": "3abf0bcfcb6c332e03e26bd44be8c58af1f5aa3f930fed6947eef0e36ad42e4c",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
@@ -19,7 +19,7 @@
       },
       {
         "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
-        "sha256": "693e816d1b94ccb9fda8108162f6049a626404f9532be7b94f12dd99dea9bc67",
+        "sha256": "bb49ac7f6451e3cbfe80f6112afc4c0b87ebd501f301082d4ce691e18a09ef03",
         "allowUnidiffZero": true
       },
       {
@@ -195,7 +195,7 @@
   "createdFiles": {
     "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "75b06c6b94943d5de2ac35e12af984608fb0e6382de28a46c8054ac2ea5ef624",
     "public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs": "e88b9e80ebf706ca99c18d001f7d65d0d0e525abdeca550dc6705642af490493",
-    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "6fd0dcc90e24f5f921428e1401ff43eb0cf4f06fbc2dd07d28b580e98b58f33a",
+    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "73b407ebe5af3de398535b79658acfa1083227de6d9dd5046e7486291b8ee270",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
     "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
   },
