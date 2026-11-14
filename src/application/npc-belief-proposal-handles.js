@@ -295,7 +295,8 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
     .map(group => Object.freeze({
       handle: propositionHandleFor(key, scope, context, group.proposition_ref),
       subject_handle: subjectHandleFor(key, scope, context, group.subject_ref),
-      subject_kind: group.subject_ref === read.actor_id ? 'current_actor' : 'referenced_entity',
+      subject_kind: group.subject_ref === read.actor_id || group.subject_ref === 'entity:' + read.actor_id
+        ? 'current_actor' : 'referenced_entity',
       predicate: group.predicate,
       evidence: Object.freeze(group.evidence.sort((left, right) => left.handle.localeCompare(right.handle))),
     }));
