@@ -224,6 +224,7 @@ function containsInternalReference(value, forbiddenIds, depth = 0) {
 function eligibleEvidenceItems(items, scope) {
   if (!denseArray(items, 200)) throw new TypeError('Visible Core evidence must be a bounded dense array.');
   const eligible = [];
+  const seenAcquisitions = new Set();
   for (const item of items) {
     if (!plainDataObject(item)) {
       throw new TypeError('Visible Core evidence item must be a plain data record.');
@@ -249,6 +250,10 @@ function eligibleEvidenceItems(items, scope) {
       || npcPropositionRefFor(item) === null) {
       throw new TypeError('Visible fact-backed Core evidence is malformed; handle issuance must fail closed.');
     }
+    if (seenAcquisitions.has(item.acquisition_id)) {
+      throw new TypeError('Visible Core evidence contains duplicate acquisition identities.');
+    }
+    seenAcquisitions.add(item.acquisition_id);
     eligible.push(item);
   }
   return eligible;
