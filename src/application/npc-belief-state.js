@@ -6,7 +6,12 @@ const STANCES = new Set([
   'suspects_true',
   'suspects_false',
   'unresolved_conflict',
+  'supported',
+  'contradicted',
+  'uncertain',
+  'dropped',
 ]);
+const ADR_STANCES = new Set(['supported', 'contradicted', 'uncertain', 'dropped']);
 
 const isPlainObject = (value) => {
   if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
@@ -98,6 +103,9 @@ function classifyStanceChange(previousStance, nextStance, invalidatedCount, surv
   if (previousStance === nextStance) {
     return evidenceLineageChanged ? 'evidence_lineage_changed' : 'unchanged';
   }
+  if (nextStance === 'dropped') return 'dropped';
+  if (previousStance === 'dropped') return 'restored';
+  if (ADR_STANCES.has(previousStance) || ADR_STANCES.has(nextStance)) return 'reassessed';
   if (nextStance === 'unresolved_conflict') return 'conflict_opened';
   if (previousStance === 'unresolved_conflict') return 'conflict_resolved';
   if (stancePolarity(previousStance) !== stancePolarity(nextStance)) return 'reversal';
@@ -183,18 +191,17 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'core_knowledge_read_not_ready', transition: null });
   }
 
+  const legacyProposalKeys = [
+    'contradicting_acquisition_ids', 'proposition_ref', 'proposition_value',
+    'reason_rule_ref', 'stance', 'supporting_acquisition_ids', 'world_id',
+    'actor_id', 'snapshot',
+  ].sort().join(',');
+  const proposalKeysWithModality = [...legacyProposalKeys.split(','), 'modality'].sort().join(',');
   if (!isPlainObject(proposal)
-    || Object.keys(proposal).sort().join(',') !== [
-      'contradicting_acquisition_ids',
-      'proposition_ref',
-      'proposition_value',
-      'reason_rule_ref',
-      'stance',
-      'supporting_acquisition_ids',
-      'world_id',
-      'actor_id',
-      'snapshot',
-    ].sort().join(',')
+    || ![legacyProposalKeys, proposalKeysWithModality].includes(Object.keys(proposal).sort().join(','))
+    || (proposal.modality !== undefined
+      && (typeof proposal.modality !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(proposal.modality)))
+    || (ADR_STANCES.has(proposal.stance) && proposal.modality === undefined)
     || proposal.world_id !== knowledgeRead.world_id
     || proposal.actor_id !== knowledgeRead.actor_id
     || !sameSnapshot(proposal.snapshot, knowledgeRead.snapshot)
@@ -281,17 +288,33 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'evidence_side_does_not_match_proposition_value', transition: null });
   }
   const hasConflict = propositionValues.size > 1;
-  if (hasConflict && (proposal.stance !== 'unresolved_conflict'
-    || supportValues.size === 0 || contradictValues.size === 0)) {
-    return Object.freeze({ status: 'non_ready', reason: 'conflicting_evidence_must_remain_unresolved', transition: null });
-  }
-  if (!hasConflict) {
-    const evidenceMatchesClaim = propositionValues.has(propositionValueKey);
-    if (proposal.stance === 'unresolved_conflict'
+  const evidenceMatchesClaim = propositionValues.has(propositionValueKey);
+  if (ADR_STANCES.has(proposal.stance)) {
+    if (proposal.stance === 'supported'
+      && (!evidenceMatchesClaim || supportValues.size === 0 || contradictValues.size > 0)) {
+      return Object.freeze({ status: 'non_ready', reason: 'supported_stance_requires_support_only', transition: null });
+    }
+    if (proposal.stance === 'contradicted'
+      && (evidenceMatchesClaim || contradictValues.size === 0 || supportValues.size > 0)) {
+      return Object.freeze({ status: 'non_ready', reason: 'contradicted_stance_requires_contradiction_only', transition: null });
+    }
+    if (proposal.stance === 'uncertain' && hasConflict
+      && (supportValues.size === 0 || contradictValues.size === 0)) {
+      return Object.freeze({ status: 'non_ready', reason: 'uncertain_conflict_requires_both_evidence_sides', transition: null });
+    }
+    if (proposal.stance === 'dropped' && currentBelief === null) {
+      return Object.freeze({ status: 'non_ready', reason: 'dropped_stance_requires_existing_belief', transition: null });
+    }
+  } else {
+    if (hasConflict && (proposal.stance !== 'unresolved_conflict'
+      || supportValues.size === 0 || contradictValues.size === 0)) {
+      return Object.freeze({ status: 'non_ready', reason: 'conflicting_evidence_must_remain_unresolved', transition: null });
+    }
+    if (!hasConflict && (proposal.stance === 'unresolved_conflict'
       || (evidenceMatchesClaim && (!['believes_true', 'suspects_true'].includes(proposal.stance)
         || contradicting.length > 0))
       || (!evidenceMatchesClaim && (!['believes_false', 'suspects_false'].includes(proposal.stance)
-        || supporting.length > 0))) {
+        || supporting.length > 0)))) {
       return Object.freeze({ status: 'non_ready', reason: 'stance_does_not_match_available_evidence', transition: null });
     }
   }
@@ -336,6 +359,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     proposition_ref: proposal.proposition_ref,
     proposition_value: canonicalPropositionValue,
     stance: proposal.stance,
+    modality: proposal.modality ?? 'asserted',
     supporting_acquisition_ids: Object.freeze(supporting),
     contradicting_acquisition_ids: Object.freeze(contradicting),
     evidence_acquisition_ids: Object.freeze(allRefs),
@@ -416,6 +440,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
       proposition_ref: transition.proposition_ref,
       proposition_value: transition.proposition_value,
       stance: transition.stance,
+      modality: transition.modality,
       supporting_acquisition_ids: transition.supporting_acquisition_ids,
       contradicting_acquisition_ids: transition.contradicting_acquisition_ids,
       reason_rule_ref: transition.reason_rule_ref,
@@ -451,7 +476,8 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     belief_stance: transition.stance,
     belief_stance_class: transition.stance === 'unresolved_conflict'
       ? 'conflicted'
-      : transition.stance.startsWith('suspects_') ? 'suspected' : 'believed',
+      : ADR_STANCES.has(transition.stance) ? transition.stance
+        : transition.stance.startsWith('suspects_') ? 'suspected' : 'believed',
     evidence: Object.freeze(safeEvidence),
     reason_rule_ref: transition.reason_rule_ref,
   });
