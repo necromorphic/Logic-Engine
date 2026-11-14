@@ -10,6 +10,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import {
   createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
   resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+  verifyNpcBeliefProposalContextHandle,
 } from '../src/application/npc-belief-proposal-handles.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
@@ -1859,6 +1860,32 @@ test('reader returns typed communication evidence only while its signed source v
   });
   assert.equal(expiredResolution.status, 'non_ready');
   assert.equal(expiredResolution.reason, 'invalid_expired_or_wrong_scope_context_handle');
+  const expiredReplayContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: expiringContext.authorization_context,
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+    allowExpired: true,
+  });
+  assert.equal(expiredReplayContext.status, 'ready');
+  const expiredNormalContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: expiringContext.authorization_context,
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+  });
+  assert.equal(expiredNormalContext.status, 'non_ready');
+  const crossActorReplayContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: {
+      ...expiringContext.authorization_context,
+      actor_id: 'npc-b',
+    },
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => fixedNow + 1,
+    allowExpired: true,
+  });
+  assert.equal(crossActorReplayContext.status, 'non_ready');
   assert.throws(() => createOpaqueNpcBeliefProposalContext({
     read: rawRead,
     visibleItems: [{ ...factItem, value: 'entity:unresolved-internal-id' }],
