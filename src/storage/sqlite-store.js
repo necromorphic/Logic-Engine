@@ -391,7 +391,7 @@ export class SQLiteStore {
           throw new Error('CORE_SCHEMA_INCOMPLETE');
         }
         const migration = this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get();
-        if (migration?.version !== 19) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
+        if (migration?.version !== 20) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
         const local = this.db.prepare(
           'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
         ).get();
