@@ -155,12 +155,19 @@ test('legacy Host bundle is rejected when its manifest pin is not the expected p
 });
 
 
-test('current Host bundle identity is pinned for idempotent repeat installation', () => {
+test('current Host bundle identity pins clean-install and upgrade source manifests for idempotent repeat installation', () => {
+  const currentPins = HOST_BUNDLE_ACCEPTED_IDENTITIES.filter(pin =>
+    pin.commit === '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    && pin.patchBlobSha === 'b683f7a941d9fb2651cee53fef18130bd57a68e9ad5e7f6af456ba727e345846');
+  assert.ok(currentPins.some(pin => pin.manifestSha256 === '90974ccf70164b2c4053ddac714e10cf1333683f04e7363e29c1e635eb898672'),
+    'the exact clean-install source manifest must be accepted');
+  assert.ok(currentPins.some(pin => pin.manifestSha256 === 'eff3b47d4e332971093d56da5bc0552dc329c6a45a8a19127bdd85d478784060'),
+    'the exact upgraded-install source manifest must be accepted');
   assert.ok(HOST_BUNDLE_ACCEPTED_IDENTITIES.some(pin =>
     pin.commit === '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
     && pin.patchBlobSha === '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52'
     && pin.manifestSha256 === '069b75d60b256d4b5e98dce164e614fee8422af3f54a110b4e8dcd5b47143792'),
-  'the exact current bundle and source manifest digests must be accepted');
+  'the previous verified bundle must remain accepted for safe upgrades');
 });
 
 test('current identity pin still requires the manifest and every installed file to verify', async () => {
@@ -168,7 +175,7 @@ test('current identity pin still requires the manifest and every installed file 
   try {
     const relativePath = 'public/script.js';
     const bytes = Buffer.from("export const host = 'current';\\n", 'utf8');
-    const patchBlobSha = '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52';
+    const patchBlobSha = 'b683f7a941d9fb2651cee53fef18130bd57a68e9ad5e7f6af456ba727e345846';
     const proof = {
       pinned_host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
       patch_blob_sha: patchBlobSha,

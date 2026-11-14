@@ -5,7 +5,19 @@ import path from 'node:path';
 
 export const HOST_BUNDLE_ACCEPTED_IDENTITIES = Object.freeze([
   {
-    // Current bundle identity: permits an exact, fully verified repeat install.
+    // Current bundle identity for a clean pinned-source installation.
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'b683f7a941d9fb2651cee53fef18130bd57a68e9ad5e7f6af456ba727e345846',
+    manifestSha256: '90974ccf70164b2c4053ddac714e10cf1333683f04e7363e29c1e635eb898672',
+  },
+  {
+    // Current bundle identity for the verified upgrade path from the prior Host candidate.
+    commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    patchBlobSha: 'b683f7a941d9fb2651cee53fef18130bd57a68e9ad5e7f6af456ba727e345846',
+    manifestSha256: 'eff3b47d4e332971093d56da5bc0552dc329c6a45a8a19127bdd85d478784060',
+  },
+  {
+    // Previous accepted bundle identity: permits a verified upgrade to the current bundle.
     commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
     patchBlobSha: '3c553f9dd04fb237c03887854ff18f634fa02c4f863dbefdca14b52e46901c52',
     manifestSha256: '069b75d60b256d4b5e98dce164e614fee8422af3f54a110b4e8dcd5b47143792',
