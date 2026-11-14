@@ -524,7 +524,10 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
 });
 
 test('Core commits strict model output through fresh resolution and replays after the snapshot advances', (t) => {
-  const { store, engine } = setup(t);
+  const { store, engine } = setup(t, undefined, undefined, {
+    npcEvidenceHandleKeyProvider: adapterId => adapterId === 'adapter-st'
+      ? 'test-adapter-secret-for-opaque-evidence-handles' : null,
+  });
   const proposalContext = engine.createNpcBeliefProposalContext(request(store));
   assert.equal(proposalContext.status, 'ready');
   const proposition = proposalContext.model_context.propositions[0];
