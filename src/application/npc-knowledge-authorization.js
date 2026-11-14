@@ -97,7 +97,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   function visibilityAuthorizer(scope) {
     let source = null;
     if (activeHostAndActorBinding(scope)
-      && validId(scope.acquisition_kind)
+      && ['author_initial', 'imported'].includes(scope.acquisition_kind)
       && validId(scope.acquisition_authorization_ref)
       && validId(scope.provenance_ref)
       && typeof scope.provenance_digest === 'string'
