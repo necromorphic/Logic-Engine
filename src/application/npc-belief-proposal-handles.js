@@ -182,13 +182,26 @@ function propositionHandleFor(key, scope, context, propositionRef) {
   });
 }
 
+function subjectHandleFor(key, scope, context, subjectRef) {
+  return 'subh1.' + hmac(key, {
+    version: 1,
+    kind: 'npc-belief-subject',
+    scope,
+    nonce: context.nonce,
+    expires_at: context.expires_at,
+    subject_ref: subjectRef,
+  });
+}
+
 function eligibleEvidenceItems(items) {
   if (!denseArray(items, 200)) throw new TypeError('Visible Core evidence must be a bounded dense array.');
   const eligible = [];
   for (const item of items) {
-    if (!STORABLE_ACQUISITION_KINDS.has(item?.acquisition_kind)) continue;
-    if (!plainDataObject(item)
-      || !validId(item.acquisition_id)
+    if (!plainDataObject(item)) {
+      throw new TypeError('Visible Core evidence item must be a plain data record.');
+    }
+    if (!STORABLE_ACQUISITION_KINDS.has(item.acquisition_kind)) continue;
+    if (!validId(item.acquisition_id)
       || !validId(item.fact_id)
       || !validId(item.subject_ref)
       || !validId(item.predicate)
@@ -233,11 +246,11 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
     const propositionRef = npcPropositionRefFor(item);
     const group = byProposition.get(propositionRef) ?? {
       proposition_ref: propositionRef,
-      subject: item.subject_ref,
+      subject_ref: item.subject_ref,
       predicate: item.predicate,
       evidence: [],
     };
-    if (group.subject !== item.subject_ref || group.predicate !== item.predicate) {
+    if (group.subject_ref !== item.subject_ref || group.predicate !== item.predicate) {
       throw new TypeError('Core proposition identity is inconsistent across its evidence.');
     }
     group.evidence.push(Object.freeze({
@@ -252,7 +265,8 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
     .sort((left, right) => left.proposition_ref.localeCompare(right.proposition_ref))
     .map(group => Object.freeze({
       handle: propositionHandleFor(key, scope, context, group.proposition_ref),
-      subject: group.subject,
+      subject_handle: subjectHandleFor(key, scope, context, group.subject_ref),
+      subject_kind: group.subject_ref === read.actor_id ? 'current_actor' : 'referenced_entity',
       predicate: group.predicate,
       evidence: Object.freeze(group.evidence.sort((left, right) => left.handle.localeCompare(right.handle))),
     }));
