@@ -1831,6 +1831,12 @@ test('reader returns typed communication evidence only while its signed source v
   assert.equal(resolvedProposal.resolution.proposition_value, factItem.value);
   assert.deepEqual(resolvedProposal.resolution.supporting_acquisition_ids, [factItem.acquisition_id]);
   assert.deepEqual(resolvedProposal.resolution.contradicting_acquisition_ids, []);
+  const internalObjectProposal = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: 'entity:npc-b' },
+  });
+  assert.equal(internalObjectProposal.status, 'non_ready');
+  assert.equal(internalObjectProposal.reason, 'proposal_object_contains_internal_reference');
 
   const rawRead = engine.readNpcKnowledge(readRequest);
   const fixedNow = 1_800_000_000_000;
