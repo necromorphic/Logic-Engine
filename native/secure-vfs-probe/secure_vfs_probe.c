@@ -14,8 +14,8 @@
  * This branch has partial directory-handle-relative DB/sidecar operations:
  * POSIX main/WAL/journal byte I/O uses broker-returned descriptors when
  * broker-bound; non-broker xDelete uses atomic quarantine rename plus moved
- * identity verification. Windows uses a retained parent HANDLE for recognized opens,
- * xAccess and handle-relative xDelete.
+ * identity verification. Windows manifest-bound opens, xAccess and sidecar xDelete
+ * use the service-owned namespace broker; unbound test roles retain handle-relative opens.
  * Sidecar ownership records are process-local; retired records are retained
  * when another hardlink survives deletion of the original sidecar pathname.
  * Persistent trust, complete sidecar lifecycle, full VFS operation coverage,
@@ -2099,7 +2099,8 @@ static int probe_win_broker_open_role_request(const char *role,uint16_t operatio
     {
       HANDLE candidate=(HANDLE)(uintptr_t)handle_value;
       DWORD handle_flags=0;
-      if (!handle_value || candidate==NULL || candidate==INVALID_HANDLE_VALUE
+      if (!handle_value || handle_value>(uint64_t)UINTPTR_MAX
+          || candidate==NULL || candidate==INVALID_HANDLE_VALUE
           || !GetHandleInformation(candidate,&handle_flags)) goto done;
       received=candidate;
     }
