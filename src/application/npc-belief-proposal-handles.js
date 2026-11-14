@@ -279,13 +279,8 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
     + hmac(key, contextMacPayload(scope, nonce, expiresAt));
   const items = eligibleEvidenceItems(visibleItems, scope);
   const byProposition = new Map();
-  const seenAcquisitions = new Set();
 
   for (const item of items) {
-    if (seenAcquisitions.has(item.acquisition_id)) {
-      throw new TypeError('Visible Core evidence contains duplicate acquisition identities.');
-    }
-    seenAcquisitions.add(item.acquisition_id);
     const propositionRef = npcPropositionRefFor(item);
     const group = byProposition.get(propositionRef) ?? {
       proposition_ref: propositionRef,
