@@ -522,13 +522,17 @@ int main(void) {
   stage = "runtime sidecar transactions retire their intents";
   if (le_win_store_read_intent(&store,&recovery_intent,&recovery_intent_length)
       || GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
-  stage = "release store lock for live broker IPC";
-  le_win_store_unlock(&store);
-  stage = "cross-process broker OPEN_MAIN, sidecar create/open/access/delete IPC";
-  if (!broker_test_service_ipc(user_sid,directory,namespace_directory,
-      broker_main_bytes,(DWORD)(sizeof(broker_main_bytes)-1))) goto close_store;
-  stage = "reacquire store lock after live broker IPC";
-  if (!le_win_store_lock(&store)) goto close_store;
+  if (GetEnvironmentVariableW(L"LOGIC_ENGINE_BROKER_EXE",NULL,0)==0) {
+    printf("Skipping live broker IPC smoke: LOGIC_ENGINE_BROKER_EXE is not configured.\n");
+  } else {
+    stage = "release store lock for live broker IPC";
+    le_win_store_unlock(&store);
+    stage = "cross-process broker OPEN_MAIN, sidecar create/open/access/delete IPC";
+    if (!broker_test_service_ipc(user_sid,directory,namespace_directory,
+        broker_main_bytes,(DWORD)(sizeof(broker_main_bytes)-1))) goto close_store;
+    stage = "reacquire store lock after live broker IPC";
+    if (!le_win_store_lock(&store)) goto close_store;
+  }
   HeapFree(GetProcessHeap(),0,manifest);manifest=NULL;manifest_length=0;
   store.validate_manifest = validate_test_json;
   store.validate_intent = validate_test_json;
