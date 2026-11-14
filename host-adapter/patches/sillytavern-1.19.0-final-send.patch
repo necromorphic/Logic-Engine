@@ -98,7 +98,7 @@
  
 --- /dev/null
 +++ b/src/logic-engine-final-send-hook.js
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,203 @@
 +import { AsyncLocalStorage } from 'node:async_hooks';
 +import nativeFetch from 'node-fetch';
 +
@@ -264,6 +264,10 @@
 +            (cleanup) => active.cleanupCallbacks.push(cleanup))
 +        : active.abortController.signal;
 +    const outboundInit = { ...requestInit, signal };
++    // Auxiliary GETs (for example OpenRouter model capability discovery) are
++    // not generation dispatches and must retain SillyTavern's native transport.
++    const method = typeof outboundInit.method === 'string' ? outboundInit.method.toUpperCase() : 'GET';
++    if (method !== 'POST') return nativeFetch(endpointUrl, outboundInit);
 +    const transport = () => nativeFetch(endpointUrl, outboundInit);
 +    const forwardResponse = stream ? (upstream) => {
 +        if (active.protectedForward) return active.protectedForward;

@@ -1,6 +1,6 @@
-/* Windows SQLite broker SCM host. Only manifest-backed ACCESS and
- * identity-bound sidecar deletion are enabled; file opens/creates still require
- * the client HANDLE-transfer protocol and SQLite VFS integration. */
+/* Windows SQLite namespace broker SCM host. Manifest-backed file opens,
+ * sidecar lifecycle operations and bounded client-process HANDLE transfer are
+ * implemented; SCM deployment and full SQLite VFS production closure remain open. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <sddl.h>
@@ -18,6 +18,12 @@
 #define MAGIC 0x4c454256u
 #define VERSION 2u
 #define MAX_PACKET 4096u
+#define LEB_STATUS_OK 0u
+#define LEB_STATUS_BAD_REQUEST 1u
+#define LEB_STATUS_UNAUTHORIZED 2u
+#define LEB_STATUS_UNSUPPORTED 3u
+#define LEB_STATUS_INTERNAL 4u
+#define LEB_STATUS_NOT_FOUND 5u
 static uint16_t net16(uint16_t v){return (uint16_t)((v<<8)|(v>>8));}
 static uint32_t net32(uint32_t v){return ((v&0x000000ffu)<<24)|((v&0x0000ff00u)<<8)|((v&0x00ff0000u)>>8)|((v&0xff000000u)>>24);}
 static uint64_t net64(uint64_t v){return ((uint64_t)net32((uint32_t)v)<<32)|net32((uint32_t)(v>>32));}
@@ -65,68 +71,128 @@ static BOOL readn_timeout(HANDLE h,void *p,DWORD n,DWORD timeout_ms){
 }
 static BOOL writen(HANDLE h,const void *p,DWORD n){const BYTE *b=p;DWORD d=0;while(d<n){DWORD k=0;if(!WriteFile(h,b+d,n-d,&k,NULL)||!k)return FALSE;d+=k;}return TRUE;}
 static BOOL auth(HANDLE pipe) {
- HANDLE token=NULL;TOKEN_USER *u=NULL;DWORD n=0;BOOL ok=FALSE;
+ HANDLE token=NULL;BOOL ok=FALSE,member=FALSE;
  if(!ImpersonateNamedPipeClient(pipe))return FALSE;
  if(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token))goto done;
- GetTokenInformation(token,TokenUser,NULL,0,&n);if(GetLastError()!=ERROR_INSUFFICIENT_BUFFER||!n||n>65536)goto done;
- u=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,n);if(u&&GetTokenInformation(token,TokenUser,u,n,&n))ok=EqualSid(u->User.Sid,allowed_sid);
- done:if(u)HeapFree(GetProcessHeap(),0,u);if(token)CloseHandle(token);if(!RevertToSelf())ok=FALSE;return ok;
+ ok=CheckTokenMembership(token,allowed_sid,&member)&&member;
+ done:
+ if(token)CloseHandle(token);
+ if(!RevertToSelf())ok=FALSE;
+ return ok;
 }
 static HANDLE authenticated_process(HANDLE pipe) {
- DWORD pid=0,needed=0;HANDLE process=NULL,token=NULL;TOKEN_USER *user=NULL;BOOL valid=FALSE;
+ DWORD pid=0;HANDLE process=NULL,token=NULL;BOOL valid=FALSE,member=FALSE;
  if(!GetNamedPipeClientProcessId(pipe,&pid)||!pid)return NULL;
  process=OpenProcess(PROCESS_DUP_HANDLE|PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
  if(!process)return NULL;
  if(!OpenProcessToken(process,TOKEN_QUERY,&token))goto failed;
- GetTokenInformation(token,TokenUser,NULL,0,&needed);
- if(GetLastError()!=ERROR_INSUFFICIENT_BUFFER||!needed||needed>65536)goto failed;
- user=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,needed);
- if(!user||!GetTokenInformation(token,TokenUser,user,needed,&needed))goto failed;
- valid=EqualSid(user->User.Sid,allowed_sid);
- if(user)HeapFree(GetProcessHeap(),0,user);
+ valid=CheckTokenMembership(token,allowed_sid,&member)&&member;
  CloseHandle(token);
  if(!valid){CloseHandle(process);return NULL;}
  return process;
  failed:
- if(user)HeapFree(GetProcessHeap(),0,user);
  if(token)CloseHandle(token);
  if(process)CloseHandle(process);
  return NULL;
 }
-#define LEB_STATUS_OK 0u
-#define LEB_STATUS_BAD_REQUEST 1u
-#define LEB_STATUS_UNAUTHORIZED 2u
-#define LEB_STATUS_UNSUPPORTED 3u
-#define LEB_STATUS_INTERNAL 4u
-#define LEB_STATUS_NOT_FOUND 5u
-static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129],char kind[16]) {
- DWORD separator=0,i,role_length,kind_length;
- if(!payload||!length||length>145)return FALSE;
- while(separator<length&&payload[separator]!=0)separator++;
- if(separator==0||separator==length)return FALSE;
- role_length=separator;kind_length=length-separator-1;
- if(role_length>128||kind_length==0||kind_length>=16)return FALSE;
- for(i=0;i<role_length;i++){
-  BYTE c=payload[i];
-  if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')
-     ||(i==0&&!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9'))))return FALSE;
+static void close_remote_client_handle(HANDLE process, uint64_t remote_value) {
+ HANDLE local=INVALID_HANDLE_VALUE;
+ HANDLE remote=(HANDLE)(uintptr_t)remote_value;
+ if(!process||!remote_value||remote==INVALID_HANDLE_VALUE)return;
+ if(DuplicateHandle(process,remote,GetCurrentProcess(),&local,0,FALSE,
+      DUPLICATE_SAME_ACCESS|DUPLICATE_CLOSE_SOURCE)){
+  if(local&&local!=INVALID_HANDLE_VALUE)CloseHandle(local);
  }
- for(i=separator+1;i<length;i++)if(payload[i]==0||payload[i]<0x21||payload[i]>0x7e)return FALSE;
+}
+static BOOL duplicate_file_handle_to_client(HANDLE source,HANDLE process,BOOL read_only,uint64_t *remote_value) {
+ HANDLE remote=NULL;DWORD desired_access=read_only?FILE_GENERIC_READ:(FILE_GENERIC_READ|FILE_GENERIC_WRITE);
+ if(!source||source==INVALID_HANDLE_VALUE||!process||!remote_value)return FALSE;
+ *remote_value=0;
+ if(!DuplicateHandle(GetCurrentProcess(),source,process,&remote,desired_access,FALSE,0))
+  return FALSE;
+ if(!remote||remote==INVALID_HANDLE_VALUE)return FALSE;
+ *remote_value=(uint64_t)(uintptr_t)remote;
+ return *remote_value!=0;
+}
+static BOOL open_role_file_for_operation(
+    uint16_t operation,const char *role,const char *kind,HANDLE *opened) {
+ BOOL exists=FALSE;
+ HANDLE created=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity created_identity,reopened_identity;
+ DWORD saved_error=ERROR_SUCCESS;
+ if(!opened)return FALSE;
+ *opened=INVALID_HANDLE_VALUE;
+ if(operation==2u){
+  if(strcmp(kind,"main")!=0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+  return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(operation==3u){
+  if(strcmp(kind,"main")==0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+  return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(operation!=5u&&operation!=7u){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+ if(strcmp(kind,"main")==0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+ if(operation==7u){
+  if(!le_win_access_role_file(&metadata_store,namespace_root,role,kind,&exists))return FALSE;
+  if(exists)
+   return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(!le_win_create_role_sidecar(&metadata_store,namespace_root,role,kind,
+      &created,&created_identity))return FALSE;
+ if(created!=INVALID_HANDLE_VALUE){
+  if(!CloseHandle(created)){saved_error=GetLastError();SetLastError(saved_error);return FALSE;}
+  created=INVALID_HANDLE_VALUE;
+ }
+ if(!le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)){
+  saved_error=GetLastError();
+  if(saved_error==ERROR_SUCCESS)saved_error=ERROR_ACCESS_DENIED;
+  SetLastError(saved_error);
+  return FALSE;
+ }
+ if(!logic_engine_win_identity(*opened,&reopened_identity,NULL)
+     ||!logic_engine_win_identity_equal(&created_identity,&reopened_identity)){
+  CloseHandle(*opened);*opened=INVALID_HANDLE_VALUE;
+  SetLastError(ERROR_ACCESS_DENIED);
+  return FALSE;
+ }
+ return TRUE;
+}
+static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129],char kind[16]) {
+ const BYTE *separator;DWORD role_length,kind_length,i;
+ if(!payload||!role||!kind||length<5u||length>137u)return FALSE;
+ separator=(const BYTE *)memchr(payload,0,length);
+ if(!separator)return FALSE;
+ role_length=(DWORD)(separator-payload);kind_length=length-role_length-1u;
+ if(!role_length||role_length>128u||!kind_length||kind_length>7u
+     ||memchr(separator+1,0,kind_length)!=NULL)return FALSE;
+ for(i=0;i<role_length;i++){
+  BYTE ch=payload[i];
+  if(!((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z')||(ch>='0'&&ch<='9')
+      ||(i>0&&(ch=='.'||ch=='_'||ch=='-'))))return FALSE;
+ }
  memcpy(role,payload,role_length);role[role_length]=0;
- memcpy(kind,payload+separator+1,kind_length);kind[kind_length]=0;
- return !strcmp(kind,"main")||!strcmp(kind,"wal")||!strcmp(kind,"shm")||!strcmp(kind,"journal");
+ memcpy(kind,separator+1,kind_length);kind[kind_length]=0;
+ if(strcmp(kind,"main")!=0&&strcmp(kind,"wal")!=0
+     &&strcmp(kind,"shm")!=0&&strcmp(kind,"journal")!=0)return FALSE;
+ return TRUE;
 }
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
- DWORD response_status=LEB_STATUS_BAD_REQUEST;BOOL exists=FALSE;
- char role[129],kind[16];
+ HANDLE opened=INVALID_HANDLE_VALUE;DWORD response_status=LEB_STATUS_BAD_REQUEST;
+ BOOL exists=FALSE,has_remote_handle=FALSE,read_only=FALSE,bad_flags=FALSE;char role[129],kind[16];
+ uint64_t remote_handle=0,wire_handle=0;
  if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn_timeout(pipe,&q,sizeof(q),5000))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
- if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))goto done;
+ if(q.magic!=MAGIC||q.version!=VERSION||q.payload_length>sizeof(payload))goto done;
+ if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){
+  if(q.flags>1u||(q.flags==1u&&(q.operation==5||q.operation==7)))bad_flags=TRUE;
+  else read_only=q.flags==1u;
+ }else if(q.flags)bad_flags=TRUE;
  if(q.payload_length&&!readn_timeout(pipe,payload,q.payload_length,5000))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
- if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
+ if(bad_flags)response_status=LEB_STATUS_BAD_REQUEST;
+ else if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
  else if(q.operation==4){
   DWORD operation_error=ERROR_SUCCESS;
   if(!parse_access_payload(payload,q.payload_length,role,kind)||strcmp(kind,"main")==0)
@@ -151,13 +217,40 @@ static void client(HANDLE pipe) {
    else response_status=LEB_STATUS_INTERNAL;
    le_win_store_unlock(&metadata_store);
   }
- }else if(q.operation>=2&&q.operation<=8)response_status=LEB_STATUS_UNSUPPORTED;
+ }
+ else if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){
+  if(!parse_access_payload(payload,q.payload_length,role,kind)
+      ||(q.operation==2&&strcmp(kind,"main")!=0)
+      ||(q.operation!=2&&strcmp(kind,"main")==0))response_status=LEB_STATUS_BAD_REQUEST;
+  else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
+  else{
+   if(open_role_file_for_operation(q.operation,role,kind,&opened)){
+    if(duplicate_file_handle_to_client(opened,process,read_only,&remote_handle)){
+     has_remote_handle=TRUE;response_status=LEB_STATUS_OK;
+    }else response_status=LEB_STATUS_INTERNAL;
+   }else{
+    DWORD open_error=GetLastError();
+    response_status=open_error==ERROR_FILE_NOT_FOUND||open_error==ERROR_PATH_NOT_FOUND
+      ?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL;
+   }
+   if(opened!=INVALID_HANDLE_VALUE){CloseHandle(opened);opened=INVALID_HANDLE_VALUE;}
+   le_win_store_unlock(&metadata_store);
+  }
+ }
  else response_status=LEB_STATUS_UNSUPPORTED;
  ZeroMemory(&r,sizeof(r));r.magic=net32(MAGIC);r.version=net16(VERSION);
  r.operation=net16(q.operation);r.flags=net32(response_status);
- r.request_id=net64(q.request_id);r.payload_length=0;
- (void)writen(pipe,&r,sizeof(r));
+ r.request_id=net64(q.request_id);
+ r.payload_length=net32(has_remote_handle?(DWORD)sizeof(wire_handle):0u);
+ if(!writen(pipe,&r,sizeof(r)))goto done;
+ if(has_remote_handle){
+  wire_handle=net64(remote_handle);
+  if(!writen(pipe,&wire_handle,sizeof(wire_handle)))goto done;
+  remote_handle=0;
+ }
  done:
+ if(opened!=INVALID_HANDLE_VALUE)CloseHandle(opened);
+ if(remote_handle&&process)close_remote_client_handle(process,remote_handle);
  if(process)CloseHandle(process);
 }
 static int startup_recover(
@@ -170,11 +263,13 @@ static int startup_recover(
  return le_win_reconcile_manifest_namespace(manifest,manifest_length,(const wchar_t*)context);
 }
 static void run(void) {
- SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
+ SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;BOOL first_instance=TRUE;ZeroMemory(&sa,sizeof(sa));
  if(!pipe_sa(&sa,&sd)){status(SERVICE_STOPPED,GetLastError());return;}status(SERVICE_RUNNING,0);
  while(!InterlockedCompareExchange(&stopping,0,0)){
-  HANDLE p=CreateNamedPipeW(PIPE_NAME,PIPE_ACCESS_DUPLEX|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
+  DWORD open_mode=PIPE_ACCESS_DUPLEX|(first_instance?FILE_FLAG_FIRST_PIPE_INSTANCE:0u);
+  HANDLE p=CreateNamedPipeW(PIPE_NAME,open_mode,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
   if(p==INVALID_HANDLE_VALUE){DWORD e=GetLastError();if(e==ERROR_ACCESS_DENIED||e==ERROR_INVALID_PARAMETER)break;if(WaitForSingleObject(stop_event,500)==WAIT_OBJECT_0)break;continue;}
+  first_instance=FALSE;
   if(ConnectNamedPipe(p,NULL)||GetLastError()==ERROR_PIPE_CONNECTED)client(p);
   DisconnectNamedPipe(p);CloseHandle(p);if(WaitForSingleObject(stop_event,0)==WAIT_OBJECT_0)break;
  }
@@ -196,6 +291,9 @@ static VOID WINAPI service_main(DWORD argc,LPWSTR *argv) {
 int wmain(int argc,wchar_t **argv){
  SERVICE_TABLE_ENTRYW t[]={{L"LogicEngineSqliteBroker",service_main},{NULL,NULL}};
  int i;BOOL have_sid=FALSE,have_metadata=FALSE,have_namespace=FALSE;
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+ BOOL console_test=FALSE;
+#endif
  for(i=1;i<argc;i++){
   if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc){
    if(FAILED(StringCchCopyW(configured_client_sid,_countof(configured_client_sid),argv[++i])))return 2;
@@ -206,11 +304,32 @@ int wmain(int argc,wchar_t **argv){
   }else if(!wcscmp(argv[i],L"--namespace-root")&&i+1<argc){
    if(FAILED(StringCchCopyW(namespace_root,_countof(namespace_root),argv[++i])))return 2;
    have_namespace=TRUE;
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+  }else if(!wcscmp(argv[i],L"--console-test")){
+   console_test=TRUE;
+#endif
   }else return 2;
  }
  if(!have_sid||!have_metadata||!have_namespace||!init_sid(configured_client_sid)){
   fwprintf(stderr,L"Invalid broker service configuration.\n");return 2;
  }
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+ if(console_test){
+  DWORD error=ERROR_SUCCESS;
+  stop_event=CreateEventW(NULL,TRUE,FALSE,NULL);
+  if(!stop_event){error=GetLastError();LocalFree(allowed_sid);allowed_sid=NULL;return (int)error;}
+  if(!le_win_store_open_validated(&metadata_store,metadata_directory)
+      ||!le_win_store_startup_recover(&metadata_store,startup_recover,namespace_root)){
+   error=GetLastError();le_win_store_close(&metadata_store);
+   CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+   return (int)(error?error:ERROR_RECOVERY_FAILURE);
+  }
+  run();
+  le_win_store_close(&metadata_store);
+  CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+  return 0;
+ }
+#endif
  if(!StartServiceCtrlDispatcherW(t)){
   DWORD error=GetLastError();if(allowed_sid){LocalFree(allowed_sid);allowed_sid=NULL;}
   fwprintf(stderr,L"SCM dispatcher failed: %lu\n",error);return 1;

@@ -9,6 +9,12 @@ import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
 import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
+import { parseNpcBeliefProposalOutput } from './npc-belief-proposal-parser.js';
+import {
+  createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
+  resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+  verifyNpcBeliefProposalContextHandle,
+} from './npc-belief-proposal-handles.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -46,6 +52,258 @@ const exactDataRecord = (value, keys) => {
     return ownKeys.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'); });
   } catch { return false; }
 };
+
+const validCoreId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 200
+  && !/[\u0000-\u001f\u007f]/u.test(value);
+const validSha256 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validHostUuid = value => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const validHostSnapshotId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 512
+  && !/[\u0000-\u001f\u007f]/u.test(value);
+
+function freezeJsonTree(node) {
+  if (node && typeof node === 'object' && !Object.isFrozen(node)) {
+    for (const child of Object.values(node)) freezeJsonTree(child);
+    Object.freeze(node);
+  }
+  return node;
+}
+
+function validateCommunicationDeliveryProjection(row, request) {
+  let evidence;
+  try { evidence = JSON.parse(row.source_evidence_json); }
+  catch {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition contains invalid source-evidence JSON.', 409);
+  }
+  const exact = (value, keys) => exactDataRecord(value, keys);
+  const evidenceKeys = [
+    'protocol_version', 'evidence_type', 'producer', 'adapter_id', 'host_commit',
+    'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+    'sender', 'recipient', 'source_attestation', 'channel', 'source', 'status', 'delivered_at',
+    'host_event_id', 'mutation_id', 'receipt_digest', 'receipt_signature', 'receipt_proof',
+    'inventory_snapshot_digest',
+  ];
+  const attestationKeys = [
+    'protocol_version', 'host_commit', 'snapshot_alignment', 'before_snapshot_id', 'after_snapshot_id',
+    'before_snapshot_sha256', 'after_snapshot_sha256', 'before_source_inventory_sha256',
+    'after_source_inventory_sha256', 'source_manifest_sha256',
+    'mutation_coverage_manifest_sha256', 'mutation_coverage_source_files_sha256',
+  ];
+  const proofKeys = [
+    'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+    'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
+    'occurred_at', 'receipt_signature',
+  ];
+  if (!exact(evidence, evidenceKeys)
+    || !exact(evidence.sender, ['principal_type', 'principal_id'])
+    || !exact(evidence.recipient, ['world_id', 'actor_id', 'actor_type', 'host_character_avatar_id'])
+    || !exact(evidence.source, ['message_id', 'version_id', 'content_sha256'])
+    || !exact(evidence.source_attestation, attestationKeys)
+    || !exact(evidence.receipt_proof, proofKeys)) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition source evidence does not match its exact typed schema.', 409);
+  }
+  let canonicalEffects;
+  try { canonicalEffects = JSON.parse(row.canonical_effects_json); }
+  catch {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition has no valid canonical Core event effects.', 409);
+  }
+  const canonicalEffect = Array.isArray(canonicalEffects) && canonicalEffects.length === 1
+    ? canonicalEffects[0] : null;
+  if (!exact(canonicalEffect, [
+    'kind', 'acquisition_id', 'subject_id', 'acquisition_kind',
+    'provenance_ref', 'provenance_digest', 'authorization_ref', 'source_evidence',
+  ]) || canonicalEffect.kind !== 'knowledge.acquire'
+    || canonicalEffect.acquisition_kind !== 'communication_delivered'
+    || !exact(canonicalEffect.source_evidence, evidenceKeys)
+    || canonicalEffect.subject_id !== row.subject_id
+    || canonicalEffect.acquisition_id !== row.acquisition_id
+    || canonicalEffect.provenance_ref !== row.provenance_ref
+    || canonicalEffect.provenance_digest !== row.provenance_digest
+    || canonicalEffect.authorization_ref !== row.authorization_ref
+    || hashRequest(canonicalEffect.source_evidence) !== hashRequest(evidence)) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition projection does not match its canonical Core event effect.', 409);
+  }
+  const proof = evidence.receipt_proof;
+  const expectedConversationId = [
+    evidence.host_session_id, evidence.host_installation_id, evidence.conversation_uuid,
+  ].join(':');
+  const expectedAcquisitionId = 'acq:communication-delivered:' + hashRequest([
+    request.world_id, request.adapter_id, evidence.host_event_id, evidence.receipt_digest,
+  ]);
+  const expectedEventId = 'host-delivery-event:' + hashRequest([request.adapter_id, evidence.host_event_id]);
+  const expectedAuthorizationRef = 'host-conversation-binding:' + hashRequest([
+    request.adapter_id, request.conversation_id,
+  ]);
+  const attestationDigests = [
+    evidence.source_attestation.before_snapshot_sha256,
+    evidence.source_attestation.after_snapshot_sha256,
+    evidence.source_attestation.before_source_inventory_sha256,
+    evidence.source_attestation.after_source_inventory_sha256,
+    evidence.source_attestation.source_manifest_sha256,
+    evidence.source_attestation.mutation_coverage_manifest_sha256,
+    evidence.source_attestation.mutation_coverage_source_files_sha256,
+  ];
+  if (row.world_id !== request.world_id || row.subject_id !== request.actor_id
+    || row.fact_id !== null || row.acquired_value_json !== null
+    || row.acquired_source_event_ids_json !== null
+    || row.canonical_event_type !== 'knowledge.acquisition.communication_delivered'
+    || row.event_committed_revision !== row.committed_revision
+    || row.acquisition_id !== expectedAcquisitionId || row.event_id !== expectedEventId
+    || row.provenance_ref !== 'host-delivery-event:' + evidence.host_event_id
+    || row.authorization_ref !== expectedAuthorizationRef
+    || row.provenance_digest !== evidence.receipt_digest
+    || row.source_adapter_id !== request.adapter_id
+    || row.source_conversation_id !== request.conversation_id
+    || row.source_message_id !== evidence.source.message_id
+    || row.source_version_id !== evidence.source.version_id
+    || row.source_content_sha256 !== evidence.source.content_sha256
+    || evidence.protocol_version !== 1 || evidence.evidence_type !== 'communication_delivered'
+    || evidence.producer !== 'logic-engine-host-delivery-receipt-v1'
+    || evidence.adapter_id !== request.adapter_id
+    || evidence.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    || !validHostUuid(evidence.host_installation_id)
+    || !validHostUuid(evidence.authenticated_account_id)
+    || !validHostUuid(evidence.host_session_id)
+    || !validHostUuid(evidence.conversation_uuid)
+    || expectedConversationId !== request.conversation_id
+    || evidence.sender.principal_type !== 'host_authenticated_account'
+    || evidence.sender.principal_id !== evidence.authenticated_account_id
+    || evidence.recipient.world_id !== request.world_id
+    || evidence.recipient.actor_id !== request.actor_id
+    || typeof evidence.recipient.actor_type !== 'string'
+    || !/^[a-z][a-z0-9_-]{0,63}$/i.test(evidence.recipient.actor_type)
+    || !validCoreId(evidence.recipient.host_character_avatar_id)
+    || evidence.channel !== 'sillytavern.character_chat'
+    || evidence.status !== 'delivered'
+    || typeof evidence.delivered_at !== 'string' || !Number.isFinite(Date.parse(evidence.delivered_at))
+    || !validHostUuid(evidence.host_event_id) || !validHostUuid(evidence.mutation_id)
+    || !validHostUuid(evidence.source.message_id) || !validHostUuid(evidence.source.version_id)
+    || !validSha256(evidence.source.content_sha256)
+    || !validSha256(evidence.receipt_digest) || !validSha256(evidence.receipt_signature)
+    || !validSha256(evidence.inventory_snapshot_digest)
+    || evidence.source_attestation.protocol_version !== 1
+    || evidence.source_attestation.host_commit !== evidence.host_commit
+    || evidence.source_attestation.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+    || !validHostSnapshotId(evidence.source_attestation.before_snapshot_id)
+    || !validHostSnapshotId(evidence.source_attestation.after_snapshot_id)
+    || evidence.source_attestation.before_snapshot_id === evidence.source_attestation.after_snapshot_id
+    || !attestationDigests.every(validSha256)
+    || proof.host_installation_id !== evidence.host_installation_id
+    || proof.authenticated_account_id !== evidence.authenticated_account_id
+    || proof.host_session_id !== evidence.host_session_id
+    || proof.conversation_uuid !== evidence.conversation_uuid
+    || proof.event_id !== evidence.host_event_id
+    || proof.event_type !== 'MUTATION_COMMITTED'
+    || proof.mutation_id !== evidence.mutation_id
+    || proof.operation !== 'message-send'
+    || !validSha256(proof.mutation_digest)
+    || proof.receipt_digest !== evidence.receipt_digest
+    || proof.occurred_at !== evidence.delivered_at
+    || proof.receipt_signature !== evidence.receipt_signature) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition source binding does not match its canonical projection or read scope.', 409);
+  }
+  return evidence;
+}
+function readVisibleNpcKnowledge(engine, readRequest) {
+  assert(typeof engine.npcKnowledgeVisibilityAuthorizer === 'function',
+    'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+    'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+  const read = engine.readNpcKnowledge(readRequest);
+  assert(read.status === 'ready' && read.truncated !== true,
+    'NPC_KNOWLEDGE_READ_INCOMPLETE',
+    'A complete current NPC knowledge read is required for belief proposals.', 409);
+
+  const visibleItems = [];
+  const withheldAcquisitionIds = [];
+  const withheldPropositionRefs = new Set();
+  for (const item of read.items) {
+    let decision;
+    try {
+      decision = engine.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        world_revision: read.snapshot.world_revision,
+        commit_sequence: read.snapshot.commit_sequence,
+        acquisition_id: item.acquisition_id,
+        fact_id: item.fact_id,
+        subject_ref: item.subject_ref,
+        predicate: item.predicate,
+        evidence_type: item.evidence_type ?? null,
+        source: item.source ?? null,
+        delivery: item.delivery ?? null,
+        source_evidence: item.source_evidence ?? null,
+        receipt_digest: item.provenance_digest,
+        receipt_proof: item.source_evidence?.receipt_proof ?? null,
+        acquisition_kind: item.acquisition_kind,
+        acquisition_authorization_ref: item.acquisition_authorization_ref,
+        provenance_ref: item.provenance_ref,
+        provenance_digest: item.provenance_digest,
+      }));
+    } catch {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The trusted visibility authorizer failed; no belief context was prepared.', 403);
+    }
+    const allowedKeys = [
+      'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
+      'commit_sequence', 'acquisition_id', 'authorization_ref',
+    ];
+    if (!exactDataRecord(decision, allowedKeys)) {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility authorizer returned a malformed decision.', 403);
+    }
+    const decisionMatchesScope = decision.world_id === read.world_id
+      && decision.conversation_id === read.conversation_id
+      && decision.adapter_id === read.adapter_id
+      && decision.actor_id === read.actor_id
+      && decision.recipient === read.recipient
+      && decision.purpose === read.purpose
+      && decision.world_revision === read.snapshot.world_revision
+      && decision.commit_sequence === read.snapshot.commit_sequence
+      && decision.acquisition_id === item.acquisition_id
+      && typeof decision.authorization_ref === 'string' && decision.authorization_ref.trim();
+    if (!decisionMatchesScope) {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility decision was not bound to this exact actor, acquisition and snapshot.', 403);
+    }
+    if (decision.status === 'denied') {
+      withheldAcquisitionIds.push(item.acquisition_id);
+      const withheldRef = npcPropositionRefFor(item);
+      if (withheldRef) withheldPropositionRefs.add(withheldRef);
+      continue;
+    }
+    if (decision.status !== 'allowed') {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility authorizer returned an unsupported decision status.', 403);
+    }
+    // Belief propositions currently accept only fact-backed initial/imported
+    // evidence. Delivery receipts are separately authorized but are not facts.
+    if (item.fact_id !== null && ['author_initial', 'imported'].includes(item.acquisition_kind)) {
+      visibleItems.push(item);
+    }
+  }
+
+  return Object.freeze({
+    read,
+    visibleRead: Object.freeze({
+      ...read,
+      items: Object.freeze(visibleItems),
+      withheld_acquisition_ids: Object.freeze(withheldAcquisitionIds),
+      withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+    }),
+  });
+}
+
 const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
   if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const visit = (node) => {
@@ -252,7 +510,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null, hostCommunicationReceiptVerifier = null, npcEvidenceHandleKeyProvider = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
@@ -261,6 +519,23 @@ export class LogicEngine {
     if (npcKnowledgeVisibilityAuthorizer !== null && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer instanceof ASYNC_FUNCTION_PROTOTYPE)) throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
+    if (hostVersionDigestLedger !== null
+      && typeof hostVersionDigestLedger.getVersionState !== 'function') {
+      throw new TypeError('hostVersionDigestLedger must provide getVersionState()');
+    }
+    this.hostVersionDigestLedger = hostVersionDigestLedger;
+    if (hostCommunicationReceiptVerifier !== null
+      && (typeof hostCommunicationReceiptVerifier !== 'function'
+        || hostCommunicationReceiptVerifier instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      throw new TypeError('hostCommunicationReceiptVerifier must be a synchronous deployment-owned function');
+    }
+    this.hostCommunicationReceiptVerifier = hostCommunicationReceiptVerifier;
+    if (npcEvidenceHandleKeyProvider !== null
+      && (typeof npcEvidenceHandleKeyProvider !== 'function'
+        || npcEvidenceHandleKeyProvider instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      throw new TypeError('npcEvidenceHandleKeyProvider must be a synchronous deployment-owned function');
+    }
+    this.npcEvidenceHandleKeyProvider = npcEvidenceHandleKeyProvider;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -759,17 +1034,92 @@ export class LogicEngine {
       }
   
       const rows = this.store.db.prepare(`
-        SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        SELECT a.world_id, a.subject_id, a.acquisition_id, a.event_id, a.committed_revision,
+          e.event_type AS canonical_event_type, e.committed_revision AS event_committed_revision,
+          e.effects_json AS canonical_effects_json, a.fact_id, a.acquisition_kind, a.provenance_ref,
           a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
+          a.source_evidence_json, a.source_adapter_id, a.source_conversation_id,
+          a.source_message_id, a.source_version_id, a.source_content_sha256,
           f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
         FROM knowledge_acquisitions AS a
-        JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
-        WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
+        JOIN world_events AS e ON e.world_id=a.world_id AND e.event_id=a.event_id AND e.validity='valid'
+        LEFT JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
+        WHERE a.world_id=? AND a.subject_id=? AND (
+          (a.acquisition_kind IN ('author_initial','imported') AND f.status='active')
+          OR (a.acquisition_kind='communication_delivered'
+            AND a.source_adapter_id=? AND a.source_conversation_id=?)
+        )
         ORDER BY a.acquisition_id
         LIMIT ?
-      `).all(request.world_id, request.actor_id, checked.request.limit + 1);
+      `).all(request.world_id, request.actor_id, request.adapter_id, request.conversation_id, checked.request.limit + 1);
       const truncated = rows.length > checked.request.limit;
       const items = rows.slice(0, checked.request.limit).map((row) => {
+        if (row.acquisition_kind === 'communication_delivered') {
+          const evidence = validateCommunicationDeliveryProjection(row, request);
+          assert(typeof this.hostVersionDigestLedger?.getVersionState === 'function',
+            'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+            'A trusted Host version ledger is required to read delivered communication.', 503);
+          const versionState = this.hostVersionDigestLedger.getVersionState(
+            request.world_id,
+            request.conversation_id,
+            row.source_message_id,
+            row.source_version_id,
+          );
+          assert(versionState?.status === 'ready'
+            && versionState.world_id === request.world_id
+            && versionState.conversation_id === request.conversation_id
+            && versionState.message_id === row.source_message_id
+            && versionState.version_id === row.source_version_id
+            && versionState.content_sha256 === row.source_content_sha256
+            && validSha256(versionState.snapshot_digest),
+          'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+          'The delivered message version is not present, verified and active in the current trusted Host inventory.', 409);
+          assert(typeof this.hostCommunicationReceiptVerifier === 'function',
+            'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+            'A trusted Host receipt verifier is required to read delivered communication.', 403);
+          let receiptVerified = false;
+          try {
+            receiptVerified = this.hostCommunicationReceiptVerifier(Object.freeze({
+              adapter_id: request.adapter_id,
+              world_id: request.world_id,
+              conversation_id: request.conversation_id,
+              actor_id: request.actor_id,
+              receipt_digest: evidence.receipt_digest,
+              receipt_proof: evidence.receipt_proof,
+              source_evidence: evidence,
+            })) === true;
+          } catch { receiptVerified = false; }
+          assert(receiptVerified, 'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+            'The stored Host delivery receipt signature is no longer verifiable for this adapter.', 403);
+          return Object.freeze({
+            acquisition_id: row.acquisition_id,
+            event_id: row.event_id,
+            fact_id: null,
+            evidence_type: 'communication_delivered',
+            acquisition_kind: row.acquisition_kind,
+            provenance_ref: row.provenance_ref,
+            provenance_digest: row.provenance_digest,
+            acquisition_authorization_ref: row.authorization_ref,
+            source: Object.freeze({
+              kind: 'host_message_version',
+              adapter_id: row.source_adapter_id,
+              conversation_id: row.source_conversation_id,
+              message_id: row.source_message_id,
+              version_id: row.source_version_id,
+              content_sha256: row.source_content_sha256,
+              inventory_snapshot_digest_at_delivery: evidence.inventory_snapshot_digest,
+              current_inventory_snapshot_digest: versionState.snapshot_digest,
+            }),
+            delivery: Object.freeze({
+              status: evidence.status,
+              delivered_at: evidence.delivered_at,
+              sender_principal_id: evidence.sender.principal_id,
+            }),
+            // Kept on the trusted internal read item for the per-acquisition
+            // visibility authorizer. Belief-context projection never forwards it.
+            source_evidence: freezeJsonTree(evidence),
+          });
+        }
         let value;
         let sourceEventIds;
         try {
@@ -804,6 +1154,7 @@ export class LogicEngine {
         return Object.freeze({
           acquisition_id: row.acquisition_id,
           fact_id: row.fact_id,
+          evidence_type: row.acquisition_kind,
           subject_ref: row.subject_ref,
           predicate: row.predicate,
           value: freezeTree(value),
@@ -872,86 +1223,233 @@ export class LogicEngine {
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
    */
+  /**
+   * Create a prompt-safe NPC belief evidence projection. Only model-facing
+   * opaque handles and proposition content are returned in model_context;
+   * Core IDs and snapshot scope remain in authorization_context.
+   */
+  createNpcBeliefProposalContext(input) {
+    return withNpcAuthorizationLease(this.store, () => {
+      const { read, visibleRead } = readVisibleNpcKnowledge(this, input);
+      assert(typeof this.npcEvidenceHandleKeyProvider === 'function',
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'A deployment-owned evidence-handle key provider is required.', 503);
+      let key;
+      try { key = this.npcEvidenceHandleKeyProvider(input.adapter_id); }
+      catch {
+        throw new EngineError('NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+          'The evidence-handle key provider failed.', 503);
+      }
+      assert(typeof key === 'string' && key.length >= 16,
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'No valid evidence-handle key is configured for this adapter.', 503);
+
+      const withheld = new Set(visibleRead.withheld_proposition_refs);
+      const visibleItems = visibleRead.items.filter(item =>
+        !withheld.has(npcPropositionRefFor(item)));
+      let handles;
+      try {
+        handles = createOpaqueNpcBeliefProposalContext({
+          read: visibleRead,
+          visibleItems,
+          key,
+          limit: input.limit,
+        });
+      } catch {
+        throw new EngineError('NPC_BELIEF_CONTEXT_UNSAFE',
+          'Current fact evidence cannot be projected without exposing internal Core references.', 409);
+      }
+      assert(handles.status === 'ready' && handles.model_context.propositions.length > 0,
+        'NPC_BELIEF_EVIDENCE_UNAVAILABLE',
+        'No complete authorized fact-backed proposition is available for a belief proposal.', 409);
+
+      const snapshotNow = this.getSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_BELIEF_CONTEXT_STALE',
+      'World snapshot changed while creating the NPC belief proposal context.', 409);
+
+      return Object.freeze({
+        status: 'ready',
+        model_context: handles.model_context,
+        authorization_context: Object.freeze({
+          world_id: read.world_id,
+          conversation_id: read.conversation_id,
+          adapter_id: read.adapter_id,
+          actor_id: read.actor_id,
+          recipient: read.recipient,
+          purpose: read.purpose,
+          expected_revision: read.snapshot.world_revision,
+          expected_commit_sequence: read.snapshot.commit_sequence,
+          limit: input.limit,
+        }),
+      });
+    });
+  }
+
+  /**
+   * Parse an untrusted model response and resolve its opaque evidence handles
+   * against a fresh Core read. This method deliberately does not commit; the
+   * separate commit wrapper is the only proposal-output write path.
+   */
+  resolveNpcBeliefProposalOutput(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'raw_output'])
+      && typeof input.raw_output === 'string',
+    'INVALID_NPC_BELIEF_PROPOSAL_OUTPUT',
+    'Belief proposal output requires an exact authorization context and raw model-output string.');
+
+    const parsed = parseNpcBeliefProposalOutput(input.raw_output);
+    if (parsed.status !== 'parsed') return parsed;
+
+    const resolved = this.resolveNpcBeliefProposalHandles({
+      authorization_context: input.authorization_context,
+      proposal: parsed.proposal,
+    });
+    if (resolved.status !== 'ready') return resolved;
+    return Object.freeze({
+      status: 'resolved_uncommitted',
+      stance: parsed.stance,
+      modality: parsed.modality,
+      snapshot: resolved.snapshot,
+      resolution: resolved.resolution,
+    });
+  }
+
+  /**
+   * Parse, resolve, and commit one model proposal through the existing
+   * Core-owned transition path. Idempotency is derived server-side from the
+   * scoped context and validated proposal; the model cannot choose the key.
+   */
+  commitNpcBeliefProposalOutput(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'raw_output'])
+      && typeof input.raw_output === 'string',
+    'INVALID_NPC_BELIEF_PROPOSAL_OUTPUT',
+    'Belief proposal commit requires an exact authorization context and raw model-output string.');
+
+    const parsed = parseNpcBeliefProposalOutput(input.raw_output);
+    if (parsed.status !== 'parsed') return parsed;
+    const idempotencyKey = 'npc-belief-proposal:' + hashRequest({
+      context_handle: parsed.proposal.context_handle,
+      proposal: parsed.proposal,
+      stance: parsed.stance,
+      modality: parsed.modality,
+    }).slice(0, 48);
+    const authorization = input.authorization_context;
+
+    // A retry after a successful commit necessarily carries the now-stale
+    // proposal snapshot. Authenticate the current scope before returning the
+    // prior acknowledgement; do not try to resolve expired/stale handles again.
+    const existingReplay = this.store.db.prepare(`
+      SELECT transition_id, event_id, committed_revision
+      FROM npc_belief_transitions
+      WHERE world_id=? AND idempotency_key=?
+    `).get(authorization.world_id, idempotencyKey);
+    if (existingReplay) {
+      const contextVerification = verifyNpcBeliefProposalContextHandle({
+        authorizationContext: authorization,
+        contextHandle: parsed.proposal.context_handle,
+        key: typeof this.npcEvidenceHandleKeyProvider === 'function'
+          ? this.npcEvidenceHandleKeyProvider(authorization.adapter_id) : null,
+        allowExpired: true,
+      });
+      assert(contextVerification.status === 'ready',
+        'NPC_BELIEF_CONTEXT_SCOPE_MISMATCH',
+        'The original signed proposal context does not match the replay authorization scope.', 403);
+      const currentWorld = this.store.world(authorization.world_id);
+      assert(currentWorld && currentWorld.status === 'active',
+        'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
+      this.readNpcKnowledge({
+        ...authorization,
+        expected_revision: currentWorld.world_revision,
+        expected_commit_sequence: this.store.currentCommitSequence(authorization.world_id),
+      });
+      return {
+        status: 'ready',
+        idempotent_replay: true,
+        transition: {
+          transition_id: existingReplay.transition_id,
+          event_id: existingReplay.event_id,
+          committed_revision: existingReplay.committed_revision,
+        },
+      };
+    }
+
+    const resolved = this.resolveNpcBeliefProposalOutput(input);
+    if (resolved.status !== 'resolved_uncommitted') return resolved;
+    return this.recordNpcBeliefTransition({
+      ...input.authorization_context,
+      proposition_ref: resolved.resolution.proposition_ref,
+      proposition_value: resolved.resolution.proposition_value,
+      stance: resolved.stance,
+      modality: resolved.modality,
+      supporting_acquisition_ids: resolved.resolution.supporting_acquisition_ids,
+      contradicting_acquisition_ids: resolved.resolution.contradicting_acquisition_ids,
+      reason_rule_ref: resolved.resolution.reason_rule_ref,
+      idempotency_key: idempotencyKey,
+    });
+  }
+
+  /**
+   * Resolve model-selected opaque handles against a fresh authorized Core
+   * read. The returned acquisition IDs are for trusted Core code only.
+   */
+  resolveNpcBeliefProposalHandles(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'proposal']),
+    'INVALID_NPC_BELIEF_HANDLE_RESOLUTION',
+    'Belief handle resolution requires an exact authorization context and proposal record.');
+    return withNpcAuthorizationLease(this.store, () => {
+      const authorizationContext = input.authorization_context;
+      const { read, visibleRead } = readVisibleNpcKnowledge(this, authorizationContext);
+      assert(typeof this.npcEvidenceHandleKeyProvider === 'function',
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'A deployment-owned evidence-handle key provider is required.', 503);
+      let key;
+      try { key = this.npcEvidenceHandleKeyProvider(authorizationContext.adapter_id); }
+      catch {
+        throw new EngineError('NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+          'The evidence-handle key provider failed.', 503);
+      }
+      assert(typeof key === 'string' && key.length >= 16,
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'No valid evidence-handle key is configured for this adapter.', 503);
+
+      const withheld = new Set(visibleRead.withheld_proposition_refs);
+      const visibleItems = visibleRead.items.filter(item =>
+        !withheld.has(npcPropositionRefFor(item)));
+      const resolved = resolveOpaqueNpcBeliefProposalHandles({
+        read: visibleRead,
+        visibleItems,
+        key,
+        authorizationContext,
+        proposal: input.proposal,
+      });
+      assert(resolved.status === 'ready',
+        'NPC_BELIEF_HANDLE_RESOLUTION_FAILED',
+        'Opaque evidence handles failed current Core scope/provenance validation.', 409,
+        { reason: resolved.reason });
+
+      const snapshotNow = this.getSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_BELIEF_CONTEXT_STALE',
+      'World snapshot changed while resolving the NPC belief proposal.', 409);
+
+      return Object.freeze({
+        status: 'ready',
+        snapshot: read.snapshot,
+        resolution: resolved.resolution,
+      });
+    });
+  }
+
   prepareNpcBeliefContext(input, proposal, currentBelief = null) {
     return withNpcAuthorizationLease(this.store, () => {
-      assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
-        'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
-        'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
-      const read = this.readNpcKnowledge(input);
-      assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
-        'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
-      const visibleItems = [];
-      const withheldPropositionRefs = new Set();
-      for (const item of read.items) {
-        let decision;
-        try {
-          decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
-            world_id: read.world_id,
-            conversation_id: read.conversation_id,
-            adapter_id: read.adapter_id,
-            actor_id: read.actor_id,
-            recipient: read.recipient,
-            purpose: read.purpose,
-            world_revision: read.snapshot.world_revision,
-            commit_sequence: read.snapshot.commit_sequence,
-            acquisition_id: item.acquisition_id,
-            fact_id: item.fact_id,
-            subject_ref: item.subject_ref,
-            predicate: item.predicate,
-            acquisition_kind: item.acquisition_kind,
-            acquisition_authorization_ref: item.acquisition_authorization_ref,
-            provenance_ref: item.provenance_ref,
-            provenance_digest: item.provenance_digest,
-          }));
-        } catch {
-          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-            'The trusted visibility authorizer failed; no belief context was prepared.', 403);
-        }
-        const allowedKeys = [
-          'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
-          'commit_sequence', 'acquisition_id', 'authorization_ref',
-        ];
-        const exactDecision = exactDataRecord(decision, allowedKeys);
-        if (!exactDecision) {
-          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-            'The visibility authorizer returned a malformed decision.', 403);
-        }
-        if (decision.status === 'denied') {
-          if (decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
-            || decision.adapter_id !== read.adapter_id
-            || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
-            || decision.purpose !== read.purpose
-            || decision.world_revision !== read.snapshot.world_revision
-            || decision.commit_sequence !== read.snapshot.commit_sequence
-            || decision.acquisition_id !== item.acquisition_id
-            || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
-            throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-              'The visibility denial was not bound to this actor and snapshot.', 403);
-          }
-          const withheldRef = npcPropositionRefFor(item);
-          if (withheldRef) withheldPropositionRefs.add(withheldRef);
-          continue;
-        }
-        if (decision.status !== 'allowed'
-          || decision.world_id !== read.world_id || decision.conversation_id !== read.conversation_id
-          || decision.adapter_id !== read.adapter_id
-          || decision.actor_id !== read.actor_id || decision.recipient !== read.recipient
-          || decision.purpose !== read.purpose
-          || decision.world_revision !== read.snapshot.world_revision
-          || decision.commit_sequence !== read.snapshot.commit_sequence
-          || decision.acquisition_id !== item.acquisition_id
-          || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
-          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
-            'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
-        }
-        visibleItems.push(item);
-      }
-  
-      const visibleRead = Object.freeze({
-        ...read,
-        items: Object.freeze(visibleItems),
-        withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
-      });
+      const { read, visibleRead } = readVisibleNpcKnowledge(this, input);
       const reduced = reduceNpcBeliefTransition({
         knowledgeRead: visibleRead,
         currentBelief,
@@ -978,7 +1476,6 @@ export class LogicEngine {
         status: 'ready',
         snapshot: visibleRead.snapshot,
         transition: reduced.transition,
-        context: built.context,
       });
     });
   }  /**
@@ -997,7 +1494,7 @@ export class LogicEngine {
       const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
       const allowed = [
         'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
-        'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
+        'limit', 'proposition_ref', 'proposition_value', 'stance', 'modality', 'supporting_acquisition_ids',
         'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
       ];
       assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -1008,10 +1505,17 @@ export class LogicEngine {
       }
       assert(['npc_turn_context', 'npc_action_evaluation'].includes(input.purpose),
         'INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
+      const hasModality = Object.hasOwn(input, 'modality');
+      const requiresExplicitModality = ['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance);
+      assert(!requiresExplicitModality || (hasModality && typeof input.modality === 'string'),
+        'INVALID_NPC_BELIEF_TRANSITION', 'ADR belief proposals require an explicit string modality.');
+      const modality = input.modality ?? 'asserted';
+      assert(typeof modality === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(modality),
+        'INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
-      const requestHash = hashRequest({
+      const requestHashPayload = {
         operation: 'npc.belief.transition',
         world_id: input.world_id,
         conversation_id: input.conversation_id,
@@ -1025,10 +1529,21 @@ export class LogicEngine {
         proposition_ref: input.proposition_ref,
         proposition_value: input.proposition_value,
         stance: input.stance,
+        modality,
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
-      });
+      };
+      const requestHash = hashRequest(requestHashPayload);
+      const legacyRequestHash = (!Object.hasOwn(input, 'modality') || input.modality === 'asserted')
+        && !['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance)
+        ? (() => {
+          const { modality: ignored, ...legacyPayload } = requestHashPayload;
+          return hashRequest(legacyPayload);
+        })()
+        : null;
+      const requestHashMatches = storedHash => storedHash === requestHash
+        || (legacyRequestHash !== null && storedHash === legacyRequestHash);
   
       // Canonical snapshot reads and deployment authorizers must run outside the
       // store's write transaction. Authenticate replays against the current cursor
@@ -1053,7 +1568,7 @@ export class LogicEngine {
           expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
           limit: limit,
         });
-        assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+        assert(requestHashMatches(existingReplay.request_hash), 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
         return {
           status: 'ready',
@@ -1079,7 +1594,7 @@ export class LogicEngine {
       };
       const read = this.readNpcKnowledge(readRequest);
       const currentRow = this.store.db.prepare(`
-        SELECT b.stance, b.evidence_acquisition_ids_json
+        SELECT b.stance, b.modality, b.proposition_value_json, b.evidence_acquisition_ids_json
         FROM npc_belief_transitions AS b
         JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
@@ -1090,6 +1605,8 @@ export class LogicEngine {
         actor_id: input.actor_id,
         proposition_ref: input.proposition_ref,
         stance: currentRow.stance,
+        modality: currentRow.modality,
+        proposition_value: JSON.parse(currentRow.proposition_value_json),
         evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
       } : null;
       const proposal = {
@@ -1099,6 +1616,7 @@ export class LogicEngine {
         proposition_ref: input.proposition_ref,
         proposition_value: input.proposition_value,
         stance: input.stance,
+        modality,
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
@@ -1129,11 +1647,11 @@ export class LogicEngine {
           WHERE world_id=? AND idempotency_key=?
         `).get(input.world_id, input.idempotency_key);
         if (replay) {
-          assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+          assert(requestHashMatches(replay.request_hash), 'IDEMPOTENCY_KEY_REUSED',
             'Belief transition idempotency key was already used for a different request.', 409);
-          assert(this.store.world(input.world_id)?.world_revision === input.expected_revision
-            && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
-          'STALE_WORLD_SNAPSHOT', 'World changed during belief transition authorization; retry against the current snapshot.', 409);
+          // Another identical request may have committed after this caller's
+          // final authorization read but before its write transaction. This is
+          // an acknowledgement-only replay, not a second state mutation.
           return {
             status: 'ready',
             idempotent_replay: true,
@@ -1159,6 +1677,7 @@ export class LogicEngine {
             proposition_ref: transition.proposition_ref,
             proposition_value: transition.proposition_value,
             stance: transition.stance,
+            modality: transition.modality,
             supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
             contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
             evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
@@ -1294,7 +1813,7 @@ export class LogicEngine {
         return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
       }
       const row = this.store.db.prepare(`
-        SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
+        SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance, b.modality,
           b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
           b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
           b.snapshot_commit_sequence, b.event_id, b.committed_revision
@@ -1312,6 +1831,7 @@ export class LogicEngine {
         proposition_ref: row.proposition_ref,
         ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
         stance: row.stance,
+        modality: row.modality,
         evidence_status: surviving.length === evidence.length ? 'supported'
           : surviving.length > 0 ? 'partially_supported' : 'unsupported',
         evidence_acquisition_ids: Object.freeze(surviving),
@@ -1519,6 +2039,191 @@ export class LogicEngine {
       causal_links: causalLinks,
       effects: assignments,
     }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
+  }
+
+  /**
+   * Commits a Core-owned acquisition record for a signed Host communication
+   * delivery. The API layer must first verify the adapter HMAC, current Core
+   * conversation/Actor binding, and the complete Host version inventory.
+   * The acquisition stores only digest/provenance metadata, never message text.
+   */
+  recordTrustedCommunicationDelivery(input) {
+    assert(obj(input), 'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Communication delivery request must be an object.');
+    const allowed = [
+      'world_id', 'adapter_id', 'conversation_id', 'delivery',
+      'receipt_digest', 'receipt_proof', 'inventory_snapshot_digest',
+    ];
+    assert(Object.keys(input).every(key => allowed.includes(key)),
+      'UNSUPPORTED_COMMUNICATION_DELIVERY_FIELD', 'Communication delivery request contains an unsupported field.');
+    for (const key of ['world_id', 'adapter_id', 'conversation_id']) {
+      assert(typeof input[key] === 'string' && input[key].trim() === input[key]
+        && input[key].length > 0 && input[key].length <= 200,
+      'INVALID_COMMUNICATION_DELIVERY_REQUEST', key + ' must be a canonical non-empty identifier.');
+    }
+    const delivery = input.delivery;
+    const deliveryKeys = [
+      'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
+      'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
+      'source_attestation', 'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+    ];
+    assert(obj(delivery) && Object.keys(delivery).length === deliveryKeys.length
+      && Object.keys(delivery).every(key => deliveryKeys.includes(key)),
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Delivery metadata must use the exact signed receipt schema.');
+    assert(/^[a-f0-9]{64}$/.test(input.receipt_digest ?? '')
+      && /^[a-f0-9]{64}$/.test(input.inventory_snapshot_digest ?? ''),
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Receipt and inventory snapshot digests are required.');
+    assert(obj(input.receipt_proof)
+      && input.receipt_proof.receipt_digest === input.receipt_digest
+      && input.receipt_proof.receipt_signature
+      && input.receipt_proof.event_id === delivery.host_event_id
+      && input.receipt_proof.mutation_id === delivery.mutation_id
+      && input.receipt_proof.occurred_at === delivery.delivered_at,
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Signed Host receipt proof does not match delivery metadata.');
+    assert(delivery.protocol_version === 1
+      && delivery.evidence_type === 'communication_delivered'
+      && delivery.producer === 'logic-engine-host-delivery-receipt-v1'
+      && delivery.host_commit === '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+      && delivery.channel === 'sillytavern.character_chat'
+      && delivery.status === 'delivered'
+      && delivery.recipient?.world_id === input.world_id
+      && delivery.sender?.principal_id === delivery.authenticated_account_id
+      && delivery.source_attestation?.host_commit === delivery.host_commit
+      && delivery.source?.content_sha256,
+    'INVALID_COMMUNICATION_DELIVERY_REQUEST', 'Delivery receipt is outside the pinned Host communication contract.', 403);
+    const expectedConversationId = [
+      delivery.host_session_id, delivery.host_installation_id, delivery.conversation_uuid,
+    ].join(':');
+    assert(expectedConversationId === input.conversation_id,
+      'HOST_DELIVERY_CONVERSATION_MISMATCH', 'Delivery receipt does not match its Core-bound conversation.', 403);
+
+    const actor = this.store.db.prepare(
+      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?",
+    ).get(input.world_id, delivery.recipient.actor_id);
+    assert(actor && actor.status !== 'destroyed',
+      'ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Delivered communication recipient must be a non-destroyed Core Actor.', 409);
+
+    const sourceEvidence = {
+      protocol_version: 1,
+      evidence_type: 'communication_delivered',
+      producer: delivery.producer,
+      adapter_id: input.adapter_id,
+      host_commit: delivery.host_commit,
+      host_installation_id: delivery.host_installation_id,
+      authenticated_account_id: delivery.authenticated_account_id,
+      host_session_id: delivery.host_session_id,
+      conversation_uuid: delivery.conversation_uuid,
+      sender: delivery.sender,
+      recipient: delivery.recipient,
+      source_attestation: delivery.source_attestation,
+      channel: delivery.channel,
+      source: delivery.source,
+      status: delivery.status,
+      delivered_at: delivery.delivered_at,
+      host_event_id: delivery.host_event_id,
+      mutation_id: delivery.mutation_id,
+      receipt_digest: input.receipt_digest,
+      receipt_signature: input.receipt_proof.receipt_signature,
+      receipt_proof: input.receipt_proof,
+      inventory_snapshot_digest: input.inventory_snapshot_digest,
+    };
+    const acquisitionId = 'acq:communication-delivered:' + hashRequest([
+      input.world_id, input.adapter_id, delivery.host_event_id, input.receipt_digest,
+    ]);
+    const idempotencyKey = 'host-delivery:' + hashRequest([input.adapter_id, delivery.host_event_id]);
+    const provenanceRef = 'host-delivery-event:' + delivery.host_event_id;
+    const authorizationRef = 'host-conversation-binding:' + hashRequest([input.adapter_id, input.conversation_id]);
+
+    const existing = this.store.db.prepare(`
+      SELECT a.event_id,a.committed_revision,a.source_evidence_json,e.validity,e.commit_sequence
+      FROM knowledge_acquisitions AS a
+      JOIN world_events AS e ON e.world_id=a.world_id AND e.event_id=a.event_id
+      WHERE a.world_id=? AND a.acquisition_id=?
+    `).get(input.world_id, acquisitionId);
+    if (existing) {
+      let storedEvidence;
+      try { storedEvidence = JSON.parse(existing.source_evidence_json); } catch {
+        throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+          'Existing communication acquisition evidence is not valid canonical JSON.', 409);
+      }
+      if (hashRequest(storedEvidence) !== hashRequest(sourceEvidence)) {
+        throw new EngineError('HOST_DELIVERY_IDEMPOTENCY_CONFLICT',
+          'The same Host delivery identity was previously committed with different evidence.', 409);
+      }
+      if (existing.validity !== 'valid') {
+        throw new EngineError('HOST_DELIVERY_ALREADY_RETRACTED',
+          'The original Host delivery acquisition was retracted and cannot be recommitted.', 409);
+      }
+      return {
+        accepted: true,
+        status: 'committed',
+        acquisition_id: acquisitionId,
+        event_id: existing.event_id,
+        world_id: input.world_id,
+        world_revision: existing.committed_revision,
+        commit_sequence: existing.commit_sequence,
+        effect_count: 1,
+        idempotent_replay: true,
+      };
+    }
+    const priorIdempotency = this.store.db.prepare(
+      'SELECT request_hash FROM idempotency_keys WHERE world_id=? AND idempotency_key=?',
+    ).get(input.world_id, idempotencyKey);
+    assert(!priorIdempotency, 'HOST_DELIVERY_ALREADY_PROCESSED_OR_RETRACTED',
+      'This Host delivery idempotency key already exists without an active acquisition projection.', 409);
+
+    const snapshot = this.getSnapshot(input.world_id);
+    assert(snapshot && snapshot.status === 'active',
+      'WORLD_NOT_FOUND', 'Target World is not active.', 404);
+    const entityRef = 'entity:' + delivery.recipient.actor_id;
+    // Hold the shared Coordinator lease across the final Host-version check and
+    // the Core event commit. Every HostVersionDigestLedger mutation uses this
+    // same lease, so an edit/revoke cannot invalidate the selected version
+    // between validation and acquisition commit.
+    const committed = this.store.tx(() => {
+      const versionState = this.hostVersionDigestLedger?.getVersionState(
+        input.world_id,
+        input.conversation_id,
+        delivery.source.message_id,
+        delivery.source.version_id,
+      );
+      assert(versionState?.status === 'ready'
+        && versionState.world_id === input.world_id
+        && versionState.conversation_id === input.conversation_id
+        && versionState.message_id === delivery.source.message_id
+        && versionState.version_id === delivery.source.version_id
+        && versionState.content_sha256 === delivery.source.content_sha256
+        && versionState.snapshot_digest === input.inventory_snapshot_digest,
+      'HOST_DELIVERY_SOURCE_VERSION_NOT_READY',
+      'The exact delivered message version is no longer active in the current trusted Host inventory.', 409);
+      return this.commitEvent(input.world_id, {
+        idempotency_key: idempotencyKey,
+        event_id: 'host-delivery-event:' + hashRequest([input.adapter_id, delivery.host_event_id]),
+        turn_id: 'host-delivery:' + delivery.host_event_id,
+        event_type: 'knowledge.acquisition.communication_delivered',
+        expected_revision: snapshot.world_revision,
+        expected_commit_sequence: snapshot.commit_sequence,
+        time_advance_seconds: 0,
+        caused_by: [],
+        depends_on: [entityRef],
+        read_set: [entityRef],
+        causal_links: [{ relation: 'READS_ENTITY', target_id: delivery.recipient.actor_id }],
+        effects: [{
+          kind: 'knowledge.acquire',
+          acquisition_id: acquisitionId,
+          subject_id: delivery.recipient.actor_id,
+          acquisition_kind: 'communication_delivered',
+          provenance_ref: provenanceRef,
+          provenance_digest: input.receipt_digest,
+          authorization_ref: authorizationRef,
+          source_evidence: sourceEvidence,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
+    });
+    return {
+      ...committed,
+      status: 'committed',
+      acquisition_id: acquisitionId,
+    };
   }
 
   commitEvent(id, x, options = {}) {

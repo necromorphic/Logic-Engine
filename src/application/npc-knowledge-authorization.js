@@ -1,3 +1,4 @@
+import { hashRequest } from '../core/request-hash.js';
 import { isAuthenticatedHostSessionContext } from './host-session-context.js';
 
 const validId = value => typeof value === 'string' && value === value.trim()
@@ -6,6 +7,7 @@ const validId = value => typeof value === 'string' && value === value.trim()
 
 const DENY_VISIBILITY_REF = 'core:npc-visibility-default-deny-v1';
 const READ_AUTHORIZATION_REF = 'core:host-conversation-actor-binding-v1';
+const ASYNC_FUNCTION_CONSTRUCTOR = Object.getPrototypeOf(async function asyncMarker() {}).constructor;
 
 /**
  * Production Core authorizers for the internal NPC knowledge reader.
@@ -15,14 +17,17 @@ const READ_AUTHORIZATION_REF = 'core:host-conversation-actor-binding-v1';
  * 2. this exact Host conversation is actively bound to this exact world;
  * 3. this exact adapter is actively bound to this exact actor in that world.
  *
- * Per-acquisition visibility additionally requires provenance_ref + digest to
- * match the trusted source registry for the world's exact World Pack version.
+ * Fact-backed per-acquisition visibility additionally requires provenance_ref
+ * + digest to match the trusted source registry for the world's exact World Pack
+ * version. Delivered communication instead requires a verified Host receipt
+ * bound to the exact recipient and active conversation.
  * No request field or model proposal can create any of these bindings.
  */
 export function createHostBoundNpcKnowledgeAuthorizers({
   store,
   adapterIds,
   trustedInitialKnowledgeSources,
+  hostCommunicationEvidenceVerifier = null,
 }) {
   if (!store?.db || typeof store.world !== 'function') {
     throw new TypeError('A persistent Core store is required for NPC knowledge authorization.');
@@ -33,6 +38,11 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   }
   if (!Array.isArray(trustedInitialKnowledgeSources)) {
     throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array.');
+  }
+  if (hostCommunicationEvidenceVerifier !== null
+    && (typeof hostCommunicationEvidenceVerifier !== 'function'
+      || hostCommunicationEvidenceVerifier instanceof ASYNC_FUNCTION_CONSTRUCTOR)) {
+    throw new TypeError('hostCommunicationEvidenceVerifier must be a synchronous deployment-owned function.');
   }
 
   const configuredAdapters = new Set(adapterIds);
@@ -87,7 +97,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   function visibilityAuthorizer(scope) {
     let source = null;
     if (activeHostAndActorBinding(scope)
-      && validId(scope.acquisition_kind)
+      && ['author_initial', 'imported'].includes(scope.acquisition_kind)
       && validId(scope.acquisition_authorization_ref)
       && validId(scope.provenance_ref)
       && typeof scope.provenance_digest === 'string'
@@ -102,8 +112,23 @@ export function createHostBoundNpcKnowledgeAuthorizers({
         && candidate.authorization_ref === scope.acquisition_authorization_ref
         && validId(candidate.authorization_ref)) ?? null;
     }
+    let communicationAllowed = false;
+    if (!source && scope?.acquisition_kind === 'communication_delivered'
+      && activeHostAndActorBinding(scope)
+      && validId(scope.acquisition_authorization_ref)
+      && scope.acquisition_authorization_ref === 'host-conversation-binding:' + hashRequest([
+        scope.adapter_id, scope.conversation_id,
+      ])
+      && validId(scope.provenance_ref)
+      && scope.provenance_ref === 'host-delivery-event:' + scope.source_evidence?.host_event_id
+      && /^[a-f0-9]{64}$/.test(scope.provenance_digest ?? '')
+      && scope.provenance_digest === scope.receipt_digest
+      && typeof hostCommunicationEvidenceVerifier === 'function') {
+      try { communicationAllowed = hostCommunicationEvidenceVerifier(scope) === true; }
+      catch { communicationAllowed = false; }
+    }
     return Object.freeze({
-      status: source ? 'allowed' : 'denied',
+      status: source || communicationAllowed ? 'allowed' : 'denied',
       world_id: scope.world_id,
       conversation_id: scope.conversation_id,
       adapter_id: scope.adapter_id,
@@ -113,7 +138,8 @@ export function createHostBoundNpcKnowledgeAuthorizers({
       world_revision: scope.world_revision,
       commit_sequence: scope.commit_sequence,
       acquisition_id: scope.acquisition_id,
-      authorization_ref: source?.authorization_ref ?? DENY_VISIBILITY_REF,
+      authorization_ref: source?.authorization_ref
+        ?? (communicationAllowed ? 'core:host-communication-delivery-v1' : DENY_VISIBILITY_REF),
     });
   }
 

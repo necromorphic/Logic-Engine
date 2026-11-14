@@ -308,6 +308,27 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           || !/^[a-f0-9]{64}$/.test(trustedIdentity.snapshot_fingerprint ?? '')) {
           return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
         }
+        // A mutation may change/delete message versions. Revoke any prior
+        // READY inventory before accepting PREPARED, so a crash or failed
+        // terminal receipt cannot leave stale source evidence readable.
+        if (body.event_type === 'MUTATION_PREPARED' && hostVersionLedger
+          && typeof hostVersionLedger.invalidateConversation === 'function') {
+          const conversationId = [
+            body.host_session_id, body.host_installation_id, body.conversation_uuid,
+          ].join(':');
+          let binding = null;
+          try { binding = hostConversationBindings.resolve({ adapterId, conversationId }); } catch {}
+          if (binding?.active === true) {
+            try {
+              hostVersionLedger.invalidateConversation(binding.world_id, binding.conversation_id);
+            } catch {
+              return send(res, 503, {
+                error: { code: 'HOST_VERSION_INVENTORY_INVALIDATION_FAILED',
+                  message: 'Conversation inventory could not be invalidated before mutation.' },
+              });
+            }
+          }
+        }
         try {
           const result = hostLifecycleJournal.append({
             ...body,
@@ -625,6 +646,155 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 409, { capture: result, inventory_status: 'NON_READY' });
         }
         return send(res, result.status === 'captured' ? 201 : 200, { capture: result });
+      }
+      if (url.pathname === '/v1/host-version-ledger/reconcile-delivery') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported signed Host delivery reconciliation operation.' },
+        });
+        if (!hostVersionLedger || typeof hostVersionLedger.reconcileConversation !== 'function') {
+          return send(res, 503, {
+            error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req, MAX_HOST_VERSION_SNAPSHOT_BYTES);
+        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const validIdentity = value => typeof value === 'string' && UUID.test(value);
+        const receipt = body?.communication_delivery_receipt;
+        const delivery = receipt?.delivery;
+        const inventory = delivery?.conversation_inventory;
+        const receiptKeys = ['protocol_version', 'evidence_type', 'delivery', 'receipt_digest', 'proof'];
+        const versionKeys = ['message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'];
+        const validHostId = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => ![
+            'host_installation_id', 'authenticated_account_id', 'host_session_id',
+            'conversation_uuid', 'communication_delivery_receipt',
+          ].includes(key))
+          || !['host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid']
+            .every(key => validIdentity(body[key]))
+          || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)
+          || Object.keys(receipt).length !== receiptKeys.length
+          || Object.keys(receipt).some(key => !receiptKeys.includes(key))
+          || receipt.protocol_version !== 1 || receipt.evidence_type !== 'communication_delivered'
+          || !delivery || typeof delivery !== 'object' || Array.isArray(delivery)
+          || !inventory || typeof inventory !== 'object' || Array.isArray(inventory)
+          || inventory.protocol_version !== 1 || inventory.complete !== true
+          || !Array.isArray(inventory.versions)
+          || inventory.versions.length === 0
+          || inventory.versions.length > MAX_HOST_VERSION_SNAPSHOT_ENTRIES
+          || inventory.versions.some(version => !version || typeof version !== 'object' || Array.isArray(version)
+            || Object.keys(version).length !== versionKeys.length
+            || Object.keys(version).some(key => !versionKeys.includes(key))
+            || !validHostId(version.message_id) || !validHostId(version.version_id)
+            || !Object.hasOwn(version, 'parent_version_id')
+            || !(version.parent_version_id === null || validHostId(version.parent_version_id))
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || version.deleted !== false)) {
+          throw new EngineError('INVALID_HOST_DELIVERY_RECONCILIATION',
+            'A bounded signed communication-delivery receipt with a complete digest-only conversation inventory is required.', 400);
+        }
+        const conversationId = [
+          body.host_session_id, body.host_installation_id, body.conversation_uuid,
+        ].join(':');
+        if (delivery.host_installation_id !== body.host_installation_id
+          || delivery.authenticated_account_id !== body.authenticated_account_id
+          || delivery.host_session_id !== body.host_session_id
+          || delivery.conversation_uuid !== body.conversation_uuid) {
+          throw new EngineError('HOST_DELIVERY_IDENTITY_MISMATCH',
+            'Signed delivery receipt identity does not match the authenticated Host request.', 403);
+        }
+        let binding;
+        let actor;
+        try {
+          binding = hostConversationBindings.resolve({ adapterId, conversationId });
+          actor = actorBindings.resolveForAdapter(binding.world_id, adapterId);
+        } catch {
+          return send(res, 403, {
+            error: { code: 'HOST_DELIVERY_CONVERSATION_NOT_AUTHORIZED',
+              message: 'The Host conversation and Actor binding are not authorized.' },
+          });
+        }
+        if (binding?.active !== true || binding.conversation_id !== conversationId
+          || delivery.recipient?.world_id !== binding.world_id
+          || !actor?.actor
+          || actor.actor.entity_id !== delivery.recipient.actor_id
+          || actor.actor.entity_type !== delivery.recipient.actor_type) {
+          return send(res, 403, {
+            error: { code: 'HOST_DELIVERY_ACTOR_BINDING_MISMATCH',
+              message: 'The signed delivery recipient does not match the Core-bound Actor.' },
+          });
+        }
+        const deliveryMetadata = Object.fromEntries(Object.entries(delivery)
+          .filter(([key]) => key !== 'conversation_inventory'));
+        const snapshot = {
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          complete: inventory.complete,
+          versions: inventory.versions.map(version => ({
+            world_id: binding.world_id,
+            conversation_id: binding.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            parent_version_id: version.parent_version_id,
+            content_sha256: version.content_sha256,
+            active: version.active,
+            deleted: version.deleted,
+          })),
+          attestation: {
+            adapter_id: adapterId,
+            protocol_version: receipt.protocol_version,
+            evidence_type: receipt.evidence_type,
+            delivery: deliveryMetadata,
+            conversation_inventory: {
+              protocol_version: inventory.protocol_version,
+              complete: inventory.complete,
+            },
+            receipt_digest: receipt.receipt_digest,
+            proof: receipt.proof,
+          },
+        };
+        const reconciliation = await hostVersionLedger.reconcileConversation(snapshot, {
+          revalidateBinding: () => {
+            try {
+              const current = hostConversationBindings.resolve({ adapterId, conversationId });
+              const currentActor = actorBindings.resolveForAdapter(current.world_id, adapterId);
+              return {
+                ...current,
+                active: current.active === true
+                  && currentActor?.actor?.entity_id === delivery.recipient.actor_id
+                  && currentActor?.actor?.entity_type === delivery.recipient.actor_type,
+              };
+            } catch { return null; }
+          },
+        });
+        if (reconciliation.status !== 'ready') {
+          return send(res, 409, { reconciliation, inventory_status: 'NON_READY' });
+        }
+        const acquisition = engine.recordTrustedCommunicationDelivery({
+          world_id: binding.world_id,
+          adapter_id: adapterId,
+          conversation_id: binding.conversation_id,
+          delivery: deliveryMetadata,
+          receipt_digest: receipt.receipt_digest,
+          receipt_proof: receipt.proof,
+          inventory_snapshot_digest: reconciliation.snapshot_sha256,
+        });
+        return send(res, 200, {
+          reconciliation: { status: 'ready', snapshot_digest: reconciliation.snapshot_sha256 },
+          acquisition: {
+            status: 'committed',
+            acquisition_id: acquisition.acquisition_id,
+            event_id: acquisition.event_id,
+            idempotent_replay: acquisition.idempotent_replay === true,
+          },
+          inventory_status: 'READY',
+        });
       }
       if (url.pathname === '/v1/host-version-ledger/reconcile') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host inventory reconciliation operation.' } });

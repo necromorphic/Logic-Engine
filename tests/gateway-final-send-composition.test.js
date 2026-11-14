@@ -56,6 +56,15 @@ test('Memory-enabled native Final-Send composes the embedded Gateway and one-sho
   assert.match(source, /runWithAuthenticatedHostSession: memoryEnabled/);
 });
 
+test('Memory→NPC remains opt-in and fail-closed unless the explicit environment flag is true', async () => {
+  const source = await readText(new URL('../index.mjs', import.meta.url));
+  assert.match(source, /const memoryEnabled = process\.env\.LOGIC_ENGINE_MEMORY_NPC_ENABLED === 'true'/);
+  assert.match(source, /gateway: memoryEnabled \? registeredRuntime\.gateway : unavailableGateway/);
+  assert.match(source, /requireProtectedMemory: memoryEnabled/);
+  assert.match(source, /if \(!memoryEnabled\) return null/);
+  assert.match(source, /memoryNpc: memoryEnabled \? 'LOCAL_ONE_SHOT_HANDOFF' : 'DISABLED_FAIL_CLOSED'/);
+});
+
 test('production NPC correlation IDs are Host-generated and never read from browser JSON', async () => {
   const source = await readText(new URL('../index.mjs', import.meta.url));
   const metadata = await readText(new URL('../host-adapter/npc-generation-request-metadata.mjs', import.meta.url));

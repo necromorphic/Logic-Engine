@@ -39,7 +39,7 @@ const handlerBlobSha = gitBlobSha(normalizeLineEndings(handlerSource));
 // file and every created hook file matches the exact post-install manifest.
 // A pristine upstream tree remains the other accepted state; partial or
 // unrecognized edits are rejected rather than silently normalized.
-const finalSendManifestPath = path.join(repoRoot, 'tests/fixtures/sillytavern-final-send-v1.manifest.json');
+const finalSendManifestPath = path.join(repoRoot, 'host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json');
 const finalSendPatchPath = path.join(repoRoot, 'host-adapter/patches/sillytavern-1.19.0-final-send.patch');
 const finalSendManifest = JSON.parse(await readFile(finalSendManifestPath, 'utf8'));
 const finalSendPatchBytes = await readFile(finalSendPatchPath);

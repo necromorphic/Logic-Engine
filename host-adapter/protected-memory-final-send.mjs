@@ -8,7 +8,9 @@ import { PROTECTED_MEMORY_SENDER_ROUTES } from '../src/security/memory-dispatch-
  * Every generation sender must call this helper exactly once after provider
  * transformations and final body serialization. Non-generation fetches must
  * not call it. Protected Memory context is supplied by trusted Host code, never
- * copied from request JSON. The sender registry is owned by the sole Gateway.
+ * copied from request JSON. It is serialized only as untrusted user-role data
+ * and denied on role-less completion APIs, never as a system role.
+ * The sender registry is owned by the sole Gateway.
  */
 export { PROTECTED_MEMORY_SENDER_ROUTES };
 
@@ -297,6 +299,60 @@ function renderNpcContext(laneAItems, contentBlocks) {
   return rendered;
 }
 
+function serializeUntrustedMemoryContext(context) {
+  // Serialize the complete Memory projection as a JSON data value. Its content
+  // is never parsed as a message array and cannot supply a provider role.
+  return JSON.stringify({
+    type: 'logic_engine_untrusted_memory',
+    trust_level: 'untrusted_data',
+    data: context,
+  });
+}
+
+function appendUntrustedMemoryToMessage(message, untrustedMemory) {
+  if (!message || typeof message !== 'object' || Array.isArray(message) || message.role !== 'user') {
+    throw new Error('PROTECTED_MEMORY_FINAL_SEND_USER_MESSAGE_INVALID');
+  }
+  if (typeof message.content === 'string') {
+    return { ...message, content: message.content + '\n\n' + untrustedMemory };
+  }
+  if (Array.isArray(message.content)) {
+    const content = new Array(message.content.length + 1);
+    for (let index = 0; index < message.content.length; index += 1) content[index] = message.content[index];
+    content[message.content.length] = { type: 'text', text: untrustedMemory };
+    return { ...message, content };
+  }
+  throw new Error('PROTECTED_MEMORY_FINAL_SEND_USER_CONTENT_UNSUPPORTED');
+}
+
+function appendUntrustedMemoryToChatMessages(body, untrustedMemory) {
+  if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
+  const messages = body.messages;
+  let userIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index]?.role === 'user') {
+      userIndex = index;
+      break;
+    }
+  }
+  const updated = new Array(messages.length + (userIndex === -1 ? 1 : 0));
+  for (let index = 0; index < messages.length; index += 1) {
+    updated[index] = index === userIndex
+      ? appendUntrustedMemoryToMessage(messages[index], untrustedMemory)
+      : messages[index];
+  }
+  if (userIndex === -1) {
+    let insertionIndex = 0;
+    while (insertionIndex < messages.length
+      && (messages[insertionIndex]?.role === 'system' || messages[insertionIndex]?.role === 'developer')) {
+      insertionIndex += 1;
+    }
+    for (let index = messages.length; index > insertionIndex; index -= 1) updated[index] = updated[index - 1];
+    updated[insertionIndex] = { role: 'user', content: untrustedMemory };
+  }
+  body.messages = updated;
+}
+
 function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, contentBlocks) {
   let body;
   try { body = JSON.parse(requestInit.body); } catch {
@@ -308,26 +364,15 @@ function serializeProtectedRequestBody(requestInit, senderRoute, laneAItems, con
   removeHostOnlyFields(body);
   const context = renderNpcContext(laneAItems, contentBlocks);
   if (context) {
-    if (arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
-      if (!Array.isArray(body.messages)) throw new Error('PROTECTED_MEMORY_FINAL_SEND_MESSAGES_MISSING');
-      let insertionIndex = 0;
-      while (insertionIndex < body.messages.length
-        && body.messages[insertionIndex]?.role === 'system') insertionIndex += 1;
-      const messages = body.messages;
-      const inserted = new Array(messages.length + 1);
-      for (let index = 0; index < insertionIndex; index += 1) inserted[index] = messages[index];
-      inserted[insertionIndex] = { role: 'system', content: context };
-      for (let index = insertionIndex; index < messages.length; index += 1) {
-        inserted[index + 1] = messages[index];
-      }
-      body.messages = inserted;
-    } else {
-      const promptKey = senderRoute === 'novelai-text' ? 'input' : 'prompt';
-      if (typeof body[promptKey] !== 'string') {
-        throw new Error('PROTECTED_MEMORY_FINAL_SEND_PROMPT_MISSING');
-      }
-      body[promptKey] = context + '\n\n' + body[promptKey];
+    const untrustedMemory = serializeUntrustedMemoryContext(context);
+    if (!arrayContains(CHAT_COMPLETION_ROUTES, senderRoute)) {
+      // A flat or otherwise non-message payload has no verified role boundary.
+      // Protected Memory is never flattened into an untrusted prompt string.
+      throw new Error('PROTECTED_MEMORY_FINAL_SEND_ROLE_BOUNDARY_UNSUPPORTED');
     }
+    // Accept only the serialized role-bearing messages[] contract. Do not
+    // guess or rewrite backend-specific transformed request formats.
+    appendUntrustedMemoryToChatMessages(body, untrustedMemory);
   }
   const serialized = JSON.stringify(body);
   if (serialized.length === 0 || Buffer.byteLength(serialized, 'utf8') > 4_000_000) {

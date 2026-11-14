@@ -14,8 +14,8 @@
  * This branch has partial directory-handle-relative DB/sidecar operations:
  * POSIX main/WAL/journal byte I/O uses broker-returned descriptors when
  * broker-bound; non-broker xDelete uses atomic quarantine rename plus moved
- * identity verification. Windows uses a retained parent HANDLE for recognized opens,
- * xAccess and handle-relative xDelete.
+ * identity verification. Windows manifest-bound opens, xAccess and sidecar xDelete
+ * use the service-owned namespace broker; unbound test roles retain handle-relative opens.
  * Sidecar ownership records are process-local; retired records are retained
  * when another hardlink survives deletion of the original sidecar pathname.
  * Persistent trust, complete sidecar lifecycle, full VFS operation coverage,
@@ -619,7 +619,8 @@ static int probe_win_sidecar_identity_lookup(int role_index, const wchar_t *suff
 
 /* Caller must hold g_registry_mutex. */
 static int probe_win_sidecar_identity_record_locked(int role_index, const wchar_t *suffix,
-                                                     const LogicEngineWinFileIdentity *identity) {
+                                                     const LogicEngineWinFileIdentity *identity,
+                                                     int manifest_authorized) {
   int kind = probe_win_sidecar_kind(suffix);
   int matching_identity = 0;
   int reject = !kind || !identity;
@@ -645,8 +646,9 @@ static int probe_win_sidecar_identity_record_locked(int role_index, const wchar_
     }
   }
   if (!reject && !matching_identity
-      && g_database_roles[role_index].manifest_bound) {
-    /* Manifest-bound roles cannot adopt an unmanifested sidecar identity. */
+      && g_database_roles[role_index].manifest_bound && !manifest_authorized) {
+    /* Only a handle returned by the authenticated broker may seed this
+       process-local cache for a manifest-bound role. */
     reject = 1;
   }
   if (!reject && !matching_identity) {
@@ -707,6 +709,18 @@ typedef HANDLE (WINAPI *probe_create_file_w_fn)(
   LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE
 );
 
+#define PROBE_WIN_BROKER_OP_OPEN_MAIN 2u
+#define PROBE_WIN_BROKER_OP_OPEN_SIDECAR 3u
+#define PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u
+#define PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u
+#define PROBE_WIN_BROKER_STATUS_OK 0u
+#define PROBE_WIN_BROKER_STATUS_INTERNAL 4u
+#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
+static int probe_win_manifest_role_ready(int role_index);
+static int probe_win_broker_open_role_request(
+    const char *role, uint16_t operation, const char *kind,
+    int read_only, uint32_t *status, HANDLE *opened);
+
 static HANDLE WINAPI probe_create_file_w(
   LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
   DWORD creation, DWORD attributes, HANDLE template_file
@@ -763,7 +777,6 @@ static HANDLE WINAPI probe_create_file_w(
     wchar_t *relative_name;
     ULONG disposition, options, native_attributes;
     ACCESS_MASK desired_access = (ACCESS_MASK)access;
-    LogicEngineWinFileIdentity expected_sidecar;
     const LogicEngineWinFileIdentity *expected =
       main_role_open ? &role->identity : NULL;
     if (security || template_file
@@ -778,28 +791,79 @@ static HANDLE WINAPI probe_create_file_w(
       SetLastError(ERROR_NOT_ENOUGH_MEMORY);
       return INVALID_HANDLE_VALUE;
     }
-    if (is_sidecar && role->manifest_bound) {
-      if (!probe_win_sidecar_identity_lookup(role_index, suffix, &expected_sidecar)) {
+    if (role->manifest_bound) {
+      uint16_t broker_operation;
+      const char *broker_kind;
+      uint32_t broker_status = PROBE_WIN_BROKER_STATUS_INTERNAL;
+      if (!probe_win_manifest_role_ready(role_index)) {
         sqlite3_free(relative_name);
         SetLastError(ERROR_ACCESS_DENIED);
         return INVALID_HANDLE_VALUE;
       }
-      expected = &expected_sidecar;
-      /* A manifest-bound active sidecar must already exist; never create a
-         replacement before a durable manifest generation authorizes it. */
-      disposition = FILE_OPEN;
+      if (main_role_open) {
+        if (creation == CREATE_NEW) {
+          sqlite3_free(relative_name);
+          SetLastError(ERROR_ACCESS_DENIED);
+          return INVALID_HANDLE_VALUE;
+        }
+        broker_operation = PROBE_WIN_BROKER_OP_OPEN_MAIN;
+        broker_kind = "main";
+      } else {
+        if (wcscmp(suffix,L"-wal")==0) broker_kind = "wal";
+        else if (wcscmp(suffix,L"-shm")==0) broker_kind = "shm";
+        else if (wcscmp(suffix,L"-journal")==0) broker_kind = "journal";
+        else {
+          sqlite3_free(relative_name);
+          SetLastError(ERROR_ACCESS_DENIED);
+          return INVALID_HANDLE_VALUE;
+        }
+        if (creation == CREATE_NEW) broker_operation = PROBE_WIN_BROKER_OP_CREATE_SIDECAR;
+        else if (creation == OPEN_EXISTING) broker_operation = PROBE_WIN_BROKER_OP_OPEN_SIDECAR;
+        else if (creation == OPEN_ALWAYS) broker_operation = PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR;
+        else {
+          sqlite3_free(relative_name);
+          SetLastError(ERROR_NOT_SUPPORTED);
+          return INVALID_HANDLE_VALUE;
+        }
+      }
+      {
+        int broker_read_only = (desired_access & GENERIC_WRITE) == 0;
+        const ACCESS_MASK broker_allowed_access =
+          GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+        if ((desired_access & GENERIC_READ) == 0
+            || (desired_access & ~broker_allowed_access) != 0
+            || ((broker_operation == PROBE_WIN_BROKER_OP_CREATE_SIDECAR
+                || broker_operation == PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR)
+                && broker_read_only)) {
+          sqlite3_free(relative_name);
+          SetLastError(ERROR_NOT_SUPPORTED);
+          return INVALID_HANDLE_VALUE;
+        }
+        if (!probe_win_broker_open_role_request(role->role,broker_operation,
+              broker_kind,broker_read_only,&broker_status,&handle)
+            || broker_status != PROBE_WIN_BROKER_STATUS_OK
+            || handle == INVALID_HANDLE_VALUE || handle == NULL) {
+          if (handle != INVALID_HANDLE_VALUE && handle != NULL) CloseHandle(handle);
+          handle = INVALID_HANDLE_VALUE;
+          SetLastError(broker_status == PROBE_WIN_BROKER_STATUS_NOT_FOUND
+            ? ERROR_FILE_NOT_FOUND : ERROR_ACCESS_DENIED);
+          sqlite3_free(relative_name);
+          return INVALID_HANDLE_VALUE;
+        }
+      }
+    } else {
+      /*
+       * Keep protected handles rename-compatible. SQLite's Windows VFS may omit
+       * FILE_SHARE_DELETE; without it, a still-open/pending DB handle can prevent
+       * the parent directory from being renamed even though all opens are
+       * anchored. The retained directory HANDLE remains the authority, and each
+       * later child open is still identity-checked.
+       */
+      handle = logic_engine_win_open_relative(role->anchor.parent,
+        relative_name, desired_access, share | FILE_SHARE_DELETE, disposition, options,
+        native_attributes, expected, &info_identity);
+      relative_open_error = GetLastError();
     }
-    /*
-     * Keep protected handles rename-compatible. SQLite's Windows VFS may omit
-     * FILE_SHARE_DELETE; without it, a still-open/pending DB handle can prevent
-     * the parent directory from being renamed even though all opens are
-     * anchored. The retained directory HANDLE remains the authority, and each
-     * later child open is still identity-checked.
-     */
-    handle = logic_engine_win_open_relative(role->anchor.parent,
-      relative_name, desired_access, share | FILE_SHARE_DELETE, disposition, options,
-      native_attributes, expected, &info_identity);
-    relative_open_error = GetLastError();
     sqlite3_free(relative_name);
   } else if (needs_identity) {
     /* Registered DB and sidecar paths must never fall back to absolute opens. */
@@ -860,7 +924,7 @@ static HANDLE WINAPI probe_create_file_w(
         }
       }
       if (!reject && has_anchor && !main_role_open
-          && !probe_win_sidecar_identity_record_locked(role_index, suffix, &info_identity)) {
+          && !probe_win_sidecar_identity_record_locked(role_index, suffix, &info_identity, role->manifest_bound)) {
         reject = 1;
       }
     }
@@ -1289,7 +1353,6 @@ static int probe_file_class_is_unhandled(int flags) {
 }
 
 #ifdef _WIN32
-static int probe_win_manifest_role_ready(int role_index);
 #endif
 
 static int probe_xOpen_parent(sqlite3_vfs *vfs, const char *name, sqlite3_file *file,
@@ -1859,8 +1922,6 @@ static const wchar_t *probe_win_sidecar_suffix(const ProbeDatabaseRole *role,
   return relative_name + base_length;
 }
 
-#define PROBE_WIN_BROKER_STATUS_OK 0u
-#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
 #define PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE 8u
 static int probe_win_broker_role_request(const char *role,uint16_t operation,
     const char *kind,uint32_t *status);
@@ -1972,7 +2033,7 @@ static int probe_win_pipe_read_all(HANDLE pipe, void *data, DWORD length) {
 static int probe_win_broker_role_request(const char *role, uint16_t operation,
     const char *kind, uint32_t *status) {
   ProbeWinBrokerHeader request,response;
-  char payload[146];size_t role_length,kind_length;DWORD available=0;
+  char payload[146];size_t role_length,kind_length;
   uint64_t request_id;HANDLE pipe=INVALID_HANDLE_VALUE;int ok=0;
   if (!role || !kind || !status) return 0;
   role_length=strlen(role);kind_length=strlen(kind);
@@ -2003,11 +2064,71 @@ static int probe_win_broker_role_request(const char *role, uint16_t operation,
   if (response.magic!=PROBE_WIN_BROKER_MAGIC
       ||response.version!=PROBE_WIN_BROKER_VERSION
       ||response.operation!=operation||response.request_id!=request_id
-      ||response.payload_length!=0
-      ||!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available!=0) goto done;
+      ||response.payload_length!=0) goto done;
   *status=response.flags;ok=1;
 done:
   CloseHandle(pipe);
+  return ok;
+}
+
+static int probe_win_broker_open_role_request(const char *role,uint16_t operation,
+    const char *kind,int read_only,uint32_t *status,HANDLE *opened) {
+  ProbeWinBrokerHeader request,response;
+  char payload[146];size_t role_length,kind_length;
+  uint64_t request_id,wire_handle=0,handle_value=0;
+  HANDLE pipe=INVALID_HANDLE_VALUE,received=INVALID_HANDLE_VALUE;int ok=0;
+  if (opened) *opened=INVALID_HANDLE_VALUE;
+  if (!role || !kind || !status || !opened) return 0;
+  role_length=strlen(role);kind_length=strlen(kind);
+  if (!role_length || role_length>128 || !kind_length || kind_length>8
+      || role_length+1+kind_length>sizeof(payload)) return 0;
+  memcpy(payload,role,role_length);payload[role_length]=0;
+  memcpy(payload+role_length+1,kind,kind_length);
+  request_id=(uint64_t)InterlockedIncrement64(&g_probe_win_broker_request_id);
+  if (!WaitNamedPipeW(PROBE_WIN_BROKER_PIPE,3000)) return 0;
+  pipe=CreateFileW(PROBE_WIN_BROKER_PIPE,GENERIC_READ|GENERIC_WRITE,0,NULL,
+      OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+  if (pipe==INVALID_HANDLE_VALUE) return 0;
+  ZeroMemory(&request,sizeof(request));
+  request.magic=probe_win_net32(PROBE_WIN_BROKER_MAGIC);
+  request.version=probe_win_net16(PROBE_WIN_BROKER_VERSION);
+  request.operation=probe_win_net16(operation);
+  request.flags=probe_win_net32(read_only?1u:0u);
+  request.request_id=probe_win_net64(request_id);
+  request.payload_length=probe_win_net32((uint32_t)(role_length+1+kind_length));
+  if (!probe_win_pipe_write_all(pipe,&request,sizeof(request))
+      ||!probe_win_pipe_write_all(pipe,payload,(DWORD)(role_length+1+kind_length))
+      ||!probe_win_pipe_read_all(pipe,&response,sizeof(response))) goto done;
+  response.magic=probe_win_net32(response.magic);
+  response.version=probe_win_net16(response.version);
+  response.operation=probe_win_net16(response.operation);
+  response.flags=probe_win_net32(response.flags);
+  response.request_id=probe_win_net64(response.request_id);
+  response.payload_length=probe_win_net32(response.payload_length);
+  if (response.magic!=PROBE_WIN_BROKER_MAGIC
+      ||response.version!=PROBE_WIN_BROKER_VERSION
+      ||response.operation!=operation||response.request_id!=request_id) goto done;
+  if (response.flags==PROBE_WIN_BROKER_STATUS_OK) {
+    if (response.payload_length!=sizeof(wire_handle)
+        ||!probe_win_pipe_read_all(pipe,&wire_handle,sizeof(wire_handle))) goto done;
+    handle_value=probe_win_net64(wire_handle);
+    {
+      HANDLE candidate=(HANDLE)(uintptr_t)handle_value;
+      DWORD handle_flags=0;
+      if (!handle_value || handle_value>(uint64_t)UINTPTR_MAX
+          || candidate==NULL || candidate==INVALID_HANDLE_VALUE
+          || !GetHandleInformation(candidate,&handle_flags)) goto done;
+      received=candidate;
+    }
+    *opened=received;received=INVALID_HANDLE_VALUE;
+  } else if (response.payload_length!=0) goto done;
+  *status=response.flags;ok=1;
+done:
+  if (received!=INVALID_HANDLE_VALUE && received!=NULL) CloseHandle(received);
+  if (!ok && *opened!=INVALID_HANDLE_VALUE && *opened!=NULL) {
+    CloseHandle(*opened);*opened=INVALID_HANDLE_VALUE;
+  }
+  if (pipe!=INVALID_HANDLE_VALUE) CloseHandle(pipe);
   return ok;
 }
 

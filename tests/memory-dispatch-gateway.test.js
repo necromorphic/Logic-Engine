@@ -209,7 +209,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   coreEnvelopeDigest: '2'.repeat(64),
   replayIdentity: createHash('sha256').update('original-host-prompt-' + requestId, 'utf8').digest('hex'),
   route: 'host-selected-chat-generation',
-  senderRoute: 'google-ai-studio',
+  senderRoute: 'custom',
   model: 'selected-model',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
@@ -528,7 +528,7 @@ test('immutable NPC Receiver context rejects post-prepare mutation and stale Pro
     for (const variant of staleVariants) {
       fixture.setProviderCandidates(variant.candidates);
       await assert.rejects(finalSend({
-        senderRoute: 'google-ai-studio',
+        senderRoute: 'custom',
         endpointUrl: 'https://provider.example/generate',
         replayIdentity: createHash('sha256').update('receiver-final-send-stale-context').digest('hex'),
         requestInit: {
@@ -653,7 +653,7 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
   const request = {
     originalUrl: '/api/backends/chat-completions/generate',
     body: {
-      chat_completion_source: 'makersuite',
+      chat_completion_source: 'custom-source',
       messages: [{ role: 'user', content: 'Continue the scene.' }],
     },
   };
@@ -667,7 +667,7 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
   try {
     await adapter.prepare(request, response);
     const senderRoute = adapter.resolveSenderRoute(request);
-    assert.equal(senderRoute, 'google-ai-studio');
+    assert.equal(senderRoute, 'custom');
     const upstream = await adapter.dispatch({
       request,
       response,
@@ -736,7 +736,7 @@ test('production SillyTavern Final-Send adapter carries the immutable Receiver c
 });
 
 
-test('SillyTavern OpenAI-compatible streaming request carries Receiver context through per-chunk Host release', async () => {
+test('SillyTavern generic chat-completion streaming request carries Receiver context through per-chunk Host release', async () => {
   const fixture = await createFixture();
   const canary = 'LE_ST_STREAM_EGRESS_' + 'b'.repeat(24);
   const retrieval = {
@@ -775,7 +775,7 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     requestId: '88888888-8888-4888-8888-888888888888',
     generationId: '99999999-9999-4999-8999-999999999999',
     runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    model: 'gpt-4o-mini', purpose: 'recall',
+    model: 'test-model', purpose: 'recall',
   });
   const protectedMemory = Object.freeze({
     ...received,
@@ -805,15 +805,15 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     runWithAuthenticatedHostSession: (_request, _conversationId, execute) => execute(),
   });
   // Source-backed SillyTavern 1.15.x contract:
-  // public/scripts/openai.js createGenerationParameters() returns generate_data;
-  // src/endpoints/backends/chat-completions.js serializes the OpenAI branch into
-  // the provider requestBody below. Keep the Host and provider bodies distinct.
+  // The pinned SillyTavern browser generation builder returns generate_data;
+  // the server chat-completion handler serializes the role-bearing messages[]
+  // request body below. Keep the Host and outbound bodies distinct.
   const request = {
     originalUrl: '/api/backends/chat-completions/generate',
     body: {
       type: 'normal',
       messages: [{ role: 'user', content: 'Continue the scene.' }],
-      model: 'gpt-4o-mini',
+      model: 'test-model',
       temperature: 0.7,
       frequency_penalty: 0,
       presence_penalty: 0,
@@ -822,7 +822,7 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
       stream: true,
       logit_bias: undefined,
       stop: ['<|stop|>'],
-      chat_completion_source: 'openai',
+      chat_completion_source: 'custom',
       user_name: 'User',
       char_name: 'Character',
       group_names: [],
@@ -837,7 +837,7 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     },
   };
   const response = {};
-  // Exact common OpenAI Chat Completions requestBody fields constructed by
+  // Exact common generic chat-completion requestBody fields constructed by
   // chat-completions.js for this request (undefined optional fields omitted by
   // JSON.stringify). ST-only fields such as type/chat_completion_source and
   // stream_options are not forwarded to the provider.
@@ -860,10 +860,10 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
   try {
     await adapter.prepare(request, response);
     const senderRoute = adapter.resolveSenderRoute(request);
-    assert.equal(senderRoute, 'openai');
+    assert.equal(senderRoute, 'custom');
     const upstream = await adapter.dispatch({
       request, response, senderRoute,
-      endpointUrl: 'https://api.openai.test/v1/chat/completions',
+      endpointUrl: 'https://provider.example/v1/chat/completions',
       requestInit, stream: true,
       transport: async (_url, init) => {
         observedBodies.push(init.body);
@@ -887,21 +887,21 @@ test('SillyTavern OpenAI-compatible streaming request carries Receiver context t
     assert.equal(observedBodies.length, 1, 'streaming must hand off to the provider exactly once');
     const outbound = JSON.parse(observedBodies[0]);
     assert.equal(outbound.stream, true);
-    assert.equal(outbound.model, 'gpt-4o-mini');
+    assert.equal(outbound.model, 'test-model');
     assert.equal(outbound.temperature, 0.7);
     assert.equal(outbound.max_tokens, 512);
     assert.deepEqual(outbound.stop, ['<|stop|>']);
     assert.equal(Object.hasOwn(outbound, 'seed'), false,
-      'the pinned ST createGenerationParameters() does not populate seed for this OpenAI request');
+      'the pinned ST createGenerationParameters() does not populate seed for this generic request');
     assert.equal(Object.hasOwn(outbound, 'chat_completion_source'), false,
       'ST routing metadata must not leak into the provider request body');
     assert.equal(Object.hasOwn(outbound, 'type'), false,
       'ST generation type must not leak into the provider request body');
     assert.equal(Object.hasOwn(outbound, 'stream_options'), false,
-      'the pinned ST OpenAI backend does not forward stream_options');
-    assert.equal(outbound.messages[0].role, 'system');
+      'the pinned ST chat-completion backend does not forward stream_options');
+    assert.deepEqual(outbound.messages.map(message => message.role), ['user']);
+    assert.equal(outbound.messages[0].content.startsWith('Continue the scene.'), true);
     assert.equal(outbound.messages[0].content.includes(canary), true);
-    assert.deepEqual(outbound.messages.at(-1), { role: 'user', content: 'Continue the scene.' });
     assert.deepEqual(hostChunks, [
       'data: {"choices":[{"delta":{"content":"part-1"}}]}',
       'data: {"choices":[{"delta":{"content":"part-2"}}]}',
@@ -1437,7 +1437,7 @@ test('stream response is not released when Provider revoke wins during upstream 
   });
   try {
     const pending = finalSend({
-      senderRoute: 'google-ai-studio',
+      senderRoute: 'custom',
       endpointUrl: 'https://provider.example/stream',
       requestInit: {
         method: 'POST',
@@ -1476,7 +1476,7 @@ test('successful stream begins its one Host response write under the Coordinator
   });
   try {
     await finalSend({
-      senderRoute: 'google-ai-studio',
+      senderRoute: 'custom',
       endpointUrl: 'https://provider.example/stream',
       requestInit: {
         method: 'POST',
@@ -1870,7 +1870,7 @@ test('dispatch validates current heads and grants, records one content-free star
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'selected-model');
-      assert.equal(row.sender_route, 'google-ai-studio');
+      assert.equal(row.sender_route, 'custom');
       assert.equal(row.policy_authority_id, 'test-memory-policy');
       assert.equal(row.policy_generation, 1);
       assert.equal(row.policy_fingerprint, 'd'.repeat(64));
@@ -1916,7 +1916,7 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   const fixture = await createFixture();
   try {
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
+      fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'unregistered-chat-completions' })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     await assert.rejects(
@@ -1986,7 +1986,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     );
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-other-sender', {
-        senderRoute: 'openai', generationId: 'generation-ambiguous-request', replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
+        senderRoute: 'custom', generationId: 'generation-ambiguous-request', replayIdentity: createHash('sha256').update('original-host-prompt-ambiguous-request', 'utf8').digest('hex'),
       })),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
       'changing sender family must not bypass the unresolved request digest',

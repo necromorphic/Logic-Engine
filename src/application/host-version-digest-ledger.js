@@ -26,7 +26,7 @@ const isPlainDataRecord = (value) => {
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
 const asyncFunctionConstructor = asyncFunctionPrototype.constructor;
 const MAX_HOST_SNAPSHOT_VERSIONS = 25000;
-const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
+const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions', 'attestation']);
 const versionInputKeys = new Set([
   'world_id', 'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'
 ]);
@@ -39,6 +39,18 @@ const isPlainDataArray = (value) => {
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
   }
   return true;
+};
+const clonePlainData = (value, depth = 0) => {
+  if (depth > 8) throw new TypeError('Host inventory attestation nesting is too deep');
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) {
+    if (!isPlainDataArray(value)) throw new TypeError('Host inventory attestation array is invalid');
+    return Object.freeze(value.map(item => clonePlainData(item, depth + 1)));
+  }
+  if (!isPlainDataRecord(value)) throw new TypeError('Host inventory attestation must contain only plain JSON data');
+  return Object.freeze(Object.fromEntries(Object.keys(value)
+    .map(key => [key, clonePlainData(value[key], depth + 1)])));
 };
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
@@ -62,10 +74,10 @@ const aliasesSameFile = (left, right) => {
 };
 
 /**
- * Draft-only digest ledger. Stores Host identity, digests and lifecycle state,
- * never raw message text. It is not the semantic Memory-record store and is
- * intentionally not wired to a public route or default runtime.
- * The inventory verifier must be a trusted Host/Core integration.
+ * Core-owned digest-only Host version ledger. Stores identities, digests and
+ * lifecycle state, never raw message text. Browser capture/reconcile inputs
+ * cannot establish READY; only the configured trusted Host/Core receipt verifier
+ * may publish a complete conversation inventory.
  */
 export class HostVersionDigestLedger {
   constructor(options) {
@@ -146,9 +158,15 @@ export class HostVersionDigestLedger {
       .all(snapshot.world_id, snapshot.conversation_id);
     const expected = snapshot.versions.map((v) => ({
       world_id: v.world_id, conversation_id: v.conversation_id, message_id: v.message_id,
-      version_id: v.version_id, content_sha256: v.content_sha256, parent_version_id: v.parent_version_id, lineage_status: 'VERIFIED', lifecycle: v.deleted ? 'tombstoned' : 'present'
+      version_id: v.version_id, content_sha256: v.content_sha256, parent_version_id: v.parent_version_id,
+      lineage_status: 'VERIFIED', lifecycle: v.deleted ? 'tombstoned' : 'present'
     })).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
-    if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+    const expectedKeys = new Set(expected.map(row => JSON.stringify(tuple(row))));
+    // A complete trusted snapshot may omit versions that were deleted since the
+    // prior snapshot. Retained tombstone rows are expected history, not drift.
+    const relevantStored = stored.filter(row => row.lifecycle === 'present'
+      || expectedKeys.has(JSON.stringify(tuple(row))));
+    if (JSON.stringify(relevantStored) !== JSON.stringify(expected)) return false;
     const pointers = this.db.prepare('SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
       .all(snapshot.world_id, snapshot.conversation_id);
     const expectedPointers = snapshot.versions.filter((v) => v.active && !v.deleted)
@@ -395,7 +413,8 @@ export class HostVersionDigestLedger {
       || typeof input.complete !== 'boolean'
       || !Array.isArray(input.versions)
       || isProxy(input.versions)
-      || Object.getPrototypeOf(input.versions) !== Array.prototype) {
+      || Object.getPrototypeOf(input.versions) !== Array.prototype
+      || (input.attestation !== undefined && !isPlainDataRecord(input.attestation))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Reject Proxy and non-native arrays before reading length. A native array's
@@ -421,11 +440,14 @@ export class HostVersionDigestLedger {
         ? Object.freeze(rawVersions.map((v) => v && typeof v === 'object' && !Array.isArray(v)
           ? Object.freeze({ ...v }) : v))
         : rawVersions;
+      const rawAttestation = input.attestation;
+      const attestation = rawAttestation === undefined ? undefined : clonePlainData(rawAttestation);
       snapshot = Object.freeze({
         world_id: input.world_id,
         conversation_id: input.conversation_id,
         complete: input.complete,
-        versions
+        versions,
+        ...(attestation === undefined ? {} : { attestation }),
       });
     }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
@@ -478,7 +500,8 @@ export class HostVersionDigestLedger {
         complete: snapshot.complete,
         versions: Array.isArray(snapshot.versions)
           ? Object.freeze(snapshot.versions.map((v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.freeze({ ...v }) : v))
-          : snapshot.versions
+          : snapshot.versions,
+        ...(snapshot.attestation === undefined ? {} : { attestation: snapshot.attestation }),
       })) === true;
     } catch { trusted = false; }
     if (!trusted) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_NOT_AUTHORIZED');
@@ -575,9 +598,14 @@ export class HostVersionDigestLedger {
       const now = new Date().toISOString();
       for (const row of known) {
         const key = JSON.stringify([row.world_id, row.conversation_id, row.message_id, row.version_id]);
-        if (!seen.has(key)) {
-          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_INVENTORY_DISAPPEARANCE', now, snapshotDigest);
-          return { status: 'non_ready', code: 'HOST_INVENTORY_DISAPPEARANCE' };
+        if (!seen.has(key) && row.lifecycle !== 'tombstoned') {
+          // The snapshot has already passed the trusted completeness verifier.
+          // Absence is therefore an authoritative deletion: retain the immutable
+          // version row as a tombstone and clear its active pointer.
+          this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
+            .run(now, now, row.world_id, row.conversation_id, row.message_id, row.version_id);
+          this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+            .run(row.world_id, row.conversation_id, row.message_id, row.version_id);
         }
       }
       // Preflight the whole snapshot before applying any version mutations. A conflict
@@ -643,6 +671,75 @@ export class HostVersionDigestLedger {
   getInventoryState(worldId, conversationId) {
     return this.db.prepare('SELECT * FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
       .get(worldId, conversationId) ?? null;
+  }
+
+  /**
+   * Read one exact message version only from a complete, trusted conversation
+   * inventory. A captured row alone is not enough: the inventory must be READY,
+   * the version lineage must be verified, and the active pointer must still
+   * select this exact version. This method is read-only and never promotes
+   * inventory readiness.
+   */
+  getVersionState(worldId, conversationId, messageId, versionId) {
+    if (![worldId, conversationId, messageId, versionId].every(validId)) {
+      return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_LOOKUP_INVALID' });
+    }
+
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const inventory = this.db.prepare(
+        'SELECT status,snapshot_digest,failure_code FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?',
+      ).get(worldId, conversationId);
+      if (!inventory || inventory.status !== 'READY' || !validDigest(inventory.snapshot_digest)) {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({
+          status: 'non_ready',
+          code: inventory?.failure_code || 'HOST_VERSION_INVENTORY_NOT_READY',
+        });
+      }
+
+      const row = this.#get({
+        world_id: worldId,
+        conversation_id: conversationId,
+        message_id: messageId,
+        version_id: versionId,
+      });
+      if (!row || row.lifecycle !== 'present' || row.lineage_status !== 'VERIFIED') {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_NOT_PRESENT_OR_VERIFIED' });
+      }
+      const active = this.db.prepare(
+        'SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?',
+      ).get(worldId, conversationId, messageId);
+      if (active?.version_id !== versionId) {
+        this.db.exec('COMMIT');
+        began = false;
+        return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' });
+      }
+
+      const result = Object.freeze({
+        status: 'ready',
+        world_id: worldId,
+        conversation_id: conversationId,
+        message_id: messageId,
+        version_id: versionId,
+        parent_version_id: row.parent_version_id,
+        content_sha256: row.content_sha256,
+        snapshot_digest: inventory.snapshot_digest,
+      });
+      this.db.exec('COMMIT');
+      began = false;
+      return result;
+    } catch {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      return Object.freeze({ status: 'non_ready', code: 'HOST_VERSION_LOOKUP_UNAVAILABLE' });
+    }
   }
 
   close() { this.db.close(); this.coordinator.close(); }

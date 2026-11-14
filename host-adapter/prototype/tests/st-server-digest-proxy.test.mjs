@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHostDigestProxyHandler, createHostInventoryReconcileProxyHandler, createHostRootInventoryPersistence, createHostLifecycleJournalProxy } from '../st-server-digest-proxy.mjs';
 import { createHash, createHmac } from 'node:crypto';
+import { verifyHostMutationReceiptSignature } from '../../extension-gateway/server-plugin/st-host-mutation-receipt-signature.mjs';
+import { createCommunicationDeliveryReceipt } from '../../extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs';
 import { resolve } from 'node:path';
 
 const CONFIG = {
@@ -647,3 +649,114 @@ test('digest proxy uses a bounded timeout signal after successful Host session a
   assert.ok(observedSignal instanceof AbortSignal);
   assert.equal(observedSignal.aborted, false);
 });
+
+
+test('communication delivery receipt requires one persisted user message in a one-to-one character chat', () => {
+  const installationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const accountId = '22222222-2222-4222-8222-222222222222';
+  const conversationUuid = '33333333-3333-4333-8333-333333333333';
+  const coreConversationId = [SESSION_ID, installationId, conversationUuid].join(':');
+  const priorMessage = {
+    message_id: '66666666-6666-4666-8666-666666666666',
+    role: 'assistant',
+    active_version_index: 0,
+    versions: [{
+      version_id: '77777777-7777-4777-8777-777777777777',
+      version_index: 0,
+      parent_version_id: null,
+      content_sha256: 'b'.repeat(64),
+      active: true,
+    }],
+  };
+  const newMessage = {
+    message_id: '88888888-8888-4888-8888-888888888888',
+    role: 'user',
+    active_version_index: 0,
+    versions: [{
+      version_id: '99999999-9999-4999-8999-999999999999',
+      version_index: 0,
+      parent_version_id: null,
+      content_sha256: 'c'.repeat(64),
+      active: true,
+    }],
+  };
+  const scope = {
+    operation: 'message-send',
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: SESSION_ID,
+    conversation_uuid: conversationUuid,
+    event_id: '44444444-4444-4444-8444-444444444444',
+    mutation_id: '55555555-5555-4555-8555-555555555555',
+    mutation_digest: 'a'.repeat(64),
+    occurred_at: '2026-10-31T00:00:01.000Z',
+  };
+  const snapshotProof = snapshotId => ({
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    snapshot_id: snapshotId,
+    source_snapshot_id: snapshotId,
+    snapshot_sha256: '1'.repeat(64),
+    source_inventory_sha256: '2'.repeat(64),
+    source_manifest_sha256: '3'.repeat(64),
+    mutation_coverage_manifest_sha256: '4'.repeat(64),
+    mutation_coverage_source_files_sha256: '5'.repeat(64),
+    snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+  });
+  const before = {
+    target_kind: 'character-chat',
+    target_locator: 'avatar-main/chat-1.jsonl',
+    logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage] },
+    snapshot_proof: snapshotProof('snapshot-before'),
+  };
+  const after = {
+    target_kind: 'character-chat',
+    target_locator: 'avatar-main/chat-1.jsonl',
+    logical_identity: { identity_status: 'CURRENT_IDENTITIES_VERIFIED', messages: [priorMessage, newMessage] },
+    snapshot_proof: snapshotProof('snapshot-after'),
+  };
+  const recipientBinding = {
+    adapter_id: CONFIG.LOGIC_ENGINE_ADAPTER_ID,
+    conversation_id: coreConversationId,
+    host_character_avatar_id: 'avatar-main',
+    world_id: 'world-main',
+    actor_id: 'npc-alice',
+    actor_type: 'npc',
+  };
+  const receipt = createCommunicationDeliveryReceipt({
+    scope, before, after, recipientBinding, hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  });
+  assert.equal(receipt.evidence_type, 'communication_delivered');
+  assert.equal(receipt.status, 'delivered');
+  assert.deepEqual(receipt.recipient, {
+    world_id: 'world-main', actor_id: 'npc-alice', actor_type: 'npc',
+    host_character_avatar_id: 'avatar-main',
+  });
+  assert.deepEqual(receipt.source, {
+    message_id: newMessage.message_id,
+    version_id: newMessage.versions[0].version_id,
+    content_sha256: 'c'.repeat(64),
+  });
+  assert.equal(JSON.stringify(receipt).includes('raw message text'), false);
+
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before: { ...before, target_kind: 'group-chat' },
+    after: { ...after, target_kind: 'group-chat' }, recipientBinding,
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after: { ...after, logical_identity: {
+      ...after.logical_identity,
+      messages: [priorMessage, { ...newMessage, role: 'assistant' }],
+    } }, recipientBinding, hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after, recipientBinding: null,
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+  assert.equal(createCommunicationDeliveryReceipt({
+    scope, before, after,
+    recipientBinding: { ...recipientBinding, host_character_avatar_id: 'different-avatar' },
+    hostCommit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+  }), null);
+});
+

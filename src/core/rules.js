@@ -304,8 +304,8 @@ export function validateEffects(effects, options = {}) {
       'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
-      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids'],
-      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
+      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids', 'source_evidence'],
+      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'modality', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -378,27 +378,115 @@ export function validateEffects(effects, options = {}) {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
       }
     } else if (effect.kind === 'knowledge.acquire') {
-      for (const key of ['acquisition_id', 'subject_id', 'fact_id', 'provenance_ref', 'authorization_ref']) {
+      for (const key of ['acquisition_id', 'subject_id', 'provenance_ref', 'authorization_ref']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) {
           throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION', key + ' must be a non-empty canonical identifier/reference of at most 200 characters.');
         }
       }
-      if (!['author_initial', 'imported'].includes(effect.acquisition_kind)) {
-        throw new EngineError('UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported acquisition kinds are supported.', 400);
-      }
       if (typeof effect.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(effect.provenance_digest)) {
         throw new EngineError('INVALID_KNOWLEDGE_PROVENANCE', 'provenance_digest must be a lowercase SHA-256 digest.');
       }
-      if (!Object.hasOwn(effect, 'acquired_value')) {
-        throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition must pin the value active at its canonical commit.');
-      }
-      validateEffectJson(effect.acquired_value, 'acquired_value');
-      if (!Array.isArray(effect.acquired_source_event_ids) || effect.acquired_source_event_ids.length < 1
-        || effect.acquired_source_event_ids.length > 500
-        || effect.acquired_source_event_ids.some((eventId) => typeof eventId !== 'string'
-          || !eventId.trim() || eventId !== eventId.trim() || eventId.length > 200)
-        || new Set(effect.acquired_source_event_ids).size !== effect.acquired_source_event_ids.length) {
-        throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition source-event identities must be 1–500 unique canonical IDs.');
+      if (effect.acquisition_kind === 'communication_delivered') {
+        const evidence = effect.source_evidence;
+        const exactKeys = (value, keys) => obj(value)
+          && Object.keys(value).sort().join('|') === [...keys].sort().join('|');
+        const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const digest = /^[a-f0-9]{64}$/;
+        if (Object.hasOwn(effect, 'fact_id') || Object.hasOwn(effect, 'acquired_value')
+          || Object.hasOwn(effect, 'acquired_source_event_ids')
+          || !exactKeys(evidence, [
+            'protocol_version', 'evidence_type', 'producer', 'adapter_id', 'host_commit',
+            'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+            'sender', 'recipient', 'source_attestation', 'channel', 'source', 'status', 'delivered_at',
+            'host_event_id', 'mutation_id', 'receipt_digest', 'receipt_signature', 'receipt_proof', 'inventory_snapshot_digest',
+          ])
+          || evidence.protocol_version !== 1 || evidence.evidence_type !== 'communication_delivered'
+          || evidence.producer !== 'logic-engine-host-delivery-receipt-v1'
+          || typeof evidence.adapter_id !== 'string' || !evidence.adapter_id.trim()
+          || typeof evidence.host_commit !== 'string' || !/^[a-f0-9]{40}$/.test(evidence.host_commit)
+          || !uuid.test(evidence.host_installation_id ?? '')
+          || !uuid.test(evidence.authenticated_account_id ?? '')
+          || !uuid.test(evidence.host_session_id ?? '')
+          || !uuid.test(evidence.conversation_uuid ?? '')
+          || !exactKeys(evidence.sender, ['principal_type', 'principal_id'])
+          || evidence.sender.principal_type !== 'host_authenticated_account'
+          || evidence.sender.principal_id !== evidence.authenticated_account_id
+          || !exactKeys(evidence.recipient, ['world_id', 'actor_id', 'actor_type', 'host_character_avatar_id'])
+          || evidence.recipient.actor_id !== effect.subject_id
+          || !exactKeys(evidence.source, ['message_id', 'version_id', 'content_sha256'])
+          || !uuid.test(evidence.source.message_id ?? '')
+          || !uuid.test(evidence.source.version_id ?? '')
+          || !digest.test(evidence.source.content_sha256 ?? '')
+          || !exactKeys(evidence.source_attestation, [
+            'protocol_version', 'host_commit', 'snapshot_alignment', 'before_snapshot_id', 'after_snapshot_id',
+            'before_snapshot_sha256', 'after_snapshot_sha256', 'before_source_inventory_sha256',
+            'after_source_inventory_sha256', 'source_manifest_sha256',
+            'mutation_coverage_manifest_sha256', 'mutation_coverage_source_files_sha256',
+          ])
+          || evidence.source_attestation.protocol_version !== 1
+          || evidence.source_attestation.host_commit !== evidence.host_commit
+          || evidence.source_attestation.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+          || typeof evidence.source_attestation.before_snapshot_id !== 'string'
+          || !evidence.source_attestation.before_snapshot_id.trim()
+          || typeof evidence.source_attestation.after_snapshot_id !== 'string'
+          || !evidence.source_attestation.after_snapshot_id.trim()
+          || evidence.source_attestation.before_snapshot_id === evidence.source_attestation.after_snapshot_id
+          || ![
+            evidence.source_attestation.before_snapshot_sha256,
+            evidence.source_attestation.after_snapshot_sha256,
+            evidence.source_attestation.before_source_inventory_sha256,
+            evidence.source_attestation.after_source_inventory_sha256,
+            evidence.source_attestation.source_manifest_sha256,
+            evidence.source_attestation.mutation_coverage_manifest_sha256,
+            evidence.source_attestation.mutation_coverage_source_files_sha256,
+          ].every(value => digest.test(value ?? ''))
+          || evidence.channel !== 'sillytavern.character_chat' || evidence.status !== 'delivered'
+          || typeof evidence.delivered_at !== 'string' || !Number.isFinite(Date.parse(evidence.delivered_at))
+          || !uuid.test(evidence.host_event_id ?? '') || !uuid.test(evidence.mutation_id ?? '')
+          || !digest.test(evidence.receipt_digest ?? '') || evidence.receipt_digest !== effect.provenance_digest
+          || !digest.test(evidence.receipt_signature ?? '')
+          || !exactKeys(evidence.receipt_proof, [
+            'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+            'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
+            'occurred_at', 'receipt_signature',
+          ])
+          || evidence.receipt_proof.host_installation_id !== evidence.host_installation_id
+          || evidence.receipt_proof.authenticated_account_id !== evidence.authenticated_account_id
+          || evidence.receipt_proof.host_session_id !== evidence.host_session_id
+          || evidence.receipt_proof.conversation_uuid !== evidence.conversation_uuid
+          || evidence.receipt_proof.event_id !== evidence.host_event_id
+          || evidence.receipt_proof.event_type !== 'MUTATION_COMMITTED'
+          || evidence.receipt_proof.mutation_id !== evidence.mutation_id
+          || evidence.receipt_proof.operation !== 'message-send'
+          || !digest.test(evidence.receipt_proof.mutation_digest ?? '')
+          || evidence.receipt_proof.receipt_digest !== evidence.receipt_digest
+          || evidence.receipt_proof.occurred_at !== evidence.delivered_at
+          || evidence.receipt_proof.receipt_signature !== evidence.receipt_signature
+          || !digest.test(evidence.inventory_snapshot_digest ?? '')) {
+          throw new EngineError('INVALID_COMMUNICATION_DELIVERY_EVIDENCE',
+            'Communication-delivered acquisition must contain an exact signed, digest-only Host receipt binding.', 400);
+        }
+        validateEffectJson(evidence, 'source_evidence');
+      } else if (['author_initial', 'imported'].includes(effect.acquisition_kind)) {
+        if (typeof effect.fact_id !== 'string' || !effect.fact_id.trim()
+          || effect.fact_id !== effect.fact_id.trim() || effect.fact_id.length > 200
+          || Object.hasOwn(effect, 'source_evidence')) {
+          throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION', 'Fact-backed acquisitions require fact_id and cannot carry source_evidence.');
+        }
+        if (!Object.hasOwn(effect, 'acquired_value')) {
+          throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition must pin the value active at its canonical commit.');
+        }
+        validateEffectJson(effect.acquired_value, 'acquired_value');
+        if (!Array.isArray(effect.acquired_source_event_ids) || effect.acquired_source_event_ids.length < 1
+          || effect.acquired_source_event_ids.length > 500
+          || effect.acquired_source_event_ids.some((eventId) => typeof eventId !== 'string'
+            || !eventId.trim() || eventId !== eventId.trim() || eventId.length > 200)
+          || new Set(effect.acquired_source_event_ids).size !== effect.acquired_source_event_ids.length) {
+          throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION_VERSION', 'Acquisition source-event identities must be 1–500 unique canonical IDs.');
+        }
+      } else {
+        throw new EngineError('UNSUPPORTED_ACQUISITION_KIND',
+          'Supported acquisition kinds are author_initial, imported, and communication_delivered.', 400);
       }
     } else if (effect.kind === 'npc.belief.transition') {
       for (const key of ['transition_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
@@ -410,15 +498,20 @@ export function validateEffects(effects, options = {}) {
       if (!['npc_turn_context', 'npc_action_evaluation'].includes(effect.purpose)) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
       }
-      if (!['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.stance)) {
+      if (!['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict',
+        'supported', 'contradicted', 'uncertain', 'dropped'].includes(effect.stance)) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief stance.');
+      }
+      if (typeof effect.modality !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(effect.modality)) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
       }
       if (!Object.hasOwn(effect, 'proposition_value')
         || !/^[a-f0-9]{64}$/.test(effect.request_hash)
         || !Number.isSafeInteger(effect.snapshot_revision) || effect.snapshot_revision < 0
         || !Number.isSafeInteger(effect.snapshot_commit_sequence) || effect.snapshot_commit_sequence < 0
         || typeof effect.prior_stance_preserved_despite_invalidation !== 'boolean'
-        || !(effect.previous_stance === null || ['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.previous_stance))) {
+        || !(effect.previous_stance === null || ['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict',
+          'supported', 'contradicted', 'uncertain', 'dropped'].includes(effect.previous_stance))) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Transition value, hash, snapshot, or prior-state metadata is invalid.');
       }
       for (const key of ['supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'surviving_prior_evidence', 'invalidated_prior_evidence']) {

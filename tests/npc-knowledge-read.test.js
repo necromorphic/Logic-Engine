@@ -4,8 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { hashRequest } from '../src/core/request-hash.js';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import {
+  createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
+  resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+  verifyNpcBeliefProposalContextHandle,
+} from '../src/application/npc-belief-proposal-handles.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
 
@@ -50,13 +56,14 @@ function setup(t, authorizer = (scope) => ({
   commit_sequence: scope.commit_sequence,
   acquisition_id: scope.acquisition_id,
   authorization_ref: 'rule:npc-visibility-v1',
-})) {
+})), engineOptions = {}) {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
+    ...engineOptions,
   });
   const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
   engine.createWorld({
@@ -516,6 +523,54 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
   });
 });
 
+test('Core commits strict model output through fresh resolution and replays after the snapshot advances', (t) => {
+  const { store, engine } = setup(t, undefined, undefined, {
+    npcEvidenceHandleKeyProvider: adapterId => adapterId === 'adapter-st'
+      ? 'test-adapter-secret-for-opaque-evidence-handles' : null,
+  });
+  const proposalContext = engine.createNpcBeliefProposalContext(request(store));
+  assert.equal(proposalContext.status, 'ready');
+  const proposition = proposalContext.model_context.propositions[0];
+  const evidence = proposition.evidence[0];
+  const raw_output = JSON.stringify({
+    schema_version: 1,
+    context_handle: proposalContext.model_context.context_handle,
+    proposition_handle: proposition.handle,
+    object: evidence.object,
+    modality: 'asserted',
+    stance: 'supported',
+    supporting_evidence_handles: [evidence.handle],
+    contradicting_evidence_handles: [],
+  });
+  const input = {
+    authorization_context: proposalContext.authorization_context,
+    raw_output,
+  };
+
+  const first = engine.commitNpcBeliefProposalOutput(input);
+  assert.equal(first.status, 'ready');
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(first.transition.stance, 'supported');
+  assert.equal(first.transition.modality, 'asserted');
+
+  const replay = engine.commitNpcBeliefProposalOutput(input);
+  assert.equal(replay.status, 'ready');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.transition.event_id, first.transition.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+  assert.throws(() => engine.commitNpcBeliefProposalOutput({
+    ...input,
+    authorization_context: {
+      ...proposalContext.authorization_context,
+      actor_id: 'npc-b',
+    },
+  }), { code: 'NPC_BELIEF_CONTEXT_SCOPE_MISMATCH' });
+
+  const event = store.events('world-a').find(item => item.event_id === first.transition.event_id);
+  assert.equal(event.effects[0].stance, 'supported');
+  assert.equal(event.effects[0].modality, 'asserted');
+});
+
 test('Core persists an explicit belief transition, supports idempotent replay, and reports current evidence status', (t) => {
   const { store, engine } = setup(t);
   const current = request(store);
@@ -541,6 +596,7 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(canonicalEvent.effects[0].kind, 'npc.belief.transition');
   assert.deepEqual(canonicalEvent.effects[0].evidence_acquisition_ids, [read.items[0].acquisition_id]);
   assert.deepEqual(canonicalEvent.effects[0].proposition_value, read.items[0].value);
+  assert.equal(canonicalEvent.effects[0].modality, 'asserted');
 
   const replay = engine.recordNpcBeliefTransition(input);
   assert.equal(replay.status, 'ready');
@@ -557,6 +613,83 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(state.stance, 'believes_true');
   assert.equal(state.evidence_status, 'supported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
+});
+
+test('legacy belief transition idempotency hashes remain replayable after modality migration', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'legacy-belief-transition-replay',
+  };
+  const first = engine.recordNpcBeliefTransition(input);
+  const legacyHash = hashRequest({
+    operation: 'npc.belief.transition',
+    world_id: input.world_id,
+    conversation_id: input.conversation_id,
+    adapter_id: input.adapter_id,
+    actor_id: input.actor_id,
+    recipient: input.recipient,
+    purpose: input.purpose,
+    expected_revision: input.expected_revision,
+    expected_commit_sequence: input.expected_commit_sequence,
+    limit: input.limit,
+    proposition_ref: input.proposition_ref,
+    proposition_value: input.proposition_value,
+    stance: input.stance,
+    supporting_acquisition_ids: input.supporting_acquisition_ids,
+    contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+    reason_rule_ref: input.reason_rule_ref,
+  });
+  store.db.prepare('UPDATE npc_belief_transitions SET request_hash=? WHERE world_id=? AND idempotency_key=?')
+    .run(legacyHash, input.world_id, input.idempotency_key);
+
+  const replay = engine.recordNpcBeliefTransition(input);
+  assert.equal(replay.status, 'ready');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.transition.event_id, first.transition.event_id);
+});
+
+test('identical concurrent Core belief commits return one canonical transition', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'concurrent-belief-transition',
+  };
+  const originalTx = store.tx.bind(store);
+  let competingCommit;
+  let injected = false;
+  store.tx = callback => {
+    if (!injected) {
+      injected = true;
+      competingCommit = engine.recordNpcBeliefTransition(input);
+    }
+    return originalTx(callback);
+  };
+
+  const result = engine.recordNpcBeliefTransition(input);
+  store.tx = originalTx;
+  assert.equal(competingCommit.status, 'ready');
+  assert.equal(competingCommit.idempotent_replay, false);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.idempotent_replay, true);
+  assert.equal(result.transition.event_id, competingCommit.transition.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
 });
 
 test('belief transition projection rebuilds from canonical event effects', (t) => {
@@ -583,8 +716,74 @@ test('belief transition projection rebuilds from canonical event effects', (t) =
   assert.ok(row);
   assert.equal(row.event_id, first.transition.event_id);
   assert.equal(row.stance, 'believes_true');
+  assert.equal(row.modality, 'asserted');
   assert.deepEqual(JSON.parse(row.proposition_value_json), read.items[0].value);
   assert.deepEqual(JSON.parse(row.evidence_acquisition_ids_json), [read.items[0].acquisition_id]);
+});
+
+test('Core accepts ADR belief states, persists modality, and requires a prior value for dropped', (t) => {
+  const { store, engine } = setup(t);
+  const firstRead = engine.readNpcKnowledge(request(store));
+  const propositionRef = propositionRefFor(firstRead.items[0]);
+  const acquisitionId = firstRead.items[0].acquisition_id;
+  const originalValue = firstRead.items[0].value;
+  const invalidModalityBase = {
+    ...request(store),
+    proposition_ref: propositionRef,
+    proposition_value: originalValue,
+    stance: 'supported',
+    supporting_acquisition_ids: [acquisitionId],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...invalidModalityBase,
+    modality: undefined,
+    idempotency_key: 'adr-undefined-modality',
+  }), { code: 'INVALID_NPC_BELIEF_TRANSITION' });
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...invalidModalityBase,
+    modality: null,
+    idempotency_key: 'adr-null-modality',
+  }), { code: 'INVALID_NPC_BELIEF_TRANSITION' });
+
+  const commit = (stance, propositionValue, key) => {
+    const current = request(store);
+    const read = engine.readNpcKnowledge(current);
+    return engine.recordNpcBeliefTransition({
+      ...current,
+      proposition_ref: propositionRef,
+      proposition_value: propositionValue,
+      stance,
+      modality: 'asserted',
+      supporting_acquisition_ids: stance === 'supported' ? [acquisitionId] : [],
+      contradicting_acquisition_ids: stance === 'supported' ? [] : [acquisitionId],
+      reason_rule_ref: 'rule:belief-update-v1',
+      idempotency_key: key,
+    });
+  };
+
+  const supported = commit('supported', originalValue, 'adr-supported');
+  assert.equal(supported.status, 'ready');
+  assert.equal(supported.transition.stance, 'supported');
+  assert.equal(supported.transition.modality, 'asserted');
+
+  const contradictedValue = { value: 'not-the-observed-value' };
+  const contradicted = commit('contradicted', contradictedValue, 'adr-contradicted');
+  assert.equal(contradicted.status, 'ready');
+  assert.equal(contradicted.transition.stance, 'contradicted');
+
+  const uncertain = commit('uncertain', contradictedValue, 'adr-uncertain');
+  assert.equal(uncertain.status, 'ready');
+  assert.equal(uncertain.transition.stance, 'uncertain');
+
+  const dropped = commit('dropped', contradictedValue, 'adr-dropped');
+  assert.equal(dropped.status, 'ready');
+  assert.equal(dropped.transition.stance, 'dropped');
+
+  const row = store.db.prepare('SELECT stance,modality FROM npc_belief_transitions WHERE world_id=? ORDER BY committed_revision DESC LIMIT 1')
+    .get('world-a');
+  assert.deepEqual(row, { stance: 'dropped', modality: 'asserted' });
 });
 
 test('generic event callers cannot forge Core NPC belief transitions with a public option flag', (t) => {
@@ -1518,4 +1717,309 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   assert.equal(store.db.prepare(
     'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
   ).get(binding.adapter_id, binding.conversation_id).active, 1);
+});
+
+
+test('reader returns typed communication evidence only while its signed source version remains active', (t) => {
+  const contentDigest = createHash('sha256').update('persisted Host message bytes').digest('hex');
+  const installationId = '11111111-1111-4111-8111-111111111111';
+  const accountId = '22222222-2222-4222-8222-222222222222';
+  const sessionId = '33333333-3333-4333-8333-333333333333';
+  const conversationUuid = '44444444-4444-4444-8444-444444444444';
+  const messageId = '55555555-5555-4555-8555-555555555555';
+  const versionId = '66666666-6666-4666-8666-666666666666';
+  const hostEventId = '77777777-7777-4777-8777-777777777777';
+  const mutationId = '88888888-8888-4888-8888-888888888888';
+  const conversationId = [sessionId, installationId, conversationUuid].join(':');
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  const receiptDigest = digest('signed receipt');
+  const receiptSignature = digest('receipt signature');
+  const inventoryDigest = digest('delivery inventory');
+  const deliveredAt = '2026-11-14T10:00:00.000Z';
+  const receiptProof = {
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: sessionId,
+    conversation_uuid: conversationUuid,
+    event_id: hostEventId,
+    event_type: 'MUTATION_COMMITTED',
+    mutation_id: mutationId,
+    operation: 'message-send',
+    mutation_digest: digest('mutation'),
+    receipt_digest: receiptDigest,
+    occurred_at: deliveredAt,
+    receipt_signature: receiptSignature,
+  };
+  const sourceEvidence = {
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    producer: 'logic-engine-host-delivery-receipt-v1',
+    adapter_id: 'adapter-st',
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: sessionId,
+    conversation_uuid: conversationUuid,
+    sender: { principal_type: 'host_authenticated_account', principal_id: accountId },
+    recipient: {
+      world_id: 'world-a', actor_id: 'npc-a', actor_type: 'character',
+      host_character_avatar_id: 'avatar-a',
+    },
+    source_attestation: {
+      protocol_version: 1,
+      host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      before_snapshot_id: 'snapshot-before',
+      after_snapshot_id: 'snapshot-after',
+      before_snapshot_sha256: digest('before snapshot'),
+      after_snapshot_sha256: digest('after snapshot'),
+      before_source_inventory_sha256: digest('before inventory'),
+      after_source_inventory_sha256: digest('after inventory'),
+      source_manifest_sha256: digest('source manifest'),
+      mutation_coverage_manifest_sha256: digest('mutation manifest'),
+      mutation_coverage_source_files_sha256: digest('mutation files'),
+    },
+    channel: 'sillytavern.character_chat',
+    source: { message_id: messageId, version_id: versionId, content_sha256: contentDigest },
+    status: 'delivered',
+    delivered_at: deliveredAt,
+    host_event_id: hostEventId,
+    mutation_id: mutationId,
+    receipt_digest: receiptDigest,
+    receipt_signature: receiptSignature,
+    receipt_proof: receiptProof,
+    inventory_snapshot_digest: inventoryDigest,
+  };
+  let currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: contentDigest,
+    snapshot_digest: digest('current inventory'),
+  };
+  const hostVersionDigestLedger = {
+    getVersionState(...args) {
+      assert.deepEqual(args, ['world-a', conversationId, messageId, versionId]);
+      return currentVersionState;
+    },
+  };
+  const hostCommunicationReceiptVerifier = ({ adapter_id, receipt_digest, receipt_proof, source_evidence }) =>
+    adapter_id === 'adapter-st'
+      && receipt_digest === receiptDigest
+      && receipt_proof.receipt_digest === receiptDigest
+      && receipt_proof.receipt_signature === receiptSignature
+      && source_evidence.receipt_signature === receiptSignature;
+  const { store, engine } = setup(t, undefined, undefined, {
+    hostVersionDigestLedger,
+    hostCommunicationReceiptVerifier,
+    npcEvidenceHandleKeyProvider: adapterId => adapterId === 'adapter-st'
+      ? 'test-adapter-secret-for-opaque-evidence-handles' : null,
+  });
+  const deliveryKeys = [
+    'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
+    'authenticated_account_id', 'host_session_id', 'conversation_uuid', 'sender', 'recipient',
+    'source_attestation', 'channel', 'source', 'status', 'delivered_at', 'host_event_id', 'mutation_id',
+  ];
+  const delivery = Object.fromEntries(deliveryKeys.map(key => [key, sourceEvidence[key]]));
+  const acquisition = engine.recordTrustedCommunicationDelivery({
+    world_id: 'world-a',
+    adapter_id: 'adapter-st',
+    conversation_id: conversationId,
+    delivery,
+    receipt_digest: receiptDigest,
+    receipt_proof: receiptProof,
+    inventory_snapshot_digest: inventoryDigest,
+  });
+  assert.equal(acquisition.status, 'committed');
+
+  const readRequest = request(store, { conversation_id: conversationId });
+  const result = engine.readNpcKnowledge(readRequest);
+  const item = result.items.find(value => value.acquisition_kind === 'communication_delivered');
+  assert.ok(item);
+  assert.equal(item.evidence_type, 'communication_delivered');
+  assert.equal(item.fact_id, null);
+  assert.equal(item.source.message_id, messageId);
+  assert.equal(item.source.version_id, versionId);
+  assert.equal(item.source.content_sha256, contentDigest);
+  assert.equal(item.delivery.status, 'delivered');
+  assert.equal(Object.hasOwn(item, 'value'), false);
+  assert.equal(Object.isFrozen(item.source_evidence.recipient), true);
+  assert.equal(Object.hasOwn(item.source_evidence, 'message_text'), false);
+
+  const factItem = result.items.find(value => value.fact_id === 'fact-a');
+  const prepared = engine.prepareNpcBeliefContext(readRequest, {
+    world_id: result.world_id,
+    actor_id: result.actor_id,
+    snapshot: result.snapshot,
+    proposition_ref: propositionRefFor(factItem),
+    proposition_value: factItem.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [factItem.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  });
+  assert.equal(prepared.status, 'ready');
+  assert.deepEqual(prepared.transition.evidence_acquisition_ids, [factItem.acquisition_id]);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
+
+  const proposalContext = engine.createNpcBeliefProposalContext(readRequest);
+  assert.equal(proposalContext.status, 'ready');
+  assert.equal(proposalContext.model_context.propositions.length, 1);
+  const modelProposition = proposalContext.model_context.propositions[0];
+  assert.equal(modelProposition.subject_kind, 'current_actor');
+  assert.equal(modelProposition.evidence.length, 1);
+  assert.equal(modelProposition.evidence[0].evidence_type, 'author_initial');
+  const modelProjectionText = JSON.stringify(proposalContext.model_context);
+  for (const internal of ['world-a', 'npc-a', 'fact-a', 'author-seed', 'authoring:test.world@1.0.0', 'acq:']) {
+    assert.equal(modelProjectionText.includes(internal), false);
+  }
+  assert.equal(proposalContext.authorization_context.world_id, 'world-a');
+  const modelProposal = {
+    schema_version: 1,
+    context_handle: proposalContext.model_context.context_handle,
+    proposition_handle: modelProposition.handle,
+    object: modelProposition.evidence[0].object,
+    supporting_evidence_handles: [modelProposition.evidence[0].handle],
+    contradicting_evidence_handles: [],
+  };
+  const resolvedProposal = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: modelProposal,
+  });
+  assert.equal(resolvedProposal.status, 'ready');
+  assert.equal(resolvedProposal.resolution.proposition_value, factItem.value);
+  assert.deepEqual(resolvedProposal.resolution.supporting_acquisition_ids, [factItem.acquisition_id]);
+  assert.deepEqual(resolvedProposal.resolution.contradicting_acquisition_ids, []);
+  const internalObjectProposal = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: 'entity:npc-b' },
+  });
+  assert.equal(internalObjectProposal.status, 'non_ready');
+  assert.equal(internalObjectProposal.reason, 'proposal_object_contains_internal_reference');
+  const opaqueHandleAsValue = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: modelProposition.evidence[0].handle },
+  });
+  assert.equal(opaqueHandleAsValue.status, 'non_ready');
+  assert.equal(opaqueHandleAsValue.reason, 'proposal_object_contains_internal_reference');
+  const nestedOpaqueHandleAsValue = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: { quoted_source: modelProposition.evidence[0].handle } },
+  });
+  assert.equal(nestedOpaqueHandleAsValue.status, 'non_ready');
+  assert.equal(nestedOpaqueHandleAsValue.reason, 'proposal_object_contains_internal_reference');
+  const opaqueHandleAsKey = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: { ...modelProposal, object: { [modelProposition.evidence[0].handle]: 'quoted value' } },
+  });
+  assert.equal(opaqueHandleAsKey.status, 'non_ready');
+  assert.equal(opaqueHandleAsKey.reason, 'proposal_object_contains_internal_reference');
+
+  const rawRead = engine.readNpcKnowledge(readRequest);
+  const fixedNow = 1_800_000_000_000;
+  const expiringContext = createOpaqueNpcBeliefProposalContext({
+    read: rawRead,
+    visibleItems: rawRead.items,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    limit: readRequest.limit,
+    now: () => fixedNow,
+  });
+  const expiringProposition = expiringContext.model_context.propositions[0];
+  const expiryProposal = {
+    schema_version: 1,
+    context_handle: expiringContext.model_context.context_handle,
+    proposition_handle: expiringProposition.handle,
+    object: expiringProposition.evidence[0].object,
+    supporting_evidence_handles: [expiringProposition.evidence[0].handle],
+    contradicting_evidence_handles: [],
+  };
+  const expiredResolution = resolveOpaqueNpcBeliefProposalHandles({
+    read: rawRead,
+    visibleItems: rawRead.items,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    authorizationContext: proposalContext.authorization_context,
+    proposal: expiryProposal,
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+  });
+  assert.equal(expiredResolution.status, 'non_ready');
+  assert.equal(expiredResolution.reason, 'invalid_expired_or_wrong_scope_context_handle');
+  const expiredReplayContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: expiringContext.authorization_context,
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+    allowExpired: true,
+  });
+  assert.equal(expiredReplayContext.status, 'ready');
+  const expiredNormalContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: expiringContext.authorization_context,
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => Number(expiringContext.model_context.context_handle.split('.')[2]) + 1,
+  });
+  assert.equal(expiredNormalContext.status, 'non_ready');
+  const crossActorReplayContext = verifyNpcBeliefProposalContextHandle({
+    authorizationContext: {
+      ...expiringContext.authorization_context,
+      actor_id: 'npc-b',
+    },
+    contextHandle: expiringContext.model_context.context_handle,
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    now: () => fixedNow + 1,
+    allowExpired: true,
+  });
+  assert.equal(crossActorReplayContext.status, 'non_ready');
+  assert.throws(() => createOpaqueNpcBeliefProposalContext({
+    read: rawRead,
+    visibleItems: [{ ...factItem, value: 'entity:unresolved-internal-id' }],
+    key: 'test-adapter-secret-for-opaque-evidence-handles',
+    limit: readRequest.limit,
+  }), /fail closed/);
+
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: {
+      ...modelProposal,
+      supporting_evidence_handles: ['evh1.' + 'A'.repeat(43)],
+    },
+  }), { code: 'NPC_BELIEF_HANDLE_RESOLUTION_FAILED' });
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: { ...proposalContext.authorization_context, actor_id: 'npc-b' },
+    proposal: modelProposal,
+  }), { code: 'NPC_BELIEF_HANDLE_RESOLUTION_FAILED' });
+
+  engine.commitEvent('world-a', {
+    event_id: 'opaque-handle-stale-snapshot',
+    idempotency_key: 'opaque-handle-stale-snapshot',
+    turn_id: 'opaque-handle-stale-snapshot',
+    event_type: 'action.completed',
+    expected_revision: readRequest.expected_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-after-context', entity_type: 'character' }],
+  });
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: modelProposal,
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_READY' });
+
+  currentVersionState = { status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' };
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+  });
+
+  currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: digest('different version bytes'),
+    snapshot_digest: digest('current inventory'),
+  };
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+  });
+
+  currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: contentDigest,
+    snapshot_digest: digest('current inventory'),
+  };
+  engine.hostCommunicationReceiptVerifier = () => false;
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+  });
 });

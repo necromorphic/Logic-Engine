@@ -396,7 +396,7 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
       },
       originalUrl: '/api/backends/chat-completions/generate',
       body: {
-        chat_completion_source: 'makersuite',
+        chat_completion_source: 'custom',
         messages: [{ role: 'user', content: 'Generate a response using relevant memories.' }],
         logic_engine_conversation_uuid: CONVERSATION,
         logic_engine_request_id: randomUUID(),
@@ -580,12 +580,17 @@ test('one Host run preserves identity through live Core, SQLite Provider, Receiv
     const dispatchArgs = {
       request,
       response: finalResponse,
-      senderRoute: 'google-ai-studio',
+      senderRoute: 'custom',
       endpointUrl: 'http://127.0.0.1:1/fake-model',
       requestInit: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(request.body),
+        // Final-Send accepts only the serialized role-bearing messages[]
+        // contract and rejects flattened/non-message payloads.
+        body: JSON.stringify({
+          model: 'acceptance-fake-provider',
+          messages: [{ role: 'user', content: 'Generate a response using relevant memories.' }],
+        }),
       },
       stream: false,
       transport: async (url, init) => {

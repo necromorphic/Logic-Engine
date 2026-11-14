@@ -51,6 +51,10 @@ test('Final-Send patch routes every Chat Completions fetch and stream release th
   assert.match(source, /logicEngineFetch as fetch/);
   assert.match(source, /runWithLogicEngineFinalSend/);
   assert.match(source, /logicEngineForwardFetchResponse/);
+  assert.ok(source.includes("const method = typeof outboundInit.method === 'string' ? outboundInit.method.toUpperCase() : 'GET';"));
+  assert.ok(source.includes("if (method !== 'POST') return nativeFetch(endpointUrl, outboundInit);"));
+  assert.ok(source.indexOf('const outboundInit = { ...requestInit, signal };')
+    < source.indexOf("if (method !== 'POST') return nativeFetch(endpointUrl, outboundInit);"));
   assert.match(source, /forwardFetchResponse as nativeForwardFetchResponse/);
   assert.match(source, /src\/logic-engine-final-send-hook\.js/);
   for (const routeFile of [

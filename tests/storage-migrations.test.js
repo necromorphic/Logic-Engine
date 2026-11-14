@@ -69,6 +69,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   const eventColumns = store.db.prepare('PRAGMA table_info(world_events)').all().map((column) => column.name);
   const idempotencyColumns = store.db.prepare('PRAGMA table_info(idempotency_keys)').all().map((column) => column.name);
   const manifestColumns = store.db.prepare('PRAGMA table_info(context_manifests)').all().map((column) => column.name);
+  const beliefColumns = store.db.prepare('PRAGMA table_info(npc_belief_transitions)').all().map((column) => column.name);
   assert.ok(eventColumns.includes('causal_links_json'));
   assert.ok(eventColumns.includes('commit_sequence'));
   assert.ok(eventColumns.includes('context_manifest_id'));
@@ -85,6 +86,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
+  assert.ok(beliefColumns.includes('modality'));
   assert.deepEqual(
     store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
     [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
@@ -102,7 +104,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='host_conversation_world_bindings'").get().name, 'host_conversation_world_bindings');
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
@@ -143,7 +145,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
@@ -223,3 +225,97 @@ test('time coordinate migration fails closed on an unsafe legacy time span and c
   assert.equal(store.world('range-world').game_time_coordinate, 0);
   store.close();
 });
+
+test('migration 20 preserves existing belief rows and adds compatibility modality', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-belief-migration-20-'));
+  const path = join(directory, 'belief-v19.sqlite');
+  let store = new SQLiteStore(path);
+  t.after(() => {
+    store?.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'belief-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  const event = engine.commitEvent('belief-world', {
+    event_id: 'belief-migration-source-event',
+    idempotency_key: 'belief-migration-source-event-key',
+    turn_id: 'belief-migration-source-event',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    expected_commit_sequence: 0,
+    effects: [],
+  });
+  store.db.prepare(`INSERT INTO npc_belief_transitions(
+    world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,modality,
+    supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+    reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    'belief-world', 'belief-transition-v19', 'npc-a', 'proposition:entity/npc-a/predicate/secret',
+    JSON.stringify('legacy-belief-value'), 'believes_true', 'asserted',
+    '[]', '[]', '[]', 'rule:legacy-belief', 'legacy-belief-key', 'a'.repeat(64),
+    0, 0, event.event_id, event.world_revision,
+  );
+  store.close();
+  store = null;
+
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE npc_belief_transitions_v19(
+      world_id TEXT NOT NULL REFERENCES worlds(world_id),
+      transition_id TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      proposition_ref TEXT NOT NULL,
+      proposition_value_json TEXT NOT NULL,
+      stance TEXT NOT NULL CHECK(stance IN ('believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict')),
+      supporting_acquisition_ids_json TEXT NOT NULL,
+      contradicting_acquisition_ids_json TEXT NOT NULL,
+      evidence_acquisition_ids_json TEXT NOT NULL,
+      reason_rule_ref TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      snapshot_revision INTEGER NOT NULL,
+      snapshot_commit_sequence INTEGER NOT NULL,
+      event_id TEXT NOT NULL,
+      committed_revision INTEGER NOT NULL,
+      PRIMARY KEY(world_id,transition_id),
+      UNIQUE(world_id,event_id),
+      UNIQUE(world_id,idempotency_key),
+      FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
+    );
+    INSERT INTO npc_belief_transitions_v19(
+      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,
+      supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+      reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+    )
+    SELECT world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,
+      supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+      reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+    FROM npc_belief_transitions;
+    DROP TABLE npc_belief_transitions;
+    ALTER TABLE npc_belief_transitions_v19 RENAME TO npc_belief_transitions;
+    DELETE FROM schema_migrations WHERE version=20;
+  `);
+  legacy.close();
+
+  store = new SQLiteStore(path);
+  const row = store.db.prepare(`
+    SELECT transition_id,stance,modality,proposition_value_json,event_id
+    FROM npc_belief_transitions WHERE world_id=?
+  `).get('belief-world');
+  assert.deepEqual({ ...row }, {
+    transition_id: 'belief-transition-v19',
+    stance: 'believes_true',
+    modality: 'asserted',
+    proposition_value_json: JSON.stringify('legacy-belief-value'),
+    event_id: 'belief-migration-source-event',
+  });
+  assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
+  assert.equal(store.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version, 20);
+});
+

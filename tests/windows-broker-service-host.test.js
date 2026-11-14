@@ -16,7 +16,8 @@ const vfsSource = await readFile(new URL('../native/secure-vfs-probe/secure_vfs_
 test('Windows broker authenticates local pipe clients by configured SID', () => {
   assert.match(source, /ImpersonateNamedPipeClient/);
   assert.match(source, /OpenThreadToken/);
-  assert.match(source, /EqualSid\(u->User\.Sid,allowed_sid\)/);
+  assert.match(source, /CheckTokenMembership\(token,allowed_sid,&member\)/);
+  assert.doesNotMatch(source, /EqualSid\(u->User\.Sid,allowed_sid\)/);
   assert.match(source, /PIPE_REJECT_REMOTE_CLIENTS/);
   assert.match(source, /readn_timeout\(pipe,&q,sizeof\(q\),5000\)/);
   assert.match(source, /readn_timeout\(pipe,payload,q\.payload_length,5000\)/);
@@ -26,16 +27,67 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
   assert.match(source, /PROCESS_DUP_HANDLE/);
 });
 
-test('Windows broker keeps unimplemented file operations disabled without backend', () => {
-  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+test('Windows broker transfers manifest-verified file handles to the authenticated client process', () => {
+  assert.match(source, /q\.operation==2\|\|q\.operation==3\|\|q\.operation==5\|\|q\.operation==7/);
+  assert.match(source, /open_role_file_for_operation/);
+  assert.match(source, /le_win_open_role_file/);
+  assert.match(source, /le_win_create_role_sidecar/);
+  assert.match(source, /DuplicateHandle\(GetCurrentProcess\(\),source,process,&remote,desired_access,FALSE,0\)/);
+  assert.match(source, /read_only\?FILE_GENERIC_READ:\(FILE_GENERIC_READ\|FILE_GENERIC_WRITE\)/);
+  assert.match(source, /q\.flags>1u\|\|\(q\.flags==1u&&\(q\.operation==5\|\|q\.operation==7\)\)/);
+  assert.match(source, /if\(bad_flags\)response_status=LEB_STATUS_BAD_REQUEST/);
+  assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
+  assert.match(source, /r\.payload_length=net32\(has_remote_handle\?/);
+  assert.match(source, /wire_handle=net64\(remote_handle\)/);
+  assert.match(source, /logic_engine_win_identity_equal\(&created_identity,&reopened_identity\)/);
+  assert.match(source, /PROCESS_DUP_HANDLE/);
   assert.match(source, /q\.operation==8/);
   assert.match(source, /q\.operation==4/);
   assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
-  assert.match(source, /q\.operation==4/);
-  assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
   assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
-  assert.match(docs, /PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented/);
-  assert.match(docs, /must not be treated as production-ready/);
+  assert.doesNotMatch(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+  assert.match(docs, /OPEN_MAIN,[\s\S]*OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR/);
+  assert.match(docs, /DuplicateHandle/);
+  assert.match(docs, /not yet proof of complete SQLite VFS closure or production readiness/);
+});
+
+test('manifest-bound Windows VFS opens main and sidecar handles through the broker', () => {
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_MAIN 2u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_SIDECAR 3u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u/);
+  assert.match(vfsSource, /probe_win_broker_open_role_request/);
+  assert.match(vfsSource, /request\.flags=probe_win_net32\(read_only\?1u:0u\)/);
+  const statusHelper = vfsSource.slice(
+    vfsSource.lastIndexOf('static int probe_win_broker_role_request(const char *role, uint16_t'),
+    vfsSource.lastIndexOf('static int probe_win_broker_open_role_request('),
+  );
+  assert.doesNotMatch(statusHelper, /read_only/);
+  assert.match(vfsSource, /broker_allowed_access/);
+  assert.match(vfsSource, /role->manifest_bound/);
+  assert.match(vfsSource, /probe_win_sidecar_identity_record_locked\(role_index, suffix, &info_identity, role->manifest_bound\)/);
+  assert.match(vfsSource, /GetHandleInformation\(candidate,&handle_flags\)/);
+});
+
+test('Windows native smoke launches a separate broker process and verifies transferred handles', () => {
+  assert.match(source, /LE_BROKER_ENABLE_CONSOLE_TEST/);
+  assert.match(source, /BOOL first_instance=TRUE/);
+  assert.match(source, /first_instance\?FILE_FLAG_FIRST_PIPE_INSTANCE:0u/);
+  assert.match(source, /--console-test/);
+  assert.match(smoke, /CreateProcessW/);
+  assert.match(smoke, /LOGIC_ENGINE_BROKER_EXE/);
+  assert.match(smoke, /GetEnvironmentVariableW\(L"LOGIC_ENGINE_BROKER_EXE",NULL,0\)==0/);
+  assert.match(smoke, /broker_test_request\(2,"main","main"/);
+  assert.match(smoke, /broker_test_request\(2,"main","main",1,&status,&opened\)/);
+  assert.match(smoke, /broker_test_write_denied/);
+  assert.match(smoke, /broker_test_request\(5,"main","shm",1,&status,&opened\)/);
+  assert.match(smoke, /request\.flags=broker_test_net32\(request_flags\)/);
+  assert.match(smoke, /broker_test_request\(7,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(3,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(8,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(4,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(5,"main","shm"/);
+  assert.match(smoke, /TerminateProcess/);
 });
 
 test('Windows broker metadata store enforces pinned ancestry, NTFS and protected ACLs', () => {
@@ -249,7 +301,7 @@ test('Windows broker dispatches manifest-backed access and sidecar deletion requ
   assert.match(smoke, /manifest-backed access recognizes active WAL sidecar/);
   assert.match(smoke, /manifest-backed access reports absent SHM sidecar/);
   assert.match(smoke, /manifest-backed access reports retired WAL sidecar absent/);
-  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+  assert.match(source, /q\.operation==2\|\|q\.operation==3\|\|q\.operation==5\|\|q\.operation==7/);
 });
 
 

@@ -5,6 +5,7 @@ import { enumerateHostDataInventory } from './host-data-inventory.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^[a-f0-9]{64}$/;
+const MAX_COMMUNICATION_DELIVERY_VERSIONS = 25000;
 const OPERATIONS = new Set([
   'create-message', 'message-send', 'message-receive', 'create-swipe',
   'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat',
@@ -157,6 +158,162 @@ function validOperationTransition(operation, before, after) {
         && version.content_sha256 !== newMessage.versions[index].content_sha256));
   }
   return false;
+}
+
+
+export function createCommunicationDeliveryReceipt({ scope, before, after, recipientBinding, hostCommit }) {
+  if (scope?.operation !== 'message-send'
+    || before?.target_kind !== 'character-chat'
+    || after?.target_kind !== 'character-chat'
+    || !recipientBinding || typeof recipientBinding !== 'object' || Array.isArray(recipientBinding)) return null;
+
+  // A delivery receipt is trusted acquisition evidence, not a best-effort
+  // lifecycle diagnostic. Require the same pinned source/mutation-coverage
+  // attestations and independently captured, aligned VSS snapshots that the
+  // Host readiness contract requires. Non-Windows double scans remain useful
+  // for diagnostics, but cannot mint a trusted communication_delivered claim.
+  const validSnapshotProof = proof => proof && proof.host_commit === hostCommit
+    && proof.snapshot_alignment === 'SHARED_VSS_SNAPSHOT'
+    && typeof proof.snapshot_id === 'string' && proof.snapshot_id.trim() === proof.snapshot_id
+    && proof.snapshot_id.length > 0 && proof.snapshot_id.length <= 512
+    && proof.source_snapshot_id === proof.snapshot_id
+    && DIGEST.test(proof.snapshot_sha256 ?? '')
+    && DIGEST.test(proof.source_inventory_sha256 ?? '')
+    && DIGEST.test(proof.source_manifest_sha256 ?? '')
+    && DIGEST.test(proof.mutation_coverage_manifest_sha256 ?? '')
+    && DIGEST.test(proof.mutation_coverage_source_files_sha256 ?? '');
+  const beforeProof = before.snapshot_proof;
+  const afterProof = after.snapshot_proof;
+  if (!validSnapshotProof(beforeProof) || !validSnapshotProof(afterProof)
+    || beforeProof.snapshot_id === afterProof.snapshot_id
+    || beforeProof.source_manifest_sha256 !== afterProof.source_manifest_sha256
+    || beforeProof.mutation_coverage_manifest_sha256 !== afterProof.mutation_coverage_manifest_sha256
+    || beforeProof.mutation_coverage_source_files_sha256 !== afterProof.mutation_coverage_source_files_sha256) return null;
+
+  const coreConversationId = [
+    scope.host_session_id, scope.host_installation_id, scope.conversation_uuid,
+  ].join(':');
+  const safeId = value => typeof value === 'string' && value === value.trim()
+    && value.length > 0 && value.length <= 200
+    && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+  const beforeLogical = before.logical_identity;
+  const afterLogical = after.logical_identity;
+  if (beforeLogical?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+    || afterLogical?.identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+    || !Array.isArray(beforeLogical.messages) || !Array.isArray(afterLogical.messages)
+    || afterLogical.messages.length !== beforeLogical.messages.length + 1
+    || !beforeLogical.messages.every((message, index) =>
+      canonical(message) === canonical(afterLogical.messages[index]))
+    || recipientBinding.conversation_id !== coreConversationId
+    || !safeId(recipientBinding.adapter_id)
+    || !safeId(recipientBinding.host_character_avatar_id)
+    || before.target_locator?.split('/')?.[0] !== recipientBinding.host_character_avatar_id
+    || after.target_locator?.split('/')?.[0] !== recipientBinding.host_character_avatar_id
+    || !safeId(recipientBinding.world_id)
+    || !safeId(recipientBinding.actor_id)
+    || typeof recipientBinding.actor_type !== 'string'
+    || !/^[a-z][a-z0-9_-]{0,63}$/i.test(recipientBinding.actor_type)) return null;
+
+  const message = afterLogical.messages.at(-1);
+  if (!message || message.role !== 'user'
+    || !UUID.test(message.message_id ?? '')
+    || message.active_version_index !== 0
+    || !Array.isArray(message.versions) || message.versions.length !== 1) return null;
+  const version = message.versions[0];
+  if (!version || version.version_index !== 0 || version.active !== true
+    || version.parent_version_id !== null
+    || !UUID.test(version.version_id ?? '')
+    || !DIGEST.test(version.content_sha256 ?? '')) return null;
+
+  // Bind the complete server-observed conversation version inventory to the
+  // same receipt digest. This is digest-only: no message text enters Core.
+  const conversationVersions = [];
+  const seenMessageIds = new Set();
+  const seenVersionIds = new Set();
+  for (const entry of afterLogical.messages) {
+    if (!entry || !UUID.test(entry.message_id ?? '') || seenMessageIds.has(entry.message_id)
+      || !Array.isArray(entry.versions) || entry.versions.length === 0
+      || !Number.isInteger(entry.active_version_index)
+      || entry.active_version_index < 0 || entry.active_version_index >= entry.versions.length) return null;
+    seenMessageIds.add(entry.message_id);
+    let activeCount = 0;
+    for (let index = 0; index < entry.versions.length; index++) {
+      const candidate = entry.versions[index];
+      if (!candidate || candidate.version_index !== index
+        || !UUID.test(candidate.version_id ?? '') || seenVersionIds.has(candidate.version_id)
+        || (candidate.parent_version_id !== null
+          && !UUID.test(candidate.parent_version_id ?? ''))
+        || !DIGEST.test(candidate.content_sha256 ?? '')
+        || typeof candidate.active !== 'boolean'
+        || candidate.active !== (index === entry.active_version_index)) return null;
+      if (candidate.active) activeCount++;
+      seenVersionIds.add(candidate.version_id);
+      conversationVersions.push(Object.freeze({
+        message_id: entry.message_id,
+        version_id: candidate.version_id,
+        parent_version_id: candidate.parent_version_id,
+        content_sha256: candidate.content_sha256,
+        active: candidate.active,
+        deleted: false,
+      }));
+      if (conversationVersions.length > MAX_COMMUNICATION_DELIVERY_VERSIONS) return null;
+    }
+    if (activeCount !== 1) return null;
+  }
+
+  // A one-to-one character chat is the supported Host communication channel.
+  // Group chats are deliberately excluded because membership is not delivery
+  // to every member. This receipt attests persisted delivery, never read or
+  // comprehension, and carries no raw message text.
+  return Object.freeze({
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    producer: 'logic-engine-host-delivery-receipt-v1',
+    host_commit: hostCommit,
+    host_installation_id: scope.host_installation_id,
+    authenticated_account_id: scope.authenticated_account_id,
+    host_session_id: scope.host_session_id,
+    conversation_uuid: scope.conversation_uuid,
+    sender: Object.freeze({
+      principal_type: 'host_authenticated_account',
+      principal_id: scope.authenticated_account_id,
+    }),
+    recipient: Object.freeze({
+      world_id: recipientBinding.world_id,
+      actor_id: recipientBinding.actor_id,
+      actor_type: recipientBinding.actor_type,
+      host_character_avatar_id: recipientBinding.host_character_avatar_id,
+    }),
+    source_attestation: Object.freeze({
+      protocol_version: 1,
+      host_commit: hostCommit,
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      before_snapshot_id: beforeProof.snapshot_id,
+      after_snapshot_id: afterProof.snapshot_id,
+      before_snapshot_sha256: beforeProof.snapshot_sha256,
+      after_snapshot_sha256: afterProof.snapshot_sha256,
+      before_source_inventory_sha256: beforeProof.source_inventory_sha256,
+      after_source_inventory_sha256: afterProof.source_inventory_sha256,
+      source_manifest_sha256: beforeProof.source_manifest_sha256,
+      mutation_coverage_manifest_sha256: beforeProof.mutation_coverage_manifest_sha256,
+      mutation_coverage_source_files_sha256: beforeProof.mutation_coverage_source_files_sha256,
+    }),
+    channel: 'sillytavern.character_chat',
+    source: Object.freeze({
+      message_id: message.message_id,
+      version_id: version.version_id,
+      content_sha256: version.content_sha256,
+    }),
+    conversation_inventory: Object.freeze({
+      protocol_version: 1,
+      complete: true,
+      versions: Object.freeze(conversationVersions),
+    }),
+    status: 'delivered',
+    delivered_at: scope.occurred_at,
+    host_event_id: scope.event_id,
+    mutation_id: scope.mutation_id,
+  });
 }
 
 /**
@@ -453,7 +610,7 @@ export class HostLifecycleReceiptStore {
     return { status: result.status, prepared: result.record };
   }
 
-  async commit(scope, directories) {
+  async commit(scope, directories, { recipientBinding = null } = {}) {
     if (!validScope(scope)) throw new TypeError('Invalid Host lifecycle receipt commit scope.');
     await this.#prepareDirectory();
     const prepared = await this.#read(this.#recordPath(scope, 'prepared'));
@@ -472,7 +629,12 @@ export class HostLifecycleReceiptStore {
         || priorTerminal.receipt_digest !== sha256(Buffer.from(canonical(priorTerminal.receipt), 'utf8'))) {
         throw new Error('HOST_LIFECYCLE_RECEIPT_CONFLICT');
       }
-      return { status: 'duplicate', receipt_digest: priorTerminal.receipt_digest, occurred_at: priorTerminal.occurred_at };
+      return {
+        status: 'duplicate',
+        receipt_digest: priorTerminal.receipt_digest,
+        occurred_at: priorTerminal.occurred_at,
+        communication_delivery: priorTerminal.receipt.communication_delivery ?? null,
+      };
     }
     const after = await this.#snapshot(scope, directories);
     const rename = scope.operation === 'rename-chat';
@@ -532,6 +694,14 @@ export class HostLifecycleReceiptStore {
         after: after.logical_identity,
       }), 'utf8')),
     };
+    const communicationDelivery = createCommunicationDeliveryReceipt({
+      scope,
+      before: prepared.before,
+      after,
+      recipientBinding,
+      hostCommit: this.hostCommit,
+    });
+    if (communicationDelivery) receipt.communication_delivery = communicationDelivery;
     const receiptDigest = sha256(Buffer.from(canonical(receipt), 'utf8'));
     const record = {
       schema_version: 1,
@@ -548,7 +718,12 @@ export class HostLifecycleReceiptStore {
       && existing.event_id === record.event_id
       && existing.receipt_digest === record.receipt_digest
       && canonical(existing.receipt) === canonical(record.receipt));
-    return { status: stored.status, receipt_digest: stored.record.receipt_digest, occurred_at: stored.record.occurred_at };
+    return {
+      status: stored.status,
+      receipt_digest: stored.record.receipt_digest,
+      occurred_at: stored.record.occurred_at,
+      communication_delivery: stored.record.receipt.communication_delivery ?? null,
+    };
   }
 
   async recover(scope, directories) {

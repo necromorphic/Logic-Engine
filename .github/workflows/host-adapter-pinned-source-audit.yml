@@ -202,7 +202,7 @@ jobs:
           SILLYTAVERN_SOURCE_ROOT: Sillytavern
           LOGIC_ENGINE_RUN_ST_LIFECYCLE_HARNESS: '1'
         run: |
-          node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/windows-vss-snapshot.test.mjs src/application/host-session-context.test.js
+          node --test host-adapter/extension-gateway/tests/*.test.mjs host-adapter/prototype/tests/lifecycle-acceptance-scenarios.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs host-adapter/prototype/tests/st-host-inventory-handler.test.mjs host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/pinned-st-mutation-route-coverage.test.mjs host-adapter/prototype/tests/windows-vss-snapshot.test.mjs src/application/host-session-context.test.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test experiments/host-adapter-runtime-harness/lifecycle-file-operations.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

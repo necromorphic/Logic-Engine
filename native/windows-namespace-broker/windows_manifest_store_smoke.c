@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sddl.h>
@@ -89,6 +90,182 @@ static int format_identity(
   return 1;
 }
 
+
+#define BROKER_TEST_PIPE L"\\\\.\\pipe\\LogicEngine.SqliteBroker.v1"
+#define BROKER_TEST_MAGIC 0x4c454256u
+#define BROKER_TEST_VERSION 2u
+#pragma pack(push, 1)
+typedef struct {
+  uint32_t magic;
+  uint16_t version, operation;
+  uint32_t flags;
+  uint64_t request_id;
+  uint32_t payload_length;
+} BROKER_TEST_HEADER;
+#pragma pack(pop)
+
+static uint64_t broker_test_request_id = 1;
+static uint16_t broker_test_net16(uint16_t value) {
+  return (uint16_t)((value << 8) | (value >> 8));
+}
+static uint32_t broker_test_net32(uint32_t value) {
+  return ((value & 0x000000ffu) << 24) | ((value & 0x0000ff00u) << 8)
+    | ((value & 0x00ff0000u) >> 8) | ((value & 0xff000000u) >> 24);
+}
+static uint64_t broker_test_net64(uint64_t value) {
+  return ((uint64_t)broker_test_net32((uint32_t)value) << 32)
+    | broker_test_net32((uint32_t)(value >> 32));
+}
+static BOOL broker_test_write_all(HANDLE handle, const void *buffer, DWORD length) {
+  const BYTE *bytes=(const BYTE *)buffer;DWORD done=0;
+  while(done<length){DWORD written=0;if(!WriteFile(handle,bytes+done,length-done,&written,NULL)||!written)return FALSE;done+=written;}
+  return TRUE;
+}
+static BOOL broker_test_read_all(HANDLE handle, void *buffer, DWORD length) {
+  BYTE *bytes=(BYTE *)buffer;DWORD done=0;
+  while(done<length){DWORD read=0;if(!ReadFile(handle,bytes+done,length-done,&read,NULL)||!read)return FALSE;done+=read;}
+  return TRUE;
+}
+static int broker_test_request(
+    uint16_t operation,const char *role,const char *kind,DWORD request_flags,
+    DWORD *status,HANDLE *opened) {
+  BROKER_TEST_HEADER request,response;
+  char payload[146];size_t role_length,kind_length;
+  uint64_t request_id,wire_handle=0,handle_value=0;
+  HANDLE pipe=INVALID_HANDLE_VALUE,candidate=INVALID_HANDLE_VALUE;
+  int ok=0;
+  if(opened)*opened=INVALID_HANDLE_VALUE;
+  if(!role||!kind||!status)return 0;
+  role_length=strlen(role);kind_length=strlen(kind);
+  if(!role_length||role_length>128u||!kind_length||kind_length>8u
+      ||role_length+1u+kind_length>sizeof(payload))return 0;
+  memcpy(payload,role,role_length);payload[role_length]=0;
+  memcpy(payload+role_length+1,kind,kind_length);
+  request_id=broker_test_request_id++;
+  if(!WaitNamedPipeW(BROKER_TEST_PIPE,5000))return 0;
+  pipe=CreateFileW(BROKER_TEST_PIPE,GENERIC_READ|GENERIC_WRITE,0,NULL,
+      OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,NULL);
+  if(pipe==INVALID_HANDLE_VALUE)return 0;
+  ZeroMemory(&request,sizeof(request));
+  request.magic=broker_test_net32(BROKER_TEST_MAGIC);
+  request.version=broker_test_net16(BROKER_TEST_VERSION);
+  request.operation=broker_test_net16(operation);
+  request.flags=broker_test_net32(request_flags);
+  request.request_id=broker_test_net64(request_id);
+  request.payload_length=broker_test_net32((uint32_t)(role_length+1+kind_length));
+  if(!broker_test_write_all(pipe,&request,sizeof(request))
+      ||!broker_test_write_all(pipe,payload,(DWORD)(role_length+1+kind_length))
+      ||!broker_test_read_all(pipe,&response,sizeof(response)))goto done;
+  response.magic=broker_test_net32(response.magic);
+  response.version=broker_test_net16(response.version);
+  response.operation=broker_test_net16(response.operation);
+  response.flags=broker_test_net32(response.flags);
+  response.request_id=broker_test_net64(response.request_id);
+  response.payload_length=broker_test_net32(response.payload_length);
+  if(response.magic!=BROKER_TEST_MAGIC||response.version!=BROKER_TEST_VERSION
+      ||response.operation!=operation||response.request_id!=request_id)goto done;
+  if(response.flags==0&&opened){
+    DWORD handle_flags=0;
+    if(response.payload_length!=sizeof(wire_handle)
+        ||!broker_test_read_all(pipe,&wire_handle,sizeof(wire_handle)))goto done;
+    handle_value=broker_test_net64(wire_handle);
+    if(!handle_value||handle_value>(uint64_t)UINTPTR_MAX)goto done;
+    candidate=(HANDLE)(uintptr_t)handle_value;
+    if(!candidate||candidate==INVALID_HANDLE_VALUE
+        ||!GetHandleInformation(candidate,&handle_flags))goto done;
+    *opened=candidate;candidate=INVALID_HANDLE_VALUE;
+  }else if(response.payload_length!=0)goto done;
+  *status=response.flags;ok=1;
+done:
+  if(candidate!=INVALID_HANDLE_VALUE&&candidate!=NULL)CloseHandle(candidate);
+  if(!ok&&opened&&*opened!=INVALID_HANDLE_VALUE&&*opened!=NULL){
+    CloseHandle(*opened);*opened=INVALID_HANDLE_VALUE;
+  }
+  if(pipe!=INVALID_HANDLE_VALUE)CloseHandle(pipe);
+  return ok;
+}
+static int broker_test_start_console(
+    const wchar_t *service_sid,const wchar_t *metadata_directory,
+    const wchar_t *namespace_directory,PROCESS_INFORMATION *process) {
+  wchar_t executable[32768],command[32768];
+  STARTUPINFOW startup;DWORD length;int attempt;
+  ZeroMemory(process,sizeof(*process));ZeroMemory(&startup,sizeof(startup));
+  startup.cb=(DWORD)sizeof(startup);
+  length=GetEnvironmentVariableW(L"LOGIC_ENGINE_BROKER_EXE",executable,(DWORD)LE_COUNT_OF(executable));
+  if(!length||length>=(DWORD)LE_COUNT_OF(executable))return 0;
+  if(FAILED(StringCchPrintfW(command,LE_COUNT_OF(command),
+      L"\"%s\" --console-test --client-sid \"%s\" --metadata-dir \"%s\" --namespace-root \"%s\"",
+      executable,service_sid,metadata_directory,namespace_directory)))return 0;
+  if(!CreateProcessW(NULL,command,NULL,NULL,FALSE,CREATE_NO_WINDOW,NULL,NULL,&startup,process))return 0;
+  for(attempt=0;attempt<100;attempt++){
+    if(WaitNamedPipeW(BROKER_TEST_PIPE,100))return 1;
+    if(WaitForSingleObject(process->hProcess,0)==WAIT_OBJECT_0)break;
+    Sleep(10);
+  }
+  TerminateProcess(process->hProcess,ERROR_TIMEOUT);
+  WaitForSingleObject(process->hProcess,5000);
+  CloseHandle(process->hThread);CloseHandle(process->hProcess);
+  ZeroMemory(process,sizeof(*process));
+  return 0;
+}
+static int broker_test_handle_bytes(HANDLE handle,const BYTE *expected,DWORD length) {
+  BYTE actual[128];DWORD read=0;
+  if(length>sizeof(actual)||!ReadFile(handle,actual,length,&read,NULL)||read!=length)return 0;
+  return memcmp(actual,expected,length)==0;
+}
+static int broker_test_write_bytes(HANDLE handle,const BYTE *bytes,DWORD length) {
+  DWORD written=0;
+  return WriteFile(handle,bytes,length,&written,NULL)&&written==length;
+}
+static int broker_test_write_denied(HANDLE handle) {
+  static const BYTE value='x';DWORD written=0;
+  if(WriteFile(handle,&value,1,&written,NULL))return 0;
+  return GetLastError()==ERROR_ACCESS_DENIED;
+}
+static int broker_test_service_ipc(
+    const wchar_t *service_sid,const wchar_t *metadata_directory,
+    const wchar_t *namespace_directory,const BYTE *main_bytes,DWORD main_length) {
+  PROCESS_INFORMATION process;HANDLE opened=INVALID_HANDLE_VALUE;
+  DWORD status=0;int ok=0;
+  static const BYTE wal_bytes[]="broker-wal-handle";
+  static const BYTE shm_bytes[]="broker-shm-handle";
+  if(!broker_test_start_console(service_sid,metadata_directory,namespace_directory,&process))return 0;
+  if(!broker_test_request(2,"main","main",0,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,main_bytes,main_length))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(2,"main","main",1,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,main_bytes,main_length)
+      ||!broker_test_write_denied(opened))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(5,"main","shm",1,&status,&opened)||status!=1
+      ||opened!=INVALID_HANDLE_VALUE)goto done;
+  if(!broker_test_request(7,"main","wal",0,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_write_bytes(opened,wal_bytes,(DWORD)(sizeof(wal_bytes)-1)))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(3,"main","wal",0,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_handle_bytes(opened,wal_bytes,(DWORD)(sizeof(wal_bytes)-1)))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(8,"main","wal",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(4,"main","wal",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(8,"main","wal",0,&status,NULL)||status!=5)goto done;
+  if(!broker_test_request(3,"main","wal",0,&status,&opened)||status!=5
+      ||opened!=INVALID_HANDLE_VALUE)goto done;
+  if(!broker_test_request(5,"main","shm",0,&status,&opened)||status!=0
+      ||opened==INVALID_HANDLE_VALUE||!broker_test_write_bytes(opened,shm_bytes,(DWORD)(sizeof(shm_bytes)-1)))goto done;
+  CloseHandle(opened);opened=INVALID_HANDLE_VALUE;
+  if(!broker_test_request(4,"main","shm",0,&status,NULL)||status!=0)goto done;
+  if(!broker_test_request(8,"main","shm",0,&status,NULL)||status!=5)goto done;
+  ok=1;
+done:
+  if(opened!=INVALID_HANDLE_VALUE&&opened!=NULL)CloseHandle(opened);
+  if(process.hProcess){
+    TerminateProcess(process.hProcess,0);
+    WaitForSingleObject(process.hProcess,5000);
+    CloseHandle(process.hThread);CloseHandle(process.hProcess);
+  }
+  return ok;
+}
+
 int main(void) {
   wchar_t temp[MAX_PATH] = { 0 }, directory[MAX_PATH] = { 0 };
   wchar_t namespace_directory[MAX_PATH] = { 0 }, database_path[MAX_PATH] = { 0 };
@@ -111,6 +288,8 @@ int main(void) {
   DWORD namespace_manifest_length = 0;
   LogicEngineWinFileIdentity sidecar_identity, reopened_identity, wrong_identity;
   static const unsigned char document[] = { 0x7b, 0x22, 0x6f, 0x6b, 0x22, 0x3a, 0x74, 0x72, 0x75, 0x65, 0x7d };
+  static const BYTE broker_main_bytes[] = "broker-main-handle";
+  DWORD database_written = 0;
   static const unsigned char invalid_document[] = { 0x7b, 0x7d };
   int result = 1;
   const char *stage = "initialization";
@@ -152,7 +331,6 @@ int main(void) {
   stage = "CreateDirectoryW";
   if (!CreateDirectoryW(directory, &security_attributes)) goto done;
   LocalFree(descriptor); descriptor = NULL;
-  LocalFree(user_sid); user_sid = NULL;
   HeapFree(GetProcessHeap(), 0, user); user = NULL;
   CloseHandle(token); token = NULL;
   stage = "open metadata store";
@@ -180,7 +358,10 @@ int main(void) {
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
   if (database_handle == INVALID_HANDLE_VALUE
-      || !logic_engine_win_identity(database_handle, &database_identity, NULL)) goto unlock_store;
+      || !logic_engine_win_identity(database_handle, &database_identity, NULL)
+      || !WriteFile(database_handle,broker_main_bytes,(DWORD)(sizeof(broker_main_bytes)-1),
+          &database_written,NULL)
+      || database_written!=(DWORD)(sizeof(broker_main_bytes)-1)) goto unlock_store;
   CloseHandle(database_handle); database_handle = INVALID_HANDLE_VALUE;
   stage = "serialize namespace identities";
   if (!format_identity(&namespace_identity, namespace_volume, sizeof(namespace_volume),
@@ -341,6 +522,17 @@ int main(void) {
   stage = "runtime sidecar transactions retire their intents";
   if (le_win_store_read_intent(&store,&recovery_intent,&recovery_intent_length)
       || GetLastError()!=ERROR_FILE_NOT_FOUND) goto unlock_store;
+  if (GetEnvironmentVariableW(L"LOGIC_ENGINE_BROKER_EXE",NULL,0)==0) {
+    printf("Skipping live broker IPC smoke: LOGIC_ENGINE_BROKER_EXE is not configured.\n");
+  } else {
+    stage = "release store lock for live broker IPC";
+    le_win_store_unlock(&store);
+    stage = "cross-process broker OPEN_MAIN, sidecar create/open/access/delete IPC";
+    if (!broker_test_service_ipc(user_sid,directory,namespace_directory,
+        broker_main_bytes,(DWORD)(sizeof(broker_main_bytes)-1))) goto close_store;
+    stage = "reacquire store lock after live broker IPC";
+    if (!le_win_store_lock(&store)) goto close_store;
+  }
   HeapFree(GetProcessHeap(),0,manifest);manifest=NULL;manifest_length=0;
   store.validate_manifest = validate_test_json;
   store.validate_intent = validate_test_json;

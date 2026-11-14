@@ -570,7 +570,9 @@ export function createHostLifecycleJournalProxy({
   identityStore,
   receiptStore = null,
   ensureRootInventory = null,
+  resolveCommunicationRecipient = null,
   timeoutMs = 5000,
+  inventoryTimeoutMs = 15000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
   if (!identityStore || typeof identityStore.resolveAuthenticatedAccount !== 'function'
@@ -585,8 +587,12 @@ export function createHostLifecycleJournalProxy({
   if (ensureRootInventory !== null && typeof ensureRootInventory !== 'function') {
     throw new TypeError('ensureRootInventory must be a trusted Host inventory initializer');
   }
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
-    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  if (resolveCommunicationRecipient !== null && typeof resolveCommunicationRecipient !== 'function') {
+    throw new TypeError('resolveCommunicationRecipient must be a trusted Core binding resolver');
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000
+    || !Number.isInteger(inventoryTimeoutMs) || inventoryTimeoutMs < timeoutMs || inventoryTimeoutMs > 30000) {
+    throw new TypeError('timeoutMs and inventoryTimeoutMs must be integers between 1 and 30000, with inventoryTimeoutMs >= timeoutMs');
   }
   const durableReceiptStore = receiptStore ?? (typeof identityStore.directory === 'string'
     && pathModule.isAbsolute(identityStore.directory)
@@ -612,7 +618,7 @@ export function createHostLifecycleJournalProxy({
     return conversationUuid ? { identity, conversationUuid, hostSessionId } : null;
   }
 
-  async function upstream(pathname, method, body, identity) {
+  async function upstream(pathname, method, body, identity, requestTimeoutMs = timeoutMs) {
     const target = configuredTarget(env);
     if (!target) return { status: 503, payload: {
       error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The server-side Logic-Engine bridge is not configured.' },
@@ -650,7 +656,7 @@ export function createHostLifecycleJournalProxy({
           'x-adapter-token': target.adapterToken,
         },
         ...(method === 'POST' ? { body: JSON.stringify(outgoingBody) } : {}),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
       let payload;
       try { payload = await response.json(); } catch {
@@ -727,7 +733,30 @@ export function createHostLifecycleJournalProxy({
           receipt = await durableReceiptStore.prepare(scope, directories);
           scope.occurred_at = receipt.prepared.occurred_at;
         } else if (body.event_type === 'MUTATION_COMMITTED') {
-          receipt = await durableReceiptStore.commit(scope, directories);
+          let recipientBinding = null;
+          const preparedMutation = request?.session?.logicEngineHostPreparedMutation;
+          const isBoundCharacterMessageSend = body.operation === 'message-send'
+            && preparedMutation?.mutation_id === body.mutation_id
+            && preparedMutation?.operation === 'message-send'
+            && preparedMutation?.target_kind === 'character-chat'
+            && preparedMutation?.host_installation_id === resolved.identity.host_installation_id
+            && preparedMutation?.authenticated_account_id === resolved.identity.authenticated_account_id
+            && preparedMutation?.host_session_id === resolved.hostSessionId
+            && preparedMutation?.conversation_uuid === resolved.conversationUuid;
+          if (isBoundCharacterMessageSend && resolveCommunicationRecipient) {
+            try {
+              recipientBinding = await resolveCommunicationRecipient({
+                request,
+                identity: resolved.identity,
+                hostSessionId: resolved.hostSessionId,
+                conversationUuid: resolved.conversationUuid,
+                targetLocator: preparedMutation.target_locator,
+              });
+            } catch {
+              recipientBinding = null;
+            }
+          }
+          receipt = await durableReceiptStore.commit(scope, directories, { recipientBinding });
           scope.occurred_at = receipt.occurred_at;
         } else {
           receipt = await durableReceiptStore.abort(scope, directories);
@@ -766,10 +795,70 @@ export function createHostLifecycleJournalProxy({
             event_id: body.event_id,
             operation: body.operation,
             mutation_digest: body.mutation_digest,
+            target_kind: receipt.prepared?.before?.target_kind ?? null,
+            target_locator: receipt.prepared?.before?.target_locator ?? null,
           };
         } else if (session?.logicEngineHostPreparedMutation?.mutation_id === body.mutation_id) {
           delete session.logicEngineHostPreparedMutation;
         }
+      }
+      if (body.event_type === 'MUTATION_COMMITTED' && receipt?.communication_delivery) {
+        const target = configuredTarget(env);
+        if (!target) return response.status(503).json({
+          error: { code: 'LOGIC_ENGINE_PROXY_UNCONFIGURED', message: 'The signed Host delivery receipt could not be issued.' },
+        });
+        const deliveryDigest = createHash('sha256')
+          .update(canonical(receipt.communication_delivery), 'utf8')
+          .digest('hex');
+        const proof = {
+          host_installation_id: resolved.identity.host_installation_id,
+          authenticated_account_id: resolved.identity.authenticated_account_id,
+          host_session_id: resolved.hostSessionId,
+          conversation_uuid: resolved.conversationUuid,
+          event_id: body.event_id,
+          event_type: 'MUTATION_COMMITTED',
+          mutation_id: body.mutation_id,
+          operation: body.operation,
+          mutation_digest: body.mutation_digest,
+          receipt_digest: deliveryDigest,
+          occurred_at: scope.occurred_at,
+        };
+        const receiptSignature = signHostMutationReceipt({
+          adapterId: target.adapterId,
+          adapterToken: target.adapterToken,
+          event: proof,
+        });
+        const deliveryReceipt = {
+          protocol_version: 1,
+          evidence_type: 'communication_delivered',
+          delivery: receipt.communication_delivery,
+          receipt_digest: deliveryDigest,
+          proof: { ...proof, receipt_signature: receiptSignature },
+        };
+        // Core accepts complete inventory only from this server-to-server
+        // signed receipt path. The browser-facing reconcile endpoint remains
+        // untrusted. Failure to reconcile suppresses Memory evidence but does
+        // not fail the already-persisted chat message.
+        const inventoryResult = await upstream('/v1/host-version-ledger/reconcile-delivery', 'POST', {
+          communication_delivery_receipt: deliveryReceipt,
+        }, {
+          host_installation_id: resolved.identity.host_installation_id,
+          authenticated_account_id: resolved.identity.authenticated_account_id,
+          host_session_id: resolved.hostSessionId,
+          conversation_uuid: resolved.conversationUuid,
+        }, inventoryTimeoutMs);
+        const inventoryReady = inventoryResult.status === 200
+          && inventoryResult.payload?.inventory_status === 'READY'
+          && inventoryResult.payload?.acquisition?.status === 'committed';
+        return response.status(result.status).json({
+          ...result.payload,
+          communication_delivery_status: inventoryReady ? 'READY' : 'NON_READY',
+          ...(inventoryReady ? { communication_delivery_receipt: deliveryReceipt } : {
+            communication_delivery_reason: inventoryResult.payload?.reconciliation?.code
+              ?? inventoryResult.payload?.error?.code
+              ?? 'HOST_VERSION_INVENTORY_RECONCILIATION_UNAVAILABLE',
+          }),
+        });
       }
       return response.status(result.status).json(result.payload);
     },

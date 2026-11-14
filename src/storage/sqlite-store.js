@@ -391,7 +391,7 @@ export class SQLiteStore {
           throw new Error('CORE_SCHEMA_INCOMPLETE');
         }
         const migration = this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get();
-        if (migration?.version !== 17) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
+        if (migration?.version !== 20) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
         const local = this.db.prepare(
           'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
         ).get();
@@ -827,6 +827,188 @@ export class SQLiteStore {
         apply: () => {
           this.db.exec(`ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_value_json TEXT;
             ALTER TABLE knowledge_acquisitions ADD COLUMN acquired_source_event_ids_json TEXT;`);
+        },
+      },
+      {
+        version: 18,
+        apply: () => {
+          this.db.exec(`CREATE TABLE knowledge_acquisitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            fact_id TEXT,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN (
+              'author_initial','imported','communication_delivered'
+            )),
+            provenance_ref TEXT NOT NULL,
+            provenance_digest TEXT NOT NULL,
+            authorization_ref TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            acquired_value_json TEXT,
+            acquired_source_event_ids_json TEXT,
+            source_evidence_json TEXT,
+            source_adapter_id TEXT,
+            source_conversation_id TEXT,
+            source_message_id TEXT,
+            source_version_id TEXT,
+            source_content_sha256 TEXT,
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,event_id,acquisition_id),
+            CHECK(
+              (acquisition_kind IN ('author_initial','imported')
+                AND fact_id IS NOT NULL AND source_evidence_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL AND source_content_sha256 IS NULL)
+              OR
+              (acquisition_kind='communication_delivered'
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NOT NULL AND source_conversation_id IS NOT NULL
+                AND source_message_id IS NOT NULL AND source_version_id IS NOT NULL
+                AND source_content_sha256 IS NOT NULL)
+            )
+          );
+          INSERT INTO knowledge_acquisitions_new(
+            world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+          )
+          SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,NULL,NULL,NULL,NULL,NULL,NULL
+          FROM knowledge_acquisitions;
+          DROP TABLE knowledge_acquisitions;
+          ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
+          CREATE INDEX knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_id,acquisition_id);
+          CREATE INDEX knowledge_acquisitions_source
+            ON knowledge_acquisitions(world_id,subject_id,source_adapter_id,source_conversation_id,committed_revision,acquisition_id);
+          `);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('KNOWLEDGE_ACQUISITION_EVIDENCE_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
+        },
+      },
+      {
+        version: 19,
+        apply: () => {
+          this.db.exec(`CREATE TABLE knowledge_acquisitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            fact_id TEXT,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN (
+              'author_initial','imported','communication_delivered','direct_observation'
+            )),
+            provenance_ref TEXT NOT NULL,
+            provenance_digest TEXT NOT NULL,
+            authorization_ref TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            acquired_value_json TEXT,
+            acquired_source_event_ids_json TEXT,
+            source_evidence_json TEXT,
+            source_adapter_id TEXT,
+            source_conversation_id TEXT,
+            source_message_id TEXT,
+            source_version_id TEXT,
+            source_content_sha256 TEXT,
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,event_id,acquisition_id),
+            CHECK(
+              (acquisition_kind IN ('author_initial','imported')
+                AND fact_id IS NOT NULL AND source_evidence_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL AND source_content_sha256 IS NULL)
+              OR
+              (acquisition_kind='communication_delivered'
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NOT NULL AND source_conversation_id IS NOT NULL
+                AND source_message_id IS NOT NULL AND source_version_id IS NOT NULL
+                AND source_content_sha256 IS NOT NULL)
+              OR
+              (acquisition_kind='direct_observation'
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL
+                AND source_content_sha256 IS NULL)
+            )
+          );
+          INSERT INTO knowledge_acquisitions_new(
+            world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+          )
+          SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+          FROM knowledge_acquisitions;
+          DROP TABLE knowledge_acquisitions;
+          ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
+          CREATE INDEX knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_id,acquisition_id);
+          CREATE INDEX knowledge_acquisitions_source
+            ON knowledge_acquisitions(world_id,subject_id,source_adapter_id,source_conversation_id,committed_revision,acquisition_id);
+          `);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('KNOWLEDGE_ACQUISITION_EVIDENCE_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
+        },
+      },
+      {
+        version: 20,
+        apply: () => {
+          this.db.exec(`CREATE TABLE npc_belief_transitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            transition_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            proposition_ref TEXT NOT NULL,
+            proposition_value_json TEXT NOT NULL,
+            stance TEXT NOT NULL CHECK(stance IN (
+              'believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict',
+              'supported','contradicted','uncertain','dropped'
+            )),
+            modality TEXT NOT NULL CHECK(length(modality) BETWEEN 1 AND 64),
+            supporting_acquisition_ids_json TEXT NOT NULL,
+            contradicting_acquisition_ids_json TEXT NOT NULL,
+            evidence_acquisition_ids_json TEXT NOT NULL,
+            reason_rule_ref TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            snapshot_revision INTEGER NOT NULL,
+            snapshot_commit_sequence INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            PRIMARY KEY(world_id,transition_id),
+            UNIQUE(world_id,event_id),
+            UNIQUE(world_id,idempotency_key),
+            FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
+          );
+          INSERT INTO npc_belief_transitions_new(
+            world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,modality,
+            supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+            reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+          )
+          SELECT world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,'asserted',
+            supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+            reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+          FROM npc_belief_transitions;
+          DROP TABLE npc_belief_transitions;
+          ALTER TABLE npc_belief_transitions_new RENAME TO npc_belief_transitions;
+          CREATE INDEX npc_belief_transitions_current
+            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);`);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('NPC_BELIEF_MODALITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
         },
       },
     ];
@@ -1830,16 +2012,28 @@ export class SQLiteStore {
           }
           acquisitionEffectIds.add(effect.acquisition_id);
           const subject = currentEntities.get(effect.subject_id);
-          const source = this.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
-            .get(id, effect.fact_id);
           if (!subject || subject.status === 'destroyed') {
             throw new EngineError('ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Acquisition subject must be a non-destroyed entity in this world.', 409);
           }
-          if (!source || source.status !== 'active' || dec(source.source_event_ids_json).length === 0) {
-            throw new EngineError('ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Acquisition source must be an active canonical fact in this world.', 409);
-          }
           if (this.db.prepare('SELECT 1 FROM knowledge_acquisitions WHERE world_id=? AND acquisition_id=?').get(id, effect.acquisition_id)) {
             throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION', 'Acquisition ID already exists in this world.', 409);
+          }
+          if (effect.acquisition_kind === 'communication_delivered') {
+            const evidence = effect.source_evidence;
+            if (effect.fact_id !== undefined || !evidence
+              || evidence.evidence_type !== effect.acquisition_kind
+              || evidence.recipient?.world_id !== id
+              || evidence.recipient?.actor_id !== effect.subject_id
+              || evidence.receipt_digest !== effect.provenance_digest) {
+              throw new EngineError('ACQUISITION_EVIDENCE_NOT_ELIGIBLE',
+                'Typed evidence must bind the canonical World, subject Actor and provenance digest.', 409);
+            }
+          } else {
+            const source = this.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+              .get(id, effect.fact_id);
+            if (!source || source.status !== 'active' || dec(source.source_event_ids_json).length === 0) {
+              throw new EngineError('ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Acquisition source must be an active canonical fact in this world.', 409);
+            }
           }
           continue;
         }
@@ -3026,31 +3220,43 @@ export class SQLiteStore {
     // Derived projection only: canonical valid world_events remain the authority.
     const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
       world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision,
-      acquired_value_json,acquired_source_event_ids_json
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+      acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+      source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const eligibleSubjects = new Set(this.db.prepare("SELECT entity_id FROM entities WHERE world_id=? AND status<>'destroyed'").all(id).map((row) => row.entity_id));
     const eligibleFacts = new Set(this.db.prepare("SELECT fact_id,source_event_ids_json FROM facts WHERE world_id=? AND status='active'").all(id)
       .filter((row) => dec(row.source_event_ids_json).length > 0).map((row) => row.fact_id));
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind !== 'knowledge.acquire') continue;
-        if (!eligibleSubjects.has(effect.subject_id) || !eligibleFacts.has(effect.fact_id)) continue;
+        if (effect.kind !== 'knowledge.acquire' || !eligibleSubjects.has(effect.subject_id)) continue;
+        if (effect.acquisition_kind === 'communication_delivered') {
+          const evidence = effect.source_evidence;
+          if (!evidence || evidence.evidence_type !== effect.acquisition_kind
+            || evidence.recipient?.world_id !== id || evidence.recipient?.actor_id !== effect.subject_id) continue;
+          const sourceConversationId = [evidence.host_session_id, evidence.host_installation_id, evidence.conversation_uuid].join(':');
+          insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, null, effect.acquisition_kind,
+            effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
+            null, null, enc(evidence), evidence.adapter_id, sourceConversationId,
+            evidence.source.message_id, evidence.source.version_id, evidence.source.content_sha256);
+          continue;
+        }
+        if (!eligibleFacts.has(effect.fact_id)) continue;
         // Old events without an acquisition-time version remain unprojected/fail-closed.
         if (!Object.hasOwn(effect, 'acquired_value') || !Array.isArray(effect.acquired_source_event_ids)) continue;
         insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, effect.fact_id, effect.acquisition_kind,
           effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision,
-          enc(effect.acquired_value), enc(effect.acquired_source_event_ids));
+          enc(effect.acquired_value), enc(effect.acquired_source_event_ids), null, null, null, null, null, null);
       }
     }
 
 
     // Belief transitions are derived from typed canonical event effects too.
     const insertBeliefTransition = this.db.prepare(`INSERT INTO npc_belief_transitions(
-      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,
+      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,modality,
       supporting_acquisition_ids_json,contradicting_acquisition_ids_json,
       evidence_acquisition_ids_json,reason_rule_ref,idempotency_key,request_hash,
       snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind !== 'npc.belief.transition') continue;
@@ -3061,6 +3267,7 @@ export class SQLiteStore {
         }
         insertBeliefTransition.run(
           id, effect.transition_id, effect.actor_id, effect.proposition_ref, enc(effect.proposition_value), effect.stance,
+          effect.modality ?? 'asserted',
           enc(effect.supporting_acquisition_ids), enc(effect.contradicting_acquisition_ids),
           enc(effect.evidence_acquisition_ids), effect.reason_rule_ref, effect.idempotency_key,
           effect.request_hash, effect.snapshot_revision, effect.snapshot_commit_sequence,
