@@ -1,5 +1,9 @@
 name: POSIX namespace broker prototype
 
+concurrency:
+  group: posix-namespace-broker-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     paths:
