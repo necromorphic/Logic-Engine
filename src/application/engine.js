@@ -97,6 +97,29 @@ function validateCommunicationDeliveryProjection(row, request) {
     throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
       'Communication acquisition source evidence does not match its exact typed schema.', 409);
   }
+  let canonicalEffects;
+  try { canonicalEffects = JSON.parse(row.canonical_effects_json); }
+  catch {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition has no valid canonical Core event effects.', 409);
+  }
+  const canonicalEffect = Array.isArray(canonicalEffects) && canonicalEffects.length === 1
+    ? canonicalEffects[0] : null;
+  if (!exact(canonicalEffect, [
+    'kind', 'acquisition_id', 'subject_id', 'acquisition_kind',
+    'provenance_ref', 'provenance_digest', 'authorization_ref', 'source_evidence',
+  ]) || canonicalEffect.kind !== 'knowledge.acquire'
+    || canonicalEffect.acquisition_kind !== 'communication_delivered'
+    || canonicalEffect.world_id !== undefined
+    || canonicalEffect.subject_id !== row.subject_id
+    || canonicalEffect.acquisition_id !== row.acquisition_id
+    || canonicalEffect.provenance_ref !== row.provenance_ref
+    || canonicalEffect.provenance_digest !== row.provenance_digest
+    || canonicalEffect.authorization_ref !== row.authorization_ref
+    || hashRequest(canonicalEffect.source_evidence) !== hashRequest(evidence)) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition projection does not match its canonical Core event effect.', 409);
+  }
   const proof = evidence.receipt_proof;
   const expectedConversationId = [
     evidence.host_session_id, evidence.host_installation_id, evidence.conversation_uuid,
@@ -117,7 +140,8 @@ function validateCommunicationDeliveryProjection(row, request) {
     evidence.source_attestation.mutation_coverage_manifest_sha256,
     evidence.source_attestation.mutation_coverage_source_files_sha256,
   ];
-  if (row.fact_id !== null || row.acquired_value_json !== null
+  if (row.world_id !== request.world_id || row.subject_id !== request.actor_id
+    || row.fact_id !== null || row.acquired_value_json !== null
     || row.acquired_source_event_ids_json !== null
     || row.canonical_event_type !== 'knowledge.acquisition.communication_delivered'
     || row.event_committed_revision !== row.committed_revision
@@ -901,8 +925,9 @@ export class LogicEngine {
       }
   
       const rows = this.store.db.prepare(`
-        SELECT a.acquisition_id, a.event_id, a.committed_revision, e.event_type AS canonical_event_type,
-          e.committed_revision AS event_committed_revision, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        SELECT a.world_id, a.subject_id, a.acquisition_id, a.event_id, a.committed_revision,
+          e.event_type AS canonical_event_type, e.committed_revision AS event_committed_revision,
+          e.effects_json AS canonical_effects_json, a.fact_id, a.acquisition_kind, a.provenance_ref,
           a.provenance_digest, a.authorization_ref, a.acquired_value_json, a.acquired_source_event_ids_json,
           a.source_evidence_json, a.source_adapter_id, a.source_conversation_id,
           a.source_message_id, a.source_version_id, a.source_content_sha256,
