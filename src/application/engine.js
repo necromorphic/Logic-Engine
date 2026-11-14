@@ -9,6 +9,10 @@ import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
 import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
+import {
+  createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
+  resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+} from './npc-belief-proposal-handles.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -411,7 +415,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null, hostCommunicationReceiptVerifier = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null, hostCommunicationReceiptVerifier = null, npcEvidenceHandleKeyProvider = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
@@ -431,6 +435,12 @@ export class LogicEngine {
       throw new TypeError('hostCommunicationReceiptVerifier must be a synchronous deployment-owned function');
     }
     this.hostCommunicationReceiptVerifier = hostCommunicationReceiptVerifier;
+    if (npcEvidenceHandleKeyProvider !== null
+      && (typeof npcEvidenceHandleKeyProvider !== 'function'
+        || npcEvidenceHandleKeyProvider instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      throw new TypeError('npcEvidenceHandleKeyProvider must be a synchronous deployment-owned function');
+    }
+    this.npcEvidenceHandleKeyProvider = npcEvidenceHandleKeyProvider;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
