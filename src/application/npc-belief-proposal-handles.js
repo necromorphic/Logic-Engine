@@ -1,10 +1,15 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { types as utilTypes } from 'node:util';
 import { hashRequest } from '../core/request-hash.js';
 import { npcPropositionRefFor } from './npc-belief-state.js';
 
 const CONTEXT_TTL_MS = 15 * 60 * 1000;
 const HANDLE_MAX = 200;
 const STORABLE_ACQUISITION_KINDS = new Set(['author_initial', 'imported']);
+const AUTHORIZATION_CONTEXT_KEYS = [
+  'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient',
+  'purpose', 'expected_revision', 'expected_commit_sequence', 'limit',
+];
 
 const validId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= HANDLE_MAX
@@ -12,7 +17,7 @@ const validId = value => typeof value === 'string' && value === value.trim()
 const validDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 
 function plainDataObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -24,8 +29,13 @@ function plainDataObject(value) {
   } catch { return false; }
 }
 
+function exactDataObject(value, keys) {
+  return plainDataObject(value) && Reflect.ownKeys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key));
+}
+
 function denseArray(value, max = 200) {
-  if (!Array.isArray(value) || value.length > max) return false;
+  if (utilTypes.isProxy(value) || !Array.isArray(value) || value.length > max) return false;
   try {
     if (Object.getPrototypeOf(value) !== Array.prototype) return false;
     const keys = Reflect.ownKeys(value);
@@ -38,11 +48,12 @@ function denseArray(value, max = 200) {
   } catch { return false; }
 }
 
-function safeJsonTree(value, ancestors = new Set(), depth = 0) {
-  if (depth > 32) return false;
+function safeJsonTree(value, ancestors = new Set(), depth = 0, budget = { nodes: 0 }) {
+  budget.nodes += 1;
+  if (depth > 32 || budget.nodes > 10000) return false;
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
-  if (typeof value !== 'object' || ancestors.has(value)) return false;
+  if (typeof value !== 'object' || utilTypes.isProxy(value) || ancestors.has(value)) return false;
   try {
     if (Array.isArray(value)) {
       if (Object.getPrototypeOf(value) !== Array.prototype) return false;
@@ -52,7 +63,7 @@ function safeJsonTree(value, ancestors = new Set(), depth = 0) {
       for (let index = 0; index < value.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
-          || !safeJsonTree(descriptor.value, ancestors, depth + 1)) {
+          || !safeJsonTree(descriptor.value, ancestors, depth + 1, budget)) {
           ancestors.delete(value);
           return false;
         }
@@ -64,7 +75,7 @@ function safeJsonTree(value, ancestors = new Set(), depth = 0) {
     ancestors.add(value);
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (!descriptor || !safeJsonTree(descriptor.value, ancestors, depth + 1)) {
+      if (!descriptor || !safeJsonTree(descriptor.value, ancestors, depth + 1, budget)) {
         ancestors.delete(value);
         return false;
       }
@@ -106,7 +117,8 @@ function equalMac(expected, actual) {
 }
 
 function scopeRecord(read, limit) {
-  if (!plainDataObject(read) || !plainDataObject(read.snapshot)
+  if (!plainDataObject(read) || read.status !== 'ready' || read.truncated === true
+    || !plainDataObject(read.snapshot)
     || !Number.isSafeInteger(read.snapshot.world_revision) || read.snapshot.world_revision < 0
     || !Number.isSafeInteger(read.snapshot.commit_sequence) || read.snapshot.commit_sequence < 0
     || !Number.isSafeInteger(limit) || limit < 1 || limit > 200
@@ -172,15 +184,23 @@ function propositionHandleFor(key, scope, context, propositionRef) {
 
 function eligibleEvidenceItems(items) {
   if (!denseArray(items, 200)) throw new TypeError('Visible Core evidence must be a bounded dense array.');
-  return items.filter(item => STORABLE_ACQUISITION_KINDS.has(item?.acquisition_kind)
-    && validId(item.acquisition_id)
-    && validId(item.fact_id)
-    && validId(item.subject_ref)
-    && validId(item.predicate)
-    && validId(item.provenance_ref)
-    && validDigest(item.provenance_digest)
-    && safeJsonTree(item.value)
-    && npcPropositionRefFor(item) !== null);
+  const eligible = [];
+  for (const item of items) {
+    if (!STORABLE_ACQUISITION_KINDS.has(item?.acquisition_kind)) continue;
+    if (!plainDataObject(item)
+      || !validId(item.acquisition_id)
+      || !validId(item.fact_id)
+      || !validId(item.subject_ref)
+      || !validId(item.predicate)
+      || !validId(item.provenance_ref)
+      || !validDigest(item.provenance_digest)
+      || !safeJsonTree(item.value)
+      || npcPropositionRefFor(item) === null) {
+      throw new TypeError('Visible fact-backed Core evidence is malformed; handle issuance must fail closed.');
+    }
+    eligible.push(item);
+  }
+  return eligible;
 }
 
 /**
@@ -260,6 +280,9 @@ export function resolveNpcBeliefProposalHandles({
     return Object.freeze({ status: 'non_ready', reason: 'invalid_handle_resolution_input' });
   }
   const scope = scopeRecord(read, authorizationContext.limit ?? 200);
+  if (!exactDataObject(authorizationContext, AUTHORIZATION_CONTEXT_KEYS)) {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_authorization_context_shape' });
+  }
   const expectedScope = {
     world_id: authorizationContext.world_id,
     conversation_id: authorizationContext.conversation_id,
@@ -282,9 +305,7 @@ export function resolveNpcBeliefProposalHandles({
     'schema_version', 'context_handle', 'proposition_handle', 'object',
     'supporting_evidence_handles', 'contradicting_evidence_handles',
   ];
-  if (Reflect.ownKeys(proposal).length !== proposalKeys.length
-    || !proposalKeys.every(keyName => Object.hasOwn(proposal, keyName))
-    || Reflect.ownKeys(proposal).some(keyName => typeof keyName !== 'string' || !proposalKeys.includes(keyName))
+  if (!exactDataObject(proposal, proposalKeys)
     || proposal.schema_version !== 1
     || typeof proposal.proposition_handle !== 'string'
     || !/^prh1\.[A-Za-z0-9_-]{43}$/.test(proposal.proposition_handle)
@@ -294,7 +315,7 @@ export function resolveNpcBeliefProposalHandles({
     return Object.freeze({ status: 'non_ready', reason: 'invalid_proposal_shape' });
   }
   const allHandles = [...proposal.supporting_evidence_handles, ...proposal.contradicting_evidence_handles];
-  if (allHandles.length === 0 || new Set(allHandles).size !== allHandles.length
+  if (allHandles.length === 0 || allHandles.length > 200 || new Set(allHandles).size !== allHandles.length
     || allHandles.some(handle => typeof handle !== 'string' || !/^evh1\.[A-Za-z0-9_-]{43}$/.test(handle))) {
     return Object.freeze({ status: 'non_ready', reason: 'invalid_or_duplicate_evidence_handles' });
   }
@@ -319,6 +340,10 @@ export function resolveNpcBeliefProposalHandles({
     group.push(item);
     byProposition.set(propositionRef, group);
     const propositionHandle = propositionHandleFor(key, scope, context, propositionRef);
+    const existingPropositionRef = byPropositionHandle.get(propositionHandle);
+    if (existingPropositionRef !== undefined && existingPropositionRef !== propositionRef) {
+      return Object.freeze({ status: 'non_ready', reason: 'proposition_handle_collision' });
+    }
     byPropositionHandle.set(propositionHandle, propositionRef);
   }
 
@@ -341,9 +366,8 @@ export function resolveNpcBeliefProposalHandles({
     return Object.freeze({ status: 'non_ready', reason: 'not_all_current_proposition_evidence_accounted_for' });
   }
 
-  const objectHashForItem = item => hashRequest(item.value);
-  if (supportingItems.some(item => objectHashForItem(item) !== objectHash)
-    || contradictingItems.some(item => objectHashForItem(item) === objectHash)) {
+  if (supportingItems.some(item => hashRequest(item.value) !== objectHash)
+    || contradictingItems.some(item => hashRequest(item.value) === objectHash)) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_side_does_not_match_object' });
   }
 
