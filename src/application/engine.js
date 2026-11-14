@@ -53,6 +53,9 @@ const validCoreId = value => typeof value === 'string' && value === value.trim()
 const validSha256 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const validHostUuid = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const validHostSnapshotId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 512
+  && !/[\u0000-\u001f\u007f]/u.test(value);
 
 function freezeJsonTree(node) {
   if (node && typeof node === 'object' && !Object.isFrozen(node)) {
@@ -167,7 +170,8 @@ function validateCommunicationDeliveryProjection(row, request) {
     || evidence.sender.principal_id !== evidence.authenticated_account_id
     || evidence.recipient.world_id !== request.world_id
     || evidence.recipient.actor_id !== request.actor_id
-    || !validCoreId(evidence.recipient.actor_type)
+    || typeof evidence.recipient.actor_type !== 'string'
+    || !/^[a-z][a-z0-9_-]{0,63}$/i.test(evidence.recipient.actor_type)
     || !validCoreId(evidence.recipient.host_character_avatar_id)
     || evidence.channel !== 'sillytavern.character_chat'
     || evidence.status !== 'delivered'
@@ -180,8 +184,8 @@ function validateCommunicationDeliveryProjection(row, request) {
     || evidence.source_attestation.protocol_version !== 1
     || evidence.source_attestation.host_commit !== evidence.host_commit
     || evidence.source_attestation.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
-    || !validCoreId(evidence.source_attestation.before_snapshot_id)
-    || !validCoreId(evidence.source_attestation.after_snapshot_id)
+    || !validHostSnapshotId(evidence.source_attestation.before_snapshot_id)
+    || !validHostSnapshotId(evidence.source_attestation.after_snapshot_id)
     || evidence.source_attestation.before_snapshot_id === evidence.source_attestation.after_snapshot_id
     || !attestationDigests.every(validSha256)
     || proof.host_installation_id !== evidence.host_installation_id
