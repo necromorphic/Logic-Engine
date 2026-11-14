@@ -4,9 +4,12 @@ This is the Windows SCM transport/authentication host, not an operational broker
 
 It creates a local named pipe with an explicit DACL for SYSTEM, Administrators,
 and one configured application service SID. Each connection is authenticated
-by impersonating the pipe client and comparing its TokenUser SID. Remote pipe
-clients are rejected. Frames are bounded and contain logical operation data,
-never filesystem paths.
+by impersonating the pipe client and requiring the configured SID to be an
+enabled member of the impersonation token. The service separately opens the
+pipe client's process with PROCESS_DUP_HANDLE and verifies the same enabled
+service-SID membership before transferring a file HANDLE. Remote pipe clients
+are rejected. Frames are bounded and contain logical operation data, never
+filesystem paths.
 
 PING, read-only ACCESS_ROLE_FILE, identity-bound DELETE_SIDECAR, OPEN_MAIN,
 OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR are implemented over
