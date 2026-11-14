@@ -38,6 +38,6 @@ This is a Core data-contract extension, not a prompt or HTTP integration. The me
 ## Verification
 
 - Source files and call boundaries were inspected on the PR branch.
-- Added parser and commit-wrapper coverage in `tests/npc-belief-proposal-parser.test.js`; added ADR stance, modality, persistence, and dropped-transition coverage in `tests/npc-knowledge-read.test.js`.
+- Added parser and commit-wrapper coverage in `tests/npc-belief-proposal-parser.test.js`; added ADR stance, modality, persistence, dropped-transition, idempotent replay, and concurrency coverage in `tests/npc-knowledge-read.test.js`; updated `tests/storage-migrations.test.js` to require schema version 20 and the modality column.
 - Tests were **NOT RUN** by instruction. All runtime behavior and test outcomes remain **NOT VERIFIED**.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED**.
