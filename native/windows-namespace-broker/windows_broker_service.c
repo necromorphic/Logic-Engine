@@ -65,56 +65,29 @@ static BOOL readn_timeout(HANDLE h,void *p,DWORD n,DWORD timeout_ms){
 }
 static BOOL writen(HANDLE h,const void *p,DWORD n){const BYTE *b=p;DWORD d=0;while(d<n){DWORD k=0;if(!WriteFile(h,b+d,n-d,&k,NULL)||!k)return FALSE;d+=k;}return TRUE;}
 static BOOL auth(HANDLE pipe) {
- HANDLE token=NULL;TOKEN_USER *u=NULL;DWORD n=0;BOOL ok=FALSE;
+ HANDLE token=NULL;BOOL ok=FALSE,member=FALSE;
  if(!ImpersonateNamedPipeClient(pipe))return FALSE;
  if(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token))goto done;
- GetTokenInformation(token,TokenUser,NULL,0,&n);if(GetLastError()!=ERROR_INSUFFICIENT_BUFFER||!n||n>65536)goto done;
- u=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,n);if(u&&GetTokenInformation(token,TokenUser,u,n,&n))ok=EqualSid(u->User.Sid,allowed_sid);
- done:if(u)HeapFree(GetProcessHeap(),0,u);if(token)CloseHandle(token);if(!RevertToSelf())ok=FALSE;return ok;
+ ok=CheckTokenMembership(token,allowed_sid,&member)&&member;
+ done:
+ if(token)CloseHandle(token);
+ if(!RevertToSelf())ok=FALSE;
+ return ok;
 }
 static HANDLE authenticated_process(HANDLE pipe) {
- DWORD pid=0,needed=0;HANDLE process=NULL,token=NULL;TOKEN_USER *user=NULL;BOOL valid=FALSE;
+ DWORD pid=0;HANDLE process=NULL,token=NULL;BOOL valid=FALSE,member=FALSE;
  if(!GetNamedPipeClientProcessId(pipe,&pid)||!pid)return NULL;
  process=OpenProcess(PROCESS_DUP_HANDLE|PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
  if(!process)return NULL;
  if(!OpenProcessToken(process,TOKEN_QUERY,&token))goto failed;
- GetTokenInformation(token,TokenUser,NULL,0,&needed);
- if(GetLastError()!=ERROR_INSUFFICIENT_BUFFER||!needed||needed>65536)goto failed;
- user=HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,needed);
- if(!user||!GetTokenInformation(token,TokenUser,user,needed,&needed))goto failed;
- valid=EqualSid(user->User.Sid,allowed_sid);
- if(user)HeapFree(GetProcessHeap(),0,user);
+ valid=CheckTokenMembership(token,allowed_sid,&member)&&member;
  CloseHandle(token);
  if(!valid){CloseHandle(process);return NULL;}
  return process;
  failed:
- if(user)HeapFree(GetProcessHeap(),0,user);
  if(token)CloseHandle(token);
  if(process)CloseHandle(process);
  return NULL;
-}
-#define LEB_STATUS_OK 0u
-#define LEB_STATUS_BAD_REQUEST 1u
-#define LEB_STATUS_UNAUTHORIZED 2u
-#define LEB_STATUS_UNSUPPORTED 3u
-#define LEB_STATUS_INTERNAL 4u
-#define LEB_STATUS_NOT_FOUND 5u
-static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129],char kind[16]) {
- DWORD separator=0,i,role_length,kind_length;
- if(!payload||!length||length>145)return FALSE;
- while(separator<length&&payload[separator]!=0)separator++;
- if(separator==0||separator==length)return FALSE;
- role_length=separator;kind_length=length-separator-1;
- if(role_length>128||kind_length==0||kind_length>=16)return FALSE;
- for(i=0;i<role_length;i++){
-  BYTE c=payload[i];
-  if(!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c=='-')
-     ||(i==0&&!((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9'))))return FALSE;
- }
- for(i=separator+1;i<length;i++)if(payload[i]==0||payload[i]<0x21||payload[i]>0x7e)return FALSE;
- memcpy(role,payload,role_length);role[role_length]=0;
- memcpy(kind,payload+separator+1,kind_length);kind[kind_length]=0;
- return !strcmp(kind,"main")||!strcmp(kind,"wal")||!strcmp(kind,"shm")||!strcmp(kind,"journal");
 }
 static void close_remote_client_handle(HANDLE process, uint64_t remote_value) {
  HANDLE local=INVALID_HANDLE_VALUE;
