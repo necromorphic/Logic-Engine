@@ -9,6 +9,7 @@ on:
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
+      - 'native/secure-vfs-probe/windows-manifest-lifecycle.js'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'tests/security-vfs-broker-integration.test.js'
       - 'native/posix-namespace-broker/test_vfs_fake_server.py'
@@ -19,12 +20,23 @@ on:
       - 'deploy/sqlite-security/**'
       - 'schemas/sqlite-role-manifest.schema.json'
       - 'tests/sqlite-role-manifest-schema.test.js'
+      - 'tests/windows-role-manifest.test.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
+      - 'tests/sqlite-broker-systemd-units.test.js'
+      - 'tests/sqlite-windows-acl-installer.test.js'
       - '.github/workflows/security-vfs-extension-bootstrap.yml'
   pull_request:
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
       - 'tests/security-vfs-extension-bootstrap.test.js'
+      - 'tests/security-vfs-broker-integration.test.js'
+      - 'tests/security-vfs-strict-mode.test.js'
+      - 'native/secure-vfs-probe/windows-manifest-lifecycle.js'
+      - 'tests/windows-role-manifest.test.js'
+      - 'tests/windows-manifest-lifecycle.test.js'
+      - 'tests/sqlite-broker-systemd-units.test.js'
+      - 'tests/sqlite-windows-acl-installer.test.js'
       - 'docs/97-issue-770-windows-vfs-integration-contract.md'
       - 'docs/security/sqlite-vfs-directory-anchor-design.md'
       - 'docs/security/sqlite-database-role-inventory.md'
@@ -56,7 +68,7 @@ jobs:
         run: |
           if [ ! -x /usr/bin/node ]; then sudo ln -s "$(command -v node)" /usr/bin/node; fi
       - name: Validate systemd service unit
-        run: systemd-analyze verify deploy/sqlite-security/logic-engine.service
+        run: systemd-analyze verify deploy/sqlite-security/logic-engine.service deploy/sqlite-security/logic-engine-sqlite-broker.service
       - name: Build VFS registration probe
         run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
       - name: Verify persistent VFS registration through node:sqlite
@@ -143,4 +155,4 @@ jobs:
       - name: Install schema validation dependency
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Validate persistent role manifest schema
-        run: node --test tests/sqlite-role-manifest-schema.test.js
+        run: node --test tests/sqlite-role-manifest-schema.test.js tests/windows-role-manifest.test.js tests/windows-manifest-lifecycle.test.js tests/sqlite-broker-systemd-units.test.js tests/sqlite-windows-acl-installer.test.js
