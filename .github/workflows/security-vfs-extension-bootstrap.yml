@@ -9,7 +9,7 @@ concurrency:
 on:
   push:
     branches:
-      - 'security/**'
+      - main
     paths:
       - 'native/secure-vfs-probe/*.c'
       - 'native/secure-vfs-probe/*.h'
