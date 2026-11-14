@@ -386,6 +386,17 @@ export function resolveNpcBeliefProposalHandles({
   let items;
   try { items = eligibleEvidenceItems(visibleItems, scope); }
   catch { return Object.freeze({ status: 'non_ready', reason: 'invalid_current_core_evidence' }); }
+  const forbiddenProposalIds = [
+    scope.world_id, scope.conversation_id, scope.adapter_id, scope.actor_id,
+    ...items.flatMap(item => [
+      item.acquisition_id, item.fact_id, item.subject_ref, item.provenance_ref,
+      item.provenance_digest, item.authorization_ref, item.acquisition_authorization_ref,
+      ...(item.source_event_ids ?? []),
+    ]),
+  ].filter(value => typeof value === 'string' && value.length > 0);
+  if (containsInternalReference(proposal.object, forbiddenProposalIds)) {
+    return Object.freeze({ status: 'non_ready', reason: 'proposal_object_contains_internal_reference' });
+  }
   const byEvidenceHandle = new Map();
   const byPropositionHandle = new Map();
   const byProposition = new Map();
