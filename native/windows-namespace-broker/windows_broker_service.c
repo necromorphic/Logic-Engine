@@ -139,7 +139,7 @@ static BOOL open_role_file_for_operation(
     uint16_t operation,const char *role,const char *kind,HANDLE *opened) {
  BOOL exists=FALSE;
  HANDLE created=INVALID_HANDLE_VALUE;
- LogicEngineWinFileIdentity created_identity;
+ LogicEngineWinFileIdentity created_identity,reopened_identity;
  DWORD saved_error=ERROR_SUCCESS;
  if(!opened)return FALSE;
  *opened=INVALID_HANDLE_VALUE;
@@ -160,11 +160,20 @@ static BOOL open_role_file_for_operation(
  }
  if(!le_win_create_role_sidecar(&metadata_store,namespace_root,role,kind,
       &created,&created_identity))return FALSE;
- if(created!=INVALID_HANDLE_VALUE){CloseHandle(created);created=INVALID_HANDLE_VALUE;}
+ if(created!=INVALID_HANDLE_VALUE){
+  if(!CloseHandle(created)){saved_error=GetLastError();SetLastError(saved_error);return FALSE;}
+  created=INVALID_HANDLE_VALUE;
+ }
  if(!le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)){
   saved_error=GetLastError();
   if(saved_error==ERROR_SUCCESS)saved_error=ERROR_ACCESS_DENIED;
   SetLastError(saved_error);
+  return FALSE;
+ }
+ if(!logic_engine_win_identity(*opened,&reopened_identity,NULL)
+     ||!logic_engine_win_identity_equal(&created_identity,&reopened_identity)){
+  CloseHandle(*opened);*opened=INVALID_HANDLE_VALUE;
+  SetLastError(ERROR_ACCESS_DENIED);
   return FALSE;
  }
  return TRUE;
