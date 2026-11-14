@@ -15,8 +15,8 @@ concurrency:
 
 jobs:
   npc-boundary:
-    # Run the NPC-owned pure admission boundary on a hosted runner as well.
-    runs-on: ubuntu-latest
+    # Run the NPC-owned pure admission boundary on the self-hosted Linux runner.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -56,8 +56,8 @@ jobs:
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
 
   core-trusted-acquisition:
-    # Keep Core-owned acquisition lifecycle tests runnable even when the local Windows runner is offline.
-    runs-on: ubuntu-latest
+    # Run Core-owned acquisition lifecycle tests on the self-hosted Linux runner.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -73,7 +73,7 @@ jobs:
   windows-symlink-security:
     # Windows lstat exposes a file ID but reports dev=0; verify the actual
     # descriptor identity and require the reparse-point tests on a hosted runner.
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -94,7 +94,7 @@ jobs:
   host-inventory-reconciliation:
     # Exercise the real file-backed Core/Coordinator/Host-ledger race on Linux
     # as well as the full Windows Runtime suite above.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -109,8 +109,8 @@ jobs:
         run: node --import ./tests/configure-test-env.js --test tests/host-version-digest-ledger.test.js tests/host-version-ledger-api.test.js
 
   process-contract:
-    # Keep the pure Process Manager contract matrix runnable on a hosted runner.
-    runs-on: ubuntu-latest
+    # Run the pure Process Manager contract matrix on the self-hosted Linux runner.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
@@ -123,8 +123,8 @@ jobs:
         run: node --test tests/process-contract.test.js
 
   mechanics-policy-authority:
-    # Keep the versioned policy/evaluation lifecycle covered on a hosted runner.
-    runs-on: ubuntu-latest
+    # Run the versioned policy/evaluation lifecycle on the self-hosted Linux runner.
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -141,9 +141,9 @@ jobs:
         run: node --test experiments/recalculation-oracle/harness.test.mjs
 
   symlink-security:
-    # Windows self-hosted runners may not have symlink creation privileges.
+    # The self-hosted Windows runner account must have symlink-creation privilege (or Windows Developer Mode enabled).
     # Keep both security-boundary tests mandatory on a Linux runner.
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     permissions:
       contents: read
