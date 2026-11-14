@@ -1,0 +1,66 @@
+name: Host Account Mutation Receipts
+
+on:
+  pull_request:
+    paths:
+      - 'host-adapter/extension-gateway/server-plugin/**'
+      - 'host-adapter/prototype/st-host-account-mutation-receipt-store.test.mjs'
+      - 'host-adapter/prototype/tests/pinned-st-source-audit.test.mjs'
+      - 'host-adapter/prototype/patches/sillytavern-1.19.0-*.patch'
+      - '.github/workflows/host-account-mutation-receipts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  host-account-mutation-receipts:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - name: Check out Logic Engine
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+
+      - name: Fetch pinned SillyTavern source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/SillyTavern"
+          git -C "$RUNNER_TEMP/SillyTavern" remote add origin https://github.com/SillyTavern/SillyTavern.git
+          git -C "$RUNNER_TEMP/SillyTavern" fetch --depth=1 origin 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          git -C "$RUNNER_TEMP/SillyTavern" checkout --detach FETCH_HEAD
+          git -C "$RUNNER_TEMP/SillyTavern" config core.autocrlf false
+
+      - name: Apply the exact pinned Host patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/SillyTavern"
+          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git -C "$root" apply --check --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
+          git -C "$root" apply --ignore-space-change --ignore-whitespace --unidiff-zero "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch"
+
+      - name: Check Host runtime syntax
+        run: |
+          node --check host-adapter/extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-inventory-handler.mjs
+          node --check host-adapter/extension-gateway/server-plugin/host-adapter.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-lifecycle-receipt-store.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-host-mutation-runtime-acceptance.mjs
+          node --check host-adapter/extension-gateway/server-plugin/st-mutation-route-contract.mjs
+          node --test host-adapter/extension-gateway/tests/st-host-mutation-runtime-acceptance.test.mjs
+
+      - name: Run focused receipt and pinned-source tests
+        env:
+          SILLYTAVERN_SOURCE_ROOT: ${{ runner.temp }}/SillyTavern
+        run: |
+          node --test host-adapter/prototype/st-host-account-mutation-receipt-store.test.mjs host-adapter/prototype/tests/pinned-st-source-audit.test.mjs

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
@@ -7,10 +7,59 @@ import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { isMechanicPolicyAuthority, defaultMechanicPolicyFieldPolicy } from '../application/mechanic-policy-authority.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { createHostSessionAssertionRunner } from '../application/host-session-context.js';
 
 const MAX = 1048576;
 const MAX_HOST_VERSION_SNAPSHOT_BYTES = 8 * 1048576;
+const HOST_SESSION_UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const HOST_SESSION_UUID = new RegExp('^' + HOST_SESSION_UUID_PATTERN + '$', 'i');
+const HOST_PC_NEXT11_CONVERSATION_ID = new RegExp(
+  '^' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + ':' + HOST_SESSION_UUID_PATTERN + '$', 'i',
+);
+
+function hasExactOwnDataKeys(value, expectedKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== expectedKeys.length
+      || keys.some(key => typeof key !== 'string' || !expectedKeys.includes(key))) return false;
+    return expectedKeys.every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+}
+
+function validMemoryNpcResult(retrieval) {
+  if (!retrieval || typeof retrieval !== 'object' || Array.isArray(retrieval)) return false;
+  try {
+    const status = Object.getOwnPropertyDescriptor(retrieval, 'status');
+    if (!status || !Object.hasOwn(status, 'value')) return false;
+    if (status.value === 'ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason', 'snapshot'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && retrieval.reason === null
+        && hasExactOwnDataKeys(retrieval.snapshot, ['world_revision', 'commit_sequence'])
+        && Number.isSafeInteger(retrieval.snapshot.world_revision) && retrieval.snapshot.world_revision >= 0
+        && Number.isSafeInteger(retrieval.snapshot.commit_sequence) && retrieval.snapshot.commit_sequence >= 0;
+    }
+    if (status.value === 'non_ready') {
+      return hasExactOwnDataKeys(retrieval, ['status', 'admitted', 'candidates', 'reason'])
+        && Array.isArray(retrieval.admitted) && Array.isArray(retrieval.candidates)
+        && typeof retrieval.reason === 'string' && retrieval.reason.length > 0;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 const MAX_HOST_VERSION_SNAPSHOT_ENTRIES = 25000;
+const MAX_HOST_ROOT_INVENTORY_BYTES = 8 * 1048576;
+const MAX_HOST_ROOT_INVENTORY_ENTRIES = 25000;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, policyAuthority = null) {
@@ -56,7 +105,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, defaultHostWorldId = null, authorizedReadFieldPolicy = null, mechanicPolicyAuthority = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, hostRootInventoryJournal = null, resolveHostRootIdentity = null, hostLifecycleJournal = null, resolveHostLifecycleIdentity = null, resolveHostMemoryIdentity = null, memoryNpcConsumers = {}, hostAssertionNonceStore = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -78,6 +127,30 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     throw new TypeError('Provide mechanicPolicyAuthority or authorizedReadFieldPolicy, not both; the authority owns the field policy.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  if (hostRootInventoryJournal !== null && (!hostRootInventoryJournal
+    || typeof hostRootInventoryJournal.enrollRootInventory !== 'function'
+    || typeof hostRootInventoryJournal.observeRootInventory !== 'function')) {
+    throw new TypeError('Host root inventory journal must expose baseline and observation operations.');
+  }
+  if (resolveHostMemoryIdentity !== null && typeof resolveHostMemoryIdentity !== 'function') {
+    throw new TypeError('Host Memory identity resolver must be trusted application configuration.');
+  }
+  if (resolveHostRootIdentity !== null && typeof resolveHostRootIdentity !== 'function') {
+    throw new TypeError('Host root identity resolver must be trusted application configuration.');
+  }
+  if (hostLifecycleJournal !== null && (!hostLifecycleJournal || typeof hostLifecycleJournal.append !== 'function'
+    || typeof hostLifecycleJournal.getConversationStatus !== 'function')) {
+    throw new TypeError('Host lifecycle journal must expose append and conversation status operations.');
+  }
+  if (resolveHostLifecycleIdentity !== null && typeof resolveHostLifecycleIdentity !== 'function') {
+    throw new TypeError('Host lifecycle identity resolver must be trusted application configuration.');
+  }
+  if (hostLifecycleJournal !== null && resolveHostLifecycleIdentity === null) {
+    throw new TypeError('Host lifecycle journal requires a trusted adapter identity resolver.');
+  }
+  if (hostRootInventoryJournal !== null && resolveHostRootIdentity === null) {
+    throw new TypeError('Host root inventory requires a trusted adapter identity resolver.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
@@ -87,6 +160,37 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
+  if (hostAssertionNonceStore !== null
+    && (typeof hostAssertionNonceStore.consume !== 'function'
+      || typeof hostAssertionNonceStore.revokeSession !== 'function'
+      || typeof hostAssertionNonceStore.isSessionRevoked !== 'function')) {
+    throw new TypeError('Host assertion nonce store must expose atomic consume(), revokeSession(), and isSessionRevoked().');
+  }
+  if (!memoryNpcConsumers || typeof memoryNpcConsumers !== 'object' || Array.isArray(memoryNpcConsumers)
+    || Object.entries(memoryNpcConsumers).some(([id, consumer]) => !Object.hasOwn(adapterTokens, id)
+      || typeof consumer?.retrieveForNpc !== 'function')) {
+    throw new TypeError('Memory NPC consumers must be trusted, adapter-pinned consumer instances.');
+  }
+  if (Object.keys(memoryNpcConsumers).length > 0 && hostAssertionNonceStore === null) {
+    throw new TypeError('Memory NPC retrieval requires a durable Host assertion nonce and revocation store.');
+  }
+  if (Object.keys(memoryNpcConsumers).length > 0 && resolveHostMemoryIdentity === null) {
+    throw new TypeError('Memory NPC retrieval requires a separate Root Inventory completeness resolver.');
+  }
+  const hostAssertionRunners = Object.fromEntries(Object.entries(adapterTokens)
+    .map(([id, secret]) => [id, createHostSessionAssertionRunner({
+      secret,
+      adapterId: id,
+      isSessionRevoked: (adapterId, identity) => hostAssertionNonceStore.isSessionRevoked(adapterId, identity),
+      consumeNonce: (nonce, expiresAt, currentSeconds) => {
+        if (!hostAssertionNonceStore) throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        try {
+          return hostAssertionNonceStore.consume(id, nonce, expiresAt, currentSeconds);
+        } catch {
+          throw new Error('HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE');
+        }
+      },
+    })]));
   const proposals = new ProposalService(engine, {
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider, mechanicPolicyAuthority),
   });
@@ -148,6 +252,341 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
+      }
+      if (url.pathname === '/v1/host-lifecycle/events') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host lifecycle journal operation.' },
+        });
+        if (!hostLifecycleJournal || !resolveHostLifecycleIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_LIFECYCLE_JOURNAL_UNAVAILABLE', message: 'Host lifecycle journal is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req);
+        const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        const allowed = ['host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+          'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest', 'receipt_signature', 'occurred_at'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => !allowed.includes(key))
+          || !UUID.test(body.host_installation_id ?? '')
+          || !UUID.test(body.authenticated_account_id ?? '')
+          || !UUID.test(body.host_session_id ?? '')
+          || !UUID.test(body.conversation_uuid ?? '')
+          || !UUID.test(body.event_id ?? '')
+          || !['MUTATION_PREPARED', 'MUTATION_COMMITTED', 'MUTATION_ABORTED'].includes(body.event_type)
+          || !UUID.test(body.mutation_id ?? '')
+          || typeof body.operation !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(body.operation)
+          || typeof body.mutation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(body.mutation_digest)
+          || (body.event_type !== 'MUTATION_PREPARED' && !/^[a-f0-9]{64}$/.test(body.receipt_digest ?? ''))
+          || (body.event_type === 'MUTATION_PREPARED' && body.receipt_digest !== undefined)
+          || typeof body.occurred_at !== 'string' || !Number.isFinite(Date.parse(body.occurred_at))) {
+          throw new EngineError('INVALID_HOST_LIFECYCLE_EVENT', 'A bounded, digest-only Host mutation lifecycle event is required.', 400);
+        }
+        let trustedIdentity;
+        try {
+          trustedIdentity = await resolveHostLifecycleIdentity({
+            adapterId,
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            host_session_id: body.host_session_id,
+            conversation_uuid: body.conversation_uuid,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
+        }
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.host_installation_id !== body.host_installation_id
+          || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
+          || trustedIdentity.host_session_id !== body.host_session_id
+          || trustedIdentity.conversation_uuid !== body.conversation_uuid
+          || typeof trustedIdentity.authority_id !== 'string'
+          || !Number.isSafeInteger(trustedIdentity.generation) || trustedIdentity.generation < 1
+          || !/^[a-f0-9]{64}$/.test(trustedIdentity.snapshot_fingerprint ?? '')) {
+          return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
+        }
+        try {
+          const result = hostLifecycleJournal.append({
+            ...body,
+            authority_id: trustedIdentity.authority_id,
+            generation: trustedIdentity.generation,
+            snapshot_fingerprint: trustedIdentity.snapshot_fingerprint,
+          });
+          return send(res, result.status === 'duplicate' ? 200 : 201, { lifecycle: result });
+        } catch (error) {
+          if (['HOST_LIFECYCLE_EVENT_ID_CONFLICT', 'HOST_LIFECYCLE_MUTATION_ALREADY_PENDING',
+            'HOST_LIFECYCLE_MUTATION_PREPARE_MISSING', 'HOST_LIFECYCLE_MUTATION_TERMINAL_CONFLICT',
+            'HOST_LIFECYCLE_INTENT_DIGEST_MISMATCH', 'HOST_LIFECYCLE_AUTHORITY_STALE',
+            'HOST_LIFECYCLE_RECEIPT_MISMATCH', 'HOST_LIFECYCLE_STATE_MACHINE_CORRUPT'].includes(error?.message)) {
+            throw new EngineError(error.message, 'Host lifecycle event conflicts with the durable journal state.', 409);
+          }
+          if (error instanceof TypeError) {
+            throw new EngineError('INVALID_HOST_LIFECYCLE_EVENT', 'Host lifecycle event is malformed or unsafe.', 400);
+          }
+          throw error;
+        }
+      }
+      if (url.pathname === '/v1/host-lifecycle/status') {
+        if (req.method !== 'GET') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host lifecycle status operation.' },
+        });
+        if (!hostLifecycleJournal || !resolveHostLifecycleIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_LIFECYCLE_JOURNAL_UNAVAILABLE', message: 'Host lifecycle journal is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const identity = {
+          host_installation_id: url.searchParams.get('host_installation_id'),
+          authenticated_account_id: url.searchParams.get('authenticated_account_id'),
+          host_session_id: url.searchParams.get('host_session_id'),
+          conversation_uuid: url.searchParams.get('conversation_uuid'),
+        };
+        let trustedIdentity;
+        try { trustedIdentity = await resolveHostLifecycleIdentity({ adapterId, ...identity }); } catch {}
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.host_installation_id !== identity.host_installation_id
+          || trustedIdentity.authenticated_account_id !== identity.authenticated_account_id
+          || trustedIdentity.host_session_id !== identity.host_session_id
+          || trustedIdentity.conversation_uuid !== identity.conversation_uuid
+          || typeof trustedIdentity.authority_id !== 'string'
+          || !Number.isSafeInteger(trustedIdentity.generation) || trustedIdentity.generation < 1
+          || !/^[a-f0-9]{64}$/.test(trustedIdentity.snapshot_fingerprint ?? '')) {
+          return send(res, 403, { error: { code: 'HOST_LIFECYCLE_NOT_AUTHORIZED', message: 'Host lifecycle identity is not authorized.' } });
+        }
+        try {
+          return send(res, 200, { lifecycle: hostLifecycleJournal.getConversationStatus(
+            identity.host_installation_id, identity.authenticated_account_id, identity.host_session_id,
+            identity.conversation_uuid, trustedIdentity,
+          ) });
+        } catch (error) {
+          if (error instanceof TypeError) throw new EngineError('INVALID_HOST_LIFECYCLE_IDENTITY', 'Host lifecycle identity is malformed.', 400);
+          throw error;
+        }
+      }
+      if (url.pathname === '/v1/host-root-inventory/attest') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host root-inventory operation.' },
+        });
+        if (!hostRootInventoryJournal || !resolveHostRootIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_ROOT_INVENTORY_UNAVAILABLE', message: 'Host root inventory journal is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req, 64 * 1024);
+        const validIdentity = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => ![
+            'host_installation_id', 'authenticated_account_id', 'root_id', 'attestation',
+          ].includes(key))
+          || !validIdentity(body.host_installation_id)
+          || !validIdentity(body.authenticated_account_id)
+          || !/^[a-f0-9]{64}$/.test(body.root_id ?? '')
+          || !body.attestation || typeof body.attestation !== 'object' || Array.isArray(body.attestation)) {
+          throw new EngineError('INVALID_HOST_ROOT_INVENTORY_ATTESTATION',
+            'Root inventory attestation requires the trusted installation/account/root tuple and signed completeness proof.', 400);
+        }
+        let trustedIdentity;
+        try {
+          trustedIdentity = await resolveHostRootIdentity({
+            adapterId,
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            root_id: body.root_id,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.adapter_id !== adapterId
+          || trustedIdentity.host_installation_id !== body.host_installation_id
+          || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
+          || trustedIdentity.root_id !== body.root_id) {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        try {
+          const result = hostRootInventoryJournal.attestRootInventory({
+            host_installation_id: trustedIdentity.host_installation_id,
+            authenticated_account_id: trustedIdentity.authenticated_account_id,
+            root_id: trustedIdentity.root_id,
+            attestation: body.attestation,
+          });
+          return send(res, 200, {
+            inventory_status: result.status,
+            reconciliation: {
+              status: result.status,
+              integrity_status: result.integrity_status,
+              sequence: result.sequence,
+              manifest_sha256: result.manifest_sha256,
+              journal_head_sha256: result.journal_head_sha256,
+              lifecycle_sequence: result.lifecycle_sequence,
+              lifecycle_head_sha256: result.lifecycle_head_sha256,
+              attestation_sha256: result.attestation_sha256,
+              source_manifest_sha256: result.source_manifest_sha256,
+              ...(result.duplicate ? { duplicate: true } : {}),
+            },
+          });
+        } catch (error) {
+          if (error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_EXPIRED'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_SIGNATURE_INVALID'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_REPLAYED'
+            || error?.message === 'HOST_ROOT_INVENTORY_ATTESTATION_CONFLICT'
+            || error?.message === 'HOST_ROOT_INVENTORY_DELTA_REQUIRES_MANUAL_RECOVERY'
+            || error?.message === 'HOST_ROOT_INVENTORY_PENDING_MUTATION') {
+            throw new EngineError(error.message, 'Host root inventory completeness proof was rejected.', 409);
+          }
+          if (error instanceof TypeError) {
+            throw new EngineError('INVALID_HOST_ROOT_INVENTORY_ATTESTATION',
+              'Host root inventory completeness proof is malformed.', 400);
+          }
+          throw error;
+        }
+      }
+      if (url.pathname === '/v1/host-root-inventory/baseline'
+        || url.pathname === '/v1/host-root-inventory/observe') {
+        if (req.method !== 'POST') return send(res, 405, {
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host root-inventory operation.' },
+        });
+        if (!hostRootInventoryJournal || !resolveHostRootIdentity) {
+          return send(res, 503, {
+            error: { code: 'HOST_ROOT_INVENTORY_UNAVAILABLE', message: 'Host root inventory journal is not configured.' },
+          });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, {
+          error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' },
+        });
+        const body = await readBody(req, MAX_HOST_ROOT_INVENTORY_BYTES);
+        const validIdentity = value => typeof value === 'string' && value === value.trim()
+          && value.length > 0 && value.length <= 200
+          && ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(key => ![
+            'host_installation_id', 'authenticated_account_id', 'root_id', 'event_id', 'entries', 'source_manifest_sha256',
+          ].includes(key))
+          || (body.source_manifest_sha256 !== undefined && !/^[a-f0-9]{64}$/.test(body.source_manifest_sha256))
+          || !validIdentity(body.host_installation_id)
+          || !validIdentity(body.authenticated_account_id)
+          || !/^[a-f0-9]{64}$/.test(body.root_id ?? '')
+          || !validIdentity(body.event_id)
+          || !Array.isArray(body.entries)) {
+          throw new EngineError('INVALID_HOST_ROOT_INVENTORY', 'Root inventory requires authenticated installation/account identity, root digest, event ID and a digest-only file manifest.', 400);
+        }
+        if (body.entries.length > MAX_HOST_ROOT_INVENTORY_ENTRIES) {
+          throw new EngineError('HOST_ROOT_INVENTORY_TOO_LARGE', 'Root inventory exceeds the 25,000-file limit.', 413);
+        }
+
+        // Adapter authentication is necessary but not sufficient: this trusted
+        // resolver binds the submitted Host installation/account/root tuple to
+        // the authenticated adapter. The journal independently revalidates it.
+        let trustedIdentity;
+        try {
+          trustedIdentity = await resolveHostRootIdentity({
+            adapterId,
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            root_id: body.root_id,
+          });
+        } catch {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+        if (!trustedIdentity || trustedIdentity.authorized !== true
+          || trustedIdentity.host_installation_id !== body.host_installation_id
+          || trustedIdentity.authenticated_account_id !== body.authenticated_account_id
+          || trustedIdentity.root_id !== body.root_id) {
+          return send(res, 403, { error: { code: 'HOST_ROOT_INVENTORY_NOT_AUTHORIZED', message: 'Host root inventory identity is not authorized.' } });
+        }
+
+        const input = {
+          host_installation_id: trustedIdentity.host_installation_id,
+          authenticated_account_id: trustedIdentity.authenticated_account_id,
+          root_id: trustedIdentity.root_id,
+          event_id: body.event_id,
+          entries: body.entries,
+          ...(body.source_manifest_sha256 ? { source_manifest_sha256: body.source_manifest_sha256 } : {}),
+        };
+        let result;
+        try {
+          result = url.pathname.endsWith('/baseline')
+            ? hostRootInventoryJournal.enrollRootInventory(input)
+            : hostRootInventoryJournal.observeRootInventory(input);
+        } catch (error) {
+          if (error?.message === 'HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT') {
+            throw new EngineError('HOST_ROOT_INVENTORY_EVENT_ID_CONFLICT', 'Root inventory event ID was reused with different content.', 409);
+          }
+          if (error?.message === 'HOST_ROOT_INVENTORY_ALREADY_ENROLLED'
+            || error?.message === 'HOST_ROOT_INVENTORY_BASELINE_MISSING') {
+            throw new EngineError(error.message, 'Root inventory baseline state does not permit this operation.', 409);
+          }
+          if (error?.message === 'HOST_ROOT_INVENTORY_BYTE_LIMIT'
+            || error?.message === 'HOST_ROOT_INVENTORY_ENTRY_LIMIT') {
+            throw new EngineError(error.message, 'Root inventory exceeds its bounded storage limits.', 413);
+          }
+          if (error instanceof TypeError) {
+            throw new EngineError('INVALID_HOST_ROOT_INVENTORY_MANIFEST', 'Root inventory manifest is malformed or unsafe.', 400);
+          }
+          throw error;
+        }
+        const integrity = hostRootInventoryJournal.verifyRootInventory(input);
+        if (integrity?.status !== 'INTEGRITY_OK') {
+          return send(res, 409, {
+            inventory_status: 'NON_READY',
+            reconciliation: {
+              status: 'NON_READY',
+              integrity_status: integrity?.status ?? 'NON_READY',
+              reason: integrity?.reason ?? 'HOST_ROOT_INVENTORY_INTEGRITY_UNVERIFIED',
+            },
+          });
+        }
+        const counts = result.delta
+          ? Object.fromEntries(Object.entries(result.delta).map(([key, rows]) => [key, rows.length]))
+          : undefined;
+        const complete = result.status === 'AUTHORITATIVE_COMPLETE'
+          && integrity.authority_status === 'AUTHORITATIVE_COMPLETE';
+        const reviewOnly = result.status === 'BASELINED_REVIEW_ONLY'
+          || result.status === 'UNCHANGED_REVIEW_ONLY' || result.status === 'duplicate';
+        const response = {
+          inventory_status: complete ? 'AUTHORITATIVE_COMPLETE' : reviewOnly ? 'REVIEW_ONLY' : 'NON_READY',
+          reconciliation: {
+            status: result.status,
+            integrity_status: integrity.status,
+            authority_status: integrity.authority_status ?? 'REVIEW_ONLY',
+            ...(result.attestation_sha256 ? { attestation_sha256: result.attestation_sha256 } : {}),
+            ...(result.source_manifest_sha256 ? { source_manifest_sha256: result.source_manifest_sha256 } : {}),
+            ...(result.sequence !== undefined ? { sequence: result.sequence } : {}),
+            ...(result.manifest_sha256 ? { manifest_sha256: result.manifest_sha256 } : {}),
+            ...(result.delta_sha256 ? { delta_sha256: result.delta_sha256 } : {}),
+            ...(result.lifecycle_sequence !== undefined ? { lifecycle_sequence: result.lifecycle_sequence } : {}),
+            ...(result.lifecycle_head_sha256 ? { lifecycle_head_sha256: result.lifecycle_head_sha256 } : {}),
+            ...(result.journal_head_sha256 || result.event_sha256
+              ? { journal_head_sha256: result.journal_head_sha256 ?? result.event_sha256 } : {}),
+            ...(result.reason ? { reason: result.reason } : {}),
+            ...(result.duplicate ? { duplicate: true } : {}),
+            ...(counts ? { counts } : {}),
+          },
+        };
+        const acceptedObservation = [
+          'AUTHORITATIVE_COMPLETE', 'BASELINED_REVIEW_ONLY',
+          'UNCHANGED_REVIEW_ONLY', 'duplicate',
+        ].includes(result.status) || result.accepted === true;
+        // NON_READY is a successful observation outcome: the changed manifest
+        // was durably recorded, but authority is revoked until a fresh signed
+        // completeness attestation is accepted. Integrity failure was handled
+        // above and remains HTTP 409.
+        return send(res, acceptedObservation ? 200 : 409, response);
       }
       if (url.pathname === '/v1/host-version-ledger/capture') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
@@ -296,6 +735,242 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 200, { binding: hostConversationBindings.resolve({
           adapterId, conversationId: body.conversation_id,
         }) });
+      }
+
+      if (url.pathname === '/v1/host-context/resolve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host context resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const contextKeys = ['conversation_id', 'host_session_id', 'host_installation_id', 'conversation_uuid'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== contextKeys.length
+          || Object.keys(body).some(key => !contextKeys.includes(key))
+          || !HOST_SESSION_UUID.test(body.host_session_id ?? '')
+          || !HOST_SESSION_UUID.test(body.host_installation_id ?? '')
+          || !HOST_SESSION_UUID.test(body.conversation_uuid ?? '')
+          || typeof body.conversation_id !== 'string'
+          || !HOST_PC_NEXT11_CONVERSATION_ID.test(body.conversation_id)
+          || body.conversation_id !== [
+            body.host_session_id, body.host_installation_id, body.conversation_uuid,
+          ].join(':')) {
+          throw new EngineError('INVALID_HOST_CONTEXT_RESOLUTION',
+            'Host context resolution accepts only the canonical PC-NEXT-11 conversation_id.', 400);
+        }
+        // New session-scoped tuples are assigned only to a deployment-owned
+        // default World. The browser supplies no World/Actor authority. Existing
+        // and revoked bindings retain their normal conflict/rebind semantics.
+        const conversation = hostConversationBindings.resolveOrBind({
+          adapterId, conversationId: body.conversation_id, defaultWorldId: defaultHostWorldId,
+        });
+        const actor = actorBindings.resolveForAdapter(conversation.world_id, adapterId);
+        if (!actor?.actor || typeof actor.actor.entity_id !== 'string'
+          || typeof actor.actor.entity_type !== 'string') {
+          throw new EngineError('HOST_ACTOR_BINDING_UNAVAILABLE',
+            'Exactly one active actor binding is required.', 409);
+        }
+        return send(res, 200, { context: {
+          adapter_id: adapterId,
+          conversation_id: conversation.conversation_id,
+          world_id: conversation.world_id,
+          actor_id: actor.actor.entity_id,
+          actor_type: actor.actor.entity_type,
+        } });
+      }
+
+      if (url.pathname === '/v1/host/session/revoke') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host session revocation operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req, 16 * 1024);
+        const allowed = ['protocol_version', 'host_installation_id', 'authenticated_account_id',
+          'host_session_id', 'issued_at', 'nonce', 'reason', 'signature'];
+        if (!hasExactOwnDataKeys(body, allowed)
+          || body.protocol_version !== 1
+          || !HOST_SESSION_UUID.test(body.host_installation_id ?? '')
+          || !HOST_SESSION_UUID.test(body.authenticated_account_id ?? '')
+          || !HOST_SESSION_UUID.test(body.host_session_id ?? '')
+          || !HOST_SESSION_UUID.test(body.nonce ?? '')
+          || !Number.isSafeInteger(body.issued_at)
+          || !['logout', 'session_rotation'].includes(body.reason)
+          || typeof body.signature !== 'string' || !/^[a-f0-9]{64}$/.test(body.signature)) {
+          throw new EngineError('INVALID_HOST_SESSION_REVOCATION', 'Host session revocation envelope is invalid.', 400);
+        }
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (body.issued_at < nowSeconds - 30 || body.issued_at > nowSeconds + 5) {
+          return send(res, 401, { error: { code: 'HOST_SESSION_REVOCATION_EXPIRED', message: 'Host session revocation event is outside its acceptance window.' } });
+        }
+        const proof = JSON.stringify([
+          body.protocol_version, adapterId, body.host_installation_id,
+          body.authenticated_account_id, body.host_session_id, body.issued_at,
+          body.nonce, body.reason,
+        ]);
+        const expected = createHmac('sha256', adapterTokens[adapterId]).update(proof, 'utf8').digest();
+        const supplied = Buffer.from(body.signature, 'hex');
+        if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+          return send(res, 401, { error: { code: 'HOST_SESSION_REVOCATION_INVALID', message: 'Host session revocation signature is invalid.' } });
+        }
+        let revoked;
+        try {
+          revoked = await hostAssertionNonceStore.revokeSession(adapterId, {
+            host_installation_id: body.host_installation_id,
+            authenticated_account_id: body.authenticated_account_id,
+            host_session_id: body.host_session_id,
+          }, body.nonce, body.issued_at, body.reason);
+        } catch {
+          return send(res, 503, { error: { code: 'HOST_SESSION_REVOCATION_UNAVAILABLE', message: 'Durable Host session revocation is unavailable.' } });
+        }
+        if (revoked !== true) {
+          return send(res, 409, { error: { code: 'HOST_SESSION_REVOCATION_REPLAYED', message: 'Host session revocation event was already consumed.' } });
+        }
+        return send(res, 204, null);
+      }
+
+      if (url.pathname === '/v1/host/memory-npc/retrieve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host Memory retrieval operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const consumer = memoryNpcConsumers[adapterId];
+        if (!consumer) return send(res, 503, { error: { code: 'MEMORY_NPC_CONSUMER_UNAVAILABLE', message: 'The trusted Memory NPC consumer is not configured for this adapter.' } });
+        const body = await readBody(req, 64 * 1024);
+        const allowed = ['assertion', 'signature', 'request_id', 'context_size', 'generation_type'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).length !== allowed.length
+          || Object.keys(body).some(key => !allowed.includes(key))
+          || typeof body.request_id !== 'string' || !HOST_SESSION_UUID.test(body.request_id)
+          || !Number.isSafeInteger(body.context_size) || body.context_size < 1 || body.context_size > 200000
+          || typeof body.generation_type !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(body.generation_type)) {
+          throw new EngineError('INVALID_HOST_MEMORY_RETRIEVAL', 'Host Memory retrieval request metadata is invalid.', 400);
+        }
+        let consumerFailed = false;
+        try {
+          const retrieval = await hostAssertionRunners[adapterId].run(
+            body.assertion, body.signature,
+            async () => {
+              const assertionConversation = body.assertion.conversation_id.split(':');
+              let trustedHostIdentity = null;
+              if (typeof resolveHostMemoryIdentity === 'function'
+                && assertionConversation.length === 3
+                && assertionConversation[0] === body.assertion.host_session_id
+                && assertionConversation[1] === body.assertion.host_installation_id
+                && HOST_SESSION_UUID.test(assertionConversation[2] ?? '')) {
+                try {
+                  trustedHostIdentity = resolveHostMemoryIdentity({
+                    adapterId,
+                    host_installation_id: body.assertion.host_installation_id,
+                    authenticated_account_id: body.assertion.authenticated_account_id,
+                    host_session_id: body.assertion.host_session_id,
+                    conversation_uuid: assertionConversation[2],
+                  });
+                } catch {
+                  throw new Error('HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE');
+                }
+              }
+              if (trustedHostIdentity?.authorized !== true
+                || trustedHostIdentity.adapter_id !== adapterId
+                || trustedHostIdentity.host_installation_id !== body.assertion.host_installation_id
+                || trustedHostIdentity.authenticated_account_id !== body.assertion.authenticated_account_id
+                || trustedHostIdentity.host_session_id !== body.assertion.host_session_id
+                || trustedHostIdentity.conversation_uuid !== assertionConversation[2]
+                || typeof trustedHostIdentity.root_id !== 'string'
+                || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.root_id)
+                || typeof trustedHostIdentity.authority_id !== 'string' || !trustedHostIdentity.authority_id.trim()
+                || trustedHostIdentity.authority_status !== 'AUTHORITATIVE_COMPLETE'
+                || !Number.isSafeInteger(trustedHostIdentity.generation)
+                || !/^[a-f0-9]{64}$/.test(trustedHostIdentity.snapshot_fingerprint ?? '')) {
+                throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
+              }
+              let retrieval;
+              try {
+                retrieval = await consumer.retrieveForNpc({ conversationId: body.assertion.conversation_id });
+              } catch (error) {
+                // Keep Consumer/runtime failures distinct from assertion
+                // verification failures even when their messages collide.
+                consumerFailed = true;
+                throw error;
+              }
+              let finalHostIdentity;
+              try {
+                finalHostIdentity = resolveHostMemoryIdentity({
+                  adapterId,
+                  host_installation_id: body.assertion.host_installation_id,
+                  authenticated_account_id: body.assertion.authenticated_account_id,
+                  host_session_id: body.assertion.host_session_id,
+                  conversation_uuid: assertionConversation[2],
+                });
+              } catch {
+                throw new Error('HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE');
+              }
+              if (finalHostIdentity?.authorized !== true
+                || finalHostIdentity.adapter_id !== adapterId
+                || finalHostIdentity.host_installation_id !== body.assertion.host_installation_id
+                || finalHostIdentity.authenticated_account_id !== body.assertion.authenticated_account_id
+                || finalHostIdentity.host_session_id !== body.assertion.host_session_id
+                || finalHostIdentity.conversation_uuid !== assertionConversation[2]
+                || typeof finalHostIdentity.root_id !== 'string'
+                || !/^[a-f0-9]{64}$/.test(finalHostIdentity.root_id)
+                || typeof finalHostIdentity.authority_id !== 'string' || !finalHostIdentity.authority_id.trim()
+                || finalHostIdentity.authority_status !== 'AUTHORITATIVE_COMPLETE'
+                || !Number.isSafeInteger(finalHostIdentity.generation)
+                || !/^[a-f0-9]{64}$/.test(finalHostIdentity.snapshot_fingerprint ?? '')) {
+                throw new Error('HOST_ROOT_IDENTITY_UNAUTHORIZED');
+              }
+              // A second authorized lookup is not enough: it must still refer
+              // to the exact Root Inventory snapshot that authorized this read.
+              if (finalHostIdentity.root_id !== trustedHostIdentity.root_id
+                || finalHostIdentity.authority_id !== trustedHostIdentity.authority_id
+                || finalHostIdentity.generation !== trustedHostIdentity.generation
+                || finalHostIdentity.snapshot_fingerprint !== trustedHostIdentity.snapshot_fingerprint) {
+                throw new Error('HOST_ROOT_IDENTITY_BINDING_CHANGED');
+              }
+              return retrieval;
+            },
+          );
+          // Provider evidence cursors are internal dispatch evidence, not part
+          // of the public memory-npc-result/v1 disclosure envelope.
+          const publicRetrieval = { ...retrieval };
+          delete publicRetrieval.provider_evidence_cursor;
+          if (!validMemoryNpcResult(publicRetrieval)) {
+            return send(res, 503, { error: { code: 'MEMORY_NPC_RESULT_INVALID', message: 'Core Memory returned an invalid result envelope.' } });
+          }
+          return send(res, 200, { retrieval: publicRetrieval });
+        } catch (error) {
+          // The signed assertion has already been verified before the callback
+          // runs. Never misreport a Consumer/runtime exception as an auth error.
+          if (consumerFailed) throw error;
+          const code = typeof error?.message === 'string' ? error.message : '';
+          if (code === 'HOST_SESSION_ASSERTION_REPLAYED') {
+            return send(res, 409, { error: { code, message: 'Host assertion nonce was already consumed.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_EXPIRED') {
+            return send(res, 401, { error: { code, message: 'Host assertion is outside its acceptance window.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_CAPACITY_EXCEEDED') {
+            return send(res, 503, { error: { code, message: 'Host assertion verifier is at capacity.' } });
+          }
+          if (code === 'HOST_ASSERTION_REPLAY_GUARD_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Durable Host assertion replay protection is unavailable.' } });
+          }
+          if (code === 'HOST_ROOT_IDENTITY_STATUS_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Host Root Inventory authority status is unavailable.' } });
+          }
+          if (code === 'HOST_ROOT_IDENTITY_UNAUTHORIZED') {
+            return send(res, 401, { error: { code, message: 'Host installation/account identity is not authorized.' } });
+          }
+          if (code === 'HOST_ROOT_IDENTITY_BINDING_CHANGED') {
+            return send(res, 409, { error: { code, message: 'Host Root Inventory binding changed during Memory retrieval.' } });
+          }
+          if (code === 'HOST_SESSION_REVOKED') {
+            return send(res, 401, { error: { code, message: 'Host session has been revoked.' } });
+          }
+          if (code === 'HOST_SESSION_REVOCATION_STATUS_UNAVAILABLE') {
+            return send(res, 503, { error: { code, message: 'Host session revocation status is unavailable.' } });
+          }
+          if (code === 'HOST_SESSION_ASSERTION_INVALID') {
+            return send(res, 401, { error: { code, message: 'Host assertion could not be authenticated.' } });
+          }
+          throw error;
+        }
       }
       const hostBindingParts = url.pathname.split('/').filter(Boolean);
       if (hostBindingParts[0] === 'v1' && hostBindingParts[1] === 'host-conversation-bindings'

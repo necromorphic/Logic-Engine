@@ -1,0 +1,586 @@
+# Test Execution Ledger — Host/Core Integration
+
+**Repository:** `necromorphic/Logic-Engine`  
+**Target branch:** `integration/host-core-v1`  
+**Last recorded candidate:** `a67ec46f09099499ba46e8e1be5d5f4abee63b06`  
+**Record date:** 2026-11-11  
+**Purpose:** Durable record of user-executed test results and the environment in which they were run. This ledger distinguishes automated suite PASS from full production acceptance.
+
+## 1. Execution environment
+
+| Field | Recorded value |
+|---|---|
+| Workstation OS | Windows (exact Windows release/build not captured) |
+| Shell | Windows PowerShell |
+| Local worktree | `C:\LogicEngine\Phase2-Acceptance\Logic-Engine` |
+| Runtime | Node.js 22.18.0 |
+| Test runner | Node built-in test runner: `node --import ./tests/configure-test-env.js --test ...` |
+| Repository | `necromorphic/Logic-Engine` |
+| Branch | `integration/host-core-v1` |
+| Browser used for separate ST smoke checks | Microsoft Edge (exact version not captured) |
+| CI constraint | GitHub-hosted Actions minutes exhausted; user has a self-hosted runner on their PC. Do not treat queued CI jobs as passed. |
+| Test data | Isolated/disposable test fixtures and local SQLite databases where specified by each suite. Normal SillyTavern installation must keep Memory → NPC disabled. |
+
+Exact Windows build, Node executable path, Edge version, runner labels/configuration, and machine details have not been captured. Do not infer them.
+
+## 2. Successful user-executed test runs
+
+All results below were reported from actual local test output in the project conversation. Unless explicitly stated otherwise, they are local Node test-runner results, not GitHub Actions results.
+
+| Date / candidate | Scope | Result | Evidence / limits |
+|---|---|---:|---|
+| 2026-11-10, `801bd29a` | Host Gateway, lifecycle, identity baseline | **164/164 PASS** | Earlier Host candidate check; separate from the later Block 1/2 focused runs. |
+| 2026-11-10, `dbc8a54b495d83c5c0fcb103cd56cac3a13e049f` | Receiver, Gateway composition, Host bridge, protected Final-Send | **57/57 PASS** | Run-ID separation, exact Core metadata contract, one-shot handoff, Receiver digest/envelope binding, Final-Send validation and tested sender routing. Not full live production chain. |
+| 2026-11-10, `90375305b9b8710ad041b3abfe1de2ba617e89ad` and subsequent test run | Protected Final-Send negative-boundary coverage | **58/58 PASS** | Added malformed/missing run ID and digest denials; zero Gateway/provider calls for rejected cases. |
+| 2026-11-10, `163abd7e1` | Five expanded Gateway/Final-Send regression suites | **113/113 PASS** | Revocation timing, source-version/cursor changes, streaming revalidation, sender families, ambiguous transport recovery, cross-process ordering. Uses controlled test harness/readers; not live production acceptance. |
+| 2026-11-10, `c4109c0018db300a3edb3a246c10f078a3a59309` | Five suites including Receiver → Final-Send stale-context integration | **114/114 PASS** | Real Receiver and protected Final-Send adapter with SQLite-backed Gateway test fixture; stale source/record version rejected before DISPATCH_STARTED; zero Gateway/upstream calls. Provider evidence reader remains fixture-controlled. |
+| 2026-11-10, `4a9d994e` | Focused Receiver/Gateway composition run | **28/28 PASS** | Historical milestone before later run-ID/public-envelope changes; superseded by later runs. |
+| 2026-11-10, `33f9dc049c991778418e2b06f2e660504894f06f` | Host → Core HTTP → MemoryNpcConsumer → file-backed SQLite Provider E2E | **1/1 PASS** | Real retrieval route, independent SQLite checks, lineage/grant checks, revocation, invalid identity/inventory, HMAC/expiry/replay cases. Host inventory/root proof callbacks were explicit fixtures; not production Host authority proof. |
+| 2026-11-11, `a67ec46f09099499ba46e8e1be5d5f4abee63b06` | `npc-context-receiver.test.mjs`, `npc-generation-context-runtime.test.js`, `host-core-sqlite-e2e.test.js` | **36/36 PASS** | Latest user-provided output. Includes live Host dispatch proxy → Core HTTP → MemoryNpcConsumer → real file-backed SQLite Provider retrieval and production Receiver consumption. Public five-field Core envelope and separately supplied trusted source lineage validated. |
+
+### Latest run — exact command
+
+Executed after fast-forward pull to `a67ec46f09099499ba46e8e1be5d5f4abee63b06`:
+
+```powershell
+node --import ./tests/configure-test-env.js --test ./tests/npc-context-receiver.test.mjs ./tests/npc-generation-context-runtime.test.js ./tests/host-core-sqlite-e2e.test.js
+```
+
+Output summary:
+- tests: 36
+- pass: 36
+- fail: 0
+- cancelled: 0
+- skipped: 0
+- todo: 0
+- duration: 571.7362 ms
+- Node emitted an ExperimentalWarning for SQLite; it did not fail the run.
+
+The E2E test reported:
+`Host dispatch proxy retrieves a real SQLite Provider record through Core HTTP and MemoryNpcConsumer` — PASS.
+
+## 3. Failed or superseded runs — do not count as PASS
+
+These are retained to explain the development history and must not be included in successful test totals:
+- At `14daae320`, expanded suite initially reported 109/113; four failures were test fixture/expectation mismatches. Test-only fixture corrections followed.
+- At `c250a6abd964d9e808aec2192df5426a3ce2f1f2`, focused suites reported 26 pass / 2 fail; fixture envelope and safe canonicalization were corrected.
+- The first run after the public Core envelope change failed because the E2E passed the public HTTP response directly to Receiver without the Runtime-owned canonical source lineage. This led to the split public envelope + separately validated sourceLineage design. The corrected run is the 36/36 result above.
+- Other earlier failures are described in the acceptance plan and commit history. They are not current PASS evidence.
+
+## 4. What these results prove
+
+At the latest recorded candidate, automated tests prove:
+- Host dispatch proxy can retrieve a real record through Core HTTP, MemoryNpcConsumer, and file-backed SQLite Provider.
+- The Core public Result Envelope remains exactly five fields: `status`, `admitted`, `candidates`, `reason`, `snapshot`.
+- Private Provider cursor and canonical source lineage are not leaked into that public envelope.
+- Runtime supplies canonical source lineage separately; Receiver joins it to admitted candidates by exact record reference/version and validates the relationship.
+- Receiver/runtime validation, immutability, digest and malformed-input protections covered by the three latest suites pass.
+
+## 5. Remaining gaps — automated PASS is not full acceptance
+
+The following are **not** established by the recorded 36/36 run:
+1. Production-authoritative Host inventory/root proof. Current E2E inventory enumeration and root-proof inputs remain explicit fixtures.
+2. Full production Host authority resolver and independent proof that invalid/incomplete production inventory causes zero Core retrieval requests.
+3. Production end-to-end composition through NPC Receiver → production Gateway → observed model transport/body.
+4. Full Windows acceptance with real installed SillyTavern, production evidence readers, local outbound fake provider, restart/WAL/recovery and cross-process proof in the same composed run.
+
+Block 1 is therefore **PARTIAL / NOT FULLY ACCEPTED** despite the targeted real SQLite retrieval E2E passing. Block 2 automated suites have passed, but full production Block 2 acceptance remains open. Do not enable Memory → NPC in the normal SillyTavern installation.
+
+## 6. Rules for future ledger updates
+
+For every new run, record:
+- exact branch and full commit SHA;
+- exact command and test file list;
+- raw summary (tests/pass/fail/skipped/duration);
+- environment changes (Node, OS, shell, database/runtime);
+- whether each component is real, fixture-backed, or mocked;
+- what the run proves and what it does not prove.
+
+Never combine test counts from different commits into one synthetic run. Never call queued CI checks PASS. Preserve failed runs as failed/superseded history; append new entries rather than rewriting old evidence.
+
+
+## 7. Windows Host Source Inventory run — 2026-11-11
+
+**Branch:** `integration/host-core-v1`  
+**Code candidate:** `540bdf05d174e451c2c4d399c125715cbcee137` (documentation-only ledger commit; inventory code unchanged from its parent candidate)  
+**Environment:** Windows PowerShell, Node.js 22.18.0, local worktree `C:\LogicEngine\Phase2-Acceptance\Logic-Engine`.  
+**Exact command:**
+
+```powershell
+node --test ./tests/host-source-inventory.test.js
+```
+
+**Raw summary:** 18 tests, 17 passed, 0 failed, 1 skipped, duration 39045.5727 ms.
+
+The skipped test was:
+`rejects symbolic links in enumerated roots` — skipped with the explicit reason that the VSS integration test separately verifies rejection of Windows reparse points.
+
+Passed coverage reported:
+- root, character and group chat file enumeration as a non-authoritative double-scan candidate;
+- extraction of current conversation/message/swipe IDs and digests without raw message text;
+- legacy records remain incomplete; no synthesized identity;
+- persisted swipe and active edit revision digest mismatch rejection;
+- edit revisions not represented as native swipe alternatives;
+- duplicate conversation UUID rejection;
+- pinned SillyTavern build enforcement;
+- orphan/missing group chat rejection;
+- hard-link alias, unknown entry, aliased root and bounded append-during-read rejection;
+- current swipe identity and active selection verification;
+- Windows pinned-source inventory uses an audited VSS point-in-time snapshot.
+
+**Interpretation:** test suite PASS (17/17 executed, 0 failures; 1 intentional skip). The test confirms the tested Windows VSS snapshot path and inventory scanner behavior. It does not establish an authoritative production inventory, deployment-owned accepted-root authority, complete lifecycle history, or production Host→Core readiness. The scanner's documented state remains `DOUBLE_SCAN_CANDIDATE` / `NON_AUTHORITATIVE`. The skipped symlink test is not counted as a pass.
+
+
+## 8. Ledger metadata correction
+
+The 2026-11-11 Host Source Inventory run was executed after the user fast-forwarded the local worktree to documentation commit `540bdf05d174e451c2c4d399c125715cbcee137`. The inventory implementation under test was unchanged by that documentation-only commit. The ledger update itself is committed separately; do not attribute the test run to the ledger-update commit.
+
+
+## 9. Production Final-Send egress composition added — NOT TESTED
+
+**Implementation commit:** `389583dcfd667b240420850ebfc755f3f3b99de7`  
+**Test:** `tests/memory-dispatch-gateway.test.js` — `production SillyTavern Final-Send adapter carries the immutable Receiver canary to one observed model egress`.
+
+The new test composes:
+- the actual `receiveNpcContext()` implementation and its immutable accepted projection;
+- the actual `createSillyTavernFinalSendAdapter()` used by the SillyTavern Final-Send integration;
+- the actual `createProtectedMemoryFinalSend()` and `MemoryDispatchGateway`;
+- a deterministic in-process fake model transport that captures the exact serialized outbound HTTP body;
+- the Gateway dispatch ledger and Host response-release authorization.
+
+Assertions require the unique Receiver canary and original user prompt in the captured outbound body, exactly one model transport invocation, a durable `DISPATCH_STARTED` before Host response release, and `COMPLETED` only after the authorized response write.
+
+**Evidence limitation:** this is a production-adapter/transport composition test, but its Core, Provider, and Host evidence readers are controlled by the existing Gateway test fixture. It does not prove production accepted-head authority, production Host root inventory, or full installed SillyTavern composition. It does not replace Blocks 1 or 4.
+
+**Execution status:** NOT TESTED. No result is claimed until the user runs the focused command on Windows and supplies the raw output. Keep Memory → NPC disabled in the normal SillyTavern installation.
+
+
+## 10. Windows production Final-Send adapter egress test — 2026-11-11
+
+**Branch:** `integration/host-core-v1`  
+**Execution commit:** `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b`  
+**Environment:** Windows PowerShell, Node.js 22.18.0, local worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`.  
+**Exact command:**
+
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="production SillyTavern Final-Send adapter carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+**Raw summary:** 1 test, 1 passed, 0 failed, 0 cancelled, 0 skipped, duration 654.7485 ms.
+
+**Result:** PASS for this focused automated composition test. The actual Receiver accepted the supplied Host scope and canonical source lineage; the production SillyTavern Final-Send adapter carried the immutable Receiver canary and original Host prompt into the captured outbound body; exactly one fake model transport call occurred; the durable dispatch ledger was `DISPATCH_STARTED` before response release and `COMPLETED` after authorized response write.
+
+**Correction preceding the passing run:** the first run at `91dea2eb87fba777a1f951943bb0ec9f3d9cf61b` failed with `NPC_CONTEXT_SCOPE_INVALID` at the Receiver call. The test fixture omitted the required Host binding scope fields (`adapter_id`, `world_id`, `actor_id`, `actor_type`) and used a source version outside the canonical `core-entity-v1:<n>` format. Commit `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b` corrected those fixture inputs. The failure is retained as superseded history, not counted as a pass.
+
+**Evidence limitation:** Core, Provider, and Host evidence readers remain fixture-backed. The model transport is a deterministic in-process fake, not an installed SillyTavern outbound provider. This run does not establish production root authority, production Host inventory, live model API connectivity, or full Windows acceptance. It is not a full Block 3 or Block 4 PASS. Memory → NPC remains disabled in the normal SillyTavern installation.
+
+
+## 11. Final-Send duplicate-dispatch guard extension — NOT TESTED
+
+**Implementation commit:** `30efb64a244b7edde334be1c9c7f3bc6e6444f91`
+
+The previously passing production-adapter egress test was extended to attempt a second dispatch using the same Host request/response after the first dispatch completed. It now requires:
+- second dispatch rejected with `MEMORY_DISPATCH_DUPLICATE_HOST_SEND`;
+- no second model transport invocation;
+- response release after duplicate denial rejected with `MEMORY_DISPATCH_FINAL_RESPONSE_REVALIDATION_DENIED`;
+- no second Host response write.
+
+The 1/1 PASS in section 10 applies to the earlier test version at `2f991c681ec2dc5ac7bd9b07669b43c58b9e987b`; it does not cover these newly added duplicate-dispatch assertions. The extended test is **NOT TESTED** until rerun on Windows. Fixture-backed evidence limitations from section 10 remain unchanged.
+
+
+**Failure analysis and correction — 2026-11-11:** the first extended run at `24937d4e12f3cd7e0f6cfb54dd7b904d2f691e52` failed because `dispatch()` replaced the response's existing `COMPLETED` release state with a new `pending` entry before checking the duplicate-response WeakSet. The test correctly detected that the duplicate attempt was not synchronously rejected. Commit `3628593a737fd1607535e1e25b154e07709dea7a` moves the duplicate check to the beginning of dispatch, before context resolution or response-capability replacement, and marks the existing release state denied. The corrected implementation and extended test are **NOT TESTED** pending a new Windows run.
+
+
+## Duplicate Final-Send regression — Windows PASS
+
+- **Date:** 2026-11-11
+- **Branch:** `integration/host-core-v1`
+- **Tested HEAD:** `0aa7e2ebcf6e61f3413a700aa5a81b98290d038a`
+- **Environment:** Windows PowerShell, Node.js 22.18.0
+- **Command:**
+  `node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="production SillyTavern Final-Send adapter carries" ./tests/memory-dispatch-gateway.test.js`
+- **Result:** 1 test, 1 pass, 0 fail, 0 cancelled, 0 skipped; duration 661.7026 ms.
+- **Verified:** immutable Receiver canary reaches one observed model egress; a second dispatch using the same Host response is synchronously denied; no second model transport call occurs; response release after duplicate denial is rejected.
+- **Scope limitation:** fixture-backed Core/Provider/Host evidence readers and deterministic in-process fake model transport. This does not prove live installed SillyTavern composition, independent production Root Authority/Host Inventory, or full acceptance Blocks 1–4.
+- **SQLite ExperimentalWarning:** informational; test passed.
+
+
+### 2026-11-11 — OpenAI-compatible SillyTavern streaming adapter composition added (NOT TESTED)
+
+Added an adapter-level streaming composition test using the actual Receiver, SillyTavern Final-Send adapter, protected serializer, and SQLite-backed Gateway fixture. The Host request follows the chat-completions route shape (chat_completion_source, messages, stream); the provider request uses an OpenAI-compatible chat-completions body (model, messages, stream, stream_options). A deterministic fake transport captures the exact serialized outbound body. A simulated Host streaming writer sends two chunks and the terminal event, with each write passed through the adapter's response-release authorization.
+
+The test asserts one provider handoff, exact prompt preservation, Receiver canary insertion, streaming flags/options preservation, per-chunk authorization, and COMPLETED only after the final authorized write.
+
+**Evidence boundary:** this is an OpenAI-compatible protocol fixture, not a live installed SillyTavern process or a captured request from the supplied ST release archive. Gateway evidence readers remain fixture-backed. It is NOT TESTED until executed on Windows.
+
+
+### 2026-11-11 — SillyTavern source-backed OpenAI streaming contract correction (NOT TESTED)
+
+Corrected the streaming Final-Send adapter test to match the supplied SillyTavern release source instead of a hand-invented provider payload.
+
+Source contract inspected:
+- `public/scripts/openai.js`: `createGenerationParameters()` builds the Host `generate_data` object posted to `/api/backends/chat-completions/generate`. It includes ST-specific fields such as `type`, `chat_completion_source`, user/character metadata, generation settings, and `stream`.
+- `src/endpoints/backends/chat-completions.js`: the OpenAI branch separately constructs the outbound `requestBody` from `messages`, `model`, `temperature`, `max_tokens`, `stream`, penalties, `top_p`, `seed`, and supported optional parameters. ST routing fields are not forwarded. The pinned backend does not add or forward `stream_options` in this path.
+
+The revised test now supplies a source-shaped Host `generate_data` body and a distinct source-derived OpenAI provider body. It asserts that the adapter injects Receiver context into the provider `messages`, preserves the original user prompt and supported generation fields, does not leak ST-only routing fields, and does not assume `stream_options` is forwarded. The SSE write/release assertions remain.
+
+Commit:
+- `94544adf6a307c589943a63fe245d77b7800c389` — align streaming adapter contract with SillyTavern source.
+
+**Execution status:** NOT TESTED. This remains an adapter composition test using fixture-backed Host/Core/Provider evidence readers and a deterministic fake transport. It is source-backed at the request-shape boundary, not a live installed SillyTavern test and not proof of full production composition. Run the focused command recorded in the current task handoff before accepting this correction.
+
+
+### 2026-11-11 — Source-backed SillyTavern OpenAI streaming adapter test (PASS)
+
+Environment: Windows PowerShell, Node.js (project runtime).
+
+Command:
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="SillyTavern OpenAI-compatible streaming request carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+Result: **1 test passed, 0 failed, 0 cancelled, 0 skipped** (873.62 ms total; subtest 790.1515 ms). SQLite emitted Node's ExperimentalWarning; it did not affect the result.
+
+The source-backed test verifies the distinct ST Host `generate_data` and OpenAI provider request-body shapes, Receiver context insertion, preservation of prompt and supported generation fields, exclusion of ST-only routing fields, and per-chunk Host release through final SSE completion.
+
+Scope limitation: this is still an adapter-level composition test with fixture-backed evidence readers and deterministic fake provider transport. It is not a live installed SillyTavern / real provider integration test, and it does not establish full production acceptance.
+
+Tested commit: `afe9bdcdf7e0b98a2b527db6ce2185194568742d`.
+
+
+### Source-contract precision correction — 2026-11-11
+
+A second line-by-line pass over the pinned SillyTavern archive found that the prior test fixture overstated the OpenAI frontend fields: `createGenerationParameters()` does not populate `seed` in its common `generate_data` object. The OpenAI backend's provider body includes `stop` (when non-empty) and omits undefined optional values; it does not forward ST-only routing metadata. Corrected the fixture accordingly: removed the fabricated seed value/assertion and included a source-shaped stop sequence. This correction is **NOT TESTED** pending the next Windows run.
+
+Correction commit: `534e246e429c8399f7bbe50bcb5f4361114d6e51`.
+
+
+### 2026-11-11 — Corrected SillyTavern OpenAI streaming payload (PASS)
+
+Tested commit: `e1bafd85bcbfef132c6f7dd6299e30d1c46ff8a8`.
+
+Windows PowerShell command:
+```powershell
+node --import ./tests/configure-test-env.js --test --test-reporter=tap --test-name-pattern="SillyTavern OpenAI-compatible streaming request carries" ./tests/memory-dispatch-gateway.test.js
+```
+
+Result: **1 passed, 0 failed, 0 cancelled, 0 skipped**. Total duration 803.5735 ms; subtest duration 725.2487 ms. Node emitted the SQLite ExperimentalWarning only.
+
+This run validates the corrected source-shaped payload with the non-empty `stop` field and no fabricated `seed` field. Scope remains adapter-level with fixture-backed evidence readers and fake provider transport; it is not a live SillyTavern route or production composition acceptance.
+
+
+### 2026-11-11 — Supplied SillyTavern archive verified against Final-Send patch manifest
+
+Inspected `/mnt/data/SillyTavern-release.zip` directly. Its package version is `1.19.0`. Canonical SHA-256 hashes (CRLF-normalized, matching Patch Manager rules) for all 12 source files listed in `host-adapter/patches/sillytavern-1.19.0-final-send.manifest.json` exactly match the manifest's pre-patch hashes:
+- package.json
+- src/plugin-loader.js
+- src/server-main.js
+- src/server-startup.js
+- src/endpoints/backends/chat-completions.js
+- src/constants.js
+- src/util.js
+- src/endpoints/extensions.js
+- src/endpoints/backends/text-completions.js
+- src/endpoints/backends/kobold.js
+- src/endpoints/novelai.js
+- src/endpoints/horde.js
+
+The unpatched archive does not contain `src/logic-engine-final-send-hook.js`; this is expected because the managed Final-Send patch creates that file and modifies the relevant sender modules to use it. The patch manifest declares the exact expected created-file digest. Therefore the uploaded archive is the exact base source revision targeted by the managed patch, not evidence that the hook is missing from a correctly patched installation.
+
+Source confirmation: the patch wraps the Chat Completions route with `runWithLogicEngineFinalSend()`, aliases its server-side `node-fetch` import to `logicEngineFetch`, and routes streaming response forwarding through `logicEngineForwardFetchResponse()`. The same patch changes the other listed sender families. This confirms the intended source integration points; actual installed patch state and a live request still require runtime verification.
+
+Status: source/manifest compatibility verified; live installed-route execution NOT TESTED.
+
+
+### 2026-11-11 — SillyTavern Extension Manager package contract (NOT TESTED)
+
+Implementation commits:
+- `f0976f10d141bc168f9be03c217ef4b61d81166e` — root manifest now declares the browser entrypoint.
+- `da4298b135e39cb84d1dac08da6f497150b13cc1` — browser entrypoint resolves ST context through the stable public script URL.
+- `9653009a9a9b42b20115ecc0a5fe04284066145e` — Host context resolver uses the same URL.
+- `60e086fcdec885f9014f4e6a218ed39274dfc8a6` — added three structural/lifecycle contract tests.
+- `cabd4ac2229606ab1f2c3ca9ebed71aab6c6ab92` — initial install-boundary documentation.
+- `419377f9c81a55bfa58d7a67935bb3915bb836e6` — documented exact branch and user-scope installation procedure.
+
+Added command:
+```powershell
+node --test .\tests\sillytavern-extension-manager.test.mjs
+```
+
+The new tests cover root manifest entrypoint declaration, existence of local imported modules, ST context URL resolution, and registration/removal of the two generation listeners.
+
+**Execution status: NOT TESTED.** No Windows test execution or real Extension Manager installation has been observed for these commits. The source contract is aligned with SillyTavern's documented requirements that the root manifest declare a `js` entrypoint and that custom Git installation can specify a branch. This does not prove that the current branch installs and loads successfully in the user's SillyTavern instance.
+
+**Boundary:** Extension Manager installs only the browser extension. Core runtime, server Gateway, Final-Send patch, and Host lifecycle/root inventory components remain separately installed and verified. Memory → NPC remains disabled/fail-closed.
+
+
+### 2026-11-11 — Duplicate Extension Manager / managed Gateway registration guard (NOT TESTED)
+
+A follow-up review found that installing the repository through Extension Manager alongside the existing managed browser Gateway copy could load the same generation listeners twice. Added a shared `Symbol.for('logic-engine.host-generation-identity.registration.v1')` registration guard. Concurrent/duplicate module loads reuse one pending registration; unregister clears the shared guard. The regression test now invokes the registration twice and asserts one listener pair and one shared unregister function.
+
+Commits:
+- `0470e42e4b57c7fe291caad664f79cf33a2c02f9` — idempotent registration guard.
+- `9e6f66ec968b522e784f311bec967cb4e81c9a50` — duplicate-registration regression assertion.
+- `b5617aa64ba6f3075a7d0c4f9edaf99921c11404` — installation boundary documentation update.
+
+**Execution status: NOT TESTED.** Run `node --test .\tests\sillytavern-extension-manager.test.mjs` on the Windows worktree before the real Extension Manager install. The duplicate guard is a code-level mitigation, not evidence that both installation layouts load successfully in a live browser.
+
+
+Follow-up hardening: the shared pending promise now resolves to the same wrapped unregister callback for concurrent imports, not the raw listener-removal callback. The regression test now uses `Promise.all` to exercise concurrent initialization rather than only sequential reuse.
+
+Commits:
+- `579111e610e3d0ab21f356fa3b25476b9609993b` — share the completed registration promise.
+- `60b38aba328afba8f2c8d3bcbe05514b40467dde` — concurrent initialization test.
+
+Execution remains **NOT TESTED** pending the Windows command above.
+
+
+### 2026-11-11 — Extension Manager entrypoint test and installation (PASS)
+
+**Tested code candidate:** `3b6f306aab5ac6afeace448f43e3b79fcab379b1` (`integration/host-core-v1`).  
+**Environment:** Windows PowerShell, local worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`, Node.js (version not restated in this report; prior workstation baseline is Node.js 22.18.0).  
+**Exact command:**
+
+```powershell
+node --test .\\tests\\sillytavern-extension-manager.test.mjs
+```
+
+**User-provided raw summary:** 3 tests, 3 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 55.1795 ms.
+
+Passed tests:
+- root manifest exposes the browser entrypoint required by SillyTavern Extension Manager;
+- browser entrypoint resolves ST context through the stable public script URL;
+- Extension Manager entrypoint registers and removes only its two Host identity listeners.
+
+**Installation evidence:** the user confirmed that SillyTavern Extensions lists both:
+- `Logic Engine Extension Gateway 0.2.0`
+- `Logic Engine necromorphic 0.2.0 (integration/host-core-v1-3b6f306)`
+
+This confirms that Extension Manager installation is present and the package is listed in the ST Extensions UI. It does not by itself prove browser module execution without console errors, successful runtime listener registration, or communication with the server Gateway.
+
+**Status:** package contract test PASS; Extension Manager installation/listing PASS. Browser runtime load, console state, server Gateway communication, Final-Send installation and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
+
+**Next verification:** inspect the browser Console for errors referencing Logic Engine and verify the browser runtime's expected Host identity registration and server Gateway endpoints independently. Do not infer full integration from the extension list alone.
+
+
+### 2026-11-11 — SillyTavern browser module load observed in Edge Network (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version and installed ST root/build not restated in this observation.
+
+**User-provided Network evidence after enabling Keep log:**
+- `lifecycle-journal.mjs` — HTTP 200
+- `st-lifecycle-bridge.mjs` — HTTP 200
+- `conversation-identity.mjs` — HTTP 200
+- Extension `manifest.json` requests — HTTP 200
+- Extension Manager `index.js` — HTTP 200 (two entries observed)
+- `host-context.mjs` — HTTP 200 (two entries observed)
+- imported `conversation-identity.mjs` — HTTP 200
+- an additional `conversation-identity.mjs` entry had no visible status in the pasted table.
+
+The user also reported no Console errors. Requests showing HTTP 304 are normal cache revalidation responses and are not failures.
+
+**Result:** browser network retrieval of the listed extension modules is **PASS** (HTTP 200 responses observed). This is stronger evidence than Extension Manager listing alone and confirms that Edge requested and received the entrypoint and its imported modules.
+
+**Limits:** Network 200/304 responses do not independently prove successful module evaluation, completion of browser initialization, actual listener registration, or server Gateway/Host identity exchange. The absence of reported Console errors is useful supporting evidence but does not prove those behaviors. Server Gateway communication and live generation through the complete production path remain **NOT VERIFIED**. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** verify the runtime identity endpoints from the same live ST session, then verify a real supported generation path without enabling Memory → NPC.
+
+
+### 2026-11-11 — Live SillyTavern session endpoint observed during generation (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; Windows workstation. Exact Edge version, ST root/build, and generation backend were not included in the observation.
+
+**User-provided Network rows with Network filter `session`:**
+- `session` — HTTP 200, Fetch, initiator `script.js:1599`, 871 B, 4 ms.
+- `session` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 871 B, 3 ms.
+- `session` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 871 B, 6 ms.
+
+**Result:** PASS for successful HTTP responses from the Gateway `/session` endpoint during the observed generation. Three successful requests were visible. The source resolver performs `/session` followed by `/identity`; this observation does not yet establish that `/identity` completed successfully, nor does the status alone validate the response identity fields.
+
+**Limits:** The three rows do not by themselves establish whether calls correspond to separate generation events, multiple loaded extension paths, or an unnecessary duplicate. No conclusion about duplicate registration is drawn from this data alone. Full Host conversation identity resolution, listener behavior, Core retrieval, NPC context injection, and Final-Send remain unverified by this observation. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** filter Network by `identity` after the same generation and capture the status, initiator, and count of matching rows.
+
+
+### 2026-11-11 — Live SillyTavern identity endpoint observed during generation (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+**User-provided Network evidence with filter `identity`:**
+- `conversation-identity.mjs` — three HTTP 200 script responses (one initiated by `script.js:19`, two by `host-context.mjs:1`).
+- `conversation-identity.mjs` — six HTTP 304 script responses (initiators `script.js:19` and `host-context.mjs:1`).
+- `identity` — HTTP 200, Fetch, initiator `script.js:1629`, 960 B, 5 ms.
+- `identity` — HTTP 200, Fetch, initiator `host-context.mjs:7`, 960 B, 4 ms (two rows).
+
+**Result:** PASS for successful HTTP responses from the Gateway `/identity` endpoint during the observed generation. Together with the preceding user-observed three `/session` HTTP 200 responses, this confirms that the browser runtime reached both identity endpoints. Module HTTP 304 responses are normal cache revalidation and are not failures.
+
+**Limits:** Network status and response sizes do not validate the JSON identity fields or prove that the client accepted them. The repeated endpoint requests are recorded as observed; their cause (separate initialization/generation paths versus redundant calls) is NOT VERIFIED. Successful stable conversation enrollment/persistence, Host inventory authorization, Core retrieval, Receiver acceptance, NPC context injection, and Final-Send are not established by this Network evidence. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** inspect the actual `identity` response JSON in Edge Network → select an `identity` request → Response. Confirm only that the response contains the expected identity fields and that `host_session_id` matches the corresponding `/session` response. Do not paste opaque IDs or other sensitive values; report whether the fields match and whether the response includes an error.
+
+
+### 2026-11-11 — Live SillyTavern /identity response schema inspected (PASS; session binding NOT VERIFIED)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+**User-provided response fields (opaque UUID values intentionally not retained in this ledger):**
+- `host_installation_id` — present and populated with a UUID.
+- `authenticated_account_id` — present and populated with a UUID.
+- `identity_source` — exact value `SERVER_PERSISTED_OPAQUE_IDENTITY`.
+- `host_session_id` — present and populated with a UUID.
+
+**Result:** PASS for the observed `/identity` JSON response shape and populated required fields, consistent with the browser resolver's contract.
+
+**NOT VERIFIED:** equality of `/identity.host_session_id` with the `/session.host_session_id` from the corresponding response. The user has not yet supplied or confirmed that comparison. No opaque identifier values are stored in this ledger.
+
+**Limits:** This verifies the observed identity response schema only. It does not prove stable conversation enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
+
+**Next check:** compare the `host_session_id` values in the two Network response bodies locally and report only whether they match; do not share the UUID values.
+
+
+### 2026-11-11 — Live SillyTavern session/identity binding comparison (PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST root/build, and generation backend not captured.
+
+The user supplied the `/session` response:
+- `host_session_id` — populated UUID.
+- `host_session_identity` — exact value `SIGNED_AUTHENTICATED_ST_SESSION`.
+- `host_user_handle` — `default-user`.
+
+The user had previously supplied the `/identity` response. The `host_session_id` values in the two responses were compared and exactly match. The opaque UUID is intentionally not repeated in this ledger.
+
+**Result:** PASS for the observed session response schema and the cross-endpoint session binding (`/identity.host_session_id === /session.host_session_id`). Combined with the prior observed HTTP 200 responses, this confirms successful browser-side retrieval of both endpoints and a matching session identifier in their returned JSON.
+
+**Limits:** This does not prove stable conversation identity enrollment/persistence, authoritative Host inventory, Core retrieval, Receiver acceptance, NPC context injection, or Final-Send. Repeated endpoint request cause remains NOT VERIFIED. Memory → NPC remains disabled/fail-closed.
+
+
+### 2026-11-11 — Stable Host conversation metadata survives page reload (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and browser profile not captured.
+
+**Procedure reported by user:** read `getContext().chatMetadata.logic_engine_conversation_id` in the active chat, reload SillyTavern, reopen the same chat, and read the field again.
+
+**User result:** the value repeats after reload (the same value was observed again). The opaque UUID is intentionally not retained in this ledger.
+
+**Result:** PASS for persistence of the stable conversation UUID in the active chat metadata across a page reload, within this observed chat/browser profile.
+
+**Limits:** this is a user-observed browser check; no raw console transcript or independent metadata-file inspection was supplied. It does not prove cross-chat uniqueness, rename/restore behavior, storage corruption handling, multi-tab races, authoritative Host inventory enrollment, Core authorization, NPC context injection, or Final-Send. The identity contract remains documented as `NON_AUTHORITATIVE`; Memory → NPC remains disabled/fail-closed.
+
+**Next check:** verify that a second, different chat receives a different stable UUID and that returning to the first chat restores its original UUID. Report only whether both conditions hold; do not share UUID values.
+
+
+### 2026-11-11 — Stable conversation ID isolation across chats (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and browser profile not captured.
+
+**Procedure reported by user:** opened a second existing chat and read `getContext().chatMetadata.logic_engine_conversation_id`; then returned to the first chat and re-read its value.
+
+**User result:** the second chat had its own different ID, and the first chat retained/restored its original ID. Opaque UUID values are intentionally not retained.
+
+**Result:** PASS for observed per-chat ID separation and restoration when switching between these two chats.
+
+**Limits:** two-chat manual check only. It does not prove uniqueness across all chats, rename/import/restore behavior, multi-tab races, authoritative Host inventory enrollment, Core authorization, NPC context injection, or Final-Send. The conversation identity remains non-authoritative metadata until independently enrolled/validated by Host/Core. Memory → NPC remains disabled/fail-closed.
+
+### 2026-11-11 — Live generation request carries the Host Generation Envelope (user-observed PASS)
+
+**Environment:** user's installed SillyTavern in Microsoft Edge; exact Edge version, ST build, and generation backend not captured.
+
+**Observed request payload fields:**
+- `logic_engine_context_size`: `200000` (upper bound accepted by the current Host adapter contract).
+- `logic_engine_conversation_uuid`: populated UUID (value intentionally not retained).
+- `logic_engine_generation_id`: populated UUID (value intentionally not retained).
+- `logic_engine_generation_type`: `normal`.
+- `logic_engine_request_id`: populated UUID (value intentionally not retained).
+
+**Source contract cross-check:** `host-adapter/extension-gateway/server-plugin/host-adapter.mjs` reads these five fields from `request.body`; validates the three UUIDs, requires a safe integer context size in the inclusive range 1–200000, validates generation type against the bounded lowercase identifier pattern, and returns `HOST_GENERATION_ENVELOPE_INVALID` when validation fails. It then authenticates the request and ensures the Core conversation→World binding before returning READY.
+
+**Result:** PASS for presence and observed shape of all five envelope fields in one live generation request. The context size is exactly the current configured maximum.
+
+**Limits:** request payload inspection does not prove the server accepted the envelope, that Host authentication returned READY, that Core binding/retrieval succeeded, that the SQLite provider returned authorized records, that the NPC Receiver accepted/injected context, or that Final-Send used that context. No opaque UUIDs or request secrets are stored. Memory → NPC remains disabled/fail-closed.
+
+**Next stage:** verify server-side generation preparation and the real Host→Core retrieval path using existing integrated tests/log evidence first. Ask the user for another browser action only if a specific server-side result cannot be established from repository tests or available logs; do not add another redundant manual check of the same payload fields.
+
+
+### 2026-11-11 — Block 2 protected-memory projection and Gateway/Final-Send composition (PASS)
+
+**Tested code candidate:** `e1f3092479c57b12ab252f052b3902f077ff29c6` (`integration/host-core-v1`).  
+**Environment:** Windows PowerShell, user worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`; Node.js version not restated in this run.  
+**Exact command** (as recorded in the preceding execution instructions):
+
+```powershell
+node --import ./tests/configure-test-env.js --test `
+  ./tests/gateway-final-send-composition.test.js `
+  ./tests/memory-dispatch-gateway.test.js
+```
+
+**User-provided raw summary:** 76 tests, 76 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 38,420.9741 ms. Node emitted the expected experimental SQLite warning; the process exited with the complete test summary.
+
+Notable passed checks include:
+- production protected-memory projection accepts the actual prepared Host/Core envelope;
+- projection fails closed when Host envelope is not READY or Lane B content lacks a matching admitted candidate;
+- same-count Lane B candidate substitution is rejected;
+- immutable Receiver context rejects post-prepare mutation and stale Provider evidence before model egress;
+- production SillyTavern Final-Send adapter carries the Receiver canary to one observed model egress;
+- OpenAI-compatible streaming carries Receiver context through per-chunk Host release;
+- Provider source-version/evidence-cursor changes and revocations block dispatch or response release;
+- sender families share the Gateway and each produce exactly one upstream call;
+- ambiguous transport outcomes and crash recovery become UNKNOWN and prevent replay;
+- cross-process Core source mutation and Gateway dispatch-start share one ordering boundary.
+
+**Disposition:** PASS for these two automated test suites at the exact candidate above. This run verifies the regression fix that joins public admission metadata from `accepted.laneB.publicResult.admitted` with strict source-lineage records from `accepted.laneB.candidates`. It does not establish full live SillyTavern → production Host authority → Core/Provider → Receiver → production model transport acceptance. The Root Inventory verifier remains production deny-only; Memory → NPC must remain disabled in the normal SillyTavern installation.
+
+**Next execution target:** run the focused NPC Receiver suite together with the relevant Host/Core SQLite E2E suite on this same candidate, then reconcile any remaining Block 2 identity-continuity gaps before claiming Block 2 complete.
+
+
+### 2026-11-11 — NPC Context Receiver and Host/Core/SQLite E2E (PASS)
+
+**Tested source candidate:** `e1f3092479c57b12ab252f052b3902f077ff29c6` on `integration/host-core-v1`. The worktree was then fast-forwarded to `bcb0f16af703aa09f84769f2a62cac9446c00a19`, which adds the preceding test-ledger entry only; no source changes were included in that documentation commit.
+
+**Environment:** Windows PowerShell, worktree `C:\\LogicEngine\\Phase2-Acceptance\\Logic-Engine`; Node.js version not restated.
+
+**Exact command:**
+
+```powershell
+node --import ./tests/configure-test-env.js --test `
+  ./tests/npc-context-receiver.test.mjs `
+  ./tests/host-core-sqlite-e2e.test.js
+```
+
+**User-provided raw summary:** 12 tests, 12 passed, 0 failed, 0 cancelled, 0 skipped, 0 todo; duration 549.2608 ms. Node emitted the experimental SQLite warning.
+
+Passed checks:
+- Host dispatch proxy retrieves a real SQLite Provider record through Core HTTP and MemoryNpcConsumer;
+- Receiver digest is stable for identical accepted context and changes when admitted content changes;
+- missing/malformed generation and run identities are rejected;
+- only Core-admitted candidates are converted into Gateway metadata/content;
+- authorized complete-empty result remains an empty ready context;
+- public five-field envelope is accepted while private Provider cursor is rejected;
+- NON_READY/malformed envelopes, unassessed/disputed/insufficient evidence, unadmitted evidence, source-version/admission/scope mismatches, accessors, Proxy objects, excessive nesting and oversized content are rejected.
+
+**Disposition:** PASS for the focused Receiver suite and the targeted Host→Core HTTP→MemoryNpcConsumer→SQLite Provider E2E at the tested source candidate. The E2E uses explicit Host inventory/root-proof fixtures as documented in the acceptance plan; it is not production Root Inventory authority evidence. This run does not prove full live SillyTavern production Memory→NPC transport or authorize enabling Memory → NPC in the normal installation.
+
+**Next target:** reconcile the Block 2 acceptance criteria against the current production wiring and evidence, then identify any remaining integration test gap. Keep the production Root Inventory verifier deny-only.
+
+
+### 2026-11-11 — Host one-shot bridge to live embedded Core/SQLite/Receiver composition added (NOT TESTED)
+
+Added `tests/host-bridge-runtime-receiver-e2e.test.mjs`. This is a single composition test for the production embedded generation path:
+- creates the real Host Adapter and authenticates a disposable ST-shaped generation request with fixture-backed Host inventory/root evidence;
+- constructs the actual Core NPC runtime, MemoryNpcConsumer and file-backed SQLite Provider, with the Host request-authentication capability wired into the Provider adapter;
+- calls the production `createNpcGenerationContextHostBridge.prepare()` and `consume()` under the branded authenticated Host session;
+- passes the consumed one-shot handoff through production `buildProtectedMemory()` and `receiveNpcContext()`;
+- asserts one Host-generated `run_id` remains bound to the same `request_id`, `generation_id`, Provider record/version, canonical source/version, Core envelope digest and immutable Receiver context digest;
+- asserts Core receives exactly the existing three metadata keys and never receives Host `run_id`; a browser-supplied `logic_engine_run_id` cannot select the Host run;
+- asserts a consumed handoff cannot be consumed or prepared again.
+
+This test uses the production embedded in-process Core/Provider architecture. The small HTTP server is used only for Host→Core conversation binding resolution; Memory retrieval itself uses the actual embedded Core consumer and file-backed SQLite Provider. It does not yet exercise production Gateway/Final-Send/model egress, and Host root inventory remains fixture-backed. It therefore closes the same-run continuity gap through Receiver only, not full Block 2 or overall production acceptance.
+
+Code commits: `c77ede54afe53b42e4ba1ed34ba3fba2c77cbfb6`, `6f6cb794692417959d825eb6e715618c00e50024`, `80457fd8d2b3069476137e46f56a672d7312e14b`.
+
+Execution status: **NOT TESTED**. Required command on the self-hosted Windows runner:
+
+```powershell
+node --import ./tests/configure-test-env.js --test ./tests/host-bridge-runtime-receiver-e2e.test.mjs
+```
+
+Do not accept Block 2 until this test passes and the separate production Gateway/Final-Send egress composition is connected to the same run identity. Memory → NPC remains disabled in the normal SillyTavern installation.

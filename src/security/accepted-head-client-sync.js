@@ -10,13 +10,23 @@ function invoke(input, timeoutMs) {
   const result = spawnSync(process.execPath, [clientPath], {
     input: JSON.stringify(input),
     encoding: 'utf8',
-    timeout: timeoutMs + 500,
+    // Keep the HTTP deadline above authoritative, but allow Windows Node
+    // process cold-start overhead outside that request budget.
+    timeout: timeoutMs + 5000,
     windowsHide: true,
     maxBuffer: 8192,
     env: { PATH: process.env.PATH || '', SystemRoot: process.env.SystemRoot || '', WINDIR: process.env.WINDIR || '' },
   });
   if (result.error || result.status !== 0) {
-    throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
+    // Keep the public failure code stable while preserving the OS/process
+    // reason needed to diagnose platform-specific IPC failures in CI.
+    const reason = result.error?.code
+      || (result.signal ? 'signal:' + result.signal : 'exit:' + String(result.status));
+    const stderr = typeof result.stderr === 'string'
+      ? result.stderr.trim().replace(/\s+/g, ' ').slice(0, 240)
+      : '';
+    throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE (' + reason
+      + (stderr ? '; stderr=' + stderr : '') + ')');
   }
   try {
     return JSON.parse(result.stdout);

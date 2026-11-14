@@ -1,0 +1,39 @@
+name: POSIX namespace broker prototype
+
+on:
+  push:
+    paths:
+      - "native/posix-namespace-broker/**"
+      - "deploy/sqlite-security/logic-engine*.service"
+      - "deploy/sqlite-security/README.md"
+      - "tests/sqlite-broker-systemd-units.test.js"
+      - ".github/workflows/posix-namespace-broker.yml"
+  pull_request:
+    paths:
+      - "native/posix-namespace-broker/**"
+      - ".github/workflows/posix-namespace-broker.yml"
+
+      - ".github/workflows/provider-blocker3.yml"
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with strict compiler warnings
+        run: make -C native/posix-namespace-broker
+      - name: Run protocol integration tests
+        run: make -C native/posix-namespace-broker test
+      - name: Run manifest store security tests
+        run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_manifest_store.py'
+      - name: Test initial manifest bootstrap
+        run: python3 -m unittest discover -s native/posix-namespace-broker -p 'test_init_manifest.py'
+      - name: Verify broker/application systemd boundary
+        run: node --test tests/sqlite-broker-systemd-units.test.js

@@ -93,6 +93,8 @@ test('corrupted or missing persisted direct-source lineage fails closed at autho
   await s.provider.rebuildIndex(s.scope.world_id);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
 
+  // Model out-of-band database corruption; normal Provider writes cannot update records.
+  s.db.exec('DROP TRIGGER IF EXISTS memory_records_immutable_update');
   s.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
     .run('{broken-json', s.scope.world_id, s.record.record_ref);
   await assert.rejects(() => s.provider.authorizeCandidate({
@@ -237,6 +239,7 @@ test('reconciliation refuses current when persisted scope or semantic metadata c
   const reconciliation = s.provider.reconcile(s.scope.world_id);
   await started;
   // Simulate an out-of-band/corrupt mutation while the trusted validator is awaited.
+  s.db.exec('DROP TRIGGER IF EXISTS memory_records_immutable_update');
   s.db.prepare(`UPDATE memory_records SET content_disposition='withheld'
     WHERE world_id=? AND record_ref=? AND record_version=?`)
     .run(s.scope.world_id, s.record.record_ref, s.record.record_version);

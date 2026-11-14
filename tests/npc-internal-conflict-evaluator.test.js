@@ -256,3 +256,33 @@ test("rejects missing own fields and inherited-only assessment values", () => {
   }];
   assert.equal(evaluateNpcInternalConflict(missingRule).status, "non_ready");
 });
+
+test("rejects benign Proxy option records before invoking their get traps", () => {
+  let getCalls = 0;
+  const input = base();
+  input.options[0] = new Proxy(input.options[0], {
+    get(target, key, receiver) {
+      getCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.equal(evaluateNpcInternalConflict(input).status, "non_ready");
+  assert.equal(getCalls, 0);
+});
+
+test("rejects Proxy motive arrays before invoking their reflection traps", () => {
+  let trapCalls = 0;
+  const input = base();
+  input.motives = new Proxy(input.motives, {
+    get(target, key, receiver) {
+      trapCalls += 1;
+      return Reflect.get(target, key, receiver);
+    },
+    getOwnPropertyDescriptor(target, key) {
+      trapCalls += 1;
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+  });
+  assert.equal(evaluateNpcInternalConflict(input).status, "non_ready");
+  assert.equal(trapCalls, 0);
+});

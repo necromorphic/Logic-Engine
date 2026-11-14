@@ -32,6 +32,8 @@ test('corrupt stored lineage cannot publish a ready reconciliation state', async
   };
   provider.putRecord(record);
   await provider.rebuildIndex('lineage-world');
+  // Model an out-of-band database tamper, not a supported Provider write.
+  testDb.db.exec('DROP TRIGGER IF EXISTS memory_records_immutable_update');
   testDb.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=?')
     .run('{broken-json', 'lineage-world');
 

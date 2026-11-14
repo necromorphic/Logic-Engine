@@ -1,0 +1,249 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { HostAccountMutationReceiptStore, createHostAccountMutationMiddleware } from '../extension-gateway/server-plugin/st-host-account-mutation-receipt-store.mjs';
+
+const hash = value => createHash('sha256').update(value).digest('hex');
+const uuid = () => randomUUID();
+const scope = () => ({
+  host_installation_id: uuid(),
+  authenticated_account_id: uuid(),
+  host_session_id: uuid(),
+  mutation_id: uuid(),
+  event_id: uuid(),
+  mutation_digest: hash('request'),
+  method: 'POST',
+  route: '/api/characters/edit',
+  target_path: 'characters/a.png',
+  operation: 'characters-edit',
+});
+async function fixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-account-mutation-'));
+  const storeDir = path.join(root, '..', 'host-account-store-' + uuid());
+  await mkdir(path.join(root, 'characters'));
+  const state = new Map([['characters/a.png', hash('before')]]);
+  const enumerate = async () => ({
+    status: 'complete',
+    entries: [...state].map(([filePath, sha256]) => ({ path: filePath, sha256 })),
+  });
+  const store = new HostAccountMutationReceiptStore({ directory: storeDir, enumerate, verifyTransition: async () => true });
+  return { root, storeDir, store, state, directories: { root } };
+}
+test('commits one allowlisted account-root mutation and clears the account lock', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    assert.equal(await f.store.hasPending(s), true);
+    f.state.set('characters/a.png', hash('after'));
+    const result = await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('rejects an unexpected file change and leaves the account locked', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    f.state.set('settings.json', hash('unexpected'));
+    await assert.rejects(f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token }), /PERSISTED_STATE_MISMATCH/);
+    assert.equal(await f.store.hasPending(s), true);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('aborts only when the persisted root inventory is unchanged', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.abort(s, { directories: f.directories, lock_token: prepared.lock_token });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('serializes concurrent account mutations across store instances', async () => {
+  const f = await fixture();
+  const s = scope();
+  const second = new HostAccountMutationReceiptStore({ directory: f.storeDir, enumerate: async () => ({
+    status: 'complete', entries: [...f.state].map(([filePath, sha256]) => ({ path: filePath, sha256 })),
+  }), verifyTransition: async () => true });
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    await assert.rejects(second.prepare({ ...scope(), host_installation_id: s.host_installation_id,
+      authenticated_account_id: s.authenticated_account_id }, {
+      directories: f.directories, allowedPaths: ['characters/a.png'],
+    }), /BUSY_OR_RECOVERY_REQUIRED/);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('rejects replay of a terminal mutation id', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    await assert.rejects(f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] }), /BUSY_OR_RECOVERY_REQUIRED|REPLAY/);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers a crash before the native mutation as ABORTED', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('recovers an interrupted mutation only when exact paths and operation verifier agree', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    const result = await f.store.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+test('keeps crash recovery locked when operation-specific transition validation fails', async () => {
+  const f = await fixture();
+  const s = scope();
+  const rejecting = new HostAccountMutationReceiptStore({
+    directory: f.storeDir,
+    enumerate: async () => ({ status: 'complete', entries: [...f.state].map(([filePath, sha256]) => ({ path: filePath, sha256 })) }),
+    verifyTransition: async () => false,
+  });
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    const result = await rejecting.recover(s, { directories: f.directories });
+    assert.equal(result.status, 'RECOVERY_REQUIRED');
+    assert.equal(await f.store.hasPending(s), true);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('native route middleware delegates immediately without requiring Host receipts', async () => {
+  const f = await fixture();
+  const middleware = createHostAccountMutationMiddleware();
+  let nextCalls = 0;
+  try {
+    const result = middleware({
+      method: 'POST',
+      originalUrl: '/api/quick-replies/save',
+      session: {},
+      user: {},
+    }, {}, () => { nextCalls++; return 'native-handler'; });
+    assert.equal(result, 'native-handler');
+    assert.equal(nextCalls, 1);
+    assert.equal(await f.store.hasPending(scope()), false);
+  } finally {
+    await rm(f.root, { recursive: true, force: true });
+    await rm(f.storeDir, { recursive: true, force: true });
+  }
+});
+
+test('native route middleware delegates even when Host identity and receipt services are unavailable', () => {
+  const middleware = createHostAccountMutationMiddleware();
+  let nextCalls = 0;
+  const result = middleware({
+    method: 'POST',
+    originalUrl: '/api/characters/create',
+    session: null,
+    user: null,
+  }, {}, () => { nextCalls++; return 'native-create'; });
+  assert.equal(result, 'native-create');
+  assert.equal(nextCalls, 1);
+});
+
+test('treats an idempotent successful save as a verified no-change terminal receipt', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('does not recover a mutation while its owning SillyTavern process is still alive', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'RECOVERY_REQUIRED');
+    assert.equal(result.reason, 'HOST_ACCOUNT_MUTATION_OWNER_STILL_ACTIVE');
+    assert.equal(await f.store.hasPending(s), true);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers an abandoned mutation after its owner process exits', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const lockName = (await readdir(f.storeDir)).find(name => name.endsWith('.account.lock'));
+    const lockPath = path.join(f.storeDir, lockName);
+    const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+    lock.owner_pid = 2147483647;
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'ABORTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('recovers an abandoned exact target write as COMMITTED', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    const lockName = (await readdir(f.storeDir)).find(name => name.endsWith('.account.lock'));
+    const lockPath = path.join(f.storeDir, lockName);
+    const lock = JSON.parse(await readFile(lockPath, 'utf8'));
+    lock.owner_pid = 2147483647;
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    f.state.set('characters/a.png', hash('after'));
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});
+
+test('cleans a matching terminal lock even when the server process is still alive', async () => {
+  const f = await fixture();
+  const s = scope();
+  try {
+    const prepared = await f.store.prepare(s, { directories: f.directories, allowedPaths: ['characters/a.png'] });
+    f.state.set('characters/a.png', hash('after'));
+    await f.store.commit(s, { directories: f.directories, lock_token: prepared.lock_token });
+    const lockKey = hash(JSON.stringify({
+      authenticated_account_id: s.authenticated_account_id,
+      host_installation_id: s.host_installation_id,
+    }));
+    const lockPath = path.join(f.storeDir, lockKey + '.account.lock');
+    const lock = {
+      protocol_version: 1,
+      lock_token: prepared.lock_token,
+      host_installation_id: s.host_installation_id,
+      authenticated_account_id: s.authenticated_account_id,
+      mutation_id: s.mutation_id,
+      owner_pid: process.pid,
+      process_started_at_ms: 0,
+    };
+    const canonicalLock = JSON.stringify(Object.fromEntries(Object.entries(lock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+    await writeFile(lockPath, canonicalLock, 'utf8');
+    const result = await f.store.recoverPending(s, { directories: f.directories });
+    assert.equal(result.status, 'COMMITTED');
+    assert.equal(await f.store.hasPending(s), false);
+  } finally { await rm(f.root, { recursive: true, force: true }); await rm(f.storeDir, { recursive: true, force: true }); }
+});

@@ -1,0 +1,205 @@
+{
+  "id": "logic-engine-sillytavern-final-send",
+  "manifestVersion": 1,
+  "host": {
+    "name": "SillyTavern",
+    "version": "1.19.0",
+    "commit": "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+  },
+  "patch": {
+    "version": "2.0.0",
+    "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
+    "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
+    "bundleSha256": "a95b4f26e9b936efe519ba396b13e88be031cbb8cb8959b42df7d34f21d3ed3b",
+    "artifacts": [
+      {
+        "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
+        "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
+        "allowUnidiffZero": false
+      },
+      {
+        "path": "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch",
+        "sha256": "9cf1adac0543deaff21a2ce13ae9777f3410f4bfff6917916548cbd7f47fe0d0",
+        "allowUnidiffZero": true
+      },
+      {
+        "path": "host-adapter/prototype/patches/sillytavern-1.19.0-root-mutation-guards.patch",
+        "sha256": "d6d29fd76bceede98af2653ba223bb4ade76d2cfb8495545a487cd5ca0f11929",
+        "allowUnidiffZero": true
+      }
+    ]
+  },
+  "sourceFiles": {
+    "package.json": "5b6e0634a63872c33603bf803217613a388f2e5dbd5990f7b30d254bfbf027c2",
+    "public/script.js": {
+      "before": "955c603d0bad84bac5a716f0818d85c2543e44d4c43878e0d63ef1e55ca91855",
+      "after": "ec12bb5156d1f3221b8bcc1a06715170397a8f42020da4268b32def11367696e"
+    },
+    "public/scripts/bookmarks.js": {
+      "before": "5c3a68aa82e58c0d82777065b8466572fc1b202cad98a92ba4daa852c386ad1b",
+      "after": "c256476e0e2617c37e4fc8b522efeeb89ff019fd699dced12111b7cc695cef1d"
+    },
+    "public/scripts/chat-backups.js": {
+      "before": "15eeab6b1c2022755f4fec834661833915e2ea64950c84626db294c25d4e5f5a",
+      "after": "3e580d573f1de32026fa2e513f9ff602073a1f137fe4a84a2a6967565f9e4893"
+    },
+    "public/scripts/group-chats.js": {
+      "before": "862eb24dfe1f596a2bd6d039a69397667829e0fc34471d22d2028d7781a5c73c",
+      "after": "d888cb85b63e91508365e87109a55e463f11850c5743a9267e7fc3836daadc79"
+    },
+    "public/scripts/slash-commands.js": {
+      "before": "3da6aa888a52d09fd5d54eadee1724b7c3b7dbc208a3d56fe98c7d23d86fcde3",
+      "after": "20c4558671fcc2f87d9195ba8c7f61d2c61dafffdbc688077764b17a42c40398"
+    },
+    "src/constants.js": "a8e507bf5f9e335810247476b28428e6e44f1b0a371df41cea748b36e70d29a7",
+    "src/endpoints/assets.js": {
+      "before": "890a4fe32ca20d24b0c1aa178e0e9c6b3de82f64f51b01d3f3766105b9fb4b8a",
+      "after": "893b917a3b11295af6f6ede02bd60939ca8f7d1821e71e0826a8de183ae326b8"
+    },
+    "src/endpoints/avatars.js": {
+      "before": "84b4dedaa63a58189dfb426a63f79630fcfe77c8f2c94ee43b38a284710c5dee",
+      "after": "d59e89c8fd6dbb949fed535fc50e755c5f09f842ab0507a823bce3ae5c48b833"
+    },
+    "src/endpoints/backends/chat-completions.js": {
+      "before": "53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7",
+      "after": "f09e17afc1049bc140377548eadf9f6c5ffe5b1956d8f237245f6baac700252b"
+    },
+    "src/endpoints/backends/kobold.js": {
+      "before": "ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801",
+      "after": "f9c89f053a3548b9ea942bf9f1f4cce9b648c31d646b21da94e46f61cbf24a94"
+    },
+    "src/endpoints/backends/text-completions.js": {
+      "before": "877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971",
+      "after": "c439b7f20f0df53511f75ca62767d9a4f4a25e15fd2685657559449ee3c448e1"
+    },
+    "src/endpoints/backgrounds.js": {
+      "before": "9694644c52046bba0540c8835caa2fcc1e1cb829449fae72f69110aafe06cf46",
+      "after": "9a588b5fc7eeb0c57baea45609a2849b34a15ecf24a7a6e34b1f2aff84d21d4b"
+    },
+    "src/endpoints/backups.js": {
+      "before": "1fa2ba1e084ac0d3b766cae06cdcb214dfaa739d8389a8cb6c27e58f39d91c2b",
+      "after": "57cb0cfd39f4665fb050f03385b4e5fea2ad3b2f7e38be4aa7e2b86104f0d4ff"
+    },
+    "src/endpoints/characters.js": {
+      "before": "3235555529e9ff17ecc2ebe9168b0af77fe6ef5947f3d1f7de3df6d5f2567d89",
+      "after": "03ea893d8bbbdfced3ed84f9b553b96687895aac7237fab2f73d263e82818844"
+    },
+    "src/endpoints/chats.js": {
+      "before": "40012ebc71a75357e62f7532e5b20def0d8b6c132bb6ab48f662993cc97b9063",
+      "after": "4ba182b4547a6406240f08f96f3ae27cdd5be0ac1bea8c33335b6066e5dd00a2"
+    },
+    "src/endpoints/content-manager.js": {
+      "before": "17c078e8868e6f0610225169b08f6c7a3ce1e179eb7cd7f1052de2327982d763",
+      "after": "21da0f5953fbe94738d79350b79dcdaa8c6fc4ee3068d644188043e4cd2041d3"
+    },
+    "src/endpoints/data-maid.js": {
+      "before": "19b3473a1e4ff837b72bf64c305b3bdd1e225d0967e3131b5a34518df862815a",
+      "after": "51aa5481d8284f024cf174330ead56e2dc34f8fcde9e3e6f51830856df379bea"
+    },
+    "src/endpoints/extensions.js": {
+      "before": "44185c46cc31650ea770d35460114483ecafabb2b672ecc3b13b18868215e292",
+      "after": "8d76ebb5cf0083d972a4acebd430b1cffc3e1bf5a8c15a7f64ae15bd6fe5ef5a"
+    },
+    "src/endpoints/files.js": {
+      "before": "0eecaec00c0658d77febc1738b9ee1751698a3a27180ee3711ce3adc5595feca",
+      "after": "542b55510f6366c316b1ea36d68b8e41b52c8f562dcfa4a7b41a1751e71acf92"
+    },
+    "src/endpoints/groups.js": {
+      "before": "c5b956f8b4a2809b554229fed24588ed37163f1e73c129d4270ac6832438612b",
+      "after": "d69dfa20f2a07e77d9b260a8c1e5ccb63585462a18f58fd0cf17a6ad9c132d61"
+    },
+    "src/endpoints/horde.js": {
+      "before": "9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4",
+      "after": "a93838e9a5d26e17e0c95b83cb41146f50be1b4948bae57e094874c0b2d6e574"
+    },
+    "src/endpoints/image-metadata.js": {
+      "before": "0f015471b924e0684f37ede4115fdbdc132044d1bfefc9e5e3d2e0b47421aa3e",
+      "after": "f8201eae6b43c931e43bd098d10c1b0c985c023785581a31684ce8f85ecfa3b9"
+    },
+    "src/endpoints/images.js": {
+      "before": "963390467307399e639d412f914fca5e6be40bd39764bd9f621e896542ccfc72",
+      "after": "89614800bd60b3f226baac163114b3a51c82434d5e1a162f89cc2de9b4d2aa86"
+    },
+    "src/endpoints/moving-ui.js": {
+      "before": "fda905b59c3af1609824f686675324a7ea63be607672f9b0a731a7f6d9026307",
+      "after": "3f3ef42f5f94a848e2c144ce1d2ec52dec72ded292f4ddb4a5c5bb8911b0709b"
+    },
+    "src/endpoints/novelai.js": {
+      "before": "0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce",
+      "after": "ab35c2dd29da41c1c7c578e4f3c3bd5a2736a345f5aa8be38c665a05df6d3b68"
+    },
+    "src/endpoints/presets.js": {
+      "before": "710620f0ae5157a9c0f5dadb1bd81f93ffabf11feb18d7c91c96ce452cfd583c",
+      "after": "80ac5f8886aa9665ae74cb2dbfc05adcbd88a244032140b9039b842e4105eac3"
+    },
+    "src/endpoints/quick-replies.js": {
+      "before": "f047c07f9c8da2b4e1161573a22f7c50453684ce58b8247264d693e7b4af6c0e",
+      "after": "6d0b2540258f1649c4384cfc2932ce414ce2c20fbd178591a8276dd893fa7969"
+    },
+    "src/endpoints/secrets.js": {
+      "before": "baa5e76eda078cc8259993d07f0bc5e93291fcb54890e78ada8d1162e0d1f555",
+      "after": "fb9531492286fe3101a4fbe81a62793cff7a2c119c2ca229056ed246ec1a17c3"
+    },
+    "src/endpoints/settings.js": {
+      "before": "bbc3d36ad758b1fc567f63f1e24eada063172791005c5b3baadc195b78726955",
+      "after": "5b7a6f0f1bde46aad686dce98f0b0b58f2802b93312ce8475e575ed401791379"
+    },
+    "src/endpoints/sprites.js": {
+      "before": "9d2b2b2f9ef89db39966e00116c6850851be3175a17778bddad264698656ecca",
+      "after": "be1a396e70817eeaf30602aaa89c41ea45d411852490b096ba9a565fa74f5ca7"
+    },
+    "src/endpoints/stable-diffusion.js": {
+      "before": "15439fdffd839815ef7adcaa39806738c4e4503db8bbb697b337e905dfb4ed43",
+      "after": "ccbf0a49fba40b6a5fd4b68f5140c4bd316104547f70dc6014411b318961f47d"
+    },
+    "src/endpoints/stats.js": {
+      "before": "3ff08d54af9e6468ccba158b94530eed460175343e04d6a66ab24f5c2cb36fb2",
+      "after": "0fc389c27dd04294f42fcfbeacab6a0215c8f7859ebd74a5facf27be8582645d"
+    },
+    "src/endpoints/themes.js": {
+      "before": "a5b704cf877f4e54cc1534e0690df2502790021b041746451bdca93a427623e9",
+      "after": "431e30a4200016f480a3535101f62fd4d6931a522c94c91aa2b16c9b68a3e4ad"
+    },
+    "src/endpoints/users-admin.js": {
+      "before": "682cf8df991b7a9339b2061901a4178193a193202e827d6a0677a3187de6b579",
+      "after": "a1623c03f13d35b00fa9eeca691197aae491bf4f1cc486911b6839efdce57a48"
+    },
+    "src/endpoints/users-private.js": {
+      "before": "1b32ecd4a0796b5694e881aee0b60cd9ca5471d576571cf7ba91eb99a6af8801",
+      "after": "879756708f85b754d00f26b46f0fdde1d75e2b4f859fbe2c4573a7b7cf340650"
+    },
+    "src/endpoints/users-public.js": {
+      "before": "5f1e2fa776dcb989debd3e7887462fa82ac1ca22a51b405fd25b397864a65503",
+      "after": "65e4c92bfe7d6bad2bae8fc23825e73f607cea56e40174f204ac45c7504a362e"
+    },
+    "src/endpoints/vectors.js": {
+      "before": "0884e92c4402488bd5cd088e6e5f73f88551b95b9873e173fec660e6debee388",
+      "after": "3a9744f0b8523321753c49a15e0d033e473f26a87cfcccac055e5378f98b0be7"
+    },
+    "src/endpoints/worldinfo.js": {
+      "before": "1c7bcf4fc54b41beaaa69a88f0398978be048d735a15891e93691930d31991d2",
+      "after": "1de9e8a137f2d5da2b0b8554930c6b28e6ff8ee3912e96b0ab281130d8f8f125"
+    },
+    "src/plugin-loader.js": "994cbfde97c4ef3a2e2a8078e005e61698ded61a52741cad1efe049ee2bedee9",
+    "src/server-main.js": {
+      "before": "567d8a9d52e70816e74f119409933f2b42ad03132d7ef01f8db3ae145c2fe7bf",
+      "after": "e11dfa02c8aa0b9ef964ba5fa40becbfd779a387cd5df2508fcbc3ab3f4fe28f"
+    },
+    "src/server-startup.js": "646bee9eefa67ed62d2f2157aef88872145b90e6d4c4c32490ad4e1792f9c0ba",
+    "src/users.js": {
+      "before": "3100591d000a28f6d3a548242c9de69060c2fd4777c170b13f38a99bc67f3476",
+      "after": "f6cb18220dc81b4290a7a2e003f32a2e19d6e791fce3405e50cf95d4129ee575"
+    },
+    "src/util.js": "d33d67234af4e188bb7fcfac9c3ca7952c19e8c58791e96b19f9ad748dd168cd"
+  },
+  "createdFiles": {
+    "public/scripts/logic-engine-lifecycle/conversation-identity.mjs": "75b06c6b94943d5de2ac35e12af984608fb0e6382de28a46c8054ac2ea5ef624",
+    "public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs": "e88b9e80ebf706ca99c18d001f7d65d0d0e525abdeca550dc6705642af490493",
+    "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "2290584b9dacf879b61c25bcd086eefb23a3b2bd1f85f25e81c49444069a2ffa",
+    "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
+    "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
+  },
+  "hostOwnedFiles": [
+    "src/endpoints/logic-engine-host-inventory-handler.mjs"
+  ]
+}

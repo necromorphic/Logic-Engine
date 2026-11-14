@@ -32,6 +32,11 @@ struct LE_WIN_MANIFEST_STORE {
   BOOL locked;
 };
 
+int le_win_store_validate_private_directory(HANDLE directory);
+HANDLE le_win_store_open_namespace_root(const wchar_t *configured_directory);
+int le_win_store_open_validated(
+    LE_WIN_MANIFEST_STORE *store,
+    const wchar_t *configured_directory);
 int le_win_store_open(
     LE_WIN_MANIFEST_STORE *store,
     const wchar_t *configured_directory,

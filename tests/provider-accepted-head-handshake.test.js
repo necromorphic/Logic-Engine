@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
   advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
@@ -30,7 +31,7 @@ async function startAuthorityProcess(path) {
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "provider-handshake-test-installation" });',
     'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
-    'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
+    'process.stdin.on("data", () => { server.close(() => { authority.close(); process.exit(0); }); server.closeAllConnections(); });',
   ].join('\n');
   const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -63,7 +64,7 @@ const providerOptions = (path, coordinatorPath) => ({
   path,
   coordinatorPath,
   getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
-  validateSourceVersion: async () => true,
+  validateSourceVersion: () => true,
   validateInventory: async () => true,
 });
 
@@ -76,6 +77,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
   let child;
   let provider;
   let providerDb;
+  let dispatchObserver;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
@@ -115,10 +117,145 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
+
+    const dispatchRecord = {
+      ...scope,
+      record_ref: 'memory:gateway-record',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-source-a',
+      source_version: 'source-v1',
+      content_kind: 'claim',
+      epistemic_kind: 'acquired_report',
+      producer_kind: 'memory-index',
+      content_disposition: 'usable',
+      evidence_assessment: 'unassessed',
+      lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
+    };
+    await provider.putRecord(dispatchRecord);
+    provider.grantRecord(scope, dispatchRecord.record_ref, dispatchRecord.record_version, true);
+
+    // Final-Send reads Provider evidence synchronously under the same
+    // cross-process Coordinator lease and must not mutate Provider state.
+    await provider.rebuildIndex(scope.world_id);
+    await provider.reconcile(scope.world_id);
+    dispatchObserver = new SQLiteMemoryProvider({
+      ...providerOptions(providerPath, coordinatorPath),
+      observerOnly: true,
+    });
+    // Provider retrieval owns its own Coordinator transaction. Capture the
+    // cursor before acquiring the synchronous Final-Send lease; the lease then
+    // pins the evidence validation/read without attempting a nested BEGIN IMMEDIATE.
+    const providerRetrieval = await provider.retrieveCandidates(scope);
+    const coordinatorObserver = openCoordinatorDatabase(coordinatorPath);
+    const providerLease = beginCoordinatorLock(coordinatorObserver);
+    try {
+      // Bind the dispatch proof to the exact indexed candidate projection returned
+      // by Provider retrieval; a hand-built candidate list alone is not authority.
+      const evidence = dispatchObserver.readDispatchEvidenceSync({
+        worldId: scope.world_id,
+        actorId: scope.subject_id,
+        purpose: scope.purpose,
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        providerEvidenceCursor: providerRetrieval.provider_evidence_cursor,
+        candidates: [{
+          record_ref: dispatchRecord.record_ref,
+          record_version: dispatchRecord.record_version,
+          authorization_generation: providerDb.prepare(
+            'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+          ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+          epistemic_kind: dispatchRecord.epistemic_kind,
+          evidence_assessment: dispatchRecord.evidence_assessment,
+        }],
+        coordinatorLease: providerLease,
+      });
+      assert.deepEqual(evidence, {
+        world_id: scope.world_id,
+        actor_id: scope.subject_id,
+        purpose: scope.purpose,
+        granted: true,
+        readiness: 'READY',
+        head: providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head,
+        provider_evidence_cursor: providerRetrieval.provider_evidence_cursor,
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        candidates: [{
+          record_ref: dispatchRecord.record_ref,
+          record_version: dispatchRecord.record_version,
+          authorization_generation: providerDb.prepare(
+            'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+          ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+          epistemic_kind: dispatchRecord.epistemic_kind,
+          evidence_assessment: dispatchRecord.evidence_assessment,
+        }],
+      });
+    } finally {
+      providerLease();
+      coordinatorObserver.close();
+    }
+    assert.throws(() => dispatchObserver.readDispatchEvidenceSync({
+      worldId: scope.world_id,
+      actorId: scope.subject_id,
+      purpose: scope.purpose,
+      sources: [],
+      candidates: [],
+    }), /PROVIDER_COORDINATOR_LEASE_REQUIRED/);
+
+    // A durable revoke advances Provider state and must invalidate the
+    // previously admitted candidate before Gateway can write DISPATCH_STARTED.
+    const staleCandidate = {
+      record_ref: dispatchRecord.record_ref,
+      record_version: dispatchRecord.record_version,
+      authorization_generation: providerDb.prepare(
+        'SELECT authorization_generation FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+      ).get(scope.world_id, scope.subject_id, scope.purpose, dispatchRecord.record_ref, dispatchRecord.record_version).authorization_generation,
+      source_kind: 'canonical_entity',
+      source_entity_id: dispatchRecord.source_entity_id,
+      source_version: dispatchRecord.source_version,
+      epistemic_kind: dispatchRecord.epistemic_kind,
+      evidence_assessment: dispatchRecord.evidence_assessment,
+    };
+    const headBeforeRevoke = providerDb.prepare('SELECT head FROM accepted_head_state WHERE singleton=1').get().head;
+    provider.revokeRecord(scope, dispatchRecord.record_ref, dispatchRecord.record_version);
+    const revokeCoordinator = openCoordinatorDatabase(coordinatorPath);
+    const revokeLease = beginCoordinatorLock(revokeCoordinator);
+    try {
+      assert.throws(() => dispatchObserver.readDispatchEvidenceSync({
+        worldId: scope.world_id,
+        actorId: scope.subject_id,
+        purpose: scope.purpose,
+        providerEvidenceCursor: providerRetrieval.provider_evidence_cursor,
+        sources: [{
+          source_kind: 'canonical_entity',
+          source_entity_id: dispatchRecord.source_entity_id,
+          source_version: dispatchRecord.source_version,
+        }],
+        candidates: [staleCandidate],
+        coordinatorLease: revokeLease,
+      }), /(?:MEMORY_DISPATCH_NOT_READY|PROVIDER_DISPATCH_EVIDENCE_CHANGED)/);
+    } finally {
+      revokeLease();
+      revokeCoordinator.close();
+    }
+    dispatchObserver.close();
+    dispatchObserver = null;
     const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(firstOperation.head, 2);
+    assert.equal(firstOperation.head, headBeforeRevoke + 1);
     assert.equal(firstOperation.enrolled, 1);
     assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
     assert.equal(firstOperation.last_operation_id, 'provider-' + firstOperation.last_operation_digest);
@@ -127,17 +264,19 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     const secondOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(secondOperation.head, 3);
+    assert.equal(secondOperation.head, firstOperation.head + 1);
     assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 3 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), {
+      core: 1, provider: secondOperation.head,
+    });
 
     const recoveryDigest = 'e'.repeat(64);
     const pendingRecovery = advanceAcceptedHeadSync({
       domain: 'provider',
       operationId: 'provider-recovery-committed-operation',
       operationDigest: recoveryDigest,
-      expectedHead: 3,
+      expectedHead: secondOperation.head,
       token: providerToken,
       port,
     });
@@ -148,14 +287,16 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     try {
       recoveryDb.prepare(
         'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
-      ).run(4, pendingRecovery.operation_id, recoveryDigest);
+      ).run(pendingRecovery.head, pendingRecovery.operation_id, recoveryDigest);
     } finally {
       recoveryDb.close();
     }
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     providerDb?.close();
     providerDb = new DatabaseSync(providerPath);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 4 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), {
+      core: 1, provider: secondOperation.head + 1,
+    });
 
     // Verify the accepted-head wrapper covers each currently usable Provider
     // mutation family, not only query grants. Each visible state transition must
@@ -260,6 +401,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       source_entity_id: 'entity-source-a',
     }), /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
   } finally {
+    try { dispatchObserver?.close(); } catch {}
     try { provider?.close(); } catch {}
     try { providerDb?.close(); } catch {}
     if (child) {

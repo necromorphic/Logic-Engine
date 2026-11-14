@@ -4,21 +4,34 @@ on:
   pull_request:
     paths:
       - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - "host-adapter/extension-gateway/**"
+      - "src/application/host-session-context.js"
+      - "src/application/host-session-context.test.js"
       - ".github/workflows/host-source-audit.yml"
+      - ".github/workflows/provider-blocker3.yml"
   push:
     branches:
       - main
       - "host/**"
     paths:
       - "host-adapter/tests/pinned-st-source-audit.mjs"
+      - "host-adapter/extension-gateway/**"
       - ".github/workflows/host-source-audit.yml"
 
 permissions:
   contents: read
 
+# Keep active exact-head source audit running across newer integration commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   pinned-source-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -32,6 +45,11 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
       - name: Verify exact source revision
-        run: test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -ne '06bde939fb1e9c4c8d8641d810f0a916b5bce127') {
+            throw "Pinned SillyTavern revision mismatch: $actual"
+          }
       - name: Audit lifecycle and persistence source semantics
         run: node host-adapter/tests/pinned-st-source-audit.mjs SillyTavern

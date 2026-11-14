@@ -10,7 +10,8 @@ async function rawContentDigest(text) {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
     .map(value => value.toString(16).padStart(2, '0')).join('');
 }
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
+const CURRENTLY_GUARDED_OR_RECONCILED_PATHS = Object.freeze(['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import', 'import-character-chat', 'import-group-chat', 'export', 'restore', 'backup-restore', 'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering', 'copy-branch', 'create-branch']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -20,13 +21,19 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null, publishSnapshot = null, getPersistedInventory = null, publishLifecycleEvent = null, getLifecycleStatus = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   if (publishSnapshot !== null && typeof publishSnapshot !== 'function') throw TypeError('publishSnapshot must be a trusted callback');
   if (getPersistedInventory !== null && typeof getPersistedInventory !== 'function') throw TypeError('getPersistedInventory must be a trusted callback');
+  if (publishLifecycleEvent !== null && typeof publishLifecycleEvent !== 'function') throw TypeError('publishLifecycleEvent must be a trusted callback');
+  if (getLifecycleStatus !== null && typeof getLifecycleStatus !== 'function') throw TypeError('getLifecycleStatus must be a trusted callback');
   const publishQueues = new Map();
   const coreCaptureStates = new Map();
+  const persistedInventoryRevocationPublished = new Set();
+  const persistedInventoryDiagnostics = new Map();
+  const automaticEnrollmentPromises = new Map();
+  const persistedRecoveryPromises = new Map();
 
   function sortParentFirst(entries) {
     const groups = new Map();
@@ -161,23 +168,168 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     return fingerprintSource(chat, getSourceLocator());
   }
 
+  function hostLifecycleFailure(code, message) {
+    const error = Error('NON_READY: ' + message);
+    error.code = code;
+    return error;
+  }
+
   async function enrolledOrFailClosed(conversationId) {
     const enrolled = await journal.isEnrolled(conversationId);
+    if (enrolled) return true;
+
     const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
-    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
-    return enrolled;
+    if (!marker) return false;
+
+    // A marker is only a recovery hint, never authority. Recover only when its
+    // recorded state and locator match this exact active chat, and every
+    // persisted message/version ID and digest independently verifies.
+    const locator = getSourceLocator();
+    const allowedMarkers = locator ? new Set([
+      'enrolled:' + locator,
+      'enrolling:' + locator,
+      'NON_READY:' + locator,
+    ]) : new Set();
+    if (!allowedMarkers.has(marker)) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+        'an old enrollment marker does not identify the active chat unambiguously',
+      );
+    }
+
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'the old enrollment marker exists but its persisted identity snapshot could not be restored',
+      );
+    }
+    if (!restored) {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_METADATA_INCOMPLETE',
+        'the old enrollment marker exists but complete persisted message/version identities are unavailable',
+      );
+    }
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity?.status !== 'INTEGRITY_OK') {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_INTEGRITY_FAILED',
+        'the recovered current-state baseline failed journal integrity verification',
+      );
+    }
+    return true;
+  }
+
+  // IndexedDB is origin-scoped (scheme/host/port). When ST moves to another
+  // local port, the chat's persisted identity metadata remains available but
+  // the old origin's journal does not. Rebuild only a current-state baseline
+  // from those already-persisted IDs and verified payload digests; never mint
+  // replacement message/version IDs or claim the missing event history.
+  async function restoreBaselineFromPersistedChatMetadataUncached(conversationId) {
+    const sourceLocator = getSourceLocator();
+    const chat = getChat();
+    if (!sourceLocator || !Array.isArray(chat) || chat.length === 0) return null;
+    const fingerprint = await currentFingerprint(chat);
+    const messageIds = new Set();
+    const versionIds = new Set();
+    const messages = [];
+    for (let messageIndex = 0; messageIndex < chat.length; messageIndex++) {
+      const message = chat[messageIndex];
+      const identity = message?._logicEngineLifecycle;
+      const versions = rawVersions(message);
+      if (!identity || !HOST_UUID.test(identity.messageId ?? '')
+        || messageIds.has(identity.messageId)
+        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length
+        || identity.activeVersionIndex !== activeIndex(message)
+        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= versions.length) return null;
+      messageIds.add(identity.messageId);
+      const persistedVersions = [];
+      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
+        const version = identity.versions[versionIndex];
+        if (!version || !HOST_UUID.test(version.versionId ?? '')
+          || versionIds.has(version.versionId)
+          || version.versionIndex !== versionIndex
+          || !/^[a-f0-9]{64}$/.test(version.payloadDigest ?? '')
+          || version.payloadDigest !== await contentDigest(versions[versionIndex])
+          || (version.parentVersionId != null && !HOST_UUID.test(version.parentVersionId))) return null;
+        versionIds.add(version.versionId);
+        persistedVersions.push({
+          versionId: version.versionId,
+          versionIndex,
+          payloadDigest: version.payloadDigest,
+          parentVersionId: version.parentVersionId ?? null,
+        });
+      }
+      messages.push({
+        messageId: identity.messageId,
+        messageIndex,
+        role: roleOf(message),
+        activeVersionIndex: identity.activeVersionIndex,
+        versions: persistedVersions,
+      });
+    }
+    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
+      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
+      throw Error('NON_READY: Host conversation changed during origin recovery');
+    }
+    const restored = await journal.restoreBaseline({
+      conversationId,
+      sourceFingerprint: fingerprint,
+      messages,
+    });
+    if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator
+      || getChat() !== chat || await currentFingerprint(chat) !== fingerprint) {
+      throw Error('NON_READY: Host conversation changed after origin recovery');
+    }
+    return restored;
+  }
+
+  async function restoreBaselineFromPersistedChatMetadata(conversationId) {
+    const locator = getSourceLocator();
+    const chat = getChat();
+    if (!locator || !Array.isArray(chat)) return null;
+    const fingerprint = await currentFingerprint(chat);
+    const key = conversationId + '\\u0000' + locator + '\\u0000' + fingerprint;
+    let pending = persistedRecoveryPromises.get(key);
+    if (!pending) {
+      pending = restoreBaselineFromPersistedChatMetadataUncached(conversationId);
+      persistedRecoveryPromises.set(key, pending);
+      if (persistedRecoveryPromises.size > 128) {
+        const oldest = persistedRecoveryPromises.keys().next().value;
+        if (oldest !== key) persistedRecoveryPromises.delete(oldest);
+      }
+    }
+    return pending;
   }
 
   async function enrollCurrentConversation() {
-    const conversationId = await getConversationId(), chat = getChat();
-    if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
+    const conversationId = await getConversationId();
+    const sourceLocator = getSourceLocator();
+    const chat = getChat();
+    if (!conversationId || !sourceLocator || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
+    const assertEnrollmentSourceUnchanged = async () => {
+      if (await getConversationId() !== conversationId || getSourceLocator() !== sourceLocator || getChat() !== chat) {
+        throw Error('NON_READY: Host conversation changed during enrollment');
+      }
+    };
+    await assertEnrollmentSourceUnchanged();
     const fingerprint = await currentFingerprint(chat);
+    await assertEnrollmentSourceUnchanged();
     const descriptors = chat.map(message => ({
       role: roleOf(message),
       versions: rawVersions(message),
       activeVersionIndex: activeIndex(message),
     }));
     const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
+    // journal.enroll is an asynchronous durable write. Revalidate both stable
+    // identity and the actual chat object before touching native message metadata.
+    await assertEnrollmentSourceUnchanged();
+    if (await currentFingerprint(chat) !== fingerprint) {
+      throw Error('NON_READY: Host chat content changed during enrollment');
+    }
+    await assertEnrollmentSourceUnchanged();
     try {
       for (let i = 0; i < chat.length; i++) {
         const identity = result.mapping[i];
@@ -187,13 +339,21 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           activeVersionIndex: identity.activeVersionIndex,
         };
       }
+      // saveChatConditional persists the currently selected ST chat. Check the
+      // captured source immediately before invoking it and again after completion.
+      await assertEnrollmentSourceUnchanged();
       await saveChat();
+      await assertEnrollmentSourceUnchanged();
     } catch (error) {
       // The durable baseline now exists but native metadata may not. Subsequent
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
+    // Full-root inventory is independent of conversation enrollment. Do not
+    // trigger account-wide filesystem/VSS work during chat loading; reconciliation
+    // remains an explicit operation with its own readiness contract.
+    await assertEnrollmentSourceUnchanged();
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
@@ -201,6 +361,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
       coreCaptureStatus: coreCapture.status,
+      persistedInventoryStatus: 'NOT_CHECKED_ON_CHAT_LOAD',
     };
   }
 
@@ -243,9 +404,163 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
   }
 
+  async function ensureConversationEnrolled(conversationId) {
+    let restored;
+    try {
+      restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+    } catch {
+      throw hostLifecycleFailure(
+        'HOST_ENROLLMENT_RECOVERY_REJECTED',
+        'persisted Host identity metadata could not be restored into the local journal',
+      );
+    }
+    if (restored) return;
+
+    // Never replace partial, malformed, or stale per-message identities with
+    // freshly minted IDs. A chat with no message identity metadata can receive a
+    // forward-only baseline; any existing marker is validated below as a locator
+    // hint, never treated as proof of a completed enrollment.
+    const chat = getChat();
+    const hasPersistedIdentity = Array.isArray(chat)
+      && chat.some(message => message && Object.hasOwn(message, '_logicEngineLifecycle'));
+    if (hasPersistedIdentity) {
+      throw hostLifecycleFailure(
+        'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+        'some persisted Host message identities exist but do not form a complete verifiable baseline',
+      );
+    }
+    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
+    if (marker) {
+      // A marker is a recovery hint, not proof that message identities were
+      // durably enrolled. With no per-message identity metadata (checked above),
+      // rebuild a forward-only baseline only when the marker names this exact
+      // active locator. The new baseline explicitly leaves prior history unknown.
+      const locator = getSourceLocator();
+      const allowedMarkers = locator ? new Set([
+        'enrolled:' + locator,
+        'enrolling:' + locator,
+        'NON_READY:' + locator,
+      ]) : new Set();
+      if (!allowedMarkers.has(marker)) {
+        throw hostLifecycleFailure(
+          'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+          'an old enrollment marker does not identify the active chat unambiguously',
+        );
+      }
+    }
+
+    let pending = automaticEnrollmentPromises.get(conversationId);
+    if (!pending) {
+      pending = (async () => {
+        if (await getConversationId() !== conversationId) {
+          throw Error('NON_READY: Host conversation changed before automatic enrollment');
+        }
+        return enrollCurrentConversation();
+      })();
+      automaticEnrollmentPromises.set(conversationId, pending);
+    }
+    try {
+      await pending;
+    } finally {
+      if (automaticEnrollmentPromises.get(conversationId) === pending) {
+        automaticEnrollmentPromises.delete(conversationId);
+      }
+    }
+    if (!(await journal.isEnrolled(conversationId))) {
+      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
+    }
+  }
+
+  async function ensureCurrentConversationEnrolled() {
+    const conversationId = await getConversationId();
+    if (!conversationId) return { status: 'NOT_ENROLLED', reason: 'NO_ACTIVE_CONVERSATION' };
+    const alreadyEnrolled = await journal.isEnrolled(conversationId);
+    if (!alreadyEnrolled) {
+      await ensureConversationEnrolled(conversationId);
+    } else {
+      const chat = getChat();
+      if (!Array.isArray(chat)) throw Error('NON_READY: active Host chat is unavailable');
+      await assertIdentitySnapshotMatches(conversationId, chat);
+      const integrity = await journal.verifyIntegrity(conversationId);
+      if (integrity.status !== 'INTEGRITY_OK') {
+        throw Error('NON_READY: Host lifecycle journal integrity is unavailable after chat load');
+      }
+    }
+    if (await getConversationId() !== conversationId) {
+      throw Error('NON_READY: Host conversation changed during automatic chat-load enrollment');
+    }
+    if (!(await journal.isEnrolled(conversationId))) {
+      throw Error('NON_READY: automatic Host conversation enrollment did not persist');
+    }
+    return { status: alreadyEnrolled ? 'ALREADY_ENROLLED' : 'ENROLLED', conversationId };
+  }
+
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
-    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId) return { status: 'NOT_ENROLLED' };
+    let recoveredBaseline = false;
+    if (!(await enrolledOrFailClosed(conversationId))) {
+      await ensureConversationEnrolled(conversationId);
+      recoveredBaseline = true;
+    }
+    if (getLifecycleStatus) {
+      let remote;
+      try { remote = await getLifecycleStatus(conversationId); }
+      catch { throw Error('NON_READY: Core lifecycle journal status is unavailable; abort mutation'); }
+      if (!remote || remote.status === 'NON_READY') {
+        throw Error('NON_READY: Core lifecycle journal integrity is unavailable; abort mutation');
+      }
+      if (remote.status === 'PENDING_MUTATION') {
+        // A crash may have occurred after the local after-receipt was committed
+        // but before Core received it. Replay that exact digest-only receipt.
+        let ledger;
+        try { ledger = await journal.exportCaptureLedger(conversationId); } catch {}
+        const replay = ledger?.records?.find(row =>
+          row.operation === 'after:' + remote.operation
+          && row.payload?.mutationId === remote.mutation_id);
+        if (replay && publishLifecycleEvent) {
+          const mutationId = replay.payload?.mutationId;
+          const mutationDigest = replay.payload?.mutationDigest;
+          const receiptDigest = replay.payload?.receiptDigest;
+          const occurredAt = replay.payload?.lifecycleOccurredAt;
+          if (!HOST_UUID.test(mutationId ?? '') || !/^[a-f0-9]{64}$/.test(mutationDigest ?? '')
+            || !/^[a-f0-9]{64}$/.test(receiptDigest ?? '')
+            || typeof occurredAt !== 'string' || !Number.isFinite(Date.parse(occurredAt))
+            || mutationId !== remote.mutation_id) {
+            throw Error('NON_READY: local persisted receipt is incomplete or does not match Core pending mutation');
+          }
+          let replayResult;
+          try {
+            replayResult = await publishLifecycleEvent({
+              conversation_id: conversationId,
+              event_id: replay.eventId,
+              event_type: 'MUTATION_COMMITTED',
+              mutation_id: mutationId,
+              operation: remote.operation,
+              mutation_digest: mutationDigest,
+              occurred_at: occurredAt,
+            });
+          } catch {
+            throw Error('NON_READY: Core lifecycle receipt replay failed; abort mutation');
+          }
+          if (!replayResult || !['appended', 'duplicate'].includes(replayResult?.lifecycle?.status)) {
+            throw Error('NON_READY: Core lifecycle receipt replay was rejected; abort mutation');
+          }
+          remote = await getLifecycleStatus(conversationId);
+        }
+        if (remote?.status !== 'NO_PENDING_MUTATION') {
+          throw Error('NON_READY: Core has an unresolved Host mutation (' + remote.operation + '); abort mutation');
+        }
+      }
+      if (remote.status !== 'NO_PENDING_MUTATION') {
+        throw Error('NON_READY: Core lifecycle journal is not in an accepted state; abort mutation');
+      }
+    }
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
+    if (pending.status === 'PENDING_MUTATION') {
+      throw Error('NON_READY: previous lifecycle operation is incomplete (' + pending.operation + '); abort mutation');
+    }
     if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
       throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
     }
@@ -287,19 +602,73 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     // eventId was previously omitted here, making every enrolled mutation fail
     // with "Invalid event" before reaching the journal.
+    const mutationId = newId();
+    const occurredAt = new Date().toISOString();
+    const detailsDigest = await contentDigest(JSON.stringify(details ?? {}));
+    const mutationDigest = await contentDigest(JSON.stringify({
+      protocolVersion: 1, mutationId, operation, sourceFingerprint: fingerprint,
+      affectedVersions, detailsDigest,
+    }));
+    const eventId = newId();
+    // Persist the server-side PREPARED receipt before the browser journal marker.
+    // If the local append then fails, the next authenticated status check can
+    // recover the server pending state from the durable pre-mutation file snapshot.
+    if (publishLifecycleEvent) {
+      let result;
+      try {
+        result = await publishLifecycleEvent({
+          conversation_id: conversationId,
+          event_id: eventId,
+          event_type: 'MUTATION_PREPARED',
+          mutation_id: mutationId,
+          operation,
+          mutation_digest: mutationDigest,
+          occurred_at: occurredAt,
+        });
+      } catch {
+        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
+      }
+      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
+        throw Error('NON_READY: Core did not durably accept the prepared Host mutation');
+      }
+    }
     return journal.beforeMutation({
       conversationId,
-      eventId: newId(),
+      eventId,
       operation,
       affectedVersions,
       sourceFingerprint: fingerprint,
-      details,
+      details: { hostLifecycle: { mutationId, mutationDigest, occurredAt, detailsDigest } },
     });
   }
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = await getConversationId();
-    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId) return { status: 'NOT_ENROLLED' };
+    let recoveredBaseline = false;
+    if (!(await enrolledOrFailClosed(conversationId))) {
+      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
+      recoveredBaseline = true;
+    }
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status === 'NON_READY') throw Error('NON_READY: lifecycle journal integrity failed: ' + pending.reason);
+    if (pending.status !== 'PENDING_MUTATION' || pending.operation !== operation) {
+      throw Error('NON_READY: afterMutation has no matching durable beforeMutation for ' + operation);
+    }
+    let localLedger;
+    try { localLedger = await journal.exportCaptureLedger(conversationId); } catch {
+      throw Error('NON_READY: local lifecycle journal cannot provide the exact prepared intent');
+    }
+    const preparedRecord = localLedger?.records?.find(row =>
+      row.eventId === pending.eventId && row.operation === 'before:' + operation);
+    const preparedMetadata = preparedRecord?.payload?.details?.hostLifecycle;
+    if (!preparedMetadata || !HOST_UUID.test(preparedMetadata.mutationId ?? '')
+      || !/^[a-f0-9]{64}$/.test(preparedMetadata.mutationDigest ?? '')
+      || typeof preparedMetadata.occurredAt !== 'string'
+      || !Number.isFinite(Date.parse(preparedMetadata.occurredAt))) {
+      throw Error('NON_READY: local prepared intent metadata is missing or malformed');
+    }
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
@@ -445,14 +814,54 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
       versions: message._logicEngineLifecycle.versions,
     }));
+    const occurredAt = new Date().toISOString();
+    const afterPayload = {
+      changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones,
+      mutationId: preparedMetadata.mutationId,
+      mutationDigest: preparedMetadata.mutationDigest,
+    };
+    const receiptDigest = await contentDigest(JSON.stringify({
+      protocolVersion: 1,
+      mutationId: preparedMetadata.mutationId,
+      mutationDigest: preparedMetadata.mutationDigest,
+      operation,
+      sourceFingerprint: fingerprint,
+      payload: afterPayload,
+    }));
+    afterPayload.lifecycleOccurredAt = occurredAt;
+    afterPayload.receiptDigest = receiptDigest;
     const event = await journal.append({
       conversationId,
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
+      payload: afterPayload,
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
+    if (publishLifecycleEvent) {
+      // This local event proves the browser journal checkpoint. The authenticated
+      // server proxy independently rescans persisted files and issues the terminal
+      // receipt only after its operation-specific disk transition checks pass.
+      // Core production readiness remains deny-only because the inventory is not
+      // yet backed by an accepted authoritative root snapshot.
+      let result;
+      try {
+        result = await publishLifecycleEvent({
+          conversation_id: conversationId,
+          event_id: event.eventId,
+          event_type: 'MUTATION_COMMITTED',
+          mutation_id: preparedMetadata.mutationId,
+          operation,
+          mutation_digest: preparedMetadata.mutationDigest,
+          occurred_at: occurredAt,
+        });
+      } catch {
+        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
+      }
+      if (!result || !['appended', 'duplicate'].includes(result?.lifecycle?.status)) {
+        throw Error('NON_READY: Core did not durably accept the completed Host mutation');
+      }
+    }
     const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
   }
@@ -462,7 +871,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (typeof id !== 'string') return { status: 'NON_READY', reason: 'Host conversation identity unavailable' };
     const parts = id.split(':');
     if (parts.length !== 3 || !parts.every(part => HOST_UUID.test(part))) {
-      return { status: 'NON_READY', reason: 'Host conversation identity is not session/install/conversation bound' };
+      return { status: 'NON_READY', reason: 'Host conversation identity is not installation/account/conversation bound' };
     }
     if (typeof getPersistedInventory !== 'function') {
       return { status: 'NON_READY', reason: 'persisted Host inventory route unavailable' };
@@ -471,23 +880,45 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     let inventory;
     try {
       inventory = await getPersistedInventory();
-    } catch {
-      return { status: 'NON_READY', reason: 'persisted Host inventory request failed' };
+      persistedInventoryDiagnostics.delete(id);
+    } catch (error) {
+      const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,96}$/.test(error.code)
+        ? error.code : 'HOST_INVENTORY_TRANSPORT_FAILED';
+      const reasonCode = typeof error?.reasonCode === 'string' && /^[A-Z0-9_:-]{1,128}$/.test(error.reasonCode)
+        ? error.reasonCode : null;
+      const httpStatus = Number.isInteger(error?.httpStatus) && error.httpStatus >= 100 && error.httpStatus <= 599
+        ? error.httpStatus : null;
+      const diagnostic = Object.freeze({
+        status: 'NON_READY',
+        stage: 'PERSISTED_INVENTORY_FETCH',
+        reason: 'persisted Host inventory request failed',
+        code,
+        ...(reasonCode === null ? {} : { reasonCode }),
+        ...(httpStatus === null ? {} : { httpStatus }),
+        observedAt: new Date().toISOString(),
+      });
+      persistedInventoryDiagnostics.set(id, diagnostic);
+      return diagnostic;
     }
     if (!inventory || inventory.status !== 'DOUBLE_SCAN_CANDIDATE'
       || inventory.authority !== 'NON_AUTHORITATIVE'
       || inventory.completeness !== 'DOUBLE_SCANNED_PATH_VIEW_ONLY'
       || inventory.host_commit !== PINNED_SILLYTAVERN_COMMIT
-      || inventory.host_build_claim !== PINNED_SILLYTAVERN_COMMIT
-      || inventory.host_build_claim_type !== 'DEPLOYMENT_ASSERTION_NOT_RUNTIME_ATTESTATION'
-      || inventory.host_session_id !== parts[0]
+      || inventory.host_source_identity_status !== 'CURRENT_IDENTITIES_VERIFIED'
+      || inventory.root_inventory_reconciliation?.status !== 'AUTHORITATIVE_COMPLETE'
+      || inventory.root_inventory_reconciliation?.integrity_status !== 'INTEGRITY_OK'
+      || !/^[a-f0-9]{64}$/.test(inventory.host_source_manifest_sha256 ?? '')
+      || inventory.root_inventory_reconciliation?.source_manifest_sha256 !== inventory.host_source_manifest_sha256
+      || inventory.filesystem_inventory?.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+      || !Array.isArray(inventory.blockers) || inventory.blockers.length !== 0
+      || !HOST_UUID.test(inventory.host_session_id ?? '')
       || inventory.host_session_identity !== 'SIGNED_AUTHENTICATED_ST_SESSION'
       || typeof inventory.host_user_handle !== 'string'
       || inventory.host_user_handle !== inventory.authenticated_user_handle
       || inventory.requested_conversation_uuid !== parts[2]
       || !/^[a-f0-9]{64}$/.test(inventory.inventory_sha256)
       || !Array.isArray(inventory.files)) {
-      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to the current authenticated conversation' };
+      return { status: 'NON_READY', reason: 'persisted Host inventory is not bound to an attested current conversation snapshot' };
     }
 
     const matches = inventory.files.filter(file =>
@@ -539,24 +970,51 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
 
     return Object.freeze({
-      status: 'MATCHED_NON_AUTHORITATIVE',
-      authority: 'NON_AUTHORITATIVE',
+      status: 'MATCHED_AUTHORITATIVE',
+      authority: 'AUTHORITATIVE_COMPLETE',
       completeness: inventory.completeness,
       host_session_bound: true,
-      installation_attestation: false,
+      installation_attestation: true,
+      root_inventory_integrity: 'INTEGRITY_OK',
+      source_identity_status: inventory.host_source_identity_status,
       conversation_uuid: parts[2],
       message_count: chat.length,
       version_count: versionCount,
       inventory_sha256: inventory.inventory_sha256,
+      source_identity_status: inventory.host_source_identity_status,
+      root_inventory_status: inventory.root_inventory_reconciliation.status,
+      root_inventory_sequence: inventory.root_inventory_reconciliation.sequence,
+      root_inventory_manifest_sha256: inventory.root_inventory_reconciliation.manifest_sha256,
     });
   }
 
   async function syncCurrentDigestInventory() {
     const conversationId = await getConversationId();
-    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId) return { status: 'NOT_ENROLLED' };
+    let recoveredBaseline = false;
+    if (!(await enrolledOrFailClosed(conversationId))) {
+      const restored = await restoreBaselineFromPersistedChatMetadata(conversationId);
+      if (!restored) return { status: 'NOT_ENROLLED', reason: 'NO_VERIFIABLE_PERSISTED_CHAT_IDENTITIES' };
+      recoveredBaseline = true;
+    }
     if (getPersistedInventory) {
       const persisted = await verifyPersistedInventory(conversationId);
-      if (persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
+      if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
+        // Reconcile one incomplete digest-only snapshot so Core can revoke any
+        // previously accepted projection. Once that fail-closed notice is
+        // durably attempted, repeated mismatches must not flood Core.
+        if (!persistedInventoryRevocationPublished.has(conversationId)) {
+          try {
+            const published = await publishCurrentDigestInventory(conversationId, getChat(), []);
+            if (published.code !== 'HOST_INVENTORY_TRANSPORT_FAILED'
+              && published.status !== 'NOT_CONFIGURED') {
+              persistedInventoryRevocationPublished.add(conversationId);
+            }
+          } catch {}
+        }
+        return persisted;
+      }
+      persistedInventoryRevocationPublished.delete(conversationId);
     }
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
@@ -576,12 +1034,24 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
       }
     }
-    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
+    const published = await publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
+    return recoveredBaseline ? {
+      ...published,
+      journalRecovery: 'RESTORED_FROM_PERSISTED_CHAT_METADATA',
+      historyBoundary: 'CURRENT_STATE_BASELINE_ONLY',
+      preRecoveryHistory: 'UNKNOWN_UNRECOVERABLE',
+    } : published;
   }
 
   function getCoreCaptureStatus() {
     const conversationId = getConversationId();
-    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
+    return Promise.resolve(conversationId).then(id => {
+      if (!id) return { status: 'NO_CONVERSATION' };
+      return {
+        ...(coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }),
+        diagnostic: persistedInventoryDiagnostics.get(id) ?? null,
+      };
+    });
   }
 
   async function reconcileCurrentConversation() {
@@ -589,7 +1059,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const persisted = getPersistedInventory
       ? await verifyPersistedInventory(conversationId) : null;
-    if (persisted && persisted.status !== 'MATCHED_NON_AUTHORITATIVE') return persisted;
+    if (persisted && persisted.status !== 'MATCHED_AUTHORITATIVE') return persisted;
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return integrity;
     const current = await currentFingerprint();
@@ -666,11 +1136,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         }
       }
     }
-    // Integrity is not completeness: this patch does not intercept every mutation
-    // path. Keep reconciliation NON_READY until all required paths are wired.
+    // Core authority is granted only after the source manifest attests the pinned
+    // route dispositions, the root snapshot is accepted by Core, and the coverage
+    // table below has no unresolved path.
     const readiness = await journal.status(conversationId, {
-      instrumentedPaths: CURRENTLY_HOOKED_PATHS,
+      instrumentedPaths: [...CURRENTLY_HOOKED_PATHS, ...CURRENTLY_GUARDED_OR_RECONCILED_PATHS],
       sourceFingerprintMatches: true,
+      sourceIdentityStatus: persisted?.source_identity_status ?? 'NON_READY',
+      rootInventoryStatus: persisted?.root_inventory_status ?? 'NON_READY',
     });
     return persisted ? Object.freeze({
       ...readiness,
@@ -679,8 +1152,38 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }) : readiness;
   }
 
+  async function guardExport() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
+      return { status: 'NOT_ENROLLED' };
+    }
+    if (typeof getLifecycleStatus !== 'function') {
+      throw Error('NON_READY: Core lifecycle status is unavailable; abort export save');
+    }
+    let remote;
+    try { remote = await getLifecycleStatus(conversationId); }
+    catch { throw Error('NON_READY: Core lifecycle status is unavailable; abort export save'); }
+    if (!remote || remote.status !== 'NO_PENDING_MUTATION') {
+      throw Error('NON_READY: unresolved Core lifecycle mutation; abort export save');
+    }
+    const pending = await journal.pendingMutation(conversationId);
+    if (pending.status !== 'NO_PENDING_MUTATION') {
+      throw Error('NON_READY: local Host lifecycle journal is not clear; abort export save');
+    }
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity.status !== 'INTEGRITY_OK') {
+      throw Error('NON_READY: Host lifecycle journal integrity is unavailable; abort export save');
+    }
+    const persisted = await verifyPersistedInventory(conversationId);
+    if (persisted.status !== 'MATCHED_AUTHORITATIVE') {
+      throw Error('NON_READY: persisted Host state does not match the active conversation; abort export save');
+    }
+    return { status: 'READ_ONLY_EXPORT_VERIFIED', conversationId };
+  }
+
   return Object.freeze({
     enrollCurrentConversation,
+    ensureCurrentConversationEnrolled,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
@@ -688,6 +1191,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     getCoreCaptureStatus,
     currentFingerprint,
     reconcileCurrentConversation,
+    guardExport,
   });
 }
 
@@ -713,7 +1217,9 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
 
   return Object.freeze({
     enrollCurrentConversation: async () => { throw error; },
+    ensureCurrentConversationEnrolled: async () => { throw error; },
     beforeMutation: async () => assertUnavailableSafe(),
     afterMutation: async () => assertUnavailableSafe(),
+    guardExport: async () => assertUnavailableSafe(),
   });
 }

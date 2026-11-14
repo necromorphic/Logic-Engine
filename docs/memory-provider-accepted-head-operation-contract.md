@@ -59,7 +59,7 @@ The integration test uses the real file-backed Provider and Gateway, not a mock 
 This contract proves code/test behavior for the candidate chain, not the installed production route. Before enabling Memory → NPC, the repository still needs exact deployment evidence that:
 
 - the pinned SillyTavern request path uses Gateway as the sole upstream egress;
-- the accepted-head authority database is independently protected from Core/Provider backups and restore rollback (including its own restore policy);
+- the local accepted-head authority database is protected by a separate local service identity/ACL and excluded from routine Core/Provider backups; this detects Core/Provider restores only while the authority state remains current and does not protect against full-device rollback that also restores the authority database;
 - service identities and ACLs protect authority, Core, Provider, coordinator, SQLite WAL/SHM, and backups;
 - the full Host inventory/reconciliation gate is complete.
 

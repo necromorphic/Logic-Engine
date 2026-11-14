@@ -1,11 +1,14 @@
 import { EngineError } from '../core/errors.js';
 
-const validId = (value) => typeof value === 'string' && value === value.trim()
-  && value.length > 0 && value.length <= 200
-  && ![...value].some((character) => {
-    const code = character.charCodeAt(0);
-    return code < 32 || code === 127;
-  });
+const validId = (value) => {
+  if (typeof value !== 'string' || value !== value.trim()
+    || value.length === 0 || value.length > 200) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
+};
 const validReason = (value) => typeof value === 'string' && value.trim().length >= 8
   && value.trim().length <= 500 && ![...value].some((character) => {
     const code = character.charCodeAt(0);
@@ -95,6 +98,55 @@ export class HostConversationWorldBindingService {
           'host.conversation_world.revoked', conversationId,
           JSON.stringify({ adapter_id: adapterId, conversation_id: conversationId, reason: reason.trim() }), timestamp);
       return Object.freeze({ ...existing, active: false, updated_at: timestamp, changed: true });
+    });
+  }
+
+  /**
+   * Resolve an existing binding or create the first binding from a
+   * deployment-owned default World. The caller cannot choose that World.
+   * Revoked bindings are never silently reactivated.
+   */
+  resolveOrBind({ adapterId, conversationId, defaultWorldId = null } = {}) {
+    if (!validId(adapterId) || !validId(conversationId)) {
+      throw new EngineError('INVALID_HOST_CONVERSATION_RESOLUTION',
+        'Authenticated adapter identity and stable Host conversation identity are required.', 400);
+    }
+    return this.engine.store.tx(() => {
+      const existing = this.db.prepare('SELECT adapter_id,conversation_id,world_id,active,created_at,updated_at FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?')
+        .get(adapterId, conversationId);
+      if (existing) {
+        if (existing.active !== 1) {
+          throw new EngineError('HOST_CONVERSATION_REBIND_REQUIRED',
+            'A revoked Host conversation identity requires explicit audited rebind.', 409);
+        }
+        if (!this.engine.store.world(existing.world_id)) {
+          throw new EngineError('HOST_CONVERSATION_WORLD_UNAVAILABLE',
+            'The bound canonical world is unavailable.', 409);
+        }
+        return Object.freeze({ ...existing, active: true, already_bound: true });
+      }
+      if (!validId(defaultWorldId)) {
+        throw new EngineError('HOST_DEFAULT_WORLD_NOT_CONFIGURED',
+          'A valid deployment-owned default World is required for automatic Host conversation binding.', 503);
+      }
+      if (!this.engine.store.world(defaultWorldId)) {
+        throw new EngineError('HOST_DEFAULT_WORLD_NOT_FOUND',
+          'The deployment-owned default World does not exist.', 503);
+      }
+      const timestamp = now();
+      this.db.prepare('INSERT INTO host_conversation_world_bindings (adapter_id,conversation_id,world_id,active,created_at,updated_at) VALUES(?,?,?,1,?,?)')
+        .run(adapterId, conversationId, defaultWorldId, timestamp, timestamp);
+      this.db.prepare('INSERT INTO audit_entries (world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(defaultWorldId, this.engine.store.world(defaultWorldId).world_revision,
+          'host.conversation_world.auto_bound', conversationId, JSON.stringify({
+            adapter_id: adapterId, conversation_id: conversationId, world_id: defaultWorldId,
+            assignment_source: 'DEPLOYMENT_DEFAULT_WORLD',
+          }), timestamp);
+      return Object.freeze({
+        adapter_id: adapterId, conversation_id: conversationId, world_id: defaultWorldId,
+        active: true, created_at: timestamp, updated_at: timestamp, already_bound: false,
+        assignment_source: 'DEPLOYMENT_DEFAULT_WORLD',
+      });
     });
   }
 

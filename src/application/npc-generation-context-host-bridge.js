@@ -1,0 +1,123 @@
+/**
+ * In-process bridge between the Host Final-Send prepare() and dispatch()
+ * callbacks and the Core NPC generation-context runtime.
+ *
+ * This module never serializes a context or handoff. The original Host request
+ * and response objects are the lifecycle keys; request metadata is retained by
+ * identity and is not reconstructed during dispatch.
+ */
+export function createNpcGenerationContextHostBridge({ runtime, createRequestMetadata }) {
+  if (typeof runtime?.prepareForDispatch !== 'function'
+    || typeof runtime?.consumeDispatchHandoff !== 'function'
+    || typeof runtime?.getLaneBDispatchEvidence !== 'function'
+    || typeof runtime?.revalidateLaneAForDispatch !== 'function'
+    || typeof runtime?.revalidateLaneAForDispatchUnderCoordinatorLease !== 'function'
+    || typeof createRequestMetadata !== 'function') {
+    throw new TypeError('NPC Host bridge requires the trusted Core runtime and request metadata resolver.');
+  }
+
+  const preparedByRequest = new WeakMap();
+  const seenRequests = new WeakSet();
+  const seenRequestMetadata = new WeakSet();
+
+  async function prepare(hostRequest, hostResponse, signal) {
+    const cancelled = () => signal?.aborted === true;
+    if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
+    if (!hostRequest || typeof hostRequest !== 'object'
+      || !hostResponse || typeof hostResponse !== 'object'
+      || seenRequests.has(hostRequest)) {
+      return Object.freeze({ status: 'non_ready', reason: 'host_request_not_preparable' });
+    }
+    seenRequests.add(hostRequest);
+    try {
+      if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
+      let requestMetadata;
+      try { requestMetadata = createRequestMetadata(hostRequest, hostResponse); }
+      catch { return Object.freeze({ status: 'non_ready', reason: 'request_metadata_unavailable' }); }
+      if (!requestMetadata || typeof requestMetadata !== 'object'
+        || Array.isArray(requestMetadata) || !Object.isFrozen(requestMetadata)
+        || Reflect.ownKeys(requestMetadata).length !== 4
+        || !['run_id', 'request_id', 'generation_id', 'generation_type'].every(key => {
+          const descriptor = Object.getOwnPropertyDescriptor(requestMetadata, key);
+          return descriptor && Object.hasOwn(descriptor, 'value');
+        })
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestMetadata.run_id)) {
+        return Object.freeze({ status: 'non_ready', reason: 'request_metadata_not_immutable' });
+      }
+      if (seenRequestMetadata.has(requestMetadata)) {
+        return Object.freeze({ status: 'non_ready', reason: 'request_metadata_reused' });
+      }
+      seenRequestMetadata.add(requestMetadata);
+      // run_id is Host-owned correlation metadata. Keep the Core request
+      // contract exact; only the existing three-field request enters Core.
+      const runId = requestMetadata.run_id;
+      const coreRequestMetadata = Object.freeze({
+        request_id: requestMetadata.request_id,
+        generation_id: requestMetadata.generation_id,
+        generation_type: requestMetadata.generation_type,
+      });
+      let prepared;
+      try { prepared = await runtime.prepareForDispatch(coreRequestMetadata, { signal }); }
+      catch { return Object.freeze({ status: 'non_ready', reason: cancelled() ? 'generation_cancelled' : 'npc_context_preparation_failed' }); }
+      if (cancelled()) return Object.freeze({ status: 'non_ready', reason: 'generation_cancelled' });
+      if (prepared?.status !== 'ready' || !prepared.handoff) {
+        return Object.freeze({ status: 'non_ready', reason: prepared?.reason ?? 'npc_context_not_ready' });
+      }
+      preparedByRequest.set(hostRequest, Object.freeze({
+        response: hostResponse,
+        requestMetadata: coreRequestMetadata,
+        runId,
+        handoff: prepared.handoff,
+      }));
+      return Object.freeze({ status: 'ready', reason: null });
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'npc_context_preparation_failed' });
+    }
+  }
+
+  function consume(hostRequest, hostResponse) {
+    const prepared = hostRequest && typeof hostRequest === 'object'
+      ? preparedByRequest.get(hostRequest) : null;
+    if (!prepared || prepared.response !== hostResponse) {
+      return Object.freeze({ status: 'non_ready', reason: 'host_request_binding_mismatch' });
+    }
+    // Consume the Host lifecycle slot before invoking the runtime so failures
+    // cannot be retried with a second response or a replayed dispatch callback.
+    preparedByRequest.delete(hostRequest);
+    try {
+      const accepted = runtime.consumeDispatchHandoff(prepared.handoff, prepared.requestMetadata);
+      if (accepted?.status !== 'accepted' || !accepted.context) {
+        return Object.freeze({ status: 'non_ready', reason: accepted?.reason ?? 'npc_handoff_rejected' });
+      }
+      const laneB = runtime.getLaneBDispatchEvidence(accepted.context, prepared.requestMetadata);
+      if (laneB?.status !== 'ready') {
+        return Object.freeze({ status: 'non_ready', reason: laneB?.reason ?? 'npc_lane_b_not_ready' });
+      }
+      const context = accepted.context;
+      const requestMetadata = prepared.requestMetadata;
+      return Object.freeze({
+        status: 'accepted',
+        context,
+        laneB,
+        runId: prepared.runId,
+        revalidateLaneA: () => {
+          try { return runtime.revalidateLaneAForDispatch(context, requestMetadata); }
+          catch { return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' }); }
+        },
+        revalidateLaneAUnderCoordinatorLease: coordinatorLease => {
+          try {
+            return runtime.revalidateLaneAForDispatchUnderCoordinatorLease(
+              context, requestMetadata, coordinatorLease,
+            );
+          } catch {
+            return Object.freeze({ status: 'non_ready', reason: 'npc_lane_a_revalidation_failed' });
+          }
+        },
+      });
+    } catch {
+      return Object.freeze({ status: 'non_ready', reason: 'npc_handoff_consumption_failed' });
+    }
+  }
+
+  return Object.freeze({ prepare, consume });
+}

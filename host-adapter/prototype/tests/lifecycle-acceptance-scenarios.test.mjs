@@ -13,19 +13,20 @@ globalThis.IDBKeyRange = { only: value => ({ only: value }) };
 class Request { result; error = null; onsuccess = null; onerror = null; }
 class Store {
   constructor(db, tx, name) { this.db = db; this.tx = tx; this.name = name; }
-  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); this.db.finish(this.tx); }); return r; } }; }
-  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); this.db.finish(this.tx); }); return r; }
+  index() { return { getAll: range => { const r = new Request(); queueMicrotask(() => { r.result = [...this.db.rows.values()].filter(x => x.conversationId === range.only); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; } }; }
+  get(key) { const r = new Request(); queueMicrotask(() => { r.result = this.db.heads.get(key); r.onsuccess?.(); if (this.tx.mode === 'readonly') this.db.finish(this.tx); }); return r; }
   add(row) { if (this.db.failNextWrite) { this.db.failNextWrite = false; throw Error('simulated disk full'); } if (this.db.rows.has(row.id)) throw Error('duplicate key'); this.db.rows.set(row.id, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
   put(row) { this.db.heads.set(row.conversationId, structuredClone(row)); queueMicrotask(() => this.db.finish(this.tx)); }
 }
 class Transaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db) { this.db = db; }
+  constructor(db, mode) { this.db = db; this.mode = mode; }
   objectStore(name) { return new Store(this.db, this, name); }
+  abort() { this.error = Error('transaction aborted'); setImmediate(() => this.onabort?.()); }
 }
 class FakeDB {
   rows = new Map(); heads = new Map(); failNextWrite = false;
-  transaction() { return new Transaction(this); }
+  transaction(names, mode = 'readonly') { return new Transaction(this, mode); }
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 function fixture() {
@@ -36,7 +37,7 @@ function fixture() {
     { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
   ];
   const bridge = createStLifecycleBridge({
-    journal, getConversationId: () => 'scenario-chat', getChat: () => chat,
+    journal, getConversationId: () => 'scenario-chat', getSourceLocator: () => 'scenario-chat.jsonl', getChat: () => chat,
     saveChat: async () => {},
   });
   return { db, journal, chat, bridge };
@@ -63,6 +64,42 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
 });
 
+test('lifecycle authority requires complete mutation coverage plus verified source and Core root proof', async () => {
+  const f = fixture();
+  await f.bridge.enrollCurrentConversation();
+  const completeCoverage = [
+    'create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe',
+    'delete-swipe', 'delete-message', 'delete-chat', 'delete-group-chat',
+    'delete-character-chat-recursive', 'edit-message', 'persistence-ordering',
+    'import', 'import-character-chat', 'import-group-chat', 'export',
+    'copy-branch', 'restore', 'backup-restore', 'create-branch',
+    'group-metadata-migration', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay',
+  ];
+  const incomplete = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage.slice(0, -1),
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(incomplete.status, 'NON_READY');
+  assert.ok(incomplete.missingPaths.includes('replay'));
+  const ready = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'CURRENT_IDENTITIES_VERIFIED',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(ready.status, 'AUTHORITATIVE_COMPLETE');
+  assert.equal(ready.baselineBoundary, 'enrollment-forward-only');
+  const untrustedSource = await f.journal.status('scenario-chat', {
+    instrumentedPaths: completeCoverage,
+    sourceFingerprintMatches: true,
+    sourceIdentityStatus: 'NON_READY',
+    rootInventoryStatus: 'AUTHORITATIVE_COMPLETE',
+  });
+  assert.equal(untrustedSource.status, 'NON_READY');
+});
+
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
@@ -74,18 +111,22 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('clear-chat is rejected before source mutation because no native deletion hook exists', async () => {
-  const f = fixture();
-  await f.bridge.enrollCurrentConversation();
-  const before = f.chat.map(m => m._logicEngineLifecycle.messageId);
-  await assert.rejects(
-    f.bridge.beforeMutation('clear-chat', [0, 1]),
-    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
-  );
-  assert.deepEqual(f.chat.map(m => m._logicEngineLifecycle.messageId), before);
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+test('native clearChat remains a non-blocking chat-unload primitive', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const clearStart = patch.indexOf('export async function clearChat({ clearData = false } = {})');
+  const nextHunk = patch.indexOf('export async function deleteLastMessage()', clearStart);
+  assert.ok(clearStart >= 0 && nextHunk > clearStart, 'pinned patch must retain the native clearChat boundary');
+  const clearChatHunk = patch.slice(clearStart, nextHunk);
+  assert.equal(clearChatHunk.includes('waitForEnrollment'), false,
+    'chat unload must not wait for optional Host enrollment');
+  assert.equal(clearChatHunk.includes('getLogicEngineLifecycleBridge'), false,
+    'chat unload must not start lifecycle deletion work');
+  assert.ok(patch.includes('void captureLogicEngineHostChatOnLoad(changedLocator);'),
+    'CHAT_CHANGED recovery must run without blocking the native transition');
+  assert.equal(patch.includes('while (chat.length > 0)'), false,
+    'native chat unload must not be rewritten as sequential message deletion');
+  assert.equal(patch.includes("beforeMutation('delete-message', [messageIndex], { bulkClear: true })"), false);
 });
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
@@ -108,6 +149,78 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
   }
 });
 
+
+// Native save paths remain available even when Host lifecycle observation cannot prepare a receipt.
+test('direct enrolled-chat save APIs never gate native SillyTavern writes on Host permits', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = (await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8'))
+    .replace(/\\r\\n/g, '\\n');
+  const handler = await readFile(resolve(here, '../st-host-inventory-handler.mjs'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+  assert.ok(handler.includes('export function createHostLifecycleSaveGuard'));
+  assert.ok(handler.includes('return next();'));
+  assert.equal(handler.includes('HOST_LIFECYCLE_PREPARED_SAVE_REQUIRED'), false);
+  assert.ok(patch.includes("import { createHostLifecycleSaveGuard } from './logic-engine-host-inventory-handler.mjs';"));
+  assert.ok(patch.includes("router.post('/save', validateAvatarUrlMiddleware, hostLifecycleSaveGuard, async function (request, response) {"));
+  assert.ok(patch.includes("router.post('/group/save', hostLifecycleSaveGuard, async function (request, response) {"));
+  assert.ok(proxy.includes('session.logicEngineHostPreparedMutation = {'),
+    'optional receipt preparation may still be recorded when available');
+});
+
+test('pinned SillyTavern patch uses the existing authenticated inventory and digest-only Core proxies', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(here, '../st-server-digest-proxy.mjs'), 'utf8');
+
+  assert.equal(patch.includes('logicEngineLifecycleRouter'), false);
+  assert.equal(patch.includes('/api/logic-engine'), false);
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/session'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/identity'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid='"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-version-ledger/reconcile'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/events'"));
+  assert.ok(patch.includes("fetch('/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id='"));
+  assert.ok(patch.includes("from '../../plugins/logic-engine-extension-gateway/st-host-inventory-handler.mjs'"));
+  assert.ok(patch.includes('getLogicEngineHostIdentity'));
+  assert.ok(patch.includes('hostInstallationId: identity.host_installation_id'));
+  assert.ok(patch.includes('getPersistedInventory: async'));
+  assert.ok(patch.includes("error.code = serverCode && /^[A-Z0-9_]{1,96}$/.test(serverCode)"),
+    'inventory failures must preserve only a bounded server error code');
+  assert.ok(patch.includes("error.httpStatus = response.status;"),
+    'inventory failures must preserve the HTTP status for diagnostics');
+  assert.ok(patch.includes("const inventory = await response.json().catch(() => null);"),
+    'empty/non-JSON error bodies must not erase the HTTP failure status');
+  assert.ok(patch.includes("if (serverReason && /^[A-Z0-9_:-]{1,128}$/.test(serverReason)) error.reasonCode = serverReason;"),
+    'the bounded server-side reason token must reach Host diagnostics');
+  assert.ok(patch.includes("error.code = 'HOST_INVENTORY_RESPONSE_INVALID';"),
+    'a malformed successful response must be diagnosed without invalidating the authenticated session');
+  assert.ok(patch.includes("if ((!serverCode && [401, 403].includes(response.status))"),
+    'only authentication failures may invalidate the cached Host identity');
+  assert.ok(patch.includes("/^HOST_(?:SESSION_|AUTHENTICATED_CONTEXT|USER_IDENTITY)/.test(serverCode)"),
+    'server authentication reason codes must trigger identity refresh without treating inventory failures as auth failures');
+  assert.ok(patch.includes("inventory.host_user_handle !== session.host_user_handle"),
+    'persisted inventory must remain bound to the authenticated ST account');
+  assert.ok(patch.includes('logicEngineHostSessionPromise = null'));
+  assert.ok(patch.includes('function invalidateLogicEngineHostIdentity()'));
+  assert.ok(patch.includes('logicEngineHostIdentityPromise = null;'));
+  assert.ok(patch.includes('logicEngineLifecycleBridgePromise = null;'));
+  const accountMismatchGuard = patch.indexOf("inventory.host_user_handle !== session.host_user_handle");
+  const accountMismatchInvalidation = patch.indexOf("invalidateLogicEngineHostIdentity();", accountMismatchGuard);
+  const accountMismatchFailure = patch.indexOf("Persisted Host inventory belongs to a different authenticated account", accountMismatchGuard);
+  assert.ok(accountMismatchGuard >= 0 && accountMismatchInvalidation > accountMismatchGuard
+    && accountMismatchFailure > accountMismatchInvalidation,
+  'account mismatch must invalidate cached session, account identity, and journal bridge together');
+
+  // The server proxy uses only deployment-owned credentials and the existing
+  // digest-only Core route; no browser-selected upstream or world scope exists.
+  assert.ok(proxy.includes("'/v1/host-version-ledger/capture'"));
+  assert.ok(proxy.includes("'/v1/host-version-ledger/reconcile'"));
+  assert.ok(proxy.includes('LOGIC_ENGINE_API_TOKEN'));
+  assert.ok(proxy.includes('LOGIC_ENGINE_ADAPTER_TOKEN'));
+  assert.ok(proxy.includes('HOST_SESSION_SCOPE_REQUIRED'));
+  assert.ok(proxy.includes('requestMatchesAuthenticatedHostSession'));
+  assert.equal(proxy.includes("'world_id'"), false);
+});
 
 test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -141,24 +254,34 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
 });
 
 
-test('branch creation from an enrolled conversation is rejected before branch persistence', async () => {
+
+test('branch creation invokes optional lifecycle observation without blocking native persistence', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const bridgeExpose = patch.indexOf('guardOperation: async (operation, messageIndexes = [], details = {}) =>');
   const branchHook = patch.indexOf("guardOperation('create-branch', [mesId])");
   const branchEntry = patch.indexOf('if (!chat.length)', branchHook);
-  assert.ok(bridgeExpose >= 0, 'the patched Host bridge must expose its existing operation guard to the branch entry point');
-  assert.ok(branchHook > bridgeExpose, 'the branch entry point must call the Host guard');
-  assert.ok(branchEntry > branchHook, 'the guard must run at function entry, before branch processing or persistence');
-  const bridge = await readFile(resolve(here, '../st-lifecycle-bridge.mjs'), 'utf8');
-  assert.ok(bridge.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation '), 'unsupported enrolled operations must reject at the bridge boundary');
+  assert.ok(bridgeExpose >= 0, 'the patched Host bridge may observe the branch operation');
+  assert.ok(branchHook > bridgeExpose, 'the branch entry point must invoke the optional observer');
+  assert.ok(branchEntry > branchHook, 'the observer remains at the function entry');
+  assert.ok(patch.includes("return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };"),
+    'failed lifecycle observation must fall back to native SillyTavern behavior');
+  assert.ok(patch.includes('function wrapNativeSafeLifecycleBridge(bridge)'));
+  assert.ok(patch.includes("beforeMutation: (...args) => safe('lifecycle preparation'"));
+  assert.ok(patch.includes("return { status: 'NOT_ENROLLED', reason: 'LIFECYCLE_OBSERVATION_UNAVAILABLE' };"));
+  assert.ok(patch.includes('continuing native SillyTavern operation.'));
 });
 
 
-test('destructive and import UI entry points invoke target-aware fail-closed Host guards', async () => {
+test('destructive and import UI entry points keep optional Host observers but never gate native mutations', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
-  const guards = [
+  for (const observer of [
+    "guardChatLocatorDeletion: async () => ({ status: 'NOT_ENROLLED' })",
+    "guardChatLocatorMutation: async () => ({ status: 'NOT_ENROLLED' })",
+    "guardBulkMutation: async () => ({ status: 'NOT_ENROLLED' })",
+  ]) assert.ok(patch.includes(observer), `native operation observer missing: ${observer}`);
+  for (const call of [
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatfile.replace('.jsonl', ''));",
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(fileName);",
     "if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();",
@@ -167,26 +290,67 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
     "await window.logicEngineHostLifecycle?.guardChatLocatorMutation?.(oldChatId);",
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
-  ];
-  for (const guard of guards) {
-    assert.ok(patch.includes(guard), `missing fail-closed Host guard: ${guard}`);
-  }
-  const assertBefore = (entry, guard, mutation) => {
-    const start = patch.indexOf(entry);
-    assert.ok(start >= 0, `missing Host entry point: ${entry}`);
-    const chunk = patch.slice(start, start + 900);
-    const guardAt = chunk.indexOf(guard);
-    const mutationAt = chunk.indexOf(mutation);
-    assert.ok(guardAt >= 0 && mutationAt >= 0 && guardAt < mutationAt,
-      `guard must precede mutation in ${entry}`);
-  };
-  assertBefore('async function delChat(chatfile)', 'guardChatLocatorDeletion', "fetch('/api/chats/delete'");
-  assertBefore('export async function deleteCharacterChatByName(characterId, fileName)', 'guardChatLocatorDeletion', 'unshallowCharacter(characterId)');
-  assertBefore('async function deleteGroup(id)', 'guardBulkMutation', 'const group = groups.find');
-  assertBefore('export async function renameGroupChat(groupId, oldChatId, newChatId)', 'guardChatLocatorMutation', 'const group = groups.find');
-  assertBefore('export async function deleteGroupChatByName(groupId, chatName)', 'guardChatLocatorDeletion', 'const group = groups.find');
-  assertBefore('export async function deleteGroupChat(groupId, chatId,', 'guardChatLocatorDeletion', 'const group = groups.find');
-  assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
-  assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
-  assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
+  ]) assert.ok(patch.includes(call), `optional observer call missing: ${call}`);
+  assert.ok(patch.includes('function wrapNativeSafeLifecycleBridge(bridge)'));
+  assert.ok(patch.includes("beforeMutation: (...args) => safe('lifecycle preparation'"));
+  assert.ok(patch.includes("guardExport: (...args) => safe('export verification'"));
+  assert.ok(patch.includes('continuing native SillyTavern operation.'));
+});
+
+
+test('pinned patch routes account and settings mutations through non-blocking Host observers', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const rootMutationPatch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-root-mutation-guards.patch'), 'utf8');
+  const handler = await readFile(resolve(here, '../st-host-inventory-handler.mjs'), 'utf8');
+  const reviewedPatches = patch + '\\n' + rootMutationPatch;
+  for (const required of [
+    "+router.post('/delete', hostBulkMutationGuard, async (req, res) => {",
+    "+router.post('/export', validateAvatarUrlMiddleware, hostBulkMutationGuard, async function (request, response) {",
+    "+router.post('/restore-snapshot', hostBulkMutationGuard, getFileNameValidationFunction('name'), async (request, response) => {",
+    "+router.post('/reset-settings', hostBulkMutationGuard, async (request, response) => {",
+    "+router.post('/recover-step2', hostUnsupportedMutationGuard, async (request, response) => {",
+    "HOST_USER_ROOT_RESET_UNSUPPORTED",
+    "HOST_USER_ACCOUNT_DELETE_UNSUPPORTED",
+    "comfy.post('/save-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/delete-workflow', hostUnsupportedMutationGuard, async (request, response) => {",
+    "comfy.post('/rename-workflow', hostUnsupportedMutationGuard, getFileNameValidationFunction('old_name')",
+  ]) assert.ok(reviewedPatches.includes(required), `missing optional Host observer on ${required}`);
+  assert.ok(handler.includes("export function createHostUnsupportedMutationGuard"));
+  assert.ok(handler.includes("return function hostUnsupportedMutationGuard(_request, _response, next)"));
+  assert.ok(handler.includes("return function hostBulkMutationGuard(_request, _response, next)"));
+  assert.ok(handler.includes("return function hostLifecycleSaveGuard(_request, _response, next)"));
+  assert.equal(reviewedPatches.includes('/api/logic-engine'), false,
+    'additional observers must not add a separate public Host API route');
+});
+
+
+test('Host identity never prevents native user directory bootstrap', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  assert.equal(patch.includes('HOST_LIFECYCLE_USER_DIRECTORY_MISSING'), false);
+  assert.equal(patch.includes('const userRootExists = fs.existsSync(userDirectories.root);'), false);
+  assert.ok(patch.includes('fs.mkdirSync(dir, { recursive: true });'),
+    'SillyTavern must retain its native missing-directory creation behavior');
+  assert.equal(patch.includes('HOST_LIFECYCLE_LEGACY_USER_DATA_MIGRATION_BLOCKED'), false);
+  assert.equal(patch.includes('Skipping system prompt migration while Host authority is active.'), false);
+});
+
+
+test('lifecycle patch paths match the actual registered Gateway inventory and journal routes', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const gateway = await readFile(resolve(here, '../../extension-gateway/server-plugin/index.mjs'), 'utf8');
+  for (const route of [
+    "router.get('/inventory', hostAdapter.inventory);",
+    "router.post('/host-lifecycle/events', hostAdapter.lifecycleEvents);",
+    "router.get('/host-lifecycle/status', hostAdapter.lifecycleStatus);",
+  ]) assert.ok(gateway.includes(route), 'Gateway route missing: ' + route);
+  for (const url of [
+    "/api/plugins/logic-engine-extension-gateway/inventory?conversation_uuid=",
+    "/api/plugins/logic-engine-extension-gateway/host-lifecycle/events",
+    "/api/plugins/logic-engine-extension-gateway/host-lifecycle/status?conversation_id=",
+  ]) assert.ok(patch.includes(url), 'Host client route does not match registered Gateway namespace: ' + url);
+  assert.equal(patch.includes('/api/logic-engine/host/'), false,
+    'the lifecycle patch must not call the obsolete prototype endpoint namespace');
 });

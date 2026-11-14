@@ -1,3 +1,5 @@
+import { types as utilTypes } from "node:util";
+
 /**
  * NPC-owned, pure plan-progress reducer.
  *
@@ -49,7 +51,7 @@ function hasSafeArrayIterator() {
 
 function isPlainDataObject(value) {
   if (!hasSafeObjectPrototype()) return false;
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {
@@ -63,10 +65,19 @@ function nonEmptyString(value) {
 }
 
 function denseArray(value) {
-  if (!hasSafeArrayIterator() || !Array.isArray(value)) return false;
+  if (!hasSafeArrayIterator() || utilTypes.isProxy(value) || !Array.isArray(value)) return false;
+  if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || keys[value.length] !== "length") return false;
   for (let i = 0; i < value.length; i += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
-    if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
+    const key = String(i);
+    if (keys[i] !== key) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      descriptor == null
+      || !Object.hasOwn(descriptor, "value")
+      || descriptor.enumerable !== true
+    ) return false;
   }
   return true;
 }
@@ -189,6 +200,37 @@ function advanceNpcPlanUnsafe(plan, event) {
   });
 }
 
+
+/**
+ * Read the current active step without applying or inventing a progress event.
+ * Only a structurally valid active plan has a current executable step.
+ */
+function getNpcPlanActiveStepUnsafe(plan) {
+  if (!validatePlan(plan) || plan.status !== "active") {
+    return Object.freeze({ status: "non_ready", step: null });
+  }
+  let active;
+  for (let index = 0; index < plan.steps.length; index += 1) {
+    if (plan.steps[index].status === "active") {
+      active = plan.steps[index];
+      break;
+    }
+  }
+  if (!active) return Object.freeze({ status: "non_ready", step: null });
+  return Object.freeze({
+    status: "ready",
+    step: Object.freeze({ id: active.id, action_id: active.action_id }),
+  });
+}
+
+/** Reflection traps from malformed objects must not escape the NPC boundary. */
+export function getNpcPlanActiveStep(plan) {
+  try {
+    return getNpcPlanActiveStepUnsafe(plan);
+  } catch {
+    return Object.freeze({ status: "non_ready", step: null });
+  }
+}
 
 /** Reflection traps from malformed objects must not escape the NPC boundary. */
 export function advanceNpcPlan(plan, event) {

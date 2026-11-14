@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+"""Run the better-sqlite3 VFS against the real broker under distinct Linux UIDs.
+
+This harness must run as root in an isolated CI VM. The app UID cannot traverse
+or open the database directory; it can only use the broker's group-protected
+Unix socket and SCM_RIGHTS descriptors.
+"""
+from __future__ import annotations
+
+import grp
+import json
+import os
+import pwd
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+BROKER_SOURCE = REPO_ROOT / "native" / "posix-namespace-broker"
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(BROKER_SOURCE))
+from manifest_store import _fd_filesystem, _fd_identity  # noqa: E402
+
+
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW
+
+
+def unused_ids() -> tuple[int, int, int]:
+    used = {entry.pw_uid for entry in pwd.getpwall()}
+    used.update(entry.gr_gid for entry in grp.getgrall())
+    values = [value for value in range(50000, 65000) if value not in used]
+    if len(values) < 3:
+        raise RuntimeError("no unused CI UIDs/GIDs available")
+    return values[0], values[1], values[2]
+
+
+def drop_privileges(uid: int, gid: int):
+    def apply() -> None:
+        os.setgroups([gid])
+        os.setgid(gid)
+        os.setuid(uid)
+    return apply
+
+
+def identity_chain(directory: Path) -> tuple[list[str], list[dict[str, str]]]:
+    components = list(directory.relative_to("/").parts)
+    identities: list[dict[str, str]] = []
+    current = os.open("/", DIR_FLAGS)
+    try:
+        for component in components:
+            next_fd = os.open(component, DIR_FLAGS, dir_fd=current)
+            os.close(current)
+            current = next_fd
+            identities.append(_fd_identity(current))
+    finally:
+        os.close(current)
+    return components, identities
+
+
+def chmod_tree(root: Path) -> None:
+    for current, directories, files in os.walk(root):
+        os.chmod(current, 0o755)
+        for name in directories:
+            os.chmod(Path(current) / name, 0o755)
+        for name in files:
+            path = Path(current) / name
+            os.chmod(path, stat.S_IMODE(path.stat().st_mode) | 0o444)
+
+
+def wait_for_broker(process: subprocess.Popen, socket_path: Path, log_path: Path) -> None:
+    for _ in range(200):
+        if process.poll() is not None:
+            raise RuntimeError(
+                "broker exited before socket readiness:\n" +
+                log_path.read_text(errors="replace")
+            )
+        try:
+            if stat.S_ISSOCK(socket_path.lstat().st_mode):
+                time.sleep(0.1)
+                if process.poll() is None:
+                    return
+        except FileNotFoundError:
+            pass
+        time.sleep(0.025)
+    raise RuntimeError("broker socket did not become ready:\n" + log_path.read_text(errors="replace"))
+
+
+def stop_broker(process: subprocess.Popen | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.send_signal(signal.SIGTERM)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def main() -> int:
+    if os.geteuid() != 0:
+        print("cross-UID broker integration must run under sudo/root", file=sys.stderr)
+        return 2
+    package_source = os.environ.get("BETTER_SQLITE3_PACKAGE_DIR")
+    extension_source = os.environ.get("LOGIC_ENGINE_VFS_PROBE_PATH")
+    node = os.environ.get("NODE_BINARY") or shutil.which("node")
+    if not package_source or not extension_source or not node:
+        print("better-sqlite3 package, VFS extension and Node runtime are required", file=sys.stderr)
+        return 2
+    package_source_path = Path(package_source).resolve()
+    extension_source_path = Path(extension_source).resolve()
+    if not package_source_path.is_dir() or not extension_source_path.is_file():
+        print("better-sqlite3 package or VFS extension path is missing", file=sys.stderr)
+        return 2
+
+    broker_uid, app_uid, app_gid = unused_ids()
+    root = Path(tempfile.mkdtemp(prefix="logic-engine-cross-uid-", dir="/var/lib"))
+    broker_process: subprocess.Popen | None = None
+    broker_log = None
+    try:
+        os.chown(root, broker_uid, app_gid)
+        os.chmod(root, 0o710)
+
+        socket_dir = root / "socket"
+        public_db_dir = root / "vector_storage"
+        public_db_dir.mkdir()
+        os.chown(public_db_dir, 0, 0)
+        os.chmod(public_db_dir, 0o755)
+        alias_database_path = public_db_dir / "vectors.sqlite"
+        manifest_root = root / "manifest"
+        anchor_root = root / "anchor"
+        roles_root = root / "roles"
+        role_parent = roles_root / "vectors"
+        for directory in (socket_dir, manifest_root, anchor_root, roles_root, role_parent):
+            directory.mkdir()
+        for directory in (socket_dir,):
+            os.chown(directory, broker_uid, app_gid)
+            os.chmod(directory, 0o710)
+        for directory in (manifest_root, anchor_root, roles_root, role_parent):
+            os.chown(directory, broker_uid, app_gid)
+            os.chmod(directory, 0o700)
+
+        artifacts = root / "artifacts"
+        app_tests = root / "app-tests"
+        broker_source_copy = root / "broker-src"
+        artifacts.mkdir()
+        app_tests.mkdir()
+        shutil.copytree(BROKER_SOURCE, broker_source_copy)
+        shutil.copytree(package_source_path, artifacts / "better-sqlite3")
+        shutil.copy2(extension_source_path, artifacts / "secure-vfs-probe.so")
+        shutil.copy2(REPO_ROOT / "tests" / "better-sqlite3-vfs-cross-uid.test.js", app_tests)
+        shutil.copy2(REPO_ROOT / "tests" / "better-sqlite3-vfs-cross-uid-recovery.test.js", app_tests)
+        for directory in (artifacts, app_tests, broker_source_copy):
+            chmod_tree(directory)
+        for path in root.rglob("*"):
+            if path.is_file() and path.parent in (artifacts, app_tests):
+                os.chmod(path, 0o644)
+        os.chmod(artifacts / "secure-vfs-probe.so", 0o755)
+
+        manifest_fd = os.open(manifest_root, DIR_FLAGS)
+        try:
+            metadata_identity = _fd_identity(manifest_fd)
+            filesystem = _fd_filesystem(manifest_fd)
+        finally:
+            os.close(manifest_fd)
+        manifest = {
+            "schemaVersion": 1,
+            "generation": 1,
+            "platform": "linux",
+            "metadataRootIdentity": metadata_identity,
+            "filesystemPolicy": {
+                "filesystem": filesystem,
+                "identitySource": "opened-handle",
+                "directoryMutationBoundary": "broker-exclusive-owner",
+                "applicationUid": app_uid,
+            },
+            "roles": [],
+        }
+
+        # The broker service identity creates the first physical DB and commits
+        # its opened-handle identity before the app UID can request any descriptor.
+        init_code = (
+            "import os,sys; from manifest_store import ManifestStore; "
+            "s=ManifestStore(sys.argv[1],sys.argv[2],int(sys.argv[3])); "
+            "s.initialize(sys.stdin.buffer.read()); "
+            "fd=s.enroll_role('vectors',sys.argv[4],'core.sqlite'); os.close(fd); "
+            "s.verify_roles(); s.close()"
+        )
+        init_env = os.environ.copy()
+        init_env["PYTHONPATH"] = str(broker_source_copy)
+        init_env["PYTHONDONTWRITEBYTECODE"] = "1"
+        initialized = subprocess.run(
+            [sys.executable, "-c", init_code, str(manifest_root), str(anchor_root),
+             str(app_uid), str(role_parent)],
+            input=json.dumps(manifest, separators=(",", ":")).encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=broker_source_copy,
+            env=init_env,
+            preexec_fn=drop_privileges(broker_uid, app_gid),
+            check=False,
+        )
+        if initialized.returncode != 0:
+            raise RuntimeError(
+                "broker-first manifest enrollment failed:\n" +
+                initialized.stdout.decode(errors="replace") +
+                initialized.stderr.decode(errors="replace")
+            )
+
+        direct_open = subprocess.run(
+            [sys.executable, "-c",
+             "import os,sys; fd=os.open(sys.argv[1],os.O_RDONLY); os.close(fd)",
+             str(role_parent / "vectors.sqlite")],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            preexec_fn=drop_privileges(app_uid, app_gid),
+            check=False,
+        )
+        if direct_open.returncode == 0:
+            raise RuntimeError("application UID bypassed the broker and opened the protected main DB directly")
+
+        socket_path = socket_dir / "broker.sock"
+        broker_log_path = root / "broker.log"
+        broker_log = open(broker_log_path, "ab", buffering=0)
+        os.chmod(broker_log_path, 0o600)
+        broker_script = broker_source_copy / "broker_daemon.py"
+        broker_env = os.environ.copy()
+        broker_env["PYTHONPATH"] = str(broker_source_copy)
+        broker_env["PYTHONDONTWRITEBYTECODE"] = "1"
+
+        def start_broker() -> subprocess.Popen:
+            try:
+                stale_mode = socket_path.lstat().st_mode
+                if not stat.S_ISSOCK(stale_mode):
+                    raise RuntimeError("refusing to replace a non-socket broker path")
+                socket_path.unlink()
+            except FileNotFoundError:
+                pass
+            process = subprocess.Popen(
+                [
+                    sys.executable, str(broker_script),
+                    "--socket", str(socket_path),
+                    "--manifest-root", str(manifest_root),
+                    "--anchor-root", str(anchor_root),
+                    "--app-uid", str(app_uid),
+                    "--app-gid", str(app_gid),
+                ],
+                cwd=broker_source_copy,
+                env=broker_env,
+                stdout=broker_log,
+                stderr=subprocess.STDOUT,
+                preexec_fn=drop_privileges(broker_uid, app_gid),
+                close_fds=True,
+            )
+            try:
+                wait_for_broker(process, socket_path, broker_log_path)
+            except Exception:
+                stop_broker(process)
+                raise
+            return process
+
+        app_env = os.environ.copy()
+        app_env.update({
+            "BETTER_SQLITE3_PACKAGE_DIR": str(artifacts / "better-sqlite3"),
+            "LOGIC_ENGINE_VFS_PROBE_PATH": str(artifacts / "secure-vfs-probe.so"),
+            "LOGIC_ENGINE_DATABASE_PATH": str(alias_database_path),
+            "LOGIC_ENGINE_VFS_ROLE_PATH": str(alias_database_path),
+            "LOGIC_ENGINE_VFS_ROLE_NAME": "vectors",
+            "LOGIC_ENGINE_BROKER_SOCKET": str(socket_path),
+            "LOGIC_ENGINE_BROKER_UID": str(broker_uid),
+            "LOGIC_ENGINE_APP_UID": str(app_uid),
+            "LOGIC_ENGINE_APP_GID": str(app_gid),
+            "LOGIC_ENGINE_PROTECTED_ROLE_PARENT": str(role_parent),
+            "HOME": "/tmp",
+            "TMPDIR": "/tmp",
+        })
+
+        def run_app(test_name: str) -> None:
+            result = subprocess.run(
+                [node, "--test", str(app_tests / test_name)],
+                cwd=app_tests,
+                env=app_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                preexec_fn=drop_privileges(app_uid, app_gid),
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"app UID {app_uid} test {test_name} failed:\n{result.stdout}\n"
+                    f"broker log:\n{broker_log_path.read_text(errors='replace')}"
+                )
+
+        broker_process = start_broker()
+        run_app("better-sqlite3-vfs-cross-uid.test.js")
+        stop_broker(broker_process)
+        broker_process = None
+
+        broker_process = start_broker()
+        run_app("better-sqlite3-vfs-cross-uid-recovery.test.js")
+        stop_broker(broker_process)
+        broker_process = None
+
+        log_text = broker_log_path.read_text(errors="replace")
+        if log_text.count("startup reconciliation complete") < 2:
+            raise RuntimeError("broker did not complete startup reconciliation twice:\n" + log_text)
+        print(
+            "PASS: better-sqlite3 VFS used broker-returned descriptors across distinct UIDs; "
+            "broker restart and SQLite WAL crash recovery succeeded."
+        )
+        return 0
+    except Exception as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        stop_broker(broker_process)
+        if broker_log is not None:
+            broker_log.close()
+        shutil.rmtree(root, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

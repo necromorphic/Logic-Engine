@@ -1,0 +1,68 @@
+name: Gateway Final-Send Validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/security/memory-dispatch-gateway.js'
+      - 'src/storage/coordinator-lock.js'
+      - 'src/application/memory-npc-consumer.js'
+      - 'src/application/memory-npc-provider-adapter.js'
+      - 'src/application/sqlite-memory-provider.js'
+      - 'src/application/host-lifecycle-journal.js'
+      - 'src/application/host-assertion-nonce-store.js'
+      - 'host-adapter/embedded-gateway-runtime.mjs'
+      - 'host-adapter/extension-gateway/server-plugin/st-source-attestation.mjs'
+      - 'host-adapter/protected-memory-final-send.mjs'
+      - 'host-adapter/sillytavern-final-send-adapter.mjs'
+      - 'index.mjs'
+      - 'tests/memory-dispatch-gateway.test.js'
+      - 'tests/protected-memory-final-send.test.js'
+      - 'tests/sillytavern-final-send-adapter.test.js'
+      - 'tests/gateway-final-send-composition.test.js'
+      - 'tests/protected-memory-required-final-send.test.mjs'
+      - '.github/workflows/gateway-final-send-validation.yml'
+      - '.github/workflows/provider-blocker3.yml'
+permissions:
+  contents: read
+
+# Preserve an active exact-head validation run when newer commits are pushed.
+# GitHub may replace an older pending run, but must not cancel the running job.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  gateway-final-send:
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-package-lock --no-audit --no-fund
+      - name: Syntax validation
+        run: |
+          node --check src/security/memory-dispatch-gateway.js
+          node --check src/storage/coordinator-lock.js
+          node --check host-adapter/protected-memory-final-send.mjs
+          node --check host-adapter/embedded-gateway-runtime.mjs
+          node --check index.mjs
+      - name: Memory Dispatch Gateway tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=tap tests/memory-dispatch-gateway.test.js
+      - name: Protected Memory Final-Send tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/protected-memory-final-send.test.js
+      - name: SillyTavern Final-Send adapter tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/sillytavern-final-send-adapter.test.js
+      - name: Gateway Final-Send composition tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/gateway-final-send-composition.test.js
+      - name: Required protected Memory fail-closed tests
+        timeout-minutes: 10
+        run: node --test --test-reporter=spec tests/protected-memory-required-final-send.test.mjs

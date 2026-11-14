@@ -1,9 +1,11 @@
 name: Host browser IndexedDB restart
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'host-adapter/prototype/**'
       - '.github/workflows/host-lifecycle-browser-storage.yml'
+      - '.github/workflows/provider-blocker3.yml'
   push:
     branches:
       - host/lifecycle-completeness-followup-2026-10-25
@@ -13,9 +15,17 @@ on:
 permissions:
   contents: read
 
+# Keep active exact-head browser lifecycle validation running across newer commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   chromium-indexeddb-restart:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -25,6 +35,6 @@ jobs:
       - name: Install isolated browser test dependency
         run: npm install --no-save playwright@1.55.0
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
       - name: Verify real IndexedDB persistence across browser process restart
         run: node host-adapter/prototype/tests/browser-storage-restart.mjs

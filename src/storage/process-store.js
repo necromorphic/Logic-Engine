@@ -50,6 +50,7 @@ export class ProcessStore {
   constructor(store) {
     this.store = store;
     this.db = store.db;
+    if (store.readOnly) return;
     this.store.tx(() => this.db.exec(`
       CREATE TABLE IF NOT EXISTS world_processes(
         world_id TEXT NOT NULL REFERENCES worlds(world_id),

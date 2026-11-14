@@ -1,4 +1,8 @@
 import test from 'node:test';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
@@ -36,7 +40,7 @@ function setup(t, options = {}) {
     rmSync(directory, { recursive: true, force: true });
   });
   return {
-    path, scope, record,
+    path, coordinatorPath: providerOptions.coordinatorPath, scope, record,
     get db() {
       // Separate test-only connection for observation and fault injection.
       // Production callers receive no handle to either Provider-owned DB.
@@ -52,6 +56,235 @@ function setup(t, options = {}) {
     setSourceVersion(value) { sourceVersion = value; },
   };
 }
+
+test('final authorized-read lease serializes query and record grants with a synchronous disclosure callback', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const retrieved = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(retrieved.candidates.length, 1);
+  const candidate = retrieved.candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  assert.equal(s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized'), 'authorized');
+
+  // Security-boundary copying must not depend on mutable Array.prototype
+  // methods. Prototype pollution must not run attacker-controlled code here.
+  const originalMap = Array.prototype.map;
+  const originalPush = Array.prototype.push;
+  const originalIterator = Array.prototype[Symbol.iterator];
+  try {
+    Array.prototype.map = () => { throw new Error('polluted Array.prototype.map executed'); };
+    Array.prototype.push = () => { throw new Error('polluted Array.prototype.push executed'); };
+    Array.prototype[Symbol.iterator] = () => { throw new Error('polluted Array iterator executed'); };
+    assert.equal(
+      s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'authorized-with-polluted-array-prototype'),
+      'authorized-with-polluted-array-prototype',
+    );
+  } finally {
+    Array.prototype.map = originalMap;
+    Array.prototype.push = originalPush;
+    Array.prototype[Symbol.iterator] = originalIterator;
+  }
+
+  let hostileCallbackInvoked = false;
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, new Proxy([leaseCandidate], {}), () => {
+      hostileCallbackInvoked = true;
+    }),
+    /Invalid Provider authorized-read lease input/,
+  );
+  const accessorCandidates = [leaseCandidate];
+  Object.defineProperty(accessorCandidates, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { throw new Error('candidate array getter must not execute'); },
+  });
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, accessorCandidates, () => {
+      hostileCallbackInvoked = true;
+    }),
+    /Invalid Provider authorized-read lease input/,
+  );
+  assert.equal(hostileCallbackInvoked, false);
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
+      s.provider.grantQuery(s.scope, false);
+      return 'must not mutate';
+    }),
+    /PROVIDER_READ_LEASE_MUTATION_FORBIDDEN/,
+  );
+  let asyncCallbackInvoked = false;
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], async () => {
+      asyncCallbackInvoked = true;
+      return 'must not await';
+    }),
+    /must be synchronous/,
+  );
+  assert.equal(asyncCallbackInvoked, false, 'async disclosure callback must be rejected before invocation');
+
+  s.provider.revokeRecord(s.scope, candidate.record.ref, candidate.record.version);
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'must not disclose'),
+    /MEMORY_RECORD_ACCESS_REVOKED/,
+  );
+
+  s.provider.grantRecord(s.scope, candidate.record.ref, candidate.record.version, true);
+  const regranted = await s.provider.retrieveCandidates(s.scope);
+  const newCandidate = regranted.candidates[0];
+  assert.notEqual(newCandidate.authorization_generation, candidate.authorization_generation);
+  s.provider.grantQuery(s.scope, false);
+  assert.throws(
+    () => s.provider.withAuthorizedReadLease(s.scope, [{
+      record_ref: newCandidate.record.ref,
+      record_version: newCandidate.record.version,
+      authorization_generation: newCandidate.authorization_generation,
+    }], () => 'must not disclose'),
+    /MEMORY_QUERY_DENIED/,
+  );
+});
+
+test('final Provider read lease excludes authorization mutation from a second Provider connection', async (t) => {
+  const first = setup(t);
+  const second = setup(t, { path: first.path, coordinatorPath: first.coordinatorPath });
+  first.provider.grantQuery(first.scope, true);
+  first.provider.grantRecord(first.scope, first.record.record_ref, first.record.record_version, true);
+  first.provider.putRecord(first.record);
+  await first.provider.rebuildIndex(first.scope.world_id);
+  assert.equal((await first.provider.reconcile(first.scope.world_id)).status, 'current');
+
+  second.provider.grantQuery(first.scope, true);
+  second.provider.grantRecord(first.scope, first.record.record_ref, first.record.record_version, true);
+  const result = await first.provider.retrieveCandidates(first.scope);
+  const candidate = result.candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  let mutationError;
+  const disclosed = first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => {
+    try {
+      // This is a distinct Provider instance and SQLite connection. Its
+      // authorization mutation must contend on the shared Coordinator file.
+      second.provider.revokeRecord(first.scope, candidate.record.ref, candidate.record.version);
+    } catch (error) {
+      mutationError = error;
+    }
+    return 'final-envelope';
+  });
+
+  assert.equal(disclosed, 'final-envelope');
+  assert.match(String(mutationError?.message), /SQLITE_BUSY|database is locked/i);
+  // Once the disclosure lease ends, the other connection can commit the revoke.
+  second.provider.revokeRecord(first.scope, candidate.record.ref, candidate.record.version);
+  assert.throws(
+    () => first.provider.withAuthorizedReadLease(first.scope, [leaseCandidate], () => 'must not disclose'),
+    /MEMORY_RECORD_ACCESS_REVOKED/,
+  );
+  // Close the shared-file connection before the first fixture's Windows
+  // teardown attempts to remove the Coordinator database.
+  second.provider.close();
+});
+
+test('final Provider read lease excludes cross-process authorization revoke until disclosure callback returns', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  const candidate = (await s.provider.retrieveCandidates(s.scope)).candidates[0];
+  const leaseCandidate = {
+    record_ref: candidate.record.ref,
+    record_version: candidate.record.version,
+    authorization_generation: candidate.authorization_generation,
+  };
+
+  const markerPath = join(dirname(s.path), 'cross-process-revoke-complete');
+  const moduleUrl = pathToFileURL(resolve('src/application/sqlite-memory-provider.js')).href;
+  const script = `
+    import { SQLiteMemoryProvider } from ${JSON.stringify(moduleUrl)};
+    import { writeFileSync } from 'node:fs';
+    const provider = new SQLiteMemoryProvider({
+      path: process.env.TEST_PROVIDER_PATH,
+      coordinatorPath: process.env.TEST_COORDINATOR_PATH,
+      getSnapshot: async () => ({ world_revision: 4, commit_sequence: 2 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    });
+    process.stdout.write('READY\\n');
+    let input = '';
+    process.stdin.setEncoding('utf8').on('data', chunk => {
+      input += chunk;
+      const newline = input.indexOf('\\n');
+      if (newline < 0) return;
+      const command = input.slice(0, newline);
+      process.stdin.pause();
+      if (command !== 'REVOKE') process.exit(2);
+      provider.revokeRecord(
+        { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' },
+        'memory:record-a', 'record-v1',
+      );
+      writeFileSync(process.env.TEST_MARKER_PATH, 'revoked');
+      provider.close();
+      // The child has a paused stdin data listener; explicitly exit after the
+      // acknowledgement is flushed so the parent can observe process completion.
+      process.stdout.write('REVOKED\\n', () => process.exit(0));
+    });
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+    env: {
+      ...process.env,
+      TEST_PROVIDER_PATH: s.path,
+      TEST_COORDINATOR_PATH: s.coordinatorPath,
+      TEST_MARKER_PATH: markerPath,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+  const exitPromise = once(child, 'exit');
+  try {
+    await Promise.race([
+      once(child.stdout, 'data'),
+      exitPromise.then(() => { throw new Error('Provider revoke worker exited before initialization: ' + stderr); }),
+    ]);
+    assert.match(stdout, /READY/);
+    const disclosed = s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => {
+      child.stdin.write('REVOKE\n');
+      // Keep the synchronous disclosure lease held while the independent
+      // process reaches the shared Coordinator and attempts its revoke.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 350);
+      assert.equal(existsSync(markerPath), false);
+      return 'final-envelope';
+    });
+    assert.equal(disclosed, 'final-envelope');
+    const [code] = await exitPromise;
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, /REVOKED/);
+    assert.equal(existsSync(markerPath), true);
+    assert.throws(
+      () => s.provider.withAuthorizedReadLease(s.scope, [leaseCandidate], () => 'must not disclose'),
+      /MEMORY_RECORD_ACCESS_REVOKED/,
+    );
+  } finally {
+    try { child.kill(); } catch {}
+    rmSync(markerPath, { force: true });
+  }
+});
 
 test('file-backed Provider rejects coordinator DB path alias before opening the database', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-alias-'));
@@ -534,6 +767,7 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.equal(result.candidates[0].record.ref, 'memory:record-a');
   assert.equal(result.candidates[0].record.version, 'record-v1');
   assert.equal(result.candidates[0].source.entity_id, 'entity-source-a');
+  assert.equal(result.candidates[0].source.source_version, 'source-v1');
 });
 
 test('durable record survives ingest index-write failure and recovers after restart/rebuild', async (t) => {

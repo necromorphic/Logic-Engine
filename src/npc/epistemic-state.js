@@ -401,8 +401,10 @@ function applyEventUnsafe(state, event) {
     const negativeStance = event.stance === "believes_false" || event.stance === "suspects_false";
     // "unresolved" retains both sides distinctly rather than placing every
     // evidence item in both lists.
-    const supporting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_false" : "supports_true")).map((item) => item.ref);
-    const conflicting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_true" : "supports_false")).map((item) => item.ref);
+    // Evidence references are a set, not an ordering signal. Canonicalize both
+    // projections so equivalent revision requests produce the same belief state.
+    const supporting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_false" : "supports_true")).map((item) => item.ref).sort();
+    const conflicting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_true" : "supports_false")).map((item) => item.ref).sort();
     if ((event.stance === "unresolved" && (supporting.length === 0 || conflicting.length === 0))
       || (event.stance !== "unresolved" && supporting.length === 0)) {
       return nonReady("belief_revision_evidence_does_not_support_stance");

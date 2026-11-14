@@ -552,3 +552,99 @@ No integrated real-path acceptance test can run against a path that does not exi
 | P2 capability expansion | **NOT STARTED** — intentionally outside P0/P1 |
 
 Overall NPC remains `NOT ACCEPTED`; Memory→NPC remains `DISABLED / FAIL-CLOSED`. No merge, production wiring, or sibling-owned file change is included.
+
+
+## 14. Issue #317 exact-main refresh — 1 Nov 2026
+
+Current baseline: `main` = `c31a5df7f00bf57d2bf629232b6eea6056f26652`. This section supersedes the dated baseline in §13 for current branch comparisons; older sections remain historical evidence.
+
+### P0.1 — historical NPC PR comparison and ownership
+
+Each historical head below was compared directly with the exact current-main SHA above, not by trusting its original PR file list or ancestry.
+
+| PR | State | Historical base → head | Current-main comparison | Net changed paths against current main |
+|---|---|---|---|---|
+| #138 | Closed, unmerged | `fa534a49f556a0d03b24a972e6fa0d0d35ddb991` → `2d571b6c0d4d4ba89229e207ae50d7125d92d3c5` | 2 ahead / 571 behind; diverged | `tests/npc-memory-candidate-eligibility.test.js` |
+| #139 | Closed, unmerged | `fa534a49f556a0d03b24a972e6fa0d0d35ddb991` → `c12a3f9b12ef7e2a2f37ee24ec47f77a9f652d48` | 2 ahead / 571 behind; diverged | `docs/56-npc-memory-boundary-acceptance-matrix.md` |
+| #246 | Closed, unmerged | `f748603d9b96808406095449f650399207d1e944` → `22b85a803e968b28f9016f532aae6494dc3c8cae` | 9 ahead / 531 behind; diverged | `src/npc/memory-candidate-eligibility.js`, `tests/npc-memory-candidate-eligibility.test.js` |
+| #279 | Merged | `1dc0b8715801887e7a5343b6de0e7f73faee66cf` → `30e54290602e9b59eddb83e4b766a78961fd1197` | 2 ahead / 525 behind; diverged after merge | `src/npc/memory-candidate-eligibility.js`, `tests/npc-memory-candidate-eligibility.test.js` |
+
+These net comparisons contain no Personality, Relationships, Host/Adapter, Memory Provider, Core, or vectorization files. #138/#139/#246 are closed unmerged historical candidates. #279 is the merged reconciliation of the #246 admission change; its branch is not a current-main base and must not be reused as a new implementation branch.
+
+Current NPC-owned executable baseline:
+- Admission oracle: `src/npc/memory-candidate-eligibility.js`, blob `68c5a82dd80e46dd0d023debd12121e869ddeac5`.
+- Admission tests: `tests/npc-memory-candidate-eligibility.test.js`, blob `2252448ba47d9c40519787b62ed782f9c426af74`.
+- Epistemic reducer: `src/npc/epistemic-state.js`, blob `4468abaf3af2671e57a62fca8ce4ea5caa81f9c5`.
+- Epistemic tests: `tests/npc-epistemic-state.test.js`, blob `a81aa5e87b011c5cdaa479e50c1dd425871db6f4`.
+
+### P0.2 — admission boundary
+
+**PASS for the pure NPC oracle contract and current-main unit suite.** `evaluateMemoryCandidateAdmission()` remains metadata-only. It requires trusted scope and snapshot markers, complete result/access envelope, dense arrays, stable identity/version, recognized source/content/epistemic vocabularies, complete lifecycle/freshness, exact scope match, safe summary lineage, and rejects ambiguous duplicate identity/version pairs. Unknown/malformed metadata fails closed. It does not authenticate the Core result or authorize content disclosure.
+
+Recognized evidence assessments (`unassessed`, `supported`, `disputed`, `insufficient`) are preserved as evidence metadata when all independent admission checks pass. Do not add a blanket `supported`-only admission rule: admission is not a truth verdict. Rejected projections expose no content, snippets, candidate identifiers, per-item reasons or rejected counts. The oracle's existing serialized non-disclosure and adversarial-input tests remain the relevant evidence.
+
+### P0.3 — lifecycle and epistemic separation
+
+**PASS for NPC-local state semantics; not a delivery/acquisition runtime claim.** The reducer distinguishes `information_received`, `evidence_admitted`, `belief_updated`, `evidence_invalidated`, canonical truth changes and forgetting. Receipt does not imply acquisition; admission does not imply delivery, receipt or belief; canonical truth changes do not silently rewrite a character's belief.
+
+Memory classification is separate from admission: `unassessed` has no belief-revision mapping; supported reports remain `unconfirmed_report`; disputed evidence cannot support a directional stance; insufficient evidence maps to `unknown` and cannot support any stance. Invalidated evidence cannot be used for a new belief revision and existing dependent belief requires review. Conflicting disputed evidence can produce only an unresolved stance when both polarities are represented.
+
+### P0.4 — real-path handoff evidence and external blockers
+
+| Hop / owner | Exact evidence | Result |
+|---|---|---|
+| NPC admission | Current-main oracle and focused tests listed above | Component PASS; caller-supplied metadata is not authenticated by the helper |
+| NPC epistemic reducer | Current-main reducer and focused tests listed above | Component PASS; no production model-context caller is established by these tests |
+| Memory Provider → Core → NPC consumer | PR #845, branch `memory/core-query-auth-real-adapter-2026-11-01`, current head `8bec3dab9879665e947a9023224b7dfe66fa5025` (base `0c3debcb01946f6f8c94811b192e7277422e990a`; 109 ahead / 2 behind current main) | Real file-backed SQLite Provider → Core → NPC consumer candidate. Exact-head Provider blocker-3 [#41298103439](https://github.com/necromorphic/Logic-Engine/actions/runs/41298103439) PASS: Provider acceptance 131/131; Linux Runtime 1383 passed / 0 failed / 1 skipped; recalculation oracle 20/20. Tests include the real evidence-class matrix, Provider diagnostics/snippet/count non-disclosure, and strict Core envelope validation (exact top-level shape, exact requested entity set, allowlisted entity fields, dense arrays, accessor/Proxy rejection). Separate exact-head Runtime [#41298103521](https://github.com/necromorphic/Logic-Engine/actions/runs/41298103521) PASS: full Windows `npm test` 1383 passed / 0 failed / 1 skipped; Host lifecycle prototype 94/94; recalculation oracle 20/20; all dedicated boundary/security jobs passed. |
+| Authenticated Core/Host binding | PR #846, branch `lane-b/core-authenticated-host-request-2026-11-01`, current head `e1cb3e435e2358ef502f983c595f1959667179e4` (139 ahead / 2 behind current main) | Candidate remains open/unmerged. Exact-head Provider blocker-3 [#41298265135](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265135), Host patch check [#41298265142](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265142), lifecycle validation [#41298265141](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265141), IndexedDB restart [#41298265160](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265160), and pinned-source audit [#41298265144](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265144) passed. Exact-head Runtime [#41298265251](https://github.com/necromorphic/Logic-Engine/actions/runs/41298265251) completed with failure: the full Windows `npm test` job failed 12 Host source-inventory tests (`tests/host-source-inventory.test.js`) with `SOURCE_FILE_IDENTITY_CHANGED` in `readStableFile`; NPC boundary and the dedicated Host/Provider/security jobs passed. The standalone plugin is not installed or accepted in a live ST instance; production Host→Core retrieval gateway is not wired to `MemoryNpcConsumer`. |
+| Core NPC authorization | PR #838, branch `fix/core-owned-npc-auth-context-2026-10-30`, current head `bf837d415f666b495d2a7c26bd3347a29479c8cc` | Draft, disabled by default; API approval does not equal production Host caller or final-dispatch acceptance. |
+| Final context serialization / outbound model transport | No exact production callsite demonstrated in #845/#846 | BLOCKED — no verified end-to-end Host→Provider→Core→NPC→serializer→model path or sole-egress proof |
+
+PR #845 is Memory/Core-owned and changes `src/application/*`, Provider implementation and integration tests; PR #846 includes Host adapter prototype and Core integration files. They are evidence for their own owner slices, not NPC-only changes or automatic P0 PASS. Issue #181 is closed with its real-adapter work tracked in #845. Global gate #264 remains open and continues to own Host inventory, cross-process binding, and final-disclosure race coordination. Its approved integration contracts do not waive exact-head testing or production release gates.
+
+### Current P0 disposition
+
+| Item | Result |
+|---|---|
+| P0.1 exact baseline / NPC-only net diffs | **PASS** — current-main SHA and historical comparisons recorded above |
+| P0.2 pure admission boundary | **PASS** — current-main oracle and tests; no Core authority inferred |
+| P0.3 lifecycle separation | **PASS at NPC-local reducer level**; no production receipt/acquisition caller claimed |
+| P0.4 real-path handoff | **PARTIAL / BLOCKED** — PR #845 real Provider/Core/NPC consumer passes exact-head Linux and Windows CI. PR #846 dedicated Host/Provider/security checks pass, but exact-head Windows Runtime fails 12 Host source-inventory tests with `SOURCE_FILE_IDENTITY_CHANGED`. No production Host model-context serializer, native ST gateway wiring, or live end-to-end sole-egress test exists |
+
+### P0.4 blocker register — owner, decision, closure test
+
+| Blocker | Owner | Decision required | Exact closure test |
+|---|---|---|---|
+| Native SillyTavern generation / response-release boundary | Host/Adapter #258; Core 1.9 coordinates under #264 | Select one deployment boundary supported by the security model: upstream ST server hook, maintained ST source patch/fork, or server-side reverse-proxy/provider transport. A plugin-owned route or browser extension alone does not intercept native generation. | Run pinned SillyTavern 1.19.0 in a real server process; prove every configured native sender enters the sole Gateway, authenticate the actual signed server session, and verify upstream call count plus absence of alternate-send bypasses. |
+| Trusted Host session → Core request binding in the live plugin | Host/Adapter #258; Core Lane B #846 | Wire the plugin to the real Core adapter using the exact authenticated request/session and server-resolved conversation; do not forward browser-supplied world/actor/adapter selectors as authority. | Live ST test proves copied/missing session capability, cross-session conversation, stale conversation/world binding, and ambiguous/revoked actor binding all fail closed; valid session resolves only its own bound world/actor. |
+| Final disclosure / revoke race and sole egress | Host/Adapter #258 + Core 1.9 + Provider #181, coordinated by #264/#844 | Connect the production native route to the #844 Gateway's serialized dispatch-start and final-response revalidation contract. `revalidateForFinalDispatch()` in #845 is a freshness reread, not a transport lease. | With a real Provider record, revoke/tombstone/change source or scope after candidate assembly and at dispatch-start/final-release boundaries. Assert no upstream call before authorized dispatch-start, response suppression after failed final revalidation, correct UNKNOWN/restart recovery, and exact upstream call count. |
+| Real Provider/Core/NPC retrieval and field disclosure | Memory Provider #181 + Core Lane B #846 | No additional semantic decision for this tested slice; retain exact record/version/generation, Core field visibility and evidence-class mapping. | Already exercised on #845 exact HEAD: file-backed SQLite Provider → Core AuthorizedReadService → NPC consumer; evidence matrix, revoke/re-grant, diagnostics/snippet/count non-disclosure and strict Core envelope tests. Re-run on any changed head. |
+
+**P0.4 disposition:** Provider/Core/NPC retrieval is now exact-head runtime-tested. The remaining blocker is not another admission helper or mapping document; it is the live Host/native-generation/serializer/sole-egress integration and its revocation race proof. Until the Host deployment boundary decision is made and the closure test passes, overall P0 remains PARTIAL/BLOCKED and production Memory→NPC stays disabled.
+
+Overall NPC remains `NOT ACCEPTED`; Memory→NPC remains `DISABLED / FAIL-CLOSED`. No merge, deployment, production switch, or sibling-owned source edit is authorized by this matrix refresh.
+
+## 15. NPC reducer follow-up — 1 Nov 2026
+
+This follow-up is NPC-owned and independent of Host/Core production wiring. It extends the existing epistemic reducer regression suite without changing reducer behavior or cross-block contracts.
+
+Exact source/test head: `3c99497915d023ea83ffd27fdb7d2c5efa5f3fb7`.
+Runtime workflow [#41307466975](https://github.com/necromorphic/Logic-Engine/actions/runs/41307466975) completed **SUCCESS**:
+- NPC boundary: 276 passed / 0 failed.
+- Full Windows `npm test`: 1364 passed / 0 failed / 1 skipped.
+- All dedicated Host/Core/security/process jobs passed.
+
+Three additional reducer scenarios:
+- Invalidation preserves prior belief history but does not restore the invalidated evidence's authority; review remains required.
+- A separately identified replacement source version can resolve review through an explicit belief revision, while the prior invalidated evidence remains in immutable history.
+- Replaying an invalidated evidence identity is idempotent and does not reactivate it; attempting to reuse the same identity/version with a different source version is rejected as an identity conflict.
+
+These tests prove NPC-local reducer behavior only. They do not establish production Host delivery, authenticated Core acquisition, final model-context serialization, or sole-egress dispatch. Those remain P0.4 external integration gates.
+
+## 16. Supported-evidence admission hardening — 3 Nov 2026
+
+The later admission change in `src/npc/memory-candidate-eligibility.js` supersedes the earlier §14 statement that all recognized evidence assessments may be admitted as attributed evidence. The current admission boundary requires `evidence_assessment=supported` before a Memory candidate can enter NPC context. `unassessed`, `disputed`, `insufficient`, missing, and unknown assessments are excluded without exposing candidate identity, content, per-item reasons, or rejection counts.
+
+The Core Context Builder independently enforces the same rule in `validateLaneB()`. This is defense in depth: a malformed or substituted Consumer result cannot bypass the admission oracle by supplying a non-supported candidate. The Builder does not promote evidence or resolve conflicts; excluded evidence remains stored in Provider but is not projected to the model through this path.
+
+Focused regressions cover the positive supported case and negative unassessed/disputed/insufficient/unknown cases, including non-disclosure equivalence with an authorized empty result. This hardening does not establish production Host delivery, model dispatch, or Memory→NPC enablement. Exact-head CI and the remaining Gateway/Host acceptance gates are still required.
