@@ -714,6 +714,7 @@ typedef HANDLE (WINAPI *probe_create_file_w_fn)(
 #define PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u
 #define PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u
 #define PROBE_WIN_BROKER_STATUS_OK 0u
+#define PROBE_WIN_BROKER_STATUS_INTERNAL 4u
 #define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
 static int probe_win_manifest_role_ready(int role_index);
 static int probe_win_broker_open_role_request(
@@ -793,7 +794,7 @@ static HANDLE WINAPI probe_create_file_w(
     if (role->manifest_bound) {
       uint16_t broker_operation;
       const char *broker_kind;
-      uint32_t broker_status = PROBE_WIN_BROKER_STATUS_NOT_FOUND;
+      uint32_t broker_status = PROBE_WIN_BROKER_STATUS_INTERNAL;
       if (!probe_win_manifest_role_ready(role_index)) {
         sqlite3_free(relative_name);
         SetLastError(ERROR_ACCESS_DENIED);
