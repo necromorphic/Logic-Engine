@@ -101,9 +101,8 @@ export function createHostDigestProxyHandler({
   timeoutMs = 5000,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000
-    || !Number.isInteger(inventoryTimeoutMs) || inventoryTimeoutMs < timeoutMs || inventoryTimeoutMs > 30000) {
-    throw new TypeError('timeoutMs and inventoryTimeoutMs must be integers between 1 and 30000, with inventoryTimeoutMs >= timeoutMs');
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
+    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
   return async function hostDigestProxy(request, response) {
     const target = configuredTarget(env);
@@ -146,7 +145,7 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(requestTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       let payload;
       try { payload = await upstream.json(); } catch {
