@@ -1606,7 +1606,8 @@ test('reader returns typed communication evidence only while its signed source v
   const hostCommunicationReceiptVerifier = ({ adapter_id, receipt_digest, receipt_proof, source_evidence }) =>
     adapter_id === 'adapter-st'
       && receipt_digest === receiptDigest
-      && receipt_proof === sourceEvidence.receipt_proof
+      && receipt_proof.receipt_digest === receiptDigest
+      && receipt_proof.receipt_signature === receiptSignature
       && source_evidence.receipt_signature === receiptSignature;
   const { store, engine } = setup(t, undefined, undefined, {
     hostVersionDigestLedger,
