@@ -336,10 +336,12 @@ test('authenticated Host lifecycle proxy returns the signed receipt from the rea
       assert.equal(targetLocator, 'avatar-main/chat-1.jsonl');
       return recipientBinding;
     },
-    fetchImpl: async () => ({
-      status: 201,
-      json: async () => ({ lifecycle: { status: 'appended' } }),
-    }),
+    fetchImpl: async url => {
+      if (new URL(url).pathname === '/v1/host-version-ledger/reconcile-delivery') {
+        return { status: 200, json: async () => ({ inventory_status: 'READY', acquisition: { status: 'committed' } }) };
+      }
+      return { status: 201, json: async () => ({ lifecycle: { status: 'appended' } }) };
+    },
   });
   const request = {
     user: { profile: { handle: 'alice' }, directories: directoriesForTest },
