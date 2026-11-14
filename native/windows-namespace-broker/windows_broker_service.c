@@ -1,6 +1,6 @@
-/* Windows SQLite broker SCM host. Only manifest-backed ACCESS and
- * identity-bound sidecar deletion are enabled; file opens/creates still require
- * the client HANDLE-transfer protocol and SQLite VFS integration. */
+/* Windows SQLite namespace broker SCM host. Manifest-backed file opens,
+ * sidecar lifecycle operations and bounded client-process HANDLE transfer are
+ * implemented; SCM deployment and full SQLite VFS production closure remain open. */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <sddl.h>
@@ -18,6 +18,12 @@
 #define MAGIC 0x4c454256u
 #define VERSION 2u
 #define MAX_PACKET 4096u
+#define LEB_STATUS_OK 0u
+#define LEB_STATUS_BAD_REQUEST 1u
+#define LEB_STATUS_UNAUTHORIZED 2u
+#define LEB_STATUS_UNSUPPORTED 3u
+#define LEB_STATUS_INTERNAL 4u
+#define LEB_STATUS_NOT_FOUND 5u
 static uint16_t net16(uint16_t v){return (uint16_t)((v<<8)|(v>>8));}
 static uint32_t net32(uint32_t v){return ((v&0x000000ffu)<<24)|((v&0x0000ff00u)<<8)|((v&0x00ff0000u)>>8)|((v&0xff000000u)>>24);}
 static uint64_t net64(uint64_t v){return ((uint64_t)net32((uint32_t)v)<<32)|net32((uint32_t)(v>>32));}
