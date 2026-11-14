@@ -46,6 +46,127 @@ const exactDataRecord = (value, keys) => {
     return ownKeys.every((key) => { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value'); });
   } catch { return false; }
 };
+
+const validCoreId = value => typeof value === 'string' && value === value.trim()
+  && value.length > 0 && value.length <= 200
+  && !/[\\u0000-\\u001f\\u007f]/u.test(value);
+const validSha256 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+const validHostUuid = value => typeof value === 'string'
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+function validateCommunicationDeliveryProjection(row, request) {
+  let evidence;
+  try { evidence = JSON.parse(row.source_evidence_json); }
+  catch {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition contains invalid source-evidence JSON.', 409);
+  }
+  const exact = (value, keys) => exactDataRecord(value, keys);
+  const evidenceKeys = [
+    'protocol_version', 'evidence_type', 'producer', 'adapter_id', 'host_commit',
+    'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+    'sender', 'recipient', 'source_attestation', 'channel', 'source', 'status', 'delivered_at',
+    'host_event_id', 'mutation_id', 'receipt_digest', 'receipt_signature', 'receipt_proof',
+    'inventory_snapshot_digest',
+  ];
+  const attestationKeys = [
+    'protocol_version', 'host_commit', 'snapshot_alignment', 'before_snapshot_id', 'after_snapshot_id',
+    'before_snapshot_sha256', 'after_snapshot_sha256', 'before_source_inventory_sha256',
+    'after_source_inventory_sha256', 'source_manifest_sha256',
+    'mutation_coverage_manifest_sha256', 'mutation_coverage_source_files_sha256',
+  ];
+  const proofKeys = [
+    'host_installation_id', 'authenticated_account_id', 'host_session_id', 'conversation_uuid',
+    'event_id', 'event_type', 'mutation_id', 'operation', 'mutation_digest', 'receipt_digest',
+    'occurred_at', 'receipt_signature',
+  ];
+  if (!exact(evidence, evidenceKeys)
+    || !exact(evidence.sender, ['principal_type', 'principal_id'])
+    || !exact(evidence.recipient, ['world_id', 'actor_id', 'actor_type', 'host_character_avatar_id'])
+    || !exact(evidence.source, ['message_id', 'version_id', 'content_sha256'])
+    || !exact(evidence.source_attestation, attestationKeys)
+    || !exact(evidence.receipt_proof, proofKeys)) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition source evidence does not match its exact typed schema.', 409);
+  }
+  const proof = evidence.receipt_proof;
+  const expectedConversationId = [
+    evidence.host_session_id, evidence.host_installation_id, evidence.conversation_uuid,
+  ].join(':');
+  const expectedAcquisitionId = 'acq:communication-delivered:' + hashRequest([
+    request.world_id, request.adapter_id, evidence.host_event_id, evidence.receipt_digest,
+  ]);
+  const expectedEventId = 'host-delivery-event:' + hashRequest([request.adapter_id, evidence.host_event_id]);
+  const expectedAuthorizationRef = 'host-conversation-binding:' + hashRequest([
+    request.adapter_id, request.conversation_id,
+  ]);
+  const attestationDigests = [
+    evidence.source_attestation.before_snapshot_sha256,
+    evidence.source_attestation.after_snapshot_sha256,
+    evidence.source_attestation.before_source_inventory_sha256,
+    evidence.source_attestation.after_source_inventory_sha256,
+    evidence.source_attestation.source_manifest_sha256,
+    evidence.source_attestation.mutation_coverage_manifest_sha256,
+    evidence.source_attestation.mutation_coverage_source_files_sha256,
+  ];
+  if (row.fact_id !== null || row.acquired_value_json !== null
+    || row.acquired_source_event_ids_json !== null
+    || row.acquisition_id !== expectedAcquisitionId || row.event_id !== expectedEventId
+    || row.provenance_ref !== 'host-delivery-event:' + evidence.host_event_id
+    || row.authorization_ref !== expectedAuthorizationRef
+    || row.provenance_digest !== evidence.receipt_digest
+    || row.source_adapter_id !== request.adapter_id
+    || row.source_conversation_id !== request.conversation_id
+    || row.source_message_id !== evidence.source.message_id
+    || row.source_version_id !== evidence.source.version_id
+    || row.source_content_sha256 !== evidence.source.content_sha256
+    || evidence.protocol_version !== 1 || evidence.evidence_type !== 'communication_delivered'
+    || evidence.producer !== 'logic-engine-host-delivery-receipt-v1'
+    || evidence.adapter_id !== request.adapter_id
+    || evidence.host_commit !== '06bde939fb1e9c4c8d8641d810f0a916b5bce127'
+    || !validHostUuid(evidence.host_installation_id)
+    || !validHostUuid(evidence.authenticated_account_id)
+    || !validHostUuid(evidence.host_session_id)
+    || !validHostUuid(evidence.conversation_uuid)
+    || expectedConversationId !== request.conversation_id
+    || evidence.sender.principal_type !== 'host_authenticated_account'
+    || evidence.sender.principal_id !== evidence.authenticated_account_id
+    || evidence.recipient.world_id !== request.world_id
+    || evidence.recipient.actor_id !== request.actor_id
+    || !validCoreId(evidence.recipient.actor_type)
+    || !validCoreId(evidence.recipient.host_character_avatar_id)
+    || evidence.channel !== 'sillytavern.character_chat'
+    || evidence.status !== 'delivered'
+    || typeof evidence.delivered_at !== 'string' || !Number.isFinite(Date.parse(evidence.delivered_at))
+    || !validHostUuid(evidence.host_event_id) || !validHostUuid(evidence.mutation_id)
+    || !validHostUuid(evidence.source.message_id) || !validHostUuid(evidence.source.version_id)
+    || !validSha256(evidence.source.content_sha256)
+    || !validSha256(evidence.receipt_digest) || !validSha256(evidence.receipt_signature)
+    || !validSha256(evidence.inventory_snapshot_digest)
+    || evidence.source_attestation.protocol_version !== 1
+    || evidence.source_attestation.host_commit !== evidence.host_commit
+    || evidence.source_attestation.snapshot_alignment !== 'SHARED_VSS_SNAPSHOT'
+    || !validCoreId(evidence.source_attestation.before_snapshot_id)
+    || !validCoreId(evidence.source_attestation.after_snapshot_id)
+    || evidence.source_attestation.before_snapshot_id === evidence.source_attestation.after_snapshot_id
+    || !attestationDigests.every(validSha256)
+    || proof.host_installation_id !== evidence.host_installation_id
+    || proof.authenticated_account_id !== evidence.authenticated_account_id
+    || proof.host_session_id !== evidence.host_session_id
+    || proof.conversation_uuid !== evidence.conversation_uuid
+    || proof.event_id !== evidence.host_event_id
+    || proof.event_type !== 'MUTATION_COMMITTED'
+    || proof.mutation_id !== evidence.mutation_id
+    || proof.operation !== 'message-send'
+    || !validSha256(proof.mutation_digest)
+    || proof.receipt_digest !== evidence.receipt_digest
+    || proof.occurred_at !== evidence.delivered_at
+    || proof.receipt_signature !== evidence.receipt_signature) {
+    throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+      'Communication acquisition source binding does not match its canonical projection or read scope.', 409);
+  }
+  return evidence;
+}
 const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
   if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const visit = (node) => {
@@ -252,7 +373,7 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], worldPackCatalog = null, npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null, hostVersionDigestLedger = null, hostCommunicationReceiptVerifier = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     if (worldPackCatalog !== null && typeof worldPackCatalog.resolve !== 'function') throw new TypeError('worldPackCatalog must provide resolve(worldPackId, version)');
@@ -266,6 +387,12 @@ export class LogicEngine {
       throw new TypeError('hostVersionDigestLedger must provide getVersionState()');
     }
     this.hostVersionDigestLedger = hostVersionDigestLedger;
+    if (hostCommunicationReceiptVerifier !== null
+      && (typeof hostCommunicationReceiptVerifier !== 'function'
+        || hostCommunicationReceiptVerifier instanceof ASYNC_FUNCTION_PROTOTYPE)) {
+      throw new TypeError('hostCommunicationReceiptVerifier must be a synchronous deployment-owned function');
+    }
+    this.hostCommunicationReceiptVerifier = hostCommunicationReceiptVerifier;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
