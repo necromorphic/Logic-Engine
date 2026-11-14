@@ -209,6 +209,78 @@ function validateCommunicationDeliveryProjection(row, request) {
   }
   return evidence;
 }
+function readVisibleNpcKnowledge(engine, readRequest) {
+  assert(typeof engine.npcKnowledgeVisibilityAuthorizer === 'function',
+    'NPC_KNOWLEDGE_VISIBILITY_NOT_READY',
+    'Per-acquisition NPC knowledge visibility authorization is not configured.', 503);
+  const read = engine.readNpcKnowledge(readRequest);
+  assert(read.status === 'ready' && read.truncated !== true,
+    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'A complete current NPC knowledge read is required for belief proposals.', 409);
+
+  const visibleItems = [];
+  const withheldAcquisitionIds = [];
+  const withheldPropositionRefs = new Set();
+  for (const item of read.items) {
+    const decision = engine.npcKnowledgeVisibilityAuthorizer({
+      world_id: read.world_id,
+      conversation_id: read.conversation_id,
+      adapter_id: read.adapter_id,
+      actor_id: read.actor_id,
+      recipient: read.recipient,
+      purpose: read.purpose,
+      world_revision: read.snapshot.world_revision,
+      commit_sequence: read.snapshot.commit_sequence,
+      acquisition_id: item.acquisition_id,
+      acquisition_kind: item.acquisition_kind,
+      fact_id: item.fact_id,
+      provenance_ref: item.provenance_ref,
+      provenance_digest: item.provenance_digest,
+      acquisition_authorization_ref: item.authorization_ref,
+      source_evidence: item.source_evidence ?? null,
+      receipt_digest: item.provenance_digest,
+      receipt_proof: item.source_evidence?.receipt_proof ?? null,
+    });
+    assert(exactDataRecord(decision, [
+      'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
+      'world_revision', 'commit_sequence', 'acquisition_id', 'authorization_ref',
+    ]) && decision.world_id === read.world_id
+      && decision.conversation_id === read.conversation_id
+      && decision.adapter_id === read.adapter_id
+      && decision.actor_id === read.actor_id
+      && decision.recipient === read.recipient
+      && decision.purpose === read.purpose
+      && decision.world_revision === read.snapshot.world_revision
+      && decision.commit_sequence === read.snapshot.commit_sequence
+      && decision.acquisition_id === item.acquisition_id
+      && validId(decision.authorization_ref),
+    'NPC_KNOWLEDGE_VISIBILITY_NOT_READY',
+    'Per-acquisition NPC knowledge visibility authorization is malformed or out of scope.', 503);
+
+    if (decision.status === 'allowed') {
+      // Belief propositions currently accept only fact-backed initial/imported
+      // evidence. Delivery receipts are separately authorized but are not facts.
+      if (item.fact_id !== null && ['author_initial', 'imported'].includes(item.acquisition_kind)) {
+        visibleItems.push(item);
+      }
+      continue;
+    }
+    withheldAcquisitionIds.push(item.acquisition_id);
+    const propositionRef = npcPropositionRefFor(item);
+    if (propositionRef) withheldPropositionRefs.add(propositionRef);
+  }
+
+  return Object.freeze({
+    read,
+    visibleRead: Object.freeze({
+      ...read,
+      items: Object.freeze(visibleItems),
+      withheld_acquisition_ids: Object.freeze(withheldAcquisitionIds),
+      withheld_proposition_refs: Object.freeze([...withheldPropositionRefs]),
+    }),
+  });
+}
+
 const isSafeNpcInputRecord = (value, ancestors = new Set()) => {
   if (value === null || typeof value !== 'object' || utilTypes.isProxy(value) || Array.isArray(value)) return false;
   const visit = (node) => {
