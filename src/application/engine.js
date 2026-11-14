@@ -110,7 +110,7 @@ function validateCommunicationDeliveryProjection(row, request) {
     'provenance_ref', 'provenance_digest', 'authorization_ref', 'source_evidence',
   ]) || canonicalEffect.kind !== 'knowledge.acquire'
     || canonicalEffect.acquisition_kind !== 'communication_delivered'
-    || canonicalEffect.world_id !== undefined
+    || !exact(canonicalEffect.source_evidence, evidenceKeys)
     || canonicalEffect.subject_id !== row.subject_id
     || canonicalEffect.acquisition_id !== row.acquisition_id
     || canonicalEffect.provenance_ref !== row.provenance_ref
