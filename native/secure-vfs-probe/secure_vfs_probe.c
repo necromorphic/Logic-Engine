@@ -850,15 +850,6 @@ static HANDLE WINAPI probe_create_file_w(
           return INVALID_HANDLE_VALUE;
         }
       }
-      /* The broker duplicates only GENERIC_READ for read-only opens, or
-         GENERIC_READ|GENERIC_WRITE when SQLite requested a writable handle. */
-      if (handle == INVALID_HANDLE_VALUE || handle == NULL) {
-        if (handle != INVALID_HANDLE_VALUE && handle != NULL) CloseHandle(handle);
-        handle = INVALID_HANDLE_VALUE;
-        SetLastError(ERROR_ACCESS_DENIED);
-        sqlite3_free(relative_name);
-        return INVALID_HANDLE_VALUE;
-      }
     } else {
       /*
        * Keep protected handles rename-compatible. SQLite's Windows VFS may omit
