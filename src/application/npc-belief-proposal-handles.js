@@ -165,7 +165,6 @@ function evidenceHandleFor(key, scope, context, item, propositionRef) {
     expires_at: context.expires_at,
     acquisition_id: item.acquisition_id,
     fact_id: item.fact_id,
-    event_id: item.event_id,
     acquisition_kind: item.acquisition_kind,
     authorization_ref: item.acquisition_authorization_ref,
     provenance_ref: item.provenance_ref,
