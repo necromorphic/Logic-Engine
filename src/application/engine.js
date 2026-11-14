@@ -54,6 +54,14 @@ const validSha256 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(
 const validHostUuid = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+function freezeJsonTree(node) {
+  if (node && typeof node === 'object' && !Object.isFrozen(node)) {
+    for (const child of Object.values(node)) freezeJsonTree(child);
+    Object.freeze(node);
+  }
+  return node;
+}
+
 function validateCommunicationDeliveryProjection(row, request) {
   let evidence;
   try { evidence = JSON.parse(row.source_evidence_json); }
@@ -970,7 +978,7 @@ export class LogicEngine {
             }),
             // Kept on the trusted internal read item for the per-acquisition
             // visibility authorizer. Belief-context projection never forwards it.
-            source_evidence: Object.freeze(evidence),
+            source_evidence: freezeJsonTree(evidence),
           });
         }
         let value;
