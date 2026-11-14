@@ -329,6 +329,49 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
 }
 
 /**
+ * Verify the original signed context scope for a replay acknowledgement.
+ * Expiry may be ignored because this path returns only an existing commit
+ * acknowledgement; the current actor/conversation authorization is checked
+ * separately by Core before the acknowledgement is returned.
+ */
+export function verifyNpcBeliefProposalContextHandle({
+  authorizationContext, contextHandle, key, now = Date.now, allowExpired = false,
+} = {}) {
+  if (!validKey(key) || typeof now !== 'function'
+    || !exactDataObject(authorizationContext, AUTHORIZATION_CONTEXT_KEYS)
+    || typeof contextHandle !== 'string') {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_context_verification_input' });
+  }
+  try {
+    const scope = scopeRecord({
+      status: 'ready',
+      ...authorizationContext,
+      snapshot: {
+        world_revision: authorizationContext.expected_revision,
+        commit_sequence: authorizationContext.expected_commit_sequence,
+      },
+    }, authorizationContext.limit);
+    const match = /^nctx1\.([A-Za-z0-9_-]{22})\.([0-9]{13})\.([A-Za-z0-9_-]{43})$/.exec(contextHandle);
+    if (!match) return Object.freeze({ status: 'non_ready', reason: 'invalid_context_handle' });
+    const [, nonce, expiryText, suppliedMac] = match;
+    const expiresAt = Number(expiryText);
+    const currentTime = now();
+    if (!Number.isSafeInteger(currentTime) || currentTime < 0
+      || !Number.isSafeInteger(expiresAt) || expiresAt > currentTime + CONTEXT_TTL_MS
+      || (!allowExpired && expiresAt <= currentTime)) {
+      return Object.freeze({ status: 'non_ready', reason: 'invalid_context_expiry' });
+    }
+    const expectedMac = hmac(key, contextMacPayload(scope, nonce, expiresAt));
+    if (!equalMac(expectedMac, suppliedMac)) {
+      return Object.freeze({ status: 'non_ready', reason: 'context_scope_mismatch' });
+    }
+    return Object.freeze({ status: 'ready', expires_at: expiresAt });
+  } catch {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_context_scope' });
+  }
+}
+
+/**
  * Resolve untrusted model-selected handles against a fresh, currently visible
  * Core read. This returns internal IDs only to the trusted Core caller.
  */
