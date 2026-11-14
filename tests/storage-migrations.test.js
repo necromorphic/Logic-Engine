@@ -69,6 +69,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   const eventColumns = store.db.prepare('PRAGMA table_info(world_events)').all().map((column) => column.name);
   const idempotencyColumns = store.db.prepare('PRAGMA table_info(idempotency_keys)').all().map((column) => column.name);
   const manifestColumns = store.db.prepare('PRAGMA table_info(context_manifests)').all().map((column) => column.name);
+  const beliefColumns = store.db.prepare('PRAGMA table_info(npc_belief_transitions)').all().map((column) => column.name);
   assert.ok(eventColumns.includes('causal_links_json'));
   assert.ok(eventColumns.includes('commit_sequence'));
   assert.ok(eventColumns.includes('context_manifest_id'));
@@ -85,6 +86,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.deepEqual(store.db.prepare('PRAGMA foreign_key_check').all(), []);
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
+  assert.ok(beliefColumns.includes('modality'));
   assert.deepEqual(
     store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
     [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
@@ -102,7 +104,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='host_conversation_world_bindings'").get().name, 'host_conversation_world_bindings');
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
@@ -143,7 +145,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
   assert.equal(store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().name, 'world_time_triggers');
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
