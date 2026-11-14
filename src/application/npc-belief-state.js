@@ -482,6 +482,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     proposition_ref: transition.proposition_ref,
     proposition_value: transition.proposition_value,
     belief_stance: transition.stance,
+    belief_modality: transition.modality,
     belief_stance_class: transition.stance === 'unresolved_conflict'
       ? 'conflicted'
       : ADR_STANCES.has(transition.stance) ? transition.stance
