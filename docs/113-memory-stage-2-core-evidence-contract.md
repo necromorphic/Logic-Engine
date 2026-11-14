@@ -1,6 +1,6 @@
 # Stage 2 — Core Evidence Contract: source audit and implementation boundary
 
-**Status:** Stage 2A persistence direction selected; Host complete-inventory attestation path mapped; Core receipt ingress and acquisition persistence remain in progress. One fail-closed Core version lookup helper has been added. No tests or runtime workflows were run for this work block.
+**Status:** Stage 2A persistence implementation is present through schema migration 19; exact-HEAD verification remains pending. Stage 2B Host receipt ingress is implemented in source and has received an additional atomic source-version check; contract tests remain unrun.
 
 **Working branch:** `memory/development-2026-11-13`  
 **Inspected HEAD:** `f7584e820cd7bba02b7b7590cb34b72447651eaf`  
@@ -175,47 +175,46 @@ Belief transitions continue to reference Core acquisition IDs only. They must no
 ## 9. Current status
 
 - Core source constraints: **INSPECTED**.
-- Stage 2 canonical evidence representation: **DESIGN IN PROGRESS**.
-- Core production implementation: **NOT STARTED**.
-- Stage 2 tests: **NOT RUN / NOT DUE**.
+- Stage 2 canonical evidence representation: **DESIGN SELECTED** — one canonical `world_events` log and one rebuildable `knowledge_acquisitions` projection.
+- Stage 2A persistence: **IMPLEMENTED IN SOURCE** through migrations 18–19; runtime migration and preservation checks are not yet verified.
+- Stage 2B communication ingress: **IMPLEMENTED IN SOURCE**; exact signed receipt route, inventory verifier, Core binding checks and commit-time source-version revalidation are present. Contract tests have not been run.
+- Stage 2C typed authorized read: **PENDING**.
+- `direct_observation`: **UNSUPPORTED / FAIL-CLOSED** until a real trusted World/Simulation producer exists.
+- Stage 2 tests: **NOT RUN** for the latest implementation increment.
 - Installed SillyTavern/provider/runtime tests: **NOT DUE**.
 - Memory→NPC activation: **DISABLED / FAIL-CLOSED**.
 
 
-## 10. Host → Core receipt transport audit
+## 10. Host → Core receipt transport: current branch source audit
 
-The existing Host receipt producer is present, but the signed delivery evidence is not yet a Core acquisition input:
+The previous description of this boundary was stale. The current branch contains the following implementation:
 
-- `HostLifecycleReceiptStore` creates `communication_delivery` only for the verified one-message append in a one-to-one `character-chat`. It binds the canonical recipient World/Actor, authenticated account, stable message/version IDs, content digest, `delivered` status and Host event/mutation IDs. It carries no raw message text.
-- The Host proxy hashes the exact `communication_delivery` object and signs a proof with the configured adapter token. The signature binds adapter ID, Host installation/account/session, conversation, event ID/type, mutation ID, operation, mutation digest, delivery receipt digest and timestamp.
-- Core's `POST /v1/host-lifecycle/events` accepts only the digest-only lifecycle envelope. The delivery object itself is not accepted or persisted by that route. Repository source inspection found no Core route that accepts `communication_delivery_receipt`.
-- Core's `verifyHostLifecycleReceipt` verifies the lifecycle event signature using the configured adapter secret, but this verifies the lifecycle envelope; it does not make the separate delivery payload available to Core.
-- `HostVersionDigestLedger` has capture/reconcile and inventory-state operations, but no public read operation for a specific message/version or active pointer. More importantly, `src/index.js` currently constructs it with `verifyInventorySnapshot: async () => false`. Therefore complete message-version inventory can never reach `READY` in this composition. A point-in-time delivery receipt alone cannot prove that the version remains active at later retrieval time.
+- `HostLifecycleReceiptStore` creates a `communication_delivery` receipt only for the verified persisted one-message append in a one-to-one `character-chat`. It binds the recipient World/Actor, authenticated account, stable message/version IDs, content digest, delivery status, Host event/mutation IDs, and the complete digest-only conversation inventory. It does not retain or transmit raw message text.
+- The Host proxy signs the receipt using the configured adapter token. The proof binds adapter, installation/account/session, conversation, event/mutation identity, operation, mutation digest, receipt digest and timestamp.
+- Core exposes `POST /v1/host-version-ledger/reconcile-delivery`. The route requires an authenticated adapter, validates the exact receipt/inventory shape, resolves the existing Core conversation and Actor binding, and rejects any World/Actor mismatch. It then calls `HostVersionDigestLedger.reconcileConversation()` with a synchronous binding revalidation callback. Only a `READY` reconciliation reaches `LogicEngine.recordTrustedCommunicationDelivery()`.
+- `src/index.js` wires `verifyHostVersionInventorySnapshot` as the ledger verifier. It checks the pinned Host commit, exact receipt/evidence fields, source-attestation digests, complete inventory, unique active pointers, delivered message/version membership, receipt digest and adapter-token HMAC. The browser-facing `/v1/host-version-ledger/reconcile` path does not provide this trusted receipt and therefore remains fail-closed.
+- `HostVersionDigestLedger.getVersionState()` reads only from a `READY` inventory and requires verified lineage plus the active pointer selecting the exact message/version.
+- A commit-time race was identified: reconciliation and Core acquisition commit were previously separate coordinator operations, leaving a gap in which the inventory could be invalidated after reconciliation but before acquisition. The current branch now performs the exact `getVersionState()` check inside `SQLiteStore.tx()`, compares World/conversation/message/version/content digest and snapshot digest, and commits the Core event before releasing the shared Coordinator lease. Host ledger mutations use the same lease, so they cannot invalidate the checked version during this interval.
 
-### Stage 2B prerequisite and safe sequence
+The atomic check is source-level implemented but not yet exercised by the planned concurrency/contract tests. It does not make the Host receipt itself proof of message truth, reading or understanding.
 
-1. Add a bounded Core receipt-ingress contract that accepts only the signed receipt envelope, verifies its HMAC with the configured adapter principal, recomputes the delivery digest, checks the exact event/operation/status and resolves the existing adapter conversation binding to the same canonical World/Actor. No browser-supplied producer identity is trusted.
-2. Use the server-side `HostLifecycleReceiptStore` snapshot already produced under the aligned VSS/source-attestation gate to build a complete, digest-only conversation version inventory. The existing `st-source-inventory.mjs` exposes every stable message/version ID, parent, content digest and active pointer from the persisted chat; it does not expose message text in the receipt.
-3. Extend the signed Host delivery receipt so its digest/HMAC binds that complete version inventory, then send it from the Host server proxy to a Core-only reconciliation route. Do not reuse the browser-supplied `/v1/host-version-ledger/reconcile` payload as trusted evidence.
-4. Keep the inventory `NON_READY` on every Host lifecycle mutation until a fresh signed complete snapshot is reconciled. The existing `verifyInventorySnapshot: async () => false` is intentional fail-closed behavior for the untrusted browser reconciliation route; replace it only with a verifier that checks the signed receipt, adapter identity, conversation binding, source pins and exact inventory digest.
-5. On a verified complete snapshot, reconcile absent previously known versions as explicit tombstones while retaining their rows and lineage. Do not silently delete history. `getVersionState()` then permits only a present, verified, currently active version.
-6. Only after those checks can the internal Core evidence-ingestion method create the canonical acquisition event. The Host message body remains outside Core and must later be retrieved from Provider only by matching the immutable message/version/digest binding.
-4. Only after those checks can the internal Core evidence-ingestion method create the canonical acquisition event. The source evidence is the signed delivery receipt; the Host message body remains outside Core and must later be retrieved from Provider only by matching the immutable message/version/digest binding.
-5. Keep `direct_observation` unsupported until a real trusted World/Simulation producer is implemented.
+## 11. Stage 2A — Core evidence persistence implementation
 
-This identifies a real implementation dependency in the existing Host/Core composition. It is not a Provider or model-backend task, and it does not justify starting installed SillyTavern tests now.
+The existing Core-owned acquisition projection has two forward schema migrations:
 
+- Migration 18 rebuilds `knowledge_acquisitions` to support `communication_delivered`: `fact_id` becomes nullable; typed `source_evidence_json` and normalized Host source identity/digest columns are added; the CHECK constraint preserves the strict fact-backed shape for `author_initial`/`imported` and requires the complete source binding for `communication_delivered`. Existing schema-v17 rows are copied with their legacy acquisition snapshots unchanged.
+- Migration 19 rebuilds the projection to add the `direct_observation` discriminant. It requires a non-null typed source-evidence object, null fact/value/source-event snapshots, and null Host-specific normalized columns. It copies all existing v18 evidence JSON and source identity columns, recreates both projection indexes, and runs `PRAGMA foreign_key_check`.
+- Read-only Core startup now requires schema migration version 19. It must not accept a v17/v18 database as current.
 
-## 11. Complete conversation inventory source found
+The schema's `direct_observation` discriminant is storage compatibility only. `src/core/rules.js` still rejects unsupported acquisition kinds; no observation producer or ingress was added. The generic public event API remains unable to mint acquisition effects.
 
-A safe route to a verifiable message-version inventory exists in the current Host server code; the previous design note understated this.
+## 12. Verification and remaining work
 
-- `host-adapter/extension-gateway/server-plugin/st-source-inventory.mjs` derives `logical_identity.messages` from the persisted chat file. Each message includes a stable `message_id`, role, active-version index, and every version's stable ID, parent ID, content SHA-256 and active flag. It checks message/version IDs, duplicate IDs, active version alignment, persisted content digest, and a bounded total-version count.
-- `HostLifecycleReceiptStore` already obtains this logical identity from its server-side `enumerateHostDataInventory` before and after the mutation. On Windows the inventory uses one aligned VSS snapshot; the delivery producer additionally requires distinct before/after snapshots with matching pinned source and mutation-route attestations.
-- The delivery producer currently returns only the newly delivered message's identity/digest. It can be extended to include the complete **digest-only** after-state conversation inventory in the signed delivery object. Since the Host proxy's `receipt_digest` hashes the canonical delivery object, the existing adapter-token HMAC can bind the full inventory without putting raw message text into Core.
-- The existing browser-facing `/v1/host-version-ledger/reconcile` path is not a trusted source: the Host proxy forwards a browser-supplied `versions` array, and Core deliberately configures `verifyInventorySnapshot: async () => false`. This must remain fail-closed.
-- A new server-to-Core reconciliation call should carry the signed delivery receipt and the full version inventory. Core verifies the signature and exact binding, resolves the existing adapter/conversation/Actor mapping, and only then calls the existing ledger reconcile operation. The caller must not choose a World, Actor, producer identity or inventory completeness claim.
-- To keep source validity fresh, any Host lifecycle mutation should invalidate the conversation inventory. A fresh signed complete snapshot can restore READY; until then all version lookups remain non-ready. This is conservative: after assistant output or an edit/delete, Memory reads remain disabled until the next trusted complete snapshot.
-- The current ledger treats a known version missing from a purported complete inventory as non-ready. Once the snapshot is cryptographically and semantically verified as complete, reconciliation can instead preserve that version row as a tombstone and clear its active pointer. It must never erase lineage or permit a tombstoned version to reappear.
-
-This design reuses the existing Host server snapshot, receipt signature, Core adapter trust and HostVersionDigestLedger. It does not add a second identity mechanism, event log, acquisition store, Provider dependency or Gateway rewrite.
+- Source review of migration 18/19, preservation SELECTs, index recreation, foreign-key checks and read-only schema gate: **INSPECTED** after edits.
+- Source review of signed delivery route, Host inventory verifier and shared Coordinator lease: **INSPECTED**.
+- Automated tests: **NOT RUN** by instruction.
+- Migration against real v17/v18 databases, value-preservation checks, runtime `foreign_key_check`, read-only startup at v19, event replay/rebuild, and commit-vs-revocation concurrency: **NOT VERIFIED**.
+- Typed authorized acquisition read (including delivery-source revalidation on read): **PENDING**.
+- Direct-observation producer: **NOT IMPLEMENTED / FAIL-CLOSED**.
+- Installed SillyTavern/provider/runtime checks: **NOT DUE**.
+- Memory → NPC: **DISABLED / FAIL-CLOSED**.
