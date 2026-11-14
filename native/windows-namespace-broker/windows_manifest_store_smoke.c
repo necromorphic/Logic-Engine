@@ -137,8 +137,8 @@ static int broker_test_request(
   if(opened)*opened=INVALID_HANDLE_VALUE;
   if(!role||!kind||!status)return 0;
   role_length=strlen(role);kind_length=strlen(kind);
-  if(!role_length||role_length>128||!kind_length||kind_length>8
-      ||role_length+1+kind_length>sizeof(payload))return 0;
+  if(!role_length||role_length>128u||!kind_length||kind_length>8u
+      ||role_length+1u+kind_length>sizeof(payload))return 0;
   memcpy(payload,role,role_length);payload[role_length]=0;
   memcpy(payload+role_length+1,kind,kind_length);
   request_id=broker_test_request_id++;
@@ -189,9 +189,9 @@ static int broker_test_start_console(
   wchar_t executable[32768],command[32768];
   STARTUPINFOW startup;DWORD length;int attempt;
   ZeroMemory(process,sizeof(*process));ZeroMemory(&startup,sizeof(startup));
-  startup.cb=sizeof(startup);
+  startup.cb=(DWORD)sizeof(startup);
   length=GetEnvironmentVariableW(L"LOGIC_ENGINE_BROKER_EXE",executable,(DWORD)LE_COUNT_OF(executable));
-  if(!length||length>=LE_COUNT_OF(executable))return 0;
+  if(!length||length>=(DWORD)LE_COUNT_OF(executable))return 0;
   if(FAILED(StringCchPrintfW(command,LE_COUNT_OF(command),
       L"\"%s\" --console-test --client-sid \"%s\" --metadata-dir \"%s\" --namespace-root \"%s\"",
       executable,service_sid,metadata_directory,namespace_directory)))return 0;
