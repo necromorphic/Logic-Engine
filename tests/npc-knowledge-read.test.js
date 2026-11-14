@@ -1663,9 +1663,8 @@ test('reader returns typed communication evidence only while its signed source v
     reason_rule_ref: 'rule:belief-update-v1',
   });
   assert.equal(prepared.status, 'ready');
-  assert.equal(prepared.context.evidence.length, 1);
-  assert.equal(prepared.context.evidence[0].acquisition_id, factItem.acquisition_id);
-  assert.equal(Object.hasOwn(prepared.context.evidence[0], 'source_evidence'), false);
+  assert.deepEqual(prepared.transition.evidence_acquisition_ids, [factItem.acquisition_id]);
+  assert.equal(Object.hasOwn(prepared, 'context'), false);
 
   const proposalContext = engine.createNpcBeliefProposalContext(readRequest);
   assert.equal(proposalContext.status, 'ready');
