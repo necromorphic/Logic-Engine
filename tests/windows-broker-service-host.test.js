@@ -33,7 +33,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.match(source, /le_win_open_role_file/);
   assert.match(source, /le_win_create_role_sidecar/);
   assert.match(source, /DuplicateHandle\(GetCurrentProcess\(\),source,process,&remote,desired_access,FALSE,0\)/);
-  assert.match(source, /read_only\?GENERIC_READ:\(GENERIC_READ\|GENERIC_WRITE\)/);
+  assert.match(source, /read_only\?FILE_GENERIC_READ:\(FILE_GENERIC_READ\|FILE_GENERIC_WRITE\)/);
   assert.match(source, /if\(q\.flags>1u\)goto done/);
   assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
   assert.match(source, /r\.payload_length=net32\(has_remote_handle\?/);
