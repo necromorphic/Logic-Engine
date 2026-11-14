@@ -12,6 +12,7 @@ on:
       - 'native/secure-vfs-probe/windows-manifest-lifecycle.js'
       - 'tests/security-vfs-extension-bootstrap.test.js'
       - 'tests/security-vfs-broker-integration.test.js'
+      - 'tests/security-vfs-strict-mode.test.js'
       - 'native/posix-namespace-broker/test_vfs_fake_server.py'
       - 'docs/97-issue-770-windows-vfs-integration-contract.md'
       - 'docs/security/sqlite-vfs-directory-anchor-design.md'
@@ -69,12 +70,18 @@ jobs:
           if [ ! -x /usr/bin/node ]; then sudo ln -s "$(command -v node)" /usr/bin/node; fi
       - name: Validate systemd service unit
         run: systemd-analyze verify deploy/sqlite-security/logic-engine.service deploy/sqlite-security/logic-engine-sqlite-broker.service
-      - name: Build VFS registration probe
-        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe.so
-      - name: Verify persistent VFS registration through node:sqlite
+      - name: Build explicit test-mode VFS probe (same-UID fake broker only)
+        run: cc -O2 -fPIC -shared -DLOGIC_ENGINE_VFS_PROBE_ALLOW_UNBROKERED_TEST_ROLES -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe_test.so
+      - name: Build strict production-mode VFS probe
+        run: cc -O2 -fPIC -shared -I native/secure-vfs-probe native/secure-vfs-probe/secure_vfs_probe.c -o native/secure-vfs-probe/secure_vfs_probe_strict.so
+      - name: Verify broker-backed VFS integration through node:sqlite
         env:
-          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.so
+          LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe_test.so
         run: node --test tests/security-vfs-extension-bootstrap.test.js tests/security-vfs-broker-integration.test.js
+      - name: Verify strict build hides test-only enrollment and enforces Host configuration
+        env:
+          LOGIC_ENGINE_VFS_STRICT_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe_strict.so
+        run: node --test tests/security-vfs-strict-mode.test.js
 
   windows:
     runs-on: [self-hosted, Windows, X64]
