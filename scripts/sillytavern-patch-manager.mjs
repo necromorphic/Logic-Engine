@@ -705,12 +705,21 @@ export class SillyTavernPatchManager {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
     }
+    // Legacy transaction journals may not contain hostOverlayFiles even when
+    // createdFiles accidentally claims a Host-owned handler. Recover ownership
+    // only from a currently verified, complete Host source attestation.
+    const verifiedHostManifest = await this.loadVerifiedHostOverlayManifest();
+    const verifiedHostHashes = new Map((verifiedHostManifest?.files ?? [])
+      .filter(file => file && typeof file.path === 'string'
+        && typeof file.sha256 === 'string' && /^[a-f0-9]{64}$/.test(file.sha256))
+      .map(file => [file.path, file.sha256]));
     for (const [relativePath, expected] of Object.entries(journal.createdFiles ?? {})) {
       const target = resolve(this.stRoot, relativePath);
       const hostOwnedHash = journal.hostOverlayFiles?.[relativePath]
-        ?? this.trustedHostOverlayFiles.get(relativePath);
+        ?? this.trustedHostOverlayFiles.get(relativePath)
+        ?? verifiedHostHashes.get(relativePath);
       if (hostOwnedHash) {
-        // A path attested by the independently installed Host Bundle is not
+        // A path attested by the independently verified Host Bundle is not
         // Final-Send-owned, even if a predecessor manifest listed it as
         // createdFiles. Preserve an intact Host file; fail closed on drift.
         if (await exists(target) && await this.hashAt(relativePath) !== hostOwnedHash) {
@@ -737,7 +746,9 @@ export class SillyTavernPatchManager {
       await atomicReplaceExisting(target, backupBytes);
     }
     for (const relativePath of Object.keys(journal.createdFiles ?? {})) {
-      if (journal.hostOverlayFiles?.[relativePath] || this.trustedHostOverlayFiles.has(relativePath)) {
+      if (journal.hostOverlayFiles?.[relativePath]
+        || this.trustedHostOverlayFiles.has(relativePath)
+        || verifiedHostHashes.has(relativePath)) {
         continue;
       }
       await rm(resolve(this.stRoot, relativePath), { force: true });
