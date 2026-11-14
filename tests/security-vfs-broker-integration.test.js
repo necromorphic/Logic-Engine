@@ -201,6 +201,72 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
     reopened.close();
   }
 
+  // Prove SQLite's WAL writer lock is effective across OS processes,
+  // not only between DatabaseSync connections in this process.
+  const lockScript = `
+    const { DatabaseSync } = require('node:sqlite');
+    const bootstrap = new DatabaseSync(':memory:', { allowExtension: true });
+    bootstrap.loadExtension(${JSON.stringify(extensionPath)}, 'sqlite3_secure_vfs_probe_init');
+    bootstrap.enableLoadExtension(false);
+    bootstrap.close();
+    const registrar = new DatabaseSync(':memory:');
+    const registered = registrar.prepare(
+      'SELECT logic_engine_vfs_probe_register_broker_role(?, ?, ?) AS registered'
+    ).get(${JSON.stringify(databasePath)}, 'core', ${JSON.stringify(socketPath)}).registered;
+    if (registered !== 1) process.exit(31);
+    const db = new DatabaseSync(${JSON.stringify(databasePath)});
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=0; BEGIN IMMEDIATE;');
+    db.prepare('INSERT INTO broker_probe VALUES (?)').run('cross-process-lock-holder');
+    process.stdout.write('LOCKED\\n');
+    process.stdin.once('data', () => {
+      try {
+        db.exec('COMMIT;');
+        db.close();
+        registrar.close();
+        process.exit(0);
+      } catch (error) {
+        process.stderr.write(String(error?.stack ?? error));
+        process.exit(32);
+      }
+    });
+  `;
+  const lockHolder = spawn(process.execPath, ['--experimental-sqlite', '-e', lockScript], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let lockHolderError = '';
+  lockHolder.stderr.on('data', chunk => { lockHolderError += chunk.toString(); });
+  let lockHolderReleased = false;
+  const contender = new DatabaseSync(databasePath);
+  try {
+    const [lockReady] = await Promise.race([
+      once(lockHolder.stdout, 'data'),
+      once(lockHolder, 'exit').then(([code]) => {
+        throw new Error('cross-process lock holder exited before acquiring its lock (' + code + '): ' + lockHolderError);
+      }),
+      delay(5000).then(() => {
+        throw new Error('cross-process lock holder did not acquire its write lock in time: ' + lockHolderError);
+      }),
+    ]);
+    assert.equal(lockReady.toString().trim(), 'LOCKED');
+    contender.exec('PRAGMA busy_timeout=0;');
+    assert.throws(
+      () => contender.exec('BEGIN IMMEDIATE;'),
+      /database is locked|busy/i,
+      'a second OS process must not acquire the WAL write lock while the first process holds it',
+    );
+    lockHolder.stdin.end('COMMIT\\n');
+    const [lockExitCode] = await once(lockHolder, 'exit');
+    lockHolderReleased = true;
+    assert.equal(lockExitCode, 0, 'the lock-holder process must commit and exit cleanly');
+    contender.exec('BEGIN IMMEDIATE; COMMIT;');
+  } finally {
+    contender.close();
+    if (!lockHolderReleased && lockHolder.exitCode === null) {
+      lockHolder.kill('SIGKILL');
+      await once(lockHolder, 'exit');
+    }
+  }
+
   // Crash a separate process with an uncommitted WAL transaction, then
   // reopen through the same broker and verify SQLite recovery preserves only
   // committed rows. process.exit intentionally bypasses DatabaseSync.close().
