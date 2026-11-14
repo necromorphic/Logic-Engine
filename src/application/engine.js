@@ -13,6 +13,7 @@ import { parseNpcBeliefProposalOutput } from './npc-belief-proposal-parser.js';
 import {
   createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
   resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
+  verifyNpcBeliefProposalContextHandle,
 } from './npc-belief-proposal-handles.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
@@ -1347,6 +1348,16 @@ export class LogicEngine {
       WHERE world_id=? AND idempotency_key=?
     `).get(authorization.world_id, idempotencyKey);
     if (existingReplay) {
+      const contextVerification = verifyNpcBeliefProposalContextHandle({
+        authorizationContext: authorization,
+        contextHandle: parsed.proposal.context_handle,
+        key: typeof this.npcEvidenceHandleKeyProvider === 'function'
+          ? this.npcEvidenceHandleKeyProvider(authorization.adapter_id) : null,
+        allowExpired: true,
+      });
+      assert(contextVerification.status === 'ready',
+        'NPC_BELIEF_CONTEXT_SCOPE_MISMATCH',
+        'The original signed proposal context does not match the replay authorization scope.', 403);
       const currentWorld = this.store.world(authorization.world_id);
       assert(currentWorld && currentWorld.status === 'active',
         'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
