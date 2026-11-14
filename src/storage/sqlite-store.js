@@ -947,7 +947,8 @@ export class SQLiteStore {
           )
           SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
             provenance_digest,authorization_ref,event_id,committed_revision,
-            acquired_value_json,acquired_source_event_ids_json,NULL,NULL,NULL,NULL,NULL,NULL
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
           FROM knowledge_acquisitions;
           DROP TABLE knowledge_acquisitions;
           ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
