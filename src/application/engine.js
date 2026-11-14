@@ -1503,7 +1503,7 @@ export class LogicEngine {
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
-      const requestHash = hashRequest({
+      const requestHashPayload = {
         operation: 'npc.belief.transition',
         world_id: input.world_id,
         conversation_id: input.conversation_id,
@@ -1521,7 +1521,17 @@ export class LogicEngine {
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
-      });
+      };
+      const requestHash = hashRequest(requestHashPayload);
+      const legacyRequestHash = !Object.hasOwn(input, 'modality')
+        && !['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance)
+        ? (() => {
+          const { modality: ignored, ...legacyPayload } = requestHashPayload;
+          return hashRequest(legacyPayload);
+        })()
+        : null;
+      const requestHashMatches = storedHash => storedHash === requestHash
+        || (legacyRequestHash !== null && storedHash === legacyRequestHash);
   
       // Canonical snapshot reads and deployment authorizers must run outside the
       // store's write transaction. Authenticate replays against the current cursor
@@ -1546,7 +1556,7 @@ export class LogicEngine {
           expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
           limit: limit,
         });
-        assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+        assert(requestHashMatches(existingReplay.request_hash), 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
         return {
           status: 'ready',
@@ -1625,7 +1635,7 @@ export class LogicEngine {
           WHERE world_id=? AND idempotency_key=?
         `).get(input.world_id, input.idempotency_key);
         if (replay) {
-          assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+          assert(requestHashMatches(replay.request_hash), 'IDEMPOTENCY_KEY_REUSED',
             'Belief transition idempotency key was already used for a different request.', 409);
           assert(this.store.world(input.world_id)?.world_revision === input.expected_revision
             && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
