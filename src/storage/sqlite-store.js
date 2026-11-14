@@ -391,7 +391,7 @@ export class SQLiteStore {
           throw new Error('CORE_SCHEMA_INCOMPLETE');
         }
         const migration = this.db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get();
-        if (migration?.version !== 18) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
+        if (migration?.version !== 19) throw new Error('CORE_READ_ONLY_SCHEMA_MIGRATION_REQUIRED');
         const local = this.db.prepare(
           'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
         ).get();
@@ -867,6 +867,76 @@ export class SQLiteStore {
                 AND source_adapter_id IS NOT NULL AND source_conversation_id IS NOT NULL
                 AND source_message_id IS NOT NULL AND source_version_id IS NOT NULL
                 AND source_content_sha256 IS NOT NULL)
+            )
+          );
+          INSERT INTO knowledge_acquisitions_new(
+            world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+            source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+          )
+          SELECT world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+            provenance_digest,authorization_ref,event_id,committed_revision,
+            acquired_value_json,acquired_source_event_ids_json,NULL,NULL,NULL,NULL,NULL,NULL
+          FROM knowledge_acquisitions;
+          DROP TABLE knowledge_acquisitions;
+          ALTER TABLE knowledge_acquisitions_new RENAME TO knowledge_acquisitions;
+          CREATE INDEX knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_id,acquisition_id);
+          CREATE INDEX knowledge_acquisitions_source
+            ON knowledge_acquisitions(world_id,subject_id,source_adapter_id,source_conversation_id,committed_revision,acquisition_id);
+          `);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('KNOWLEDGE_ACQUISITION_EVIDENCE_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
+        },
+      },
+      {
+        version: 19,
+        apply: () => {
+          this.db.exec(`CREATE TABLE knowledge_acquisitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            fact_id TEXT,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN (
+              'author_initial','imported','communication_delivered','direct_observation'
+            )),
+            provenance_ref TEXT NOT NULL,
+            provenance_digest TEXT NOT NULL,
+            authorization_ref TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            acquired_value_json TEXT,
+            acquired_source_event_ids_json TEXT,
+            source_evidence_json TEXT,
+            source_adapter_id TEXT,
+            source_conversation_id TEXT,
+            source_message_id TEXT,
+            source_version_id TEXT,
+            source_content_sha256 TEXT,
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,event_id,acquisition_id),
+            CHECK(
+              (acquisition_kind IN ('author_initial','imported')
+                AND fact_id IS NOT NULL AND source_evidence_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL AND source_content_sha256 IS NULL)
+              OR
+              (acquisition_kind='communication_delivered'
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NOT NULL AND source_conversation_id IS NOT NULL
+                AND source_message_id IS NOT NULL AND source_version_id IS NOT NULL
+                AND source_content_sha256 IS NOT NULL)
+              OR
+              (acquisition_kind='direct_observation'
+                AND fact_id IS NULL AND source_evidence_json IS NOT NULL
+                AND acquired_value_json IS NULL AND acquired_source_event_ids_json IS NULL
+                AND source_adapter_id IS NULL AND source_conversation_id IS NULL
+                AND source_message_id IS NULL AND source_version_id IS NULL
+                AND source_content_sha256 IS NULL)
             )
           );
           INSERT INTO knowledge_acquisitions_new(
