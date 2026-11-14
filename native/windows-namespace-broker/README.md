@@ -67,7 +67,7 @@ The SCM host opens this store with the native strict validators and invokes lock
 - file flush and parent-directory flush primitives;
 - deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
 
-The low-level adapter supplies the handle-relative namespace primitives used by the service-owned manifest validator and lifecycle transactions. The VFS delegates manifest-bound main/sidecar opens, EXISTS probes and sidecar deletion to OPEN_MAIN, OPEN_SIDECAR, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and DELETE_SIDECAR over the named pipe. CREATE_SIDECAR is also available for explicit create-only callers. The Windows native smoke test exercises create, flush, reopen, identity mismatch rejection, and delete. The Windows source-contract test checks the IPC dispatch and handle-transfer boundary; an end-to-end SCM service/client process test is still required. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
+The low-level adapter supplies the handle-relative namespace primitives used by the service-owned manifest validator and lifecycle transactions. The VFS delegates manifest-bound main/sidecar opens, EXISTS probes and sidecar deletion to OPEN_MAIN, OPEN_SIDECAR, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and DELETE_SIDECAR over the named pipe. CREATE_SIDECAR is also available for explicit create-only callers. The Windows native smoke test exercises create, flush, reopen, identity mismatch rejection, and delete. It also starts a test-only console instance of the broker in a separate process and performs real named-pipe OPEN_MAIN, OPEN_OR_CREATE_SIDECAR, OPEN_SIDECAR, CREATE_SIDECAR, ACCESS_ROLE_FILE and DELETE_SIDECAR requests, reading and writing through transferred client-process HANDLEs. This proves the IPC handle-transfer path under the runner account, but not SCM registration or isolation between distinct service and application identities. The console mode is compiled only in CI and is absent from production builds. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
 
 ## Strict Windows manifest byte validation
 
@@ -90,9 +90,9 @@ smoke test. It also runs the source-contract and Windows handle-relative VFS
 tests. This catches C compiler/linker regressions and exercises the native
 startup trust gate plus create/delete recovery. Static source-contract checks
 cover ACCESS_ROLE_FILE, DELETE_SIDECAR, main/sidecar open/create dispatch and
-client-process HANDLE transfer. The native smoke test does not launch the SCM
-service or prove a real cross-process named-pipe transfer; that acceptance test
-remains required before production use.
+client-process HANDLE transfer. The native smoke test launches a test-only
+console host in a separate process and verifies real named-pipe handle transfer.
+It does not exercise SCM registration or distinct service/application identities.
 
 
 ## Locked startup-recovery primitive
