@@ -116,10 +116,64 @@ static BOOL parse_access_payload(const BYTE *payload,DWORD length,char role[129]
  memcpy(kind,payload+separator+1,kind_length);kind[kind_length]=0;
  return !strcmp(kind,"main")||!strcmp(kind,"wal")||!strcmp(kind,"shm")||!strcmp(kind,"journal");
 }
+static void close_remote_client_handle(HANDLE process, uint64_t remote_value) {
+ HANDLE local=INVALID_HANDLE_VALUE;
+ HANDLE remote=(HANDLE)(uintptr_t)remote_value;
+ if(!process||!remote_value||remote==INVALID_HANDLE_VALUE)return;
+ if(DuplicateHandle(process,remote,GetCurrentProcess(),&local,0,FALSE,
+      DUPLICATE_SAME_ACCESS|DUPLICATE_CLOSE_SOURCE)){
+  if(local&&local!=INVALID_HANDLE_VALUE)CloseHandle(local);
+ }
+}
+static BOOL duplicate_file_handle_to_client(HANDLE source,HANDLE process,uint64_t *remote_value) {
+ HANDLE remote=NULL;
+ if(!source||source==INVALID_HANDLE_VALUE||!process||!remote_value)return FALSE;
+ *remote_value=0;
+ if(!DuplicateHandle(GetCurrentProcess(),source,process,&remote,0,FALSE,DUPLICATE_SAME_ACCESS))
+  return FALSE;
+ if(!remote||remote==INVALID_HANDLE_VALUE)return FALSE;
+ *remote_value=(uint64_t)(uintptr_t)remote;
+ return *remote_value!=0;
+}
+static BOOL open_role_file_for_operation(
+    uint16_t operation,const char *role,const char *kind,HANDLE *opened) {
+ BOOL exists=FALSE;
+ HANDLE created=INVALID_HANDLE_VALUE;
+ LogicEngineWinFileIdentity created_identity;
+ DWORD saved_error=ERROR_SUCCESS;
+ if(!opened)return FALSE;
+ *opened=INVALID_HANDLE_VALUE;
+ if(operation==2u){
+  if(strcmp(kind,"main")!=0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+  return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(operation==3u){
+  if(strcmp(kind,"main")==0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+  return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(operation!=5u&&operation!=7u){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+ if(strcmp(kind,"main")==0){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+ if(operation==7u){
+  if(!le_win_access_role_file(&metadata_store,namespace_root,role,kind,&exists))return FALSE;
+  if(exists)
+   return le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)?TRUE:FALSE;
+ }
+ if(!le_win_create_role_sidecar(&metadata_store,namespace_root,role,kind,
+      &created,&created_identity))return FALSE;
+ if(created!=INVALID_HANDLE_VALUE){CloseHandle(created);created=INVALID_HANDLE_VALUE;}
+ if(!le_win_open_role_file(&metadata_store,namespace_root,role,kind,opened)){
+  saved_error=GetLastError();
+  if(saved_error==ERROR_SUCCESS)saved_error=ERROR_ACCESS_DENIED;
+  SetLastError(saved_error);
+  return FALSE;
+ }
+ return TRUE;
+}
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
- DWORD response_status=LEB_STATUS_BAD_REQUEST;BOOL exists=FALSE;
- char role[129],kind[16];
+ HANDLE opened=INVALID_HANDLE_VALUE;DWORD response_status=LEB_STATUS_BAD_REQUEST;
+ BOOL exists=FALSE,has_remote_handle=FALSE;char role[129],kind[16];
+ uint64_t remote_handle=0,wire_handle=0;
  if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn_timeout(pipe,&q,sizeof(q),5000))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
@@ -151,13 +205,40 @@ static void client(HANDLE pipe) {
    else response_status=LEB_STATUS_INTERNAL;
    le_win_store_unlock(&metadata_store);
   }
- }else if(q.operation>=2&&q.operation<=8)response_status=LEB_STATUS_UNSUPPORTED;
+ }
+ else if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){
+  if(!parse_access_payload(payload,q.payload_length,role,kind)
+      ||(q.operation==2&&strcmp(kind,"main")!=0)
+      ||(q.operation!=2&&strcmp(kind,"main")==0))response_status=LEB_STATUS_BAD_REQUEST;
+  else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
+  else{
+   if(open_role_file_for_operation(q.operation,role,kind,&opened)){
+    if(duplicate_file_handle_to_client(opened,process,&remote_handle)){
+     has_remote_handle=TRUE;response_status=LEB_STATUS_OK;
+    }else response_status=LEB_STATUS_INTERNAL;
+   }else{
+    DWORD open_error=GetLastError();
+    response_status=open_error==ERROR_FILE_NOT_FOUND||open_error==ERROR_PATH_NOT_FOUND
+      ?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL;
+   }
+   if(opened!=INVALID_HANDLE_VALUE){CloseHandle(opened);opened=INVALID_HANDLE_VALUE;}
+   le_win_store_unlock(&metadata_store);
+  }
+ }
  else response_status=LEB_STATUS_UNSUPPORTED;
  ZeroMemory(&r,sizeof(r));r.magic=net32(MAGIC);r.version=net16(VERSION);
  r.operation=net16(q.operation);r.flags=net32(response_status);
- r.request_id=net64(q.request_id);r.payload_length=0;
- (void)writen(pipe,&r,sizeof(r));
+ r.request_id=net64(q.request_id);
+ r.payload_length=net32(has_remote_handle?(DWORD)sizeof(wire_handle):0u);
+ if(!writen(pipe,&r,sizeof(r)))goto done;
+ if(has_remote_handle){
+  wire_handle=net64(remote_handle);
+  if(!writen(pipe,&wire_handle,sizeof(wire_handle)))goto done;
+  remote_handle=0;
+ }
  done:
+ if(opened!=INVALID_HANDLE_VALUE)CloseHandle(opened);
+ if(remote_handle&&process)close_remote_client_handle(process,remote_handle);
  if(process)CloseHandle(process);
 }
 static int startup_recover(
