@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** Core transition prototype plus Stage 3A opaque-handle projection/resolution are implemented on the Memory development branch; internal-only and not production-enabled. No model-output parser, prompt dispatch or HTTP route is added.
+**Status:** Core transition prototype, Stage 3A opaque-handle projection/resolution, and Stage 3B strict model-output parsing plus uncommitted Core resolution are implemented on the Memory development branch; internal-only and not production-enabled. No prompt dispatch or HTTP route is added.
 
 ## Ownership
 
@@ -25,6 +25,7 @@
 
 - `createNpcBeliefProposalContext(readRequest)` returns two deliberately separate objects: `model_context` (prompt-safe proposition/evidence data plus opaque handles) and `authorization_context` (server-side scope/snapshot data). The latter must never be serialized into a model prompt. Handles are HMAC-bound to adapter secret, actor, conversation, purpose, recipient, snapshot, acquisition provenance and a 15-minute expiry.
 - `resolveNpcBeliefProposalHandles({ authorization_context, proposal })` re-reads Core, re-applies visibility, checks context MAC/expiry/scope/snapshot and resolves only handles from the current visible evidence set. It requires all current evidence for the selected proposition to be accounted for and returns Core IDs only to trusted in-process callers.
+- `resolveNpcBeliefProposalOutput({ authorization_context, raw_output })` accepts only the strict version-1 JSON envelope, rejects malformed/ambiguous output before handle resolution, and returns `resolved_uncommitted` with the ADR stance/modality preserved. It does not create a Core event or call `recordNpcBeliefTransition()`.
 - `prepareNpcBeliefContext(readRequest, proposal, currentBelief?)` is now an internal transition-validation seam; it returns snapshot and validated transition, not a model prompt context. It requires both trusted read and visibility authorizers. It is not registered as HTTP.
 - `recordNpcBeliefTransition(input)` validates evidence, reruns read and per-acquisition visibility authorization immediately before the Core write, persists only an unchanged validated transition, and requires an idempotency key plus the exact pre-transition revision and commit sequence.
 - `getNpcBeliefState(input)` reads the latest valid belief transition and reports current evidence support.
@@ -37,9 +38,11 @@ The legacy Core-internal transition projection uses `belief_stance_class` (`beli
 
 **Epistemic-source limitation:** the current Core acquisition reader returns canonical acquired fact values and provenance, but it does not carry the Memory classes `confirmed`, `unconfirmed_report`, `suspicion`, `inference`, `rumor`, or `unknown`. No mapping from Memory metadata into Core acquisition/belief events is implemented or approved in this candidate. Do not infer `confirmed` merely from a successful acquisition read, and do not use this context seam to promote a Memory report, rumor, or inference. End-to-end R3 remains partial until the source classification is explicitly represented and validated at the owning boundary.
 
-## Stage 3A boundary and unresolved proposal schema
+## Stage 3B parser and unresolved semantic commit contract
 
-The opaque-handle projection/resolver is implemented but is not a raw model-output parser and is not wired to a generation route. A future parser must accept only a strict structured response, attach scope and idempotency server-side, resolve handles, and call the existing Core transition path. It must not accept model-supplied Core IDs or scope fields.
+The strict parser and internal `resolveNpcBeliefProposalOutput()` seam are now implemented. The parser accepts only a bounded exact JSON envelope, rejects duplicate JSON keys (including escaped duplicate spellings), bounds nesting/node/evidence counts, validates opaque handle formats, and rejects non-finite proposal values. It performs no Markdown/free-text extraction and accepts no model-supplied Core IDs, scope fields, or idempotency key. The resolver re-reads current Core authorization and visibility before returning internal IDs to trusted in-process code.
+
+The result remains `resolved_uncommitted`. The ADR vocabulary (`supported`, `contradicted`, `uncertain`, `dropped`, plus `modality`) is not semantically equivalent to the reducer's persisted stances (`believes_true`, `believes_false`, `suspects_true`, `suspects_false`, `unresolved_conflict`). No mapping or commit wrapper is implemented. Prompt dispatch, HTTP exposure, and server-generated idempotency remain future work after the semantic contract is settled. Tests were added but have not been run.
 
 The current model projection exposes `subject_handle` plus `subject_kind` (`current_actor` or `referenced_entity`), not a human-readable label. A trusted entity-label projection is not implemented, so non-self subjects remain semantically opaque to the model. Proposition values are screened for known Core identifiers, typed references, UUIDs and ID-shaped fields; arbitrary unknown identifier-like strings inside free text cannot be perfectly classified without a domain value schema. The agreed ADR describes proposal stances as `supported`, `contradicted`, `uncertain`, and `dropped`, and includes proposition `modality`. The existing Core reducer instead persists `believes_true`, `believes_false`, `suspects_true`, `suspects_false`, and `unresolved_conflict`, with no modality field and no `dropped` transition. No mapping is implemented in this block; Stage 3B parser/commit work must not guess this semantic contract.
 
