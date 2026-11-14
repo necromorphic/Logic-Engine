@@ -707,6 +707,17 @@ export class SillyTavernPatchManager {
     }
     for (const [relativePath, expected] of Object.entries(journal.createdFiles ?? {})) {
       const target = resolve(this.stRoot, relativePath);
+      const hostOwnedHash = journal.hostOverlayFiles?.[relativePath]
+        ?? this.trustedHostOverlayFiles.get(relativePath);
+      if (hostOwnedHash) {
+        // A path attested by the independently installed Host Bundle is not
+        // Final-Send-owned, even if a predecessor manifest listed it as
+        // createdFiles. Preserve an intact Host file; fail closed on drift.
+        if (await exists(target) && await this.hashAt(relativePath) !== hostOwnedHash) {
+          throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
+        }
+        continue;
+      }
       if (await exists(target) && await this.hashAt(relativePath) !== expected) {
         throw new Error('ROLLBACK_CONFLICT_USER_CHANGE_PRESERVED: ' + relativePath);
       }
@@ -726,6 +737,9 @@ export class SillyTavernPatchManager {
       await atomicReplaceExisting(target, backupBytes);
     }
     for (const relativePath of Object.keys(journal.createdFiles ?? {})) {
+      if (journal.hostOverlayFiles?.[relativePath] || this.trustedHostOverlayFiles.has(relativePath)) {
+        continue;
+      }
       await rm(resolve(this.stRoot, relativePath), { force: true });
     }
 
