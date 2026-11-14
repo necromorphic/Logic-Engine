@@ -1523,7 +1523,7 @@ export class LogicEngine {
         reason_rule_ref: input.reason_rule_ref,
       };
       const requestHash = hashRequest(requestHashPayload);
-      const legacyRequestHash = !Object.hasOwn(input, 'modality')
+      const legacyRequestHash = (!Object.hasOwn(input, 'modality') || input.modality === 'asserted')
         && !['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance)
         ? (() => {
           const { modality: ignored, ...legacyPayload } = requestHashPayload;
