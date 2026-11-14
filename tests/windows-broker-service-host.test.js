@@ -33,7 +33,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.match(source, /le_win_create_role_sidecar/);
   assert.match(source, /DuplicateHandle\(GetCurrentProcess\(\),source,process,&remote,0,FALSE,DUPLICATE_SAME_ACCESS\)/);
   assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
-  assert.match(source, /r\\.payload_length=net32\\(has_remote_handle\\?/);
+  assert.match(source, /r\.payload_length=net32\(has_remote_handle\?/);
   assert.match(source, /wire_handle=net64\(remote_handle\)/);
   assert.match(source, /PROCESS_DUP_HANDLE/);
   assert.match(source, /q\.operation==8/);
@@ -41,7 +41,7 @@ test('Windows broker transfers manifest-verified file handles to the authenticat
   assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
   assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
   assert.doesNotMatch(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
-  assert.match(docs, /OPEN_MAIN,[\\s\\S]*OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR/);
+  assert.match(docs, /OPEN_MAIN,[\s\S]*OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR/);
   assert.match(docs, /DuplicateHandle/);
   assert.match(docs, /must not be treated as production-ready/);
 });
