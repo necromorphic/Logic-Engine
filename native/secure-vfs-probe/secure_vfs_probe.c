@@ -2049,7 +2049,6 @@ static int probe_win_broker_role_request(const char *role, uint16_t operation,
   request.magic=probe_win_net32(PROBE_WIN_BROKER_MAGIC);
   request.version=probe_win_net16(PROBE_WIN_BROKER_VERSION);
   request.operation=probe_win_net16(operation);
-  request.flags=probe_win_net32(read_only?1u:0u);
   request.request_id=probe_win_net64(request_id);
   request.payload_length=probe_win_net32((uint32_t)(role_length+1+kind_length));
   if (!probe_win_pipe_write_all(pipe,&request,sizeof(request))
@@ -2093,6 +2092,7 @@ static int probe_win_broker_open_role_request(const char *role,uint16_t operatio
   request.magic=probe_win_net32(PROBE_WIN_BROKER_MAGIC);
   request.version=probe_win_net16(PROBE_WIN_BROKER_VERSION);
   request.operation=probe_win_net16(operation);
+  request.flags=probe_win_net32(read_only?1u:0u);
   request.request_id=probe_win_net64(request_id);
   request.payload_length=probe_win_net32((uint32_t)(role_length+1+kind_length));
   if (!probe_win_pipe_write_all(pipe,&request,sizeof(request))
