@@ -916,16 +916,18 @@ test('Memory is inserted as a user message after leading system messages when no
       messages: [
         { role: 'system', content: 'trusted system one' },
         { role: 'system', content: 'trusted system two' },
+        { role: 'developer', content: 'trusted developer instruction' },
         { role: 'assistant', content: 'assistant prefill' },
       ],
     })),
     hostRequestContext,
   });
-  assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'system', 'user', 'assistant']);
+  assert.deepEqual(outbound.messages.map(message => message.role), ['system', 'system', 'developer', 'user', 'assistant']);
   assert.equal(outbound.messages[0].content, 'trusted system one');
   assert.equal(outbound.messages[1].content, 'trusted system two');
-  assert.equal(outbound.messages[3].content, 'assistant prefill');
-  const envelope = JSON.parse(outbound.messages[2].content);
+  assert.equal(outbound.messages[2].content, 'trusted developer instruction');
+  assert.equal(outbound.messages[4].content, 'assistant prefill');
+  const envelope = JSON.parse(outbound.messages[3].content);
   assert.equal(envelope.type, 'logic_engine_untrusted_memory');
   assert.equal(envelope.trust_level, 'untrusted_data');
   assert.match(envelope.data, /no-user-message memory canary/);
