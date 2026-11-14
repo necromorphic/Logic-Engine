@@ -8,25 +8,29 @@ by impersonating the pipe client and comparing its TokenUser SID. Remote pipe
 clients are rejected. Frames are bounded and contain logical operation data,
 never filesystem paths.
 
-PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented.
-Both role operations accept an ASCII `role\\0kind` payload and take the
-metadata-store lock. ACCESS_ROLE_FILE validates and reconciles the complete
-manifest against physical NTFS identities, then returns OK or NOT_FOUND without
-exposing a path or handle. DELETE_SIDECAR uses the durable intent/manifest
-transaction and deletes only the sidecar matching its recorded File ID.
-OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR still return
-UNSUPPORTED. The SCM startup path validates and reconciles the durable
-manifest and can recover create- and delete-sidecar crash windows described below.
-The native metadata layer also exposes locked `le_win_open_role_file`,
-`le_win_create_role_sidecar` and `le_win_delete_role_sidecar` operations. Open
-resolves only a registered main DB or active sidecar by File ID. Create and
-delete write a validated lifecycle intent before changing the namespace, flush
-the file and parent, commit the next manifest generation, reconcile the result,
-and only then retire the intent. DELETE_SIDECAR calls the delete transaction over
-IPC. The open and create primitives are smoke-tested but are not yet exposed over
-IPC. The Windows VFS routes manifest-bound EXISTS probes and sidecar xDelete
-through the service; main/sidecar byte opens still use the existing
-process-side path and must not be treated as production-ready.
+PING, read-only ACCESS_ROLE_FILE, identity-bound DELETE_SIDECAR, OPEN_MAIN,
+OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR are implemented over
+the local named-pipe protocol. Role operations accept an ASCII
+`role\\0kind` payload and take the metadata-store lock. ACCESS_ROLE_FILE
+validates and reconciles the complete manifest against physical NTFS identities,
+then returns OK or NOT_FOUND without exposing a path or handle. DELETE_SIDECAR
+uses the durable intent/manifest transaction and deletes only the sidecar
+matching its recorded File ID.
+
+OPEN_MAIN and OPEN_SIDECAR resolve only a registered main DB or active sidecar
+by File ID. CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR use the durable
+create-sidecar intent transaction. The service reopens the committed object
+with read/write-only file access, duplicates that exact HANDLE into the
+authenticated client process with `DuplicateHandle`, and returns only the
+client-process HANDLE value in the bounded response. It never exports a path or
+parent-directory HANDLE. If response delivery fails, the service closes the
+remote client HANDLE before releasing the authenticated process reference.
+
+The Windows VFS now routes manifest-bound main and sidecar opens, EXISTS probes
+and sidecar xDelete through the service. The received HANDLE is passed to the
+parent SQLite VFS, which still supplies the platform file-method table,
+locking and SHM implementation. This is a real service-owned open boundary,
+but it is not yet proof of complete SQLite VFS closure or production readiness.
 
 Build from a Visual Studio Developer Command Prompt:
 cl /nologo /W4 /WX /guard:cf /DUNICODE /D_UNICODE windows_broker_service.c windows_manifest_store.c windows_namespace_adapter.c windows_manifest_validator.c /link advapi32.lib bcrypt.lib
@@ -60,7 +64,7 @@ The SCM host opens this store with the native strict validators and invokes lock
 - file flush and parent-directory flush primitives;
 - deletion only after comparing the opened handle's identity with the expected manifest identity; the delete call consumes/closes that handle before flushing the parent.
 
-The low-level adapter is not directly connected to the SQLite VFS. The VFS delegates manifest-bound EXISTS probes and sidecar deletion to ACCESS_ROLE_FILE and DELETE_SIDECAR over the named pipe. Main/sidecar open and sidecar-create IPC remain UNSUPPORTED. The Windows smoke test now exercises create, flush, reopen, identity mismatch rejection, and delete. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
+The low-level adapter supplies the handle-relative namespace primitives used by the service-owned manifest validator and lifecycle transactions. The VFS delegates manifest-bound main/sidecar opens, EXISTS probes and sidecar deletion to OPEN_MAIN, OPEN_SIDECAR, OPEN_OR_CREATE_SIDECAR, ACCESS_ROLE_FILE and DELETE_SIDECAR over the named pipe. CREATE_SIDECAR is also available for explicit create-only callers. The Windows native smoke test exercises create, flush, reopen, identity mismatch rejection, and delete. The Windows source-contract test checks the IPC dispatch and handle-transfer boundary; an end-to-end SCM service/client process test is still required. NTFS crash consistency and actual directory-flush support remain gated by the Windows job.
 
 ## Strict Windows manifest byte validation
 
@@ -80,11 +84,12 @@ The `.github/workflows/better-sqlite3-vfs-integration.yml` workflow now compiles
 SCM host together with the manifest-store and namespace-adapter translation
 units using MSVC `/W4 /WX`, then compiles and runs the native metadata/sidecar
 smoke test. It also runs the source-contract and Windows handle-relative VFS
-tests. This catches C compiler/linker regressions and exercises the implemented
-startup trust gate, create/delete recovery, ACCESS_ROLE_FILE and DELETE_SIDECAR IPC.
-It does **not** make the SCM host fully operational or authorize SQLite byte I/O.
-OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR remain
-UNSUPPORTED until safe client HANDLE transfer and end-to-end VFS tests are implemented.
+tests. This catches C compiler/linker regressions and exercises the native
+startup trust gate plus create/delete recovery. Static source-contract checks
+cover ACCESS_ROLE_FILE, DELETE_SIDECAR, main/sidecar open/create dispatch and
+client-process HANDLE transfer. The native smoke test does not launch the SCM
+service or prove a real cross-process named-pipe transfer; that acceptance test
+remains required before production use.
 
 
 ## Locked startup-recovery primitive
