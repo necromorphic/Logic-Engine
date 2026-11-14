@@ -259,6 +259,9 @@ static VOID WINAPI service_main(DWORD argc,LPWSTR *argv) {
 int wmain(int argc,wchar_t **argv){
  SERVICE_TABLE_ENTRYW t[]={{L"LogicEngineSqliteBroker",service_main},{NULL,NULL}};
  int i;BOOL have_sid=FALSE,have_metadata=FALSE,have_namespace=FALSE;
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+ BOOL console_test=FALSE;
+#endif
  for(i=1;i<argc;i++){
   if(!wcscmp(argv[i],L"--client-sid")&&i+1<argc){
    if(FAILED(StringCchCopyW(configured_client_sid,_countof(configured_client_sid),argv[++i])))return 2;
@@ -269,11 +272,32 @@ int wmain(int argc,wchar_t **argv){
   }else if(!wcscmp(argv[i],L"--namespace-root")&&i+1<argc){
    if(FAILED(StringCchCopyW(namespace_root,_countof(namespace_root),argv[++i])))return 2;
    have_namespace=TRUE;
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+  }else if(!wcscmp(argv[i],L"--console-test")){
+   console_test=TRUE;
+#endif
   }else return 2;
  }
  if(!have_sid||!have_metadata||!have_namespace||!init_sid(configured_client_sid)){
   fwprintf(stderr,L"Invalid broker service configuration.\n");return 2;
  }
+#ifdef LE_BROKER_ENABLE_CONSOLE_TEST
+ if(console_test){
+  DWORD error=ERROR_SUCCESS;
+  stop_event=CreateEventW(NULL,TRUE,FALSE,NULL);
+  if(!stop_event){error=GetLastError();LocalFree(allowed_sid);allowed_sid=NULL;return (int)error;}
+  if(!le_win_store_open_validated(&metadata_store,metadata_directory)
+      ||!le_win_store_startup_recover(&metadata_store,startup_recover,namespace_root)){
+   error=GetLastError();le_win_store_close(&metadata_store);
+   CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+   return (int)(error?error:ERROR_RECOVERY_FAILURE);
+  }
+  run();
+  le_win_store_close(&metadata_store);
+  CloseHandle(stop_event);stop_event=NULL;LocalFree(allowed_sid);allowed_sid=NULL;
+  return 0;
+ }
+#endif
  if(!StartServiceCtrlDispatcherW(t)){
   DWORD error=GetLastError();if(allowed_sid){LocalFree(allowed_sid);allowed_sid=NULL;}
   fwprintf(stderr,L"SCM dispatcher failed: %lu\n",error);return 1;
