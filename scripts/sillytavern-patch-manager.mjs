@@ -750,7 +750,19 @@ export class SillyTavernPatchManager {
       this.stRoot,
       'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
     );
-    const rollbackHasVerifiedHostBaseline = Object.keys(journal.hostOverlayFiles ?? {}).length > 0;
+    const hostOverlayEntries = Object.entries(journal.hostOverlayFiles ?? {});
+    const rollbackHasVerifiedHostBaseline = hostOverlayEntries.length > 0
+      && (await Promise.all(hostOverlayEntries.map(async ([relativePath, expectedHash]) => {
+        try {
+          return await this.hashAt(relativePath) === expectedHash;
+        } catch {
+          return false;
+        }
+      }))).every(Boolean);
+    // Do not regenerate an attestation for a partial Host overlay. In
+    // particular, an interrupted predecessor rollback may have already
+    // removed a Host-owned created file; the Host Bundle orchestrator must
+    // reconstruct that file before the manifest can be regenerated.
     if (rollbackHasVerifiedHostBaseline && await exists(hostAttestationPath)) {
       await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/st-source-attestation.mjs');
       await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json');
