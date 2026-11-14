@@ -657,6 +657,41 @@ test('legacy belief transition idempotency hashes remain replayable after modali
   assert.equal(replay.transition.event_id, first.transition.event_id);
 });
 
+test('identical concurrent Core belief commits return one canonical transition', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'concurrent-belief-transition',
+  };
+  const originalTx = store.tx.bind(store);
+  let competingCommit;
+  let injected = false;
+  store.tx = callback => {
+    if (!injected) {
+      injected = true;
+      competingCommit = engine.recordNpcBeliefTransition(input);
+    }
+    return originalTx(callback);
+  };
+
+  const result = engine.recordNpcBeliefTransition(input);
+  store.tx = originalTx;
+  assert.equal(competingCommit.status, 'ready');
+  assert.equal(competingCommit.idempotent_replay, false);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.idempotent_replay, true);
+  assert.equal(result.transition.event_id, competingCommit.transition.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+});
+
 test('belief transition projection rebuilds from canonical event effects', (t) => {
   const { store, engine } = setup(t);
   const current = request(store);
