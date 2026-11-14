@@ -156,6 +156,52 @@ test('Core resolves parsed model output but keeps semantic stance uncommitted', 
   assert.equal(Object.hasOwn(result, 'event_id'), false);
 });
 
+test('Core commits resolved ADR proposals with server-derived idempotency', () => {
+  const engine = Object.create(LogicEngine.prototype);
+  const authorization_context = {
+    world_id: 'world:a',
+    conversation_id: 'conversation:a',
+    adapter_id: 'adapter:a',
+    actor_id: 'actor:a',
+    recipient: 'model',
+    purpose: 'npc_turn_context',
+    expected_revision: 7,
+    expected_commit_sequence: 11,
+    limit: 20,
+  };
+  let committed;
+  engine.resolveNpcBeliefProposalOutput = () => ({
+    status: 'resolved_uncommitted',
+    stance: 'supported',
+    modality: 'asserted',
+    resolution: {
+      proposition_ref: 'proposition:a',
+      proposition_value: { value: 'claim-a' },
+      supporting_acquisition_ids: ['acq:a'],
+      contradicting_acquisition_ids: [],
+      reason_rule_ref: 'rule:belief-update-v1',
+    },
+  });
+  engine.recordNpcBeliefTransition = input => {
+    committed = input;
+    return { status: 'ready', idempotent_replay: false };
+  };
+
+  const result = engine.commitNpcBeliefProposalOutput({
+    authorization_context,
+    raw_output: JSON.stringify(envelope()),
+  });
+
+  assert.deepEqual(result, { status: 'ready', idempotent_replay: false });
+  assert.equal(committed.stance, 'supported');
+  assert.equal(committed.modality, 'asserted');
+  assert.equal(committed.proposition_ref, 'proposition:a');
+  assert.equal(committed.idempotency_key.startsWith('npc-belief-proposal:'), true);
+  assert.equal(committed.idempotency_key.includes(contextHandle), false);
+  assert.deepEqual(committed.supporting_acquisition_ids, ['acq:a']);
+  assert.deepEqual(committed.contradicting_acquisition_ids, []);
+});
+
 test('Core does not resolve handles when model output fails strict parsing', () => {
   const engine = Object.create(LogicEngine.prototype);
   let resolverCalls = 0;
