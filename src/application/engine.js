@@ -1509,7 +1509,7 @@ export class LogicEngine {
       const requiresExplicitModality = ['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance);
       assert(!requiresExplicitModality || (hasModality && typeof input.modality === 'string'),
         'INVALID_NPC_BELIEF_TRANSITION', 'ADR belief proposals require an explicit string modality.');
-      const modality = hasModality ? input.modality : 'asserted';
+      const modality = input.modality ?? 'asserted';
       assert(typeof modality === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(modality),
         'INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
