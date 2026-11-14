@@ -535,3 +535,49 @@ test('Patch Manager rollback preserves a Host-owned file listed by a legacy Fina
   assert.equal(await readFile(join(stRoot, hostPath), 'utf8'), hostBytes,
     'Final-Send rollback must not delete an independently attested Host-owned file');
 });
+
+
+test('Patch Manager recovery defers Host attestation when a Host-owned file is missing', async (t) => {
+  const { manager, stRoot, extensionRoot, patchPath } = await fixture(t);
+  const hostPath = 'src/host-inventory-handler.mjs';
+  const hostBytes = "export const owner = 'host-bundle';\\n";
+  const hostHash = hash(Buffer.from(hostBytes, 'utf8'));
+  await writeFile(join(stRoot, hostPath), hostBytes);
+
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  manifest.createdFiles[hostPath] = hostHash;
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+  const overlayAwareManager = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath,
+    trustedHostOverlayFiles: new Map([[hostPath, hostHash]]),
+  });
+  await overlayAwareManager.execute('install');
+
+  const managerDir = join(stRoot, 'data', 'logic-engine', 'final-send-patch');
+  const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
+  const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
+  await mkdir(gatewayDir, { recursive: true });
+  await writeFile(join(gatewayDir, 'st-source-attestation.mjs'), 'export const present = true;\\n');
+  const generatorDir = join(extensionRoot, 'host-adapter/prototype');
+  await mkdir(generatorDir, { recursive: true });
+  await writeFile(join(generatorDir, 'generate-pinned-source-manifest.mjs'),
+    "throw new Error('GENERATOR_MUST_WAIT_FOR_HOST_REPAIR');\\n");
+
+  await rm(join(stRoot, hostPath), { force: true });
+  await writeFile(join(managerDir, 'transaction.json'), JSON.stringify({
+    manifestId: state.manifestId,
+    phase: 'ROLLING_BACK',
+    backups: state.backups,
+    createdFiles: state.createdFiles,
+    sourceFilesAfter: state.sourceFilesAfter,
+    sourceFilesBefore: state.sourceFilesBefore,
+    hostOverlayFiles: state.hostOverlayFiles,
+  }));
+
+  assert.equal((await overlayAwareManager.execute('status')).status, 'NOT_INSTALLED');
+  await assert.rejects(readFile(join(managerDir, 'transaction.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(join(stRoot, hostPath)), { code: 'ENOENT' });
+});
