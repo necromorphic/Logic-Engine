@@ -450,6 +450,7 @@ const logicEngine = new LogicEngine(store, {
   npcKnowledgeVisibilityAuthorizer: npcKnowledgeAuthorizers.visibilityAuthorizer,
   hostVersionDigestLedger: hostVersionLedger,
   hostCommunicationReceiptVerifier: verifyHostCommunicationEvidence,
+  npcEvidenceHandleKeyProvider: adapterId => adapterTokens[adapterId] ?? null,
 });
 const memoryProviderAdapters = [];
 if (memoryProviderPath !== undefined) {
