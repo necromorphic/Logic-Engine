@@ -429,8 +429,8 @@ test('Patch Manager rejects a patch bundle with a path escape before reading art
 
 test('Patch Manager skips Host Bundle patches only when the installed Host overlay is attested', async (t) => {
   const { manager, stRoot, extensionRoot, original, patched, patchPath } = await fixture(t);
-  const hostOriginal = "export const nativeRoute = 'stock';\\n";
-  const hostPatched = "export const nativeRoute = 'host-overlay';\\n";
+  const hostOriginal = "export const nativeRoute = 'stock';\n";
+  const hostPatched = "export const nativeRoute = 'host-overlay';\n";
   const hostPatch = [
     'diff --git a/src/native-route.js b/src/native-route.js',
     '--- a/src/native-route.js',
@@ -439,7 +439,7 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
     "-export const nativeRoute = 'stock';",
     "+export const nativeRoute = 'host-overlay';",
     '',
-  ].join('\\n');
+  ].join('\n');
   const hostPatchPath = 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch';
   const hostPatchAbsolutePath = join(extensionRoot, hostPatchPath);
   await mkdir(join(extensionRoot, 'host-adapter/prototype/patches'), { recursive: true });
@@ -449,7 +449,7 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
   const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
   await mkdir(gatewayDir, { recursive: true });
   await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
-    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\n");
   const overlayManifestPath = join(gatewayDir, 'pinned-source-manifest.json');
   await writeFile(overlayManifestPath, JSON.stringify({
     files: [{ path: 'src/native-route.js', sha256: hash(Buffer.from(hostPatched, 'utf8')) }],
@@ -465,7 +465,7 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
     "const sha256 = createHash('sha256').update(bytes).digest('hex');",
     "await writeFile(join(root, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json'), JSON.stringify({ files: [{ path: 'src/native-route.js', sha256 }] }));",
     '',
-  ].join('\\n'));
+  ].join('\n'));
 
   const firstPatch = await readFile(patchPath);
   const artifacts = [
@@ -493,7 +493,7 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
     'preflight must not reapply the already installed Host patch');
 
   assert.equal((await bundled.execute('install')).status, 'INSTALLED');
-  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\\r\\n/g, '\\n'), patched);
+  assert.equal((await readFile(join(stRoot, 'src/host.js'), 'utf8')).replace(/\\r\n/g, '\n'), patched);
   assert.equal(await readFile(join(stRoot, 'src/native-route.js'), 'utf8'), hostPatched,
     'Final-Send installation must preserve the attested Host overlay');
   assert.equal((await bundled.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED',
