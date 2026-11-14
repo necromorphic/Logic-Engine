@@ -124,7 +124,7 @@ def handle_connection(conn: socket.socket, allowed_uid: int, store: Any) -> None
             else:
                 _send_response(conn, operation, STATUS_OK, request_id)
             return
-        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_ROLE_PARENT, OP_OPEN_OR_CREATE_SIDECAR, OP_ACCESS_ROLE_FILE):
+        if operation not in (OP_OPEN_MAIN, OP_OPEN_SIDECAR, OP_DELETE_SIDECAR, OP_CREATE_SIDECAR, OP_OPEN_OR_CREATE_SIDECAR, OP_ACCESS_ROLE_FILE):
             _send_response(conn, operation, STATUS_UNSUPPORTED, request_id)
             return
         try:
