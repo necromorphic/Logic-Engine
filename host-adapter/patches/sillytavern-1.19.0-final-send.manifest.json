@@ -9,12 +9,12 @@
   "patch": {
     "version": "2.0.0",
     "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-    "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
-    "bundleSha256": "0ac6b33e3ea196c3ac823f2d9995bf078f4819a213e466b39b59560fb1e7dd5c",
+    "sha256": "7ba40aa5582c6ea1fdccb0aab66d38ffc8fdf71122852da1c1f06e08aa336ee1",
+    "bundleSha256": "8e36c1a9f5596be5a22f3b60e94334991fcaad5dafc35f1070fcdb39756f4275",
     "artifacts": [
       {
         "path": "host-adapter/patches/sillytavern-1.19.0-final-send.patch",
-        "sha256": "50fcd16a642923de1bb8ac487d158b31f32b27d3eb9f729e06f5939a77a1f588",
+        "sha256": "7ba40aa5582c6ea1fdccb0aab66d38ffc8fdf71122852da1c1f06e08aa336ee1",
         "allowUnidiffZero": false
       },
       {
@@ -198,6 +198,6 @@
     "public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs": "b690fe6afab462ccbab64a601eaf1757a57f11c4899d3c64f4bfd8d499be1262",
     "src/endpoints/logic-engine-host-inventory-handler.mjs": "362f7ee2f193d30db59d8cf8e5b2a90f761e5aa4dab0661b0405e7026e7ef64c",
     "src/logic-engine-extension-install-hook.js": "46f6f793e26da8bc82266f3bdc1d6c50867f67ee6e7cbe4b97a8b432fae0243e",
-    "src/logic-engine-final-send-hook.js": "ad30893025b9a361d6264a01e7cf79f667cf65bc7bad0bf5e1b832e74ef61e6b"
+    "src/logic-engine-final-send-hook.js": "d12068e5e5845bcc7c2b26a2fa6a5a9fe7e519f46520273e85febbeb662626f1"
   }
 }
