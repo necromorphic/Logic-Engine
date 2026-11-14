@@ -21,8 +21,9 @@ The invariant is that SQLite must operate on the exact OS file object whose iden
 
 ## Existing prototype baseline being carried forward
 
-- POSIX namespace broker prototype: authenticated peer credentials, role-based main/sidecar descriptor operations, broker-owned manifest and namespace mutations, quarantine deletion and restart reconciliation tests.
+- POSIX namespace broker prototype: authenticated peer credentials, role-based main/sidecar descriptor operations, broker-owned manifest and namespace mutations, quarantine deletion and restart reconciliation tests. The broker/application systemd units now describe distinct static service identities and startup ordering.
 - SQLite VFS probe: VFS registration, POSIX broker descriptor path, Windows handle-relative open helper and role-manifest validation.
+- Windows manifest lifecycle coordinator: a pure orchestration state machine defines durable intent ordering and recovery for sidecar create/delete. Its tests use fake store/namespace adapters; no privileged Windows service adapter or durable OS-backed implementation is present.
 - Existing tests exercise a feasibility prototype. They do not establish complete SQLite file-method coverage, durable Windows broker authority, production deployment isolation or independent Security approval.
 
 All inherited CI results belong to their original commit SHAs. This branch must produce new exact-head CI evidence.
@@ -53,6 +54,6 @@ All inherited CI results belong to their original commit SHAs. This branch must 
 ## Current disposition
 
 - POSIX broker and Windows handle-relative code are prototypes only.
-- Durable Windows broker/service and full production-owned SQLite file methods remain blockers.
+- Durable Windows broker/service adapters and full production-owned SQLite file methods remain blockers. The lifecycle coordinator is not a substitute for those adapters.
 - ST-VectorService integration is deliberately deferred to its separate adapter workstream.
 - Memory→NPC remains DISABLED / FAIL-CLOSED.
