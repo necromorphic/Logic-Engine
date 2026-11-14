@@ -6,6 +6,7 @@ concurrency:
 
 on:
   push:
+    branches: [main]
     paths:
       - "native/posix-namespace-broker/**"
       - ".github/workflows/posix-namespace-broker.yml"
