@@ -158,6 +158,7 @@ test('Core resolves parsed model output but keeps semantic stance uncommitted', 
 
 test('Core commits resolved ADR proposals with server-derived idempotency', () => {
   const engine = Object.create(LogicEngine.prototype);
+  engine.store = { db: { prepare: () => ({ get: () => undefined }) } };
   const authorization_context = {
     world_id: 'world:a',
     conversation_id: 'conversation:a',
