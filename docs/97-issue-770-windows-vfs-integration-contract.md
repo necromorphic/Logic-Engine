@@ -30,7 +30,7 @@ Each registered role must retain, for the complete database lifetime:
 - the pinned parent-directory `HANDLE`;
 - the canonical single-component database basename;
 - the trusted database identity (`FILE_ID_INFO`: volume serial plus all 128 file-ID bits);
-- a role identifier and an explicit supported-filesystem policy;
+- a role identifier and an explicit supported-filesystem policy; the current Windows manifest adapter permits **NTFS only** because that is the only Windows filesystem covered by the present identity, reparse-point, sidecar and integration-test evidence. ReFS, FAT/exFAT, network filesystems and unknown labels are rejected until separately specified and tested;
 - a lifecycle state preventing close/replacement while SQLite file objects or sidecars still reference the role.
 
 The role registry must be initialized from a separately protected persistent trust manifest. The current process-local registry and path-derived enrollment are insufficient for production. A role must not become trusted merely because the process successfully opened whatever object currently occupies a configured path.
