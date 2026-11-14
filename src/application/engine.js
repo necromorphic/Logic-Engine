@@ -1660,8 +1660,27 @@ export class LogicEngine {
     assert(snapshot && snapshot.status === 'active',
       'WORLD_NOT_FOUND', 'Target World is not active.', 404);
     const entityRef = 'entity:' + delivery.recipient.actor_id;
-    return {
-      ...this.commitEvent(input.world_id, {
+    // Hold the shared Coordinator lease across the final Host-version check and
+    // the Core event commit. Every HostVersionDigestLedger mutation uses this
+    // same lease, so an edit/revoke cannot invalidate the selected version
+    // between validation and acquisition commit.
+    const committed = this.store.tx(() => {
+      const versionState = this.hostVersionDigestLedger?.getVersionState(
+        input.world_id,
+        input.conversation_id,
+        delivery.source.message_id,
+        delivery.source.version_id,
+      );
+      assert(versionState?.status === 'ready'
+        && versionState.world_id === input.world_id
+        && versionState.conversation_id === input.conversation_id
+        && versionState.message_id === delivery.source.message_id
+        && versionState.version_id === delivery.source.version_id
+        && versionState.content_sha256 === delivery.source.content_sha256
+        && versionState.snapshot_digest === input.inventory_snapshot_digest,
+      'HOST_DELIVERY_SOURCE_VERSION_NOT_READY',
+      'The exact delivered message version is no longer active in the current trusted Host inventory.', 409);
+      return this.commitEvent(input.world_id, {
         idempotency_key: idempotencyKey,
         event_id: 'host-delivery-event:' + hashRequest([input.adapter_id, delivery.host_event_id]),
         turn_id: 'host-delivery:' + delivery.host_event_id,
@@ -1683,7 +1702,10 @@ export class LogicEngine {
           authorization_ref: authorizationRef,
           source_evidence: sourceEvidence,
         }],
-      }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true }),
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
+    });
+    return {
+      ...committed,
       status: 'committed',
       acquisition_id: acquisitionId,
     };
