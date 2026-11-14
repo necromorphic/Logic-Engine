@@ -225,6 +225,7 @@ function eligibleEvidenceItems(items, scope) {
   if (!denseArray(items, 200)) throw new TypeError('Visible Core evidence must be a bounded dense array.');
   const eligible = [];
   const seenAcquisitions = new Set();
+  const valueBudget = { nodes: 0 };
   for (const item of items) {
     if (!plainDataObject(item)) {
       throw new TypeError('Visible Core evidence item must be a plain data record.');
@@ -236,7 +237,7 @@ function eligibleEvidenceItems(items, scope) {
       || !validId(item.predicate)
       || !validId(item.provenance_ref)
       || !validDigest(item.provenance_digest)
-      || !safeJsonTree(item.value)
+      || !safeJsonTree(item.value, new Set(), 0, valueBudget)
       || containsInternalReference(item.value, [
         scope.world_id, scope.conversation_id, scope.adapter_id, scope.actor_id,
         item.acquisition_id, item.fact_id, item.event_id, item.subject_ref, item.provenance_ref,
