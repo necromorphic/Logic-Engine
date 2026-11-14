@@ -1114,6 +1114,8 @@ export class LogicEngine {
             source: item.source ?? null,
             delivery: item.delivery ?? null,
             source_evidence: item.source_evidence ?? null,
+            receipt_digest: item.provenance_digest,
+            receipt_proof: item.source_evidence?.receipt_proof ?? null,
             acquisition_kind: item.acquisition_kind,
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
