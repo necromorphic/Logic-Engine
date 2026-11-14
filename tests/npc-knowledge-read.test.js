@@ -8,6 +8,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -50,13 +51,14 @@ function setup(t, authorizer = (scope) => ({
   commit_sequence: scope.commit_sequence,
   acquisition_id: scope.acquisition_id,
   authorization_ref: 'rule:npc-visibility-v1',
-})) {
+})), engineOptions = {}) {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
     npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
+    ...engineOptions,
   });
   const binding = { adapter_id: 'adapter-st', conversation_id: 'conversation-a', world_id: 'world-a' };
   engine.createWorld({
@@ -1518,4 +1520,151 @@ test('NPC read and full belief-context authorization hold the shared Coordinator
   assert.equal(store.db.prepare(
     'SELECT active FROM host_conversation_world_bindings WHERE adapter_id=? AND conversation_id=?'
   ).get(binding.adapter_id, binding.conversation_id).active, 1);
+});
+
+
+test('reader returns typed communication evidence only while its signed source version remains active', (t) => {
+  const contentDigest = createHash('sha256').update('persisted Host message bytes').digest('hex');
+  const installationId = '11111111-1111-4111-8111-111111111111';
+  const accountId = '22222222-2222-4222-8222-222222222222';
+  const sessionId = '33333333-3333-4333-8333-333333333333';
+  const conversationUuid = '44444444-4444-4444-8444-444444444444';
+  const messageId = '55555555-5555-4555-8555-555555555555';
+  const versionId = '66666666-6666-4666-8666-666666666666';
+  const hostEventId = '77777777-7777-4777-8777-777777777777';
+  const mutationId = '88888888-8888-4888-8888-888888888888';
+  const conversationId = [sessionId, installationId, conversationUuid].join(':');
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  const receiptDigest = digest('signed receipt');
+  const receiptSignature = digest('receipt signature');
+  const inventoryDigest = digest('delivery inventory');
+  const deliveredAt = '2026-11-14T10:00:00.000Z';
+  const receiptProof = {
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: sessionId,
+    conversation_uuid: conversationUuid,
+    event_id: hostEventId,
+    event_type: 'MUTATION_COMMITTED',
+    mutation_id: mutationId,
+    operation: 'message-send',
+    mutation_digest: digest('mutation'),
+    receipt_digest: receiptDigest,
+    occurred_at: deliveredAt,
+    receipt_signature: receiptSignature,
+  };
+  const sourceEvidence = {
+    protocol_version: 1,
+    evidence_type: 'communication_delivered',
+    producer: 'logic-engine-host-delivery-receipt-v1',
+    adapter_id: 'adapter-st',
+    host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+    host_installation_id: installationId,
+    authenticated_account_id: accountId,
+    host_session_id: sessionId,
+    conversation_uuid: conversationUuid,
+    sender: { principal_type: 'host_authenticated_account', principal_id: accountId },
+    recipient: {
+      world_id: 'world-a', actor_id: 'npc-a', actor_type: 'character',
+      host_character_avatar_id: 'avatar-a',
+    },
+    source_attestation: {
+      protocol_version: 1,
+      host_commit: '06bde939fb1e9c4c8d8641d810f0a916b5bce127',
+      snapshot_alignment: 'SHARED_VSS_SNAPSHOT',
+      before_snapshot_id: 'snapshot-before',
+      after_snapshot_id: 'snapshot-after',
+      before_snapshot_sha256: digest('before snapshot'),
+      after_snapshot_sha256: digest('after snapshot'),
+      before_source_inventory_sha256: digest('before inventory'),
+      after_source_inventory_sha256: digest('after inventory'),
+      source_manifest_sha256: digest('source manifest'),
+      mutation_coverage_manifest_sha256: digest('mutation manifest'),
+      mutation_coverage_source_files_sha256: digest('mutation files'),
+    },
+    channel: 'sillytavern.character_chat',
+    source: { message_id: messageId, version_id: versionId, content_sha256: contentDigest },
+    status: 'delivered',
+    delivered_at: deliveredAt,
+    host_event_id: hostEventId,
+    mutation_id: mutationId,
+    receipt_digest: receiptDigest,
+    receipt_signature: receiptSignature,
+    receipt_proof: receiptProof,
+    inventory_snapshot_digest: inventoryDigest,
+  };
+  let currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: contentDigest,
+    snapshot_digest: digest('current inventory'),
+  };
+  const hostVersionDigestLedger = {
+    getVersionState(...args) {
+      assert.deepEqual(args, ['world-a', conversationId, messageId, versionId]);
+      return currentVersionState;
+    },
+  };
+  const hostCommunicationReceiptVerifier = ({ adapter_id, receipt_digest, receipt_proof, source_evidence }) =>
+    adapter_id === 'adapter-st'
+      && receipt_digest === receiptDigest
+      && receipt_proof === sourceEvidence.receipt_proof
+      && source_evidence.receipt_signature === receiptSignature;
+  const { store, engine } = setup(t, undefined, undefined, {
+    hostVersionDigestLedger,
+    hostCommunicationReceiptVerifier,
+  });
+  const acquisitionId = 'acq:communication-delivered:' + hashRequest([
+    'world-a', 'adapter-st', hostEventId, receiptDigest,
+  ]);
+  const eventId = 'host-delivery-event:' + hashRequest(['adapter-st', hostEventId]);
+  const authorizationRef = 'host-conversation-binding:' + hashRequest(['adapter-st', conversationId]);
+  store.db.prepare(`
+    INSERT INTO knowledge_acquisitions(
+      world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,
+      provenance_digest,authorization_ref,event_id,committed_revision,
+      acquired_value_json,acquired_source_event_ids_json,source_evidence_json,
+      source_adapter_id,source_conversation_id,source_message_id,source_version_id,source_content_sha256
+    ) VALUES(?,?,?,NULL,'communication_delivered',?,?,?,?,2,NULL,NULL,?,?,?,?,?,?)
+  `).run(
+    'world-a', acquisitionId, 'npc-a', 'host-delivery-event:' + hostEventId, receiptDigest,
+    authorizationRef, eventId, JSON.stringify(sourceEvidence), 'adapter-st', conversationId,
+    messageId, versionId, contentDigest,
+  );
+
+  const result = engine.readNpcKnowledge(request(store, { conversation_id: conversationId }));
+  const item = result.items.find(value => value.acquisition_kind === 'communication_delivered');
+  assert.ok(item);
+  assert.equal(item.evidence_type, 'communication_delivered');
+  assert.equal(item.fact_id, null);
+  assert.equal(item.source.message_id, messageId);
+  assert.equal(item.source.version_id, versionId);
+  assert.equal(item.source.content_sha256, contentDigest);
+  assert.equal(item.delivery.status, 'delivered');
+  assert.equal(Object.hasOwn(item, 'value'), false);
+  assert.equal(Object.isFrozen(item.source_evidence.recipient), true);
+  assert.equal(Object.hasOwn(item.source_evidence, 'message_text'), false);
+
+  currentVersionState = { status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' };
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+  });
+
+  currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: digest('different version bytes'),
+    snapshot_digest: digest('current inventory'),
+  };
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_READY',
+  });
+
+  currentVersionState = {
+    status: 'ready', world_id: 'world-a', conversation_id: conversationId,
+    message_id: messageId, version_id: versionId, content_sha256: contentDigest,
+    snapshot_digest: digest('current inventory'),
+  };
+  engine.hostCommunicationReceiptVerifier = () => false;
+  assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
+    code: 'NPC_KNOWLEDGE_SOURCE_NOT_AUTHORIZED',
+  });
 });
