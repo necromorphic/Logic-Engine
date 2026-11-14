@@ -909,11 +909,12 @@ export class LogicEngine {
         LEFT JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
         WHERE a.world_id=? AND a.subject_id=? AND (
           (a.acquisition_kind IN ('author_initial','imported') AND f.status='active')
-          OR a.acquisition_kind='communication_delivered'
+          OR (a.acquisition_kind='communication_delivered'
+            AND a.source_adapter_id=? AND a.source_conversation_id=?)
         )
         ORDER BY a.acquisition_id
         LIMIT ?
-      `).all(request.world_id, request.actor_id, checked.request.limit + 1);
+      `).all(request.world_id, request.actor_id, request.adapter_id, request.conversation_id, checked.request.limit + 1);
       const truncated = rows.length > checked.request.limit;
       const items = rows.slice(0, checked.request.limit).map((row) => {
         if (row.acquisition_kind === 'communication_delivered') {
