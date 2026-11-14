@@ -1648,9 +1648,9 @@ export class LogicEngine {
         if (replay) {
           assert(requestHashMatches(replay.request_hash), 'IDEMPOTENCY_KEY_REUSED',
             'Belief transition idempotency key was already used for a different request.', 409);
-          assert(this.store.world(input.world_id)?.world_revision === input.expected_revision
-            && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
-          'STALE_WORLD_SNAPSHOT', 'World changed during belief transition authorization; retry against the current snapshot.', 409);
+          // Another identical request may have committed after this caller's
+          // final authorization read but before its write transaction. This is
+          // an acknowledgement-only replay, not a second state mutation.
           return {
             status: 'ready',
             idempotent_replay: true,
