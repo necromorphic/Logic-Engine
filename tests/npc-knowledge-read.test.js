@@ -1612,6 +1612,8 @@ test('reader returns typed communication evidence only while its signed source v
   const { store, engine } = setup(t, undefined, undefined, {
     hostVersionDigestLedger,
     hostCommunicationReceiptVerifier,
+    npcEvidenceHandleKeyProvider: adapterId => adapterId === 'adapter-st'
+      ? 'test-adapter-secret-for-opaque-evidence-handles' : null,
   });
   const deliveryKeys = [
     'protocol_version', 'evidence_type', 'producer', 'host_commit', 'host_installation_id',
@@ -1660,6 +1662,47 @@ test('reader returns typed communication evidence only while its signed source v
   assert.equal(prepared.context.evidence.length, 1);
   assert.equal(prepared.context.evidence[0].acquisition_id, factItem.acquisition_id);
   assert.equal(Object.hasOwn(prepared.context.evidence[0], 'source_evidence'), false);
+
+  const proposalContext = engine.createNpcBeliefProposalContext(readRequest);
+  assert.equal(proposalContext.status, 'ready');
+  assert.equal(proposalContext.model_context.propositions.length, 1);
+  const modelProposition = proposalContext.model_context.propositions[0];
+  assert.equal(modelProposition.subject_kind, 'current_actor');
+  assert.equal(modelProposition.evidence.length, 1);
+  assert.equal(modelProposition.evidence[0].evidence_type, 'author_initial');
+  const modelProjectionText = JSON.stringify(proposalContext.model_context);
+  for (const internal of ['world-a', 'npc-a', 'fact-a', 'author-seed', 'authoring:test.world@1.0.0', 'acq:']) {
+    assert.equal(modelProjectionText.includes(internal), false);
+  }
+  assert.equal(proposalContext.authorization_context.world_id, 'world-a');
+  const modelProposal = {
+    schema_version: 1,
+    context_handle: proposalContext.model_context.context_handle,
+    proposition_handle: modelProposition.handle,
+    object: modelProposition.evidence[0].object,
+    supporting_evidence_handles: [modelProposition.evidence[0].handle],
+    contradicting_evidence_handles: [],
+  };
+  const resolvedProposal = engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: modelProposal,
+  });
+  assert.equal(resolvedProposal.status, 'ready');
+  assert.equal(resolvedProposal.resolution.proposition_value, factItem.value);
+  assert.deepEqual(resolvedProposal.resolution.supporting_acquisition_ids, [factItem.acquisition_id]);
+  assert.deepEqual(resolvedProposal.resolution.contradicting_acquisition_ids, []);
+
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: {
+      ...modelProposal,
+      supporting_evidence_handles: ['evh1.' + 'A'.repeat(43)],
+    },
+  }), { code: 'NPC_BELIEF_HANDLE_RESOLUTION_FAILED' });
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: { ...proposalContext.authorization_context, actor_id: 'npc-b' },
+    proposal: modelProposal,
+  }), { code: 'NPC_BELIEF_HANDLE_RESOLUTION_FAILED' });
 
   currentVersionState = { status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' };
   assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
