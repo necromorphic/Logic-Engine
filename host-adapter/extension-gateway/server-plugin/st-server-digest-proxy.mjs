@@ -145,7 +145,7 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
       });
       let payload;
       try { payload = await upstream.json(); } catch {
@@ -590,8 +590,9 @@ export function createHostLifecycleJournalProxy({
   if (resolveCommunicationRecipient !== null && typeof resolveCommunicationRecipient !== 'function') {
     throw new TypeError('resolveCommunicationRecipient must be a trusted Core binding resolver');
   }
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
-    throw new TypeError('timeoutMs must be an integer between 1 and 30000');
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000
+    || !Number.isInteger(inventoryTimeoutMs) || inventoryTimeoutMs < timeoutMs || inventoryTimeoutMs > 30000) {
+    throw new TypeError('timeoutMs and inventoryTimeoutMs must be integers between 1 and 30000, with inventoryTimeoutMs >= timeoutMs');
   }
   const durableReceiptStore = receiptStore ?? (typeof identityStore.directory === 'string'
     && pathModule.isAbsolute(identityStore.directory)
