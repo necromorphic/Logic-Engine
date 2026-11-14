@@ -1004,11 +1004,11 @@ export class SQLiteStore {
           DROP TABLE npc_belief_transitions;
           ALTER TABLE npc_belief_transitions_new RENAME TO npc_belief_transitions;
           CREATE INDEX npc_belief_transitions_current
-            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);
+            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);`);
           const violations = this.db.prepare('PRAGMA foreign_key_check').all();
           if (violations.length) {
             throw new Error('NPC_BELIEF_MODALITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
-          }`);
+          }
         },
       },
     ];
