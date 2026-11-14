@@ -193,7 +193,26 @@ function subjectHandleFor(key, scope, context, subjectRef) {
   });
 }
 
-function eligibleEvidenceItems(items) {
+const INTERNAL_VALUE_KEYS = new Set([
+  'id', 'world_id', 'actor_id', 'conversation_id', 'adapter_id', 'fact_id',
+  'acquisition_id', 'event_id', 'source_event_ids', 'provenance_ref',
+  'provenance_digest', 'authorization_ref', 'acquisition_authorization_ref',
+  'commit_sequence', 'world_revision', 'snapshot_id',
+]);
+
+function containsInternalReference(value, forbiddenIds, depth = 0) {
+  if (depth > 32) return true;
+  if (typeof value === 'string') return forbiddenIds.some(id => value.includes(id));
+  if (Array.isArray(value)) return value.some(child => containsInternalReference(child, forbiddenIds, depth + 1));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).some(([key, child]) =>
+      INTERNAL_VALUE_KEYS.has(key.toLowerCase()) || /(?:^|_)(?:id|ref|digest)$/i.test(key)
+      || containsInternalReference(child, forbiddenIds, depth + 1));
+  }
+  return false;
+}
+
+function eligibleEvidenceItems(items, scope) {
   if (!denseArray(items, 200)) throw new TypeError('Visible Core evidence must be a bounded dense array.');
   const eligible = [];
   for (const item of items) {
@@ -208,6 +227,16 @@ function eligibleEvidenceItems(items) {
       || !validId(item.provenance_ref)
       || !validDigest(item.provenance_digest)
       || !safeJsonTree(item.value)
+      || containsInternalReference(item.value, [
+        scope.world_id, scope.conversation_id, scope.adapter_id, scope.actor_id,
+        item.acquisition_id, item.fact_id, item.subject_ref, item.provenance_ref,
+        item.provenance_digest, item.authorization_ref, item.acquisition_authorization_ref,
+        ...(Array.isArray(item.source_event_ids) ? item.source_event_ids.filter(value => typeof value === 'string') : []),
+      ].filter(value => typeof value === 'string' && value.length > 0))
+      || containsInternalReference(item.predicate, [
+        scope.world_id, scope.conversation_id, scope.adapter_id, scope.actor_id,
+        item.acquisition_id, item.fact_id, item.subject_ref,
+      ].filter(value => typeof value === 'string' && value.length > 0))
       || npcPropositionRefFor(item) === null) {
       throw new TypeError('Visible fact-backed Core evidence is malformed; handle issuance must fail closed.');
     }
@@ -234,7 +263,7 @@ export function createNpcBeliefProposalContext({ read, visibleItems, key, limit 
   const context = Object.freeze({ nonce, expires_at: expiresAt });
   const contextHandle = 'nctx1.' + nonce + '.' + expiresAt + '.'
     + hmac(key, contextMacPayload(scope, nonce, expiresAt));
-  const items = eligibleEvidenceItems(visibleItems);
+  const items = eligibleEvidenceItems(visibleItems, scope);
   const byProposition = new Map();
   const seenAcquisitions = new Set();
 
@@ -338,7 +367,7 @@ export function resolveNpcBeliefProposalHandles({
   if (!context) return Object.freeze({ status: 'non_ready', reason: 'invalid_expired_or_wrong_scope_context_handle' });
 
   let items;
-  try { items = eligibleEvidenceItems(visibleItems); }
+  try { items = eligibleEvidenceItems(visibleItems, scope); }
   catch { return Object.freeze({ status: 'non_ready', reason: 'invalid_current_core_evidence' }); }
   const byEvidenceHandle = new Map();
   const byPropositionHandle = new Map();
