@@ -49,7 +49,7 @@ const exactDataRecord = (value, keys) => {
 
 const validCoreId = value => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
-  && !/[\\u0000-\\u001f\\u007f]/u.test(value);
+  && !/[\u0000-\u001f\u007f]/u.test(value);
 const validSha256 = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const validHostUuid = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
