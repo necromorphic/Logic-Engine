@@ -37,7 +37,8 @@ This is a Core data-contract extension, not a prompt or HTTP integration. The me
 
 ## Verification
 
-- Source files and call boundaries were inspected on the PR branch.
+- Source files and call boundaries were inspected on the PR branch. A follow-up static audit found and fixed a misplaced SQL-template terminator in migration 20: foreign-key validation now executes after the SQL DDL statement, not inside the SQL string.
+- Latest reviewed branch commit: `2ddbd25c06bc65cd6919785264f17b911448a4ac`. The migration source was re-fetched at this commit and the corrected SQL/code boundary was confirmed.
 - Added parser and commit-wrapper coverage in `tests/npc-belief-proposal-parser.test.js`; added ADR stance, modality, persistence, dropped-transition, idempotent replay, and concurrency coverage in `tests/npc-knowledge-read.test.js`; updated `tests/storage-migrations.test.js` to require schema version 20, check the modality column, and cover migration-20 preservation of an existing v19 belief row.
 - Tests were **NOT RUN** by instruction. All runtime behavior and test outcomes remain **NOT VERIFIED**.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED**.
