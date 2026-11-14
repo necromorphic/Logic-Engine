@@ -164,8 +164,13 @@ function evidenceHandleFor(key, scope, context, item, propositionRef) {
     nonce: context.nonce,
     expires_at: context.expires_at,
     acquisition_id: item.acquisition_id,
+    fact_id: item.fact_id,
+    event_id: item.event_id,
     acquisition_kind: item.acquisition_kind,
+    authorization_ref: item.acquisition_authorization_ref,
+    provenance_ref: item.provenance_ref,
     provenance_digest: item.provenance_digest,
+    source_event_ids_hash: hashRequest(item.source_event_ids ?? []),
     proposition_ref: propositionRef,
     value_hash: hashRequest(item.value),
   });
@@ -202,7 +207,10 @@ const INTERNAL_VALUE_KEYS = new Set([
 
 function containsInternalReference(value, forbiddenIds, depth = 0) {
   if (depth > 32) return true;
-  if (typeof value === 'string') return forbiddenIds.some(id => value.includes(id));
+  if (typeof value === 'string') {
+    return /^(?:world|actor|entity|fact|acq|acquisition|event|conversation|adapter|provenance|authorization):/i.test(value)
+      || forbiddenIds.some(id => value.includes(id));
+  }
   if (Array.isArray(value)) return value.some(child => containsInternalReference(child, forbiddenIds, depth + 1));
   if (value && typeof value === 'object') {
     return Object.entries(value).some(([key, child]) =>
@@ -229,7 +237,7 @@ function eligibleEvidenceItems(items, scope) {
       || !safeJsonTree(item.value)
       || containsInternalReference(item.value, [
         scope.world_id, scope.conversation_id, scope.adapter_id, scope.actor_id,
-        item.acquisition_id, item.fact_id, item.subject_ref, item.provenance_ref,
+        item.acquisition_id, item.fact_id, item.event_id, item.subject_ref, item.provenance_ref,
         item.provenance_digest, item.authorization_ref, item.acquisition_authorization_ref,
         ...(Array.isArray(item.source_event_ids) ? item.source_event_ids.filter(value => typeof value === 'string') : []),
       ].filter(value => typeof value === 'string' && value.length > 0))
