@@ -584,6 +584,62 @@ test('old enrollment marker is recovered only from the exact active locator and 
   }
 });
 
+test('exact active-locator marker without message identities rebuilds a forward-only baseline', async () => {
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const markerKey = 'logic-engine-host-lifecycle:chat-1';
+  try {
+    for (const marker of [
+      'enrolled:chat-file-1',
+      'enrolling:chat-file-1',
+      'NON_READY:chat-file-1',
+    ]) {
+      const f = makeFixture();
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        writable: true,
+        value: { getItem: key => key === markerKey ? marker : null },
+      });
+
+      const result = await f.bridge.ensureCurrentConversationEnrolled();
+      assert.equal(result.status, 'ENROLLED', marker);
+      assert.equal(f.saveCount, 1, 'the newly generated message identities must be persisted to the selected ST chat');
+      assert.ok(f.chat.every(message => message?._logicEngineLifecycle), 'every current message must receive a complete identity');
+      assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+      assert.equal(globalThis.localStorage.getItem(markerKey), marker, 'the old marker is preserved as historical evidence');
+
+      const ledger = await f.journal.exportCaptureLedger('chat-1');
+      assert.equal(ledger.captureBoundary, 'enrollment-forward-only');
+      assert.equal(ledger.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
+      assert.equal(ledger.records[0].payload.captureBoundary, 'enrollment-forward-only');
+    }
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('marker for another locator blocks automatic baseline creation', async () => {
+  const f = makeFixture();
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: { getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:another-chat-file' : null },
+  });
+  try {
+    await assert.rejects(
+      f.bridge.ensureCurrentConversationEnrolled(),
+      error => error.code === 'HOST_ENROLLMENT_MARKER_AMBIGUOUS',
+    );
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+    assert.ok(f.chat.every(message => !message?._logicEngineLifecycle));
+    assert.equal(f.saveCount, 0);
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
 test('ambiguous enrollment marker blocks recovery with a stable diagnostic code', async () => {
   const f = makeFixture();
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
