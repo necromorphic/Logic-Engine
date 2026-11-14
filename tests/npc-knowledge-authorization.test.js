@@ -264,3 +264,82 @@ test('authorizer configuration rejects ambiguous adapter identity input', (t) =>
     trustedInitialKnowledgeSources: [source],
   }), /unique array/);
 });
+
+
+test('communication visibility requires a trusted receipt verifier and exact active recipient binding', (t) => {
+  const { store, scope, conversations, actors } = setup(t);
+  const sourceEvidence = {
+    adapter_id: scope.adapter_id,
+    receipt_digest: 'a'.repeat(64),
+    recipient: { world_id: scope.world_id, actor_id: scope.actor_id },
+    host_session_id: HOST_SESSION_ID,
+    host_installation_id: HOST_INSTALLATION_ID,
+    conversation_uuid: HOST_CONVERSATION_UUID,
+    host_event_id: '77777777-7777-4777-8777-777777777777',
+    mutation_id: '88888888-8888-4888-8888-888888888888',
+    delivered_at: '2026-11-14T10:00:00.000Z',
+    receipt_signature: 'b'.repeat(64),
+    receipt_proof: {
+      receipt_digest: 'a'.repeat(64),
+      receipt_signature: 'b'.repeat(64),
+      event_id: '77777777-7777-4777-8777-777777777777',
+      mutation_id: '88888888-8888-4888-8888-888888888888',
+      occurred_at: '2026-11-14T10:00:00.000Z',
+      host_installation_id: HOST_INSTALLATION_ID,
+      authenticated_account_id: HOST_ACCOUNT_ID,
+      host_session_id: HOST_SESSION_ID,
+      conversation_uuid: HOST_CONVERSATION_UUID,
+    },
+  };
+  const acquisition = {
+    ...scope,
+    acquisition_id: 'communication-acquisition-a',
+    acquisition_kind: 'communication_delivered',
+    acquisition_authorization_ref: 'host-conversation-binding:receipt-a',
+    provenance_ref: 'host-delivery-event:77777777-7777-4777-8777-777777777777',
+    provenance_digest: sourceEvidence.receipt_digest,
+    source_evidence: sourceEvidence,
+  };
+  const verified = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: [source, importedSource],
+    hostCommunicationEvidenceVerifier: value => value.source_evidence === sourceEvidence
+      && value.receipt_digest === sourceEvidence.receipt_digest,
+  });
+  assert.equal(verified.visibilityAuthorizer(acquisition).status, 'allowed');
+  assert.equal(verified.visibilityAuthorizer({
+    ...acquisition,
+    actor_id: 'other-actor',
+  }).status, 'denied');
+
+  const denied = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: [source, importedSource],
+    hostCommunicationEvidenceVerifier: () => false,
+  });
+  assert.equal(denied.visibilityAuthorizer(acquisition).status, 'denied');
+  const noVerifier = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: [source, importedSource],
+  });
+  assert.equal(noVerifier.visibilityAuthorizer(acquisition).status, 'denied');
+
+  assert.throws(() => createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: [source],
+    hostCommunicationEvidenceVerifier: async () => true,
+  }), /synchronous deployment-owned function/);
+
+  conversations.revoke({
+    adapterId: scope.adapter_id,
+    conversationId: scope.conversation_id,
+    reason: 'test revoke communication visibility',
+  });
+  assert.equal(verified.visibilityAuthorizer(acquisition).status, 'denied');
+  actors.revoke(scope.world_id, scope.adapter_id, scope.actor_id);
+  assert.equal(verified.visibilityAuthorizer(acquisition).status, 'denied');
+});
