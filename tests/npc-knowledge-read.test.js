@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { hashRequest } from '../src/core/request-hash.js';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import {
@@ -600,6 +601,48 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(state.stance, 'believes_true');
   assert.equal(state.evidence_status, 'supported');
   assert.deepEqual(state.surviving_evidence_acquisition_ids, [read.items[0].acquisition_id]);
+});
+
+test('legacy belief transition idempotency hashes remain replayable after modality migration', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'legacy-belief-transition-replay',
+  };
+  const first = engine.recordNpcBeliefTransition(input);
+  const legacyHash = hashRequest({
+    operation: 'npc.belief.transition',
+    world_id: input.world_id,
+    conversation_id: input.conversation_id,
+    adapter_id: input.adapter_id,
+    actor_id: input.actor_id,
+    recipient: input.recipient,
+    purpose: input.purpose,
+    expected_revision: input.expected_revision,
+    expected_commit_sequence: input.expected_commit_sequence,
+    limit: input.limit,
+    proposition_ref: input.proposition_ref,
+    proposition_value: input.proposition_value,
+    stance: input.stance,
+    supporting_acquisition_ids: input.supporting_acquisition_ids,
+    contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+    reason_rule_ref: input.reason_rule_ref,
+  });
+  store.db.prepare('UPDATE npc_belief_transitions SET request_hash=? WHERE world_id=? AND idempotency_key=?')
+    .run(legacyHash, input.world_id, input.idempotency_key);
+
+  const replay = engine.recordNpcBeliefTransition(input);
+  assert.equal(replay.status, 'ready');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.transition.event_id, first.transition.event_id);
 });
 
 test('belief transition projection rebuilds from canonical event effects', (t) => {
