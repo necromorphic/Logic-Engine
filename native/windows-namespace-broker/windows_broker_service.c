@@ -98,11 +98,11 @@ static void close_remote_client_handle(HANDLE process, uint64_t remote_value) {
   if(local&&local!=INVALID_HANDLE_VALUE)CloseHandle(local);
  }
 }
-static BOOL duplicate_file_handle_to_client(HANDLE source,HANDLE process,uint64_t *remote_value) {
- HANDLE remote=NULL;
+static BOOL duplicate_file_handle_to_client(HANDLE source,HANDLE process,BOOL read_only,uint64_t *remote_value) {
+ HANDLE remote=NULL;DWORD desired_access=read_only?GENERIC_READ:(GENERIC_READ|GENERIC_WRITE);
  if(!source||source==INVALID_HANDLE_VALUE||!process||!remote_value)return FALSE;
  *remote_value=0;
- if(!DuplicateHandle(GetCurrentProcess(),source,process,&remote,0,FALSE,DUPLICATE_SAME_ACCESS))
+ if(!DuplicateHandle(GetCurrentProcess(),source,process,&remote,desired_access,FALSE,0))
   return FALSE;
  if(!remote||remote==INVALID_HANDLE_VALUE)return FALSE;
  *remote_value=(uint64_t)(uintptr_t)remote;
@@ -154,12 +154,14 @@ static BOOL open_role_file_for_operation(
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
  HANDLE opened=INVALID_HANDLE_VALUE;DWORD response_status=LEB_STATUS_BAD_REQUEST;
- BOOL exists=FALSE,has_remote_handle=FALSE;char role[129],kind[16];
+ BOOL exists=FALSE,has_remote_handle=FALSE,read_only=FALSE;char role[129],kind[16];
  uint64_t remote_handle=0,wire_handle=0;
  if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn_timeout(pipe,&q,sizeof(q),5000))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
- if(q.magic!=MAGIC||q.version!=VERSION||q.flags||q.payload_length>sizeof(payload))goto done;
+ if(q.magic!=MAGIC||q.version!=VERSION||q.payload_length>sizeof(payload))goto done;
+ if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){if(q.flags>1u)goto done;read_only=q.flags==1u;}
+ else if(q.flags)goto done;
  if(q.payload_length&&!readn_timeout(pipe,payload,q.payload_length,5000))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
  if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
@@ -195,7 +197,7 @@ static void client(HANDLE pipe) {
   else if(!le_win_store_lock(&metadata_store))response_status=LEB_STATUS_INTERNAL;
   else{
    if(open_role_file_for_operation(q.operation,role,kind,&opened)){
-    if(duplicate_file_handle_to_client(opened,process,&remote_handle)){
+    if(duplicate_file_handle_to_client(opened,process,read_only,&remote_handle)){
      has_remote_handle=TRUE;response_status=LEB_STATUS_OK;
     }else response_status=LEB_STATUS_INTERNAL;
    }else{
