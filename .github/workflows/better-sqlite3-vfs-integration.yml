@@ -139,7 +139,7 @@ jobs:
       - name: Run Windows manifest-store and namespace native smoke test
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
-          LOGIC_ENGINE_BROKER_EXE: ${{ runner.temp }}\\logic-engine-sqlite-broker.exe
+          LOGIC_ENGINE_BROKER_EXE: ${{ runner.temp }}\logic-engine-sqlite-broker.exe
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
