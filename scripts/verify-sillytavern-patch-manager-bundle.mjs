@@ -6,12 +6,14 @@ import { SillyTavernPatchManager } from './sillytavern-patch-manager.mjs';
 
 const stRoot = resolve(process.argv[2] ?? 'SillyTavern-manager');
 const legacyManifestPath = resolve(process.argv[3] ?? 'tests/fixtures/sillytavern-final-send-v1.manifest.json');
+const legacyPatchPath = resolve(process.argv[4] ?? 'tests/fixtures/sillytavern-final-send-v1.patch');
 const extensionRoot = process.cwd();
 
 const legacy = new SillyTavernPatchManager({
   extensionRoot,
   stRoot,
   manifestPath: legacyManifestPath,
+  patchPath: legacyPatchPath,
 });
 assert.equal((await legacy.execute('preflight')).status, 'PREFLIGHT_OK');
 assert.equal((await legacy.execute('install')).status, 'INSTALLED');
