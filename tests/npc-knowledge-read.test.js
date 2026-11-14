@@ -1742,6 +1742,19 @@ test('reader returns typed communication evidence only while its signed source v
     proposal: modelProposal,
   }), { code: 'NPC_BELIEF_HANDLE_RESOLUTION_FAILED' });
 
+  engine.commitEvent('world-a', {
+    event_id: 'opaque-handle-stale-snapshot',
+    idempotency_key: 'opaque-handle-stale-snapshot',
+    turn_id: 'opaque-handle-stale-snapshot',
+    event_type: 'action.completed',
+    expected_revision: readRequest.expected_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-after-context', entity_type: 'character' }],
+  });
+  assert.throws(() => engine.resolveNpcBeliefProposalHandles({
+    authorization_context: proposalContext.authorization_context,
+    proposal: modelProposal,
+  }), { code: 'NPC_KNOWLEDGE_READ_NOT_READY' });
+
   currentVersionState = { status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' };
   assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
     code: 'NPC_KNOWLEDGE_SOURCE_NOT_READY',
