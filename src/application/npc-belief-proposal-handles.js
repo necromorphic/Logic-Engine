@@ -240,6 +240,7 @@ function eligibleEvidenceItems(items, scope) {
       || item.evidence_type !== item.acquisition_kind
       || !denseArray(item.source_event_ids, 200)
       || item.source_event_ids.length === 0
+      || new Set(item.source_event_ids).size !== item.source_event_ids.length
       || item.source_event_ids.some(sourceEventId => !validId(sourceEventId))
       || !validDigest(item.provenance_digest)
       || !safeJsonTree(item.value, new Set(), 0, valueBudget)
