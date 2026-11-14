@@ -554,6 +554,13 @@ test('Core commits strict model output through fresh resolution and replays afte
   assert.equal(replay.idempotent_replay, true);
   assert.equal(replay.transition.event_id, first.transition.event_id);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+  assert.throws(() => engine.commitNpcBeliefProposalOutput({
+    ...input,
+    authorization_context: {
+      ...proposalContext.authorization_context,
+      actor_id: 'npc-b',
+    },
+  }), { code: 'NPC_BELIEF_CONTEXT_SCOPE_MISMATCH' });
 
   const event = store.events('world-a').find(item => item.event_id === first.transition.event_id);
   assert.equal(event.effects[0].stance, 'supported');
