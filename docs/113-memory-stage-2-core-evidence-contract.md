@@ -178,7 +178,7 @@ Belief transitions continue to reference Core acquisition IDs only. They must no
 - Stage 2 canonical evidence representation: **DESIGN SELECTED** — one canonical `world_events` log and one rebuildable `knowledge_acquisitions` projection.
 - Stage 2A persistence: **IMPLEMENTED IN SOURCE** through migrations 18–19; runtime migration and preservation checks are not yet verified.
 - Stage 2B communication ingress: **IMPLEMENTED IN SOURCE**; exact signed receipt route, inventory verifier, Core binding checks and commit-time source-version revalidation are present. Contract tests have not been run.
-- Stage 2C typed authorized read: **PENDING**.
+- Stage 2C typed authorized read: **IMPLEMENTED IN SOURCE** — delivery evidence is returned as a discriminated item only after valid Core event linkage, exact recipient scope, receipt HMAC and active Host version checks. Tests remain unrun.
 - `direct_observation`: **UNSUPPORTED / FAIL-CLOSED** until a real trusted World/Simulation producer exists.
 - Stage 2 tests: **NOT RUN** for the latest implementation increment.
 - Installed SillyTavern/provider/runtime tests: **NOT DUE**.
@@ -214,7 +214,30 @@ The schema's `direct_observation` discriminant is storage compatibility only. `s
 - Source review of signed delivery route, Host inventory verifier and shared Coordinator lease: **INSPECTED**.
 - Automated tests: **NOT RUN** by instruction.
 - Migration against real v17/v18 databases, value-preservation checks, runtime `foreign_key_check`, read-only startup at v19, event replay/rebuild, and commit-vs-revocation concurrency: **NOT VERIFIED**.
-- Typed authorized acquisition read (including delivery-source revalidation on read): **PENDING**.
+- Typed authorized acquisition read (including delivery-source revalidation on read): **IMPLEMENTED IN SOURCE; NOT VERIFIED**. It returns message/version identity and digest metadata only; no message text is returned.
+- Communication-delivered items are not treated as canonical facts. The current belief-context reducer continues to accept only fact-backed evidence; a communication item cannot be cited as a proposition until a separate testimony/belief contract is implemented.
 - Direct-observation producer: **NOT IMPLEMENTED / FAIL-CLOSED**.
 - Installed SillyTavern/provider/runtime checks: **NOT DUE**.
 - Memory → NPC: **DISABLED / FAIL-CLOSED**.
+
+
+## 2026-11-14 — Stage 2C typed authorized read implementation
+
+The Core `readNpcKnowledge()` path now returns a discriminated `communication_delivered` item in addition to existing fact-backed acquisitions. The read is scoped to the exact active adapter/conversation and Actor, and it:
+
+- joins the acquisition projection to a valid canonical `world_events` row and checks event type plus committed-revision consistency;
+- validates the exact stored delivery-evidence schema and every normalized source identity/digest column against it;
+- verifies the receipt proof HMAC through the deployment-owned adapter-token verifier;
+- checks the current Host version ledger is `READY` and still selects the exact message/version/content digest;
+- performs these checks while the existing shared Coordinator lease is held, so Host invalidation cannot race the read;
+- returns only delivery metadata and source message/version IDs plus content digest. No message text or model prompt content is returned.
+
+Per-acquisition visibility now has a separate signed-receipt path. The fact-backed author_initial/imported path remains tied to the exact World Pack trusted-source registry. Missing verifier, invalid signature, inactive version, digest mismatch, invalidated Core event or scope mismatch fails closed.
+
+Communication delivery is not promoted to a canonical fact. The existing belief reducer still rejects communication acquisitions as proposition evidence; the current belief-context projection only forwards fact-backed evidence. This preserves the distinction between delivery, reading, understanding and truth.
+
+Regression coverage was added but not run:
+- `tests/npc-knowledge-read.test.js`: Core event commit → typed read; active-version/digest/signature failure paths; communication metadata excluded from fact-only belief context.
+- `tests/npc-knowledge-authorization.test.js`: signed receipt verifier required; wrong/revoked Actor or conversation denied; async verifier rejected.
+
+Verification status remains **NOT VERIFIED** until tests run. Real Host ledger concurrency, API route HMAC integration, migration execution, and runtime read behavior remain unverified. Stage 2C implementation is not a completion claim for Provider retrieval or Memory → NPC prompt projection.
