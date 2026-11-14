@@ -1,6 +1,6 @@
 # Windows SQLite namespace broker
 
-This is the Windows SCM transport/authentication host, not an operational broker.
+This is the Windows SCM host for service-owned namespace operations. It is not yet production-closed.
 
 It creates a local named pipe with an explicit DACL for SYSTEM, Administrators,
 and one configured application service SID. Each connection is authenticated
