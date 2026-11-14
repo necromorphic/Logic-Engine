@@ -26,16 +26,35 @@ test('Windows broker authenticates local pipe clients by configured SID', () => 
   assert.match(source, /PROCESS_DUP_HANDLE/);
 });
 
-test('Windows broker keeps unimplemented file operations disabled without backend', () => {
-  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+test('Windows broker transfers manifest-verified file handles to the authenticated client process', () => {
+  assert.match(source, /q\.operation==2\|\|q\.operation==3\|\|q\.operation==5\|\|q\.operation==7/);
+  assert.match(source, /open_role_file_for_operation/);
+  assert.match(source, /le_win_open_role_file/);
+  assert.match(source, /le_win_create_role_sidecar/);
+  assert.match(source, /DuplicateHandle\(GetCurrentProcess\(\),source,process,&remote,0,FALSE,DUPLICATE_SAME_ACCESS\)/);
+  assert.match(source, /DUPLICATE_SAME_ACCESS\|DUPLICATE_CLOSE_SOURCE/);
+  assert.match(source, /response\.payload_length=net32\(has_remote_handle\?/);
+  assert.match(source, /wire_handle=net64\(remote_handle\)/);
+  assert.match(source, /PROCESS_DUP_HANDLE/);
   assert.match(source, /q\.operation==8/);
   assert.match(source, /q\.operation==4/);
   assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
-  assert.match(source, /q\.operation==4/);
-  assert.match(source, /le_win_delete_role_sidecar\(&metadata_store,namespace_root,role,kind\)/);
   assert.match(source, /operation_error==ERROR_FILE_NOT_FOUND\?LEB_STATUS_NOT_FOUND:LEB_STATUS_INTERNAL/);
-  assert.match(docs, /PING, read-only ACCESS_ROLE_FILE and identity-bound DELETE_SIDECAR are implemented/);
+  assert.doesNotMatch(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+  assert.match(docs, /OPEN_MAIN, OPEN_SIDECAR, CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR/);
+  assert.match(docs, /DuplicateHandle/);
   assert.match(docs, /must not be treated as production-ready/);
+});
+
+test('manifest-bound Windows VFS opens main and sidecar handles through the broker', () => {
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_MAIN 2u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_SIDECAR 3u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u/);
+  assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u/);
+  assert.match(vfsSource, /probe_win_broker_open_role_request/);
+  assert.match(vfsSource, /role->manifest_bound/);
+  assert.match(vfsSource, /probe_win_sidecar_identity_record_locked\(role_index, suffix, &info_identity, role->manifest_bound\)/);
+  assert.match(vfsSource, /GetHandleInformation\(candidate,&handle_flags\)/);
 });
 
 test('Windows broker metadata store enforces pinned ancestry, NTFS and protected ACLs', () => {
@@ -249,7 +268,7 @@ test('Windows broker dispatches manifest-backed access and sidecar deletion requ
   assert.match(smoke, /manifest-backed access recognizes active WAL sidecar/);
   assert.match(smoke, /manifest-backed access reports absent SHM sidecar/);
   assert.match(smoke, /manifest-backed access reports retired WAL sidecar absent/);
-  assert.match(source, /q\.operation>=2&&q\.operation<=8\)response_status=LEB_STATUS_UNSUPPORTED/);
+  assert.match(source, /q\.operation==2\|\|q\.operation==3\|\|q\.operation==5\|\|q\.operation==7/);
 });
 
 
