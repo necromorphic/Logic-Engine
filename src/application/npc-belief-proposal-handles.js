@@ -411,9 +411,6 @@ export function resolveNpcBeliefProposalHandles({
   if (!propositionRef) return Object.freeze({ status: 'non_ready', reason: 'unknown_proposition_handle' });
   const propositionItems = byProposition.get(propositionRef) ?? [];
   const objectHash = hashRequest(proposal.object);
-  if (!propositionItems.some(item => hashRequest(item.value) === objectHash)) {
-    return Object.freeze({ status: 'non_ready', reason: 'object_not_in_current_proposition_evidence' });
-  }
 
   const supportingItems = proposal.supporting_evidence_handles.map(handle => byEvidenceHandle.get(handle));
   const contradictingItems = proposal.contradicting_evidence_handles.map(handle => byEvidenceHandle.get(handle));
