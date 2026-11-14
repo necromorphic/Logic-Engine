@@ -160,17 +160,20 @@ static BOOL open_role_file_for_operation(
 static void client(HANDLE pipe) {
  Header q,r;BYTE payload[MAX_PACKET-sizeof(Header)];DWORD available=0;HANDLE process=NULL;
  HANDLE opened=INVALID_HANDLE_VALUE;DWORD response_status=LEB_STATUS_BAD_REQUEST;
- BOOL exists=FALSE,has_remote_handle=FALSE,read_only=FALSE;char role[129],kind[16];
+ BOOL exists=FALSE,has_remote_handle=FALSE,read_only=FALSE,bad_flags=FALSE;char role[129],kind[16];
  uint64_t remote_handle=0,wire_handle=0;
  if(!auth(pipe)||(process=authenticated_process(pipe))==NULL||!readn_timeout(pipe,&q,sizeof(q),5000))goto done;
  q.magic=net32(q.magic);q.version=net16(q.version);q.operation=net16(q.operation);
  q.flags=net32(q.flags);q.request_id=net64(q.request_id);q.payload_length=net32(q.payload_length);
  if(q.magic!=MAGIC||q.version!=VERSION||q.payload_length>sizeof(payload))goto done;
- if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){if(q.flags>1u||(q.flags==1u&&(q.operation==5||q.operation==7)))goto done;read_only=q.flags==1u;}
- else if(q.flags)goto done;
+ if(q.operation==2||q.operation==3||q.operation==5||q.operation==7){
+  if(q.flags>1u||(q.flags==1u&&(q.operation==5||q.operation==7)))bad_flags=TRUE;
+  else read_only=q.flags==1u;
+ }else if(q.flags)bad_flags=TRUE;
  if(q.payload_length&&!readn_timeout(pipe,payload,q.payload_length,5000))goto done;
  if(!PeekNamedPipe(pipe,NULL,0,NULL,&available,NULL)||available)goto done;
- if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
+ if(bad_flags)response_status=LEB_STATUS_BAD_REQUEST;
+ else if(q.operation==1&&q.payload_length==0)response_status=LEB_STATUS_OK;
  else if(q.operation==4){
   DWORD operation_error=ERROR_SUCCESS;
   if(!parse_access_payload(payload,q.payload_length,role,kind)||strcmp(kind,"main")==0)
