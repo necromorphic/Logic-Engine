@@ -361,3 +361,19 @@ test('Windows manifest enrollment fails before DB registration when any ancestor
     call.sql.includes('validate_manifest_directory_identity')
   ));
 });
+
+
+test('Windows manifest enrollment rejects unverified filesystem policies', () => {
+  for (const filesystem of ['ReFS', 'FAT32', 'exFAT', 'NTFS-like', '', '   ']) {
+    const unsupported = manifest();
+    unsupported.filesystemPolicy.filesystem = filesystem;
+    assert.throws(() => registerWindowsManifestRole(
+      fakeDatabase(), unsupported, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+    ), /filesystem trust policy/);
+  }
+  const nonCanonical = manifest();
+  nonCanonical.filesystemPolicy.filesystem = 'ntfs';
+  assert.throws(() => registerWindowsManifestRole(
+    fakeDatabase(), nonCanonical, 'core', 'C:\\LogicEngine\\data\\core.sqlite'
+  ), /filesystem trust policy/, 'the manifest filesystem label must be canonical');
+});
