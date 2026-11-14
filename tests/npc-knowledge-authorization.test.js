@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { hashRequest } from '../src/core/request-hash.js';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
@@ -295,7 +296,7 @@ test('communication visibility requires a trusted receipt verifier and exact act
     ...scope,
     acquisition_id: 'communication-acquisition-a',
     acquisition_kind: 'communication_delivered',
-    acquisition_authorization_ref: 'host-conversation-binding:receipt-a',
+    acquisition_authorization_ref: 'host-conversation-binding:' + hashRequest([scope.adapter_id, scope.conversation_id]),
     provenance_ref: 'host-delivery-event:77777777-7777-4777-8777-777777777777',
     provenance_digest: sourceEvidence.receipt_digest,
     receipt_digest: sourceEvidence.receipt_digest,
