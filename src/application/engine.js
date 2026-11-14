@@ -968,6 +968,9 @@ export class LogicEngine {
               delivered_at: evidence.delivered_at,
               sender_principal_id: evidence.sender.principal_id,
             }),
+            // Kept on the trusted internal read item for the per-acquisition
+            // visibility authorizer. Belief-context projection never forwards it.
+            source_evidence: Object.freeze(evidence),
           });
         }
         let value;
@@ -1098,6 +1101,10 @@ export class LogicEngine {
             fact_id: item.fact_id,
             subject_ref: item.subject_ref,
             predicate: item.predicate,
+            evidence_type: item.evidence_type ?? null,
+            source: item.source ?? null,
+            delivery: item.delivery ?? null,
+            source_evidence: item.source_evidence ?? null,
             acquisition_kind: item.acquisition_kind,
             acquisition_authorization_ref: item.acquisition_authorization_ref,
             provenance_ref: item.provenance_ref,
