@@ -159,7 +159,10 @@ try {
     if (existsInPinnedTree) throw new Error('PATCH_MANAGER_CREATED_FILE_EXISTS_IN_BASELINE: ' + relativePath);
     createdFiles[relativePath] = await hashExpectedFile(expectedRoot, relativePath);
   }
+  const hostOwnedFiles = new Set(baseManifest.hostOwnedFiles ?? []);
+  for (const relativePath of hostOwnedFiles) safeRelativePath(relativePath);
   for (const relativePath of touchedCreated) {
+    if (hostOwnedFiles.has(relativePath)) continue;
     let existsInPinnedTree = true;
     try { readPinnedFile(relativePath); } catch { existsInPinnedTree = false; }
     if (existsInPinnedTree) throw new Error('PATCH_MANAGER_CREATED_FILE_EXISTS_IN_BASELINE: ' + relativePath);
