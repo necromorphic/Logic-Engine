@@ -718,7 +718,7 @@ typedef HANDLE (WINAPI *probe_create_file_w_fn)(
 static int probe_win_manifest_role_ready(int role_index);
 static int probe_win_broker_open_role_request(
     const char *role, uint16_t operation, const char *kind,
-    uint32_t *status, HANDLE *opened);
+    int read_only, uint32_t *status, HANDLE *opened);
 
 static HANDLE WINAPI probe_create_file_w(
   LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
@@ -825,14 +825,37 @@ static HANDLE WINAPI probe_create_file_w(
           return INVALID_HANDLE_VALUE;
         }
       }
-      if (!probe_win_broker_open_role_request(role->role,broker_operation,
-            broker_kind,&broker_status,&handle)
-          || broker_status != PROBE_WIN_BROKER_STATUS_OK
-          || handle == INVALID_HANDLE_VALUE || handle == NULL) {
+      {
+        int broker_read_only = (desired_access & GENERIC_WRITE) == 0;
+        const ACCESS_MASK broker_allowed_access =
+          GENERIC_READ | GENERIC_WRITE | FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+        if ((desired_access & GENERIC_READ) == 0
+            || (desired_access & ~broker_allowed_access) != 0
+            || ((broker_operation == PROBE_WIN_BROKER_OP_CREATE_SIDECAR
+                || broker_operation == PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR)
+                && broker_read_only)) {
+          sqlite3_free(relative_name);
+          SetLastError(ERROR_NOT_SUPPORTED);
+          return INVALID_HANDLE_VALUE;
+        }
+        if (!probe_win_broker_open_role_request(role->role,broker_operation,
+              broker_kind,broker_read_only,&broker_status,&handle)
+            || broker_status != PROBE_WIN_BROKER_STATUS_OK
+            || handle == INVALID_HANDLE_VALUE || handle == NULL) {
+          if (handle != INVALID_HANDLE_VALUE && handle != NULL) CloseHandle(handle);
+          handle = INVALID_HANDLE_VALUE;
+          SetLastError(broker_status == PROBE_WIN_BROKER_STATUS_NOT_FOUND
+            ? ERROR_FILE_NOT_FOUND : ERROR_ACCESS_DENIED);
+          sqlite3_free(relative_name);
+          return INVALID_HANDLE_VALUE;
+        }
+      }
+      /* The broker duplicates only GENERIC_READ for read-only opens, or
+         GENERIC_READ|GENERIC_WRITE when SQLite requested a writable handle. */
+      if (handle == INVALID_HANDLE_VALUE || handle == NULL) {
         if (handle != INVALID_HANDLE_VALUE && handle != NULL) CloseHandle(handle);
         handle = INVALID_HANDLE_VALUE;
-        SetLastError(broker_status == PROBE_WIN_BROKER_STATUS_NOT_FOUND
-          ? ERROR_FILE_NOT_FOUND : ERROR_ACCESS_DENIED);
+        SetLastError(ERROR_ACCESS_DENIED);
         sqlite3_free(relative_name);
         return INVALID_HANDLE_VALUE;
       }
@@ -2035,6 +2058,7 @@ static int probe_win_broker_role_request(const char *role, uint16_t operation,
   request.magic=probe_win_net32(PROBE_WIN_BROKER_MAGIC);
   request.version=probe_win_net16(PROBE_WIN_BROKER_VERSION);
   request.operation=probe_win_net16(operation);
+  request.flags=probe_win_net32(read_only?1u:0u);
   request.request_id=probe_win_net64(request_id);
   request.payload_length=probe_win_net32((uint32_t)(role_length+1+kind_length));
   if (!probe_win_pipe_write_all(pipe,&request,sizeof(request))
@@ -2057,7 +2081,7 @@ done:
 }
 
 static int probe_win_broker_open_role_request(const char *role,uint16_t operation,
-    const char *kind,uint32_t *status,HANDLE *opened) {
+    const char *kind,int read_only,uint32_t *status,HANDLE *opened) {
   ProbeWinBrokerHeader request,response;
   char payload[146];size_t role_length,kind_length;
   uint64_t request_id,wire_handle=0,handle_value=0;
