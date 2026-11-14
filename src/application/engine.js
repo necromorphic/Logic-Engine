@@ -1364,7 +1364,6 @@ export class LogicEngine {
         status: 'ready',
         snapshot: visibleRead.snapshot,
         transition: reduced.transition,
-        context: built.context,
       });
     });
   }  /**
