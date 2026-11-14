@@ -6,6 +6,7 @@ const validId = value => typeof value === 'string' && value === value.trim()
 
 const DENY_VISIBILITY_REF = 'core:npc-visibility-default-deny-v1';
 const READ_AUTHORIZATION_REF = 'core:host-conversation-actor-binding-v1';
+const ASYNC_FUNCTION_PROTOTYPE = Object.getPrototypeOf(async function asyncMarker() {});
 
 /**
  * Production Core authorizers for the internal NPC knowledge reader.
@@ -37,7 +38,7 @@ export function createHostBoundNpcKnowledgeAuthorizers({
   }
   if (hostCommunicationEvidenceVerifier !== null
     && (typeof hostCommunicationEvidenceVerifier !== 'function'
-      || hostCommunicationEvidenceVerifier.constructor?.name === 'AsyncFunction')) {
+      || hostCommunicationEvidenceVerifier instanceof ASYNC_FUNCTION_PROTOTYPE)) {
     throw new TypeError('hostCommunicationEvidenceVerifier must be a synchronous deployment-owned function.');
   }
 
