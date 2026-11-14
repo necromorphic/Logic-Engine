@@ -22,12 +22,15 @@ matching its recorded File ID.
 
 OPEN_MAIN and OPEN_SIDECAR resolve only a registered main DB or active sidecar
 by File ID. CREATE_SIDECAR and OPEN_OR_CREATE_SIDECAR use the durable
-create-sidecar intent transaction. The service reopens the committed object
-with read/write-only file access, duplicates that exact HANDLE into the
-authenticated client process with `DuplicateHandle`, and returns only the
-client-process HANDLE value in the bounded response. It never exports a path or
-parent-directory HANDLE. If response delivery fails, the service closes the
-remote client HANDLE before releasing the authenticated process reference.
+create-sidecar intent transaction. The service reopens the committed object without DELETE rights, then
+duplicates that exact HANDLE into the authenticated client process with
+`DuplicateHandle`. The duplicate receives only `GENERIC_READ` for a read-only
+request or `GENERIC_READ|GENERIC_WRITE` for a writable request; unsupported
+access masks fail closed, and sidecar create/open-or-create requires write
+access. The bounded response contains only the client-process HANDLE value. It
+never exports a path or parent-directory HANDLE. If response delivery fails,
+the service closes the remote client HANDLE before releasing the authenticated
+process reference.
 
 The Windows VFS now routes manifest-bound main and sidecar opens, EXISTS probes
 and sidecar xDelete through the service. The received HANDLE is passed to the
@@ -92,7 +95,7 @@ startup trust gate plus create/delete recovery. Static source-contract checks
 cover ACCESS_ROLE_FILE, DELETE_SIDECAR, main/sidecar open/create dispatch and
 client-process HANDLE transfer. The native smoke test launches a test-only
 console host in a separate process and verifies real named-pipe handle transfer.
-It does not exercise SCM registration or distinct service/application identities.
+It also verifies that a read-only request receives a handle on which WriteFile is denied. It does not exercise SCM registration or distinct service/application identities.
 
 
 ## Locked startup-recovery primitive
