@@ -1631,7 +1631,8 @@ test('reader returns typed communication evidence only while its signed source v
     messageId, versionId, contentDigest,
   );
 
-  const result = engine.readNpcKnowledge(request(store, { conversation_id: conversationId }));
+  const readRequest = request(store, { conversation_id: conversationId });
+  const result = engine.readNpcKnowledge(readRequest);
   const item = result.items.find(value => value.acquisition_kind === 'communication_delivered');
   assert.ok(item);
   assert.equal(item.evidence_type, 'communication_delivered');
@@ -1643,6 +1644,23 @@ test('reader returns typed communication evidence only while its signed source v
   assert.equal(Object.hasOwn(item, 'value'), false);
   assert.equal(Object.isFrozen(item.source_evidence.recipient), true);
   assert.equal(Object.hasOwn(item.source_evidence, 'message_text'), false);
+
+  const factItem = result.items.find(value => value.fact_id === 'fact-a');
+  const prepared = engine.prepareNpcBeliefContext(readRequest, {
+    world_id: result.world_id,
+    actor_id: result.actor_id,
+    snapshot: result.snapshot,
+    proposition_ref: propositionRefFor(factItem),
+    proposition_value: factItem.value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [factItem.acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  });
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.context.evidence.length, 1);
+  assert.equal(prepared.context.evidence[0].acquisition_id, factItem.acquisition_id);
+  assert.equal(Object.hasOwn(prepared.context.evidence[0], 'source_evidence'), false);
 
   currentVersionState = { status: 'non_ready', code: 'HOST_VERSION_NOT_ACTIVE' };
   assert.throws(() => engine.readNpcKnowledge(request(store, { conversation_id: conversationId })), {
