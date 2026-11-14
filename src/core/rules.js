@@ -305,7 +305,7 @@ export function validateEffects(effects, options = {}) {
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
       'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref', 'acquired_value', 'acquired_source_event_ids', 'source_evidence'],
-      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
+      'npc.belief.transition': ['kind', 'transition_id', 'actor_id', 'purpose', 'proposition_ref', 'proposition_value', 'stance', 'modality', 'supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'reason_rule_ref', 'idempotency_key', 'request_hash', 'snapshot_revision', 'snapshot_commit_sequence', 'previous_stance', 'surviving_prior_evidence', 'invalidated_prior_evidence', 'prior_stance_preserved_despite_invalidation'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -498,15 +498,20 @@ export function validateEffects(effects, options = {}) {
       if (!['npc_turn_context', 'npc_action_evaluation'].includes(effect.purpose)) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
       }
-      if (!['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.stance)) {
+      if (!['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict',
+        'supported', 'contradicted', 'uncertain', 'dropped'].includes(effect.stance)) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief stance.');
+      }
+      if (typeof effect.modality !== 'string' || !/^[a-z][a-z0-9_.-]{0,63}$/.test(effect.modality)) {
+        throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
       }
       if (!Object.hasOwn(effect, 'proposition_value')
         || !/^[a-f0-9]{64}$/.test(effect.request_hash)
         || !Number.isSafeInteger(effect.snapshot_revision) || effect.snapshot_revision < 0
         || !Number.isSafeInteger(effect.snapshot_commit_sequence) || effect.snapshot_commit_sequence < 0
         || typeof effect.prior_stance_preserved_despite_invalidation !== 'boolean'
-        || !(effect.previous_stance === null || ['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict'].includes(effect.previous_stance))) {
+        || !(effect.previous_stance === null || ['believes_true', 'believes_false', 'suspects_true', 'suspects_false', 'unresolved_conflict',
+          'supported', 'contradicted', 'uncertain', 'dropped'].includes(effect.previous_stance))) {
         throw new EngineError('INVALID_NPC_BELIEF_TRANSITION', 'Transition value, hash, snapshot, or prior-state metadata is invalid.');
       }
       for (const key of ['supporting_acquisition_ids', 'contradicting_acquisition_ids', 'evidence_acquisition_ids', 'surviving_prior_evidence', 'invalidated_prior_evidence']) {
