@@ -1505,12 +1505,13 @@ export class LogicEngine {
       }
       assert(['npc_turn_context', 'npc_action_evaluation'].includes(input.purpose),
         'INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
-      const modality = input.modality ?? 'asserted';
+      const hasModality = Object.hasOwn(input, 'modality');
+      const requiresExplicitModality = ['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance);
+      assert(!requiresExplicitModality || (hasModality && typeof input.modality === 'string'),
+        'INVALID_NPC_BELIEF_TRANSITION', 'ADR belief proposals require an explicit string modality.');
+      const modality = hasModality ? input.modality : 'asserted';
       assert(typeof modality === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(modality),
         'INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
-      assert(!['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance)
-        || Object.hasOwn(input, 'modality'),
-      'INVALID_NPC_BELIEF_TRANSITION', 'ADR belief proposals require an explicit modality.');
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
