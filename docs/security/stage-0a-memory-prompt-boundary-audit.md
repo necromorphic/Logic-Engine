@@ -39,7 +39,7 @@ These are Git blob identifiers, not SHA-256 digests. The SHA-256 values previous
 ## Stage 0A serialization contract
 
 - Protected Memory is serialized as a JSON data envelope with `type: logic_engine_untrusted_memory` and `trust_level: untrusted_data`.
-- The envelope is appended to the first user message; if no user message exists, a user message is inserted after leading system messages. Existing system messages and the existing role sequence are preserved.
+- The envelope is appended to the first user message; if no user message exists, a user message is inserted after leading system and developer messages. Existing higher-priority instruction messages and the existing role sequence are preserved.
 - The Memory value is serialized as a string. Embedded text, JSON, fake `role` fields, prompt delimiters, and instruction-like content cannot create new message objects or alter message roles.
 - Only a serialized role-bearing `messages[]` body is accepted. A body without that structure is rejected before transport. Flat prompts and non-message formats are never guessed, rewritten, or used as a fallback.
 - Ordinary generation without protected Memory retains the native transport path.
@@ -56,7 +56,7 @@ This is a structural privilege-boundary guarantee, not a claim that a model can 
 ## Verification target
 
 Focused tests must prove:
-- user-role-only insertion and preservation of the existing system role and message order;
+- user-role-only insertion and preservation of existing system/developer roles and message order;
 - prompt-injection, fake-role, JSON and delimiter payloads remain inside the serialized data string without changing the message-role structure;
 - non-message/flat serialized bodies are rejected before transport;
 - ordinary unprotected generation remains native;
