@@ -436,8 +436,17 @@ export class SillyTavernPatchManager {
       if (info.isSymbolicLink() || !info.isFile()) {
         throw new Error('PATCH_MANAGER_BACKUP_UNSAFE: ' + relativePath);
       }
-      if (canonicalTextHash(await readFile(backup)) !== expected.before) {
+      const actualBackupHash = canonicalTextHash(await readFile(backup));
+      if (actualBackupHash !== backupInfo.sha256) {
         throw new Error('PATCH_MANAGER_BACKUP_INTEGRITY_MISMATCH: ' + relativePath);
+      }
+      // A separately verified Host Bundle may already own this shared ST file.
+      // In that case the backup must preserve the exact attested overlay bytes,
+      // not the upstream Final-Send baseline. The state records that provenance
+      // when the Host overlay was independently verified before installation.
+      const trustedOverlayHash = state.hostOverlayFiles?.[relativePath];
+      if (actualBackupHash !== expected.before && trustedOverlayHash !== actualBackupHash) {
+        throw new Error('PATCH_MANAGER_BACKUP_BASELINE_MISMATCH: ' + relativePath);
       }
     }
 
