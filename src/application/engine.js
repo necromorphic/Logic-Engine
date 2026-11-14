@@ -211,40 +211,56 @@ function validateCommunicationDeliveryProjection(row, request) {
 }
 function readVisibleNpcKnowledge(engine, readRequest) {
   assert(typeof engine.npcKnowledgeVisibilityAuthorizer === 'function',
-    'NPC_KNOWLEDGE_VISIBILITY_NOT_READY',
-    'Per-acquisition NPC knowledge visibility authorization is not configured.', 503);
+    'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+    'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
   const read = engine.readNpcKnowledge(readRequest);
   assert(read.status === 'ready' && read.truncated !== true,
-    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'NPC_KNOWLEDGE_READ_INCOMPLETE',
     'A complete current NPC knowledge read is required for belief proposals.', 409);
 
   const visibleItems = [];
   const withheldAcquisitionIds = [];
   const withheldPropositionRefs = new Set();
   for (const item of read.items) {
-    const decision = engine.npcKnowledgeVisibilityAuthorizer({
-      world_id: read.world_id,
-      conversation_id: read.conversation_id,
-      adapter_id: read.adapter_id,
-      actor_id: read.actor_id,
-      recipient: read.recipient,
-      purpose: read.purpose,
-      world_revision: read.snapshot.world_revision,
-      commit_sequence: read.snapshot.commit_sequence,
-      acquisition_id: item.acquisition_id,
-      acquisition_kind: item.acquisition_kind,
-      fact_id: item.fact_id,
-      provenance_ref: item.provenance_ref,
-      provenance_digest: item.provenance_digest,
-      acquisition_authorization_ref: item.authorization_ref,
-      source_evidence: item.source_evidence ?? null,
-      receipt_digest: item.provenance_digest,
-      receipt_proof: item.source_evidence?.receipt_proof ?? null,
-    });
-    assert(exactDataRecord(decision, [
-      'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose',
-      'world_revision', 'commit_sequence', 'acquisition_id', 'authorization_ref',
-    ]) && decision.world_id === read.world_id
+    let decision;
+    try {
+      decision = engine.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+        world_id: read.world_id,
+        conversation_id: read.conversation_id,
+        adapter_id: read.adapter_id,
+        actor_id: read.actor_id,
+        recipient: read.recipient,
+        purpose: read.purpose,
+        world_revision: read.snapshot.world_revision,
+        commit_sequence: read.snapshot.commit_sequence,
+        acquisition_id: item.acquisition_id,
+        fact_id: item.fact_id,
+        subject_ref: item.subject_ref,
+        predicate: item.predicate,
+        evidence_type: item.evidence_type ?? null,
+        source: item.source ?? null,
+        delivery: item.delivery ?? null,
+        source_evidence: item.source_evidence ?? null,
+        receipt_digest: item.provenance_digest,
+        receipt_proof: item.source_evidence?.receipt_proof ?? null,
+        acquisition_kind: item.acquisition_kind,
+        acquisition_authorization_ref: item.acquisition_authorization_ref,
+        provenance_ref: item.provenance_ref,
+        provenance_digest: item.provenance_digest,
+      }));
+    } catch {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The trusted visibility authorizer failed; no belief context was prepared.', 403);
+    }
+    const allowedKeys = [
+      'status', 'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'world_revision',
+      'commit_sequence', 'acquisition_id', 'authorization_ref',
+    ];
+    if (!exactDataRecord(decision, allowedKeys)) {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility authorizer returned a malformed decision.', 403);
+    }
+    const decisionMatchesScope = decision.world_id === read.world_id
       && decision.conversation_id === read.conversation_id
       && decision.adapter_id === read.adapter_id
       && decision.actor_id === read.actor_id
@@ -253,21 +269,26 @@ function readVisibleNpcKnowledge(engine, readRequest) {
       && decision.world_revision === read.snapshot.world_revision
       && decision.commit_sequence === read.snapshot.commit_sequence
       && decision.acquisition_id === item.acquisition_id
-      && validId(decision.authorization_ref),
-    'NPC_KNOWLEDGE_VISIBILITY_NOT_READY',
-    'Per-acquisition NPC knowledge visibility authorization is malformed or out of scope.', 503);
-
-    if (decision.status === 'allowed') {
-      // Belief propositions currently accept only fact-backed initial/imported
-      // evidence. Delivery receipts are separately authorized but are not facts.
-      if (item.fact_id !== null && ['author_initial', 'imported'].includes(item.acquisition_kind)) {
-        visibleItems.push(item);
-      }
+      && typeof decision.authorization_ref === 'string' && decision.authorization_ref.trim();
+    if (!decisionMatchesScope) {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility decision was not bound to this exact actor, acquisition and snapshot.', 403);
+    }
+    if (decision.status === 'denied') {
+      withheldAcquisitionIds.push(item.acquisition_id);
+      const withheldRef = npcPropositionRefFor(item);
+      if (withheldRef) withheldPropositionRefs.add(withheldRef);
       continue;
     }
-    withheldAcquisitionIds.push(item.acquisition_id);
-    const propositionRef = npcPropositionRefFor(item);
-    if (propositionRef) withheldPropositionRefs.add(propositionRef);
+    if (decision.status !== 'allowed') {
+      throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+        'The visibility authorizer returned an unsupported decision status.', 403);
+    }
+    // Belief propositions currently accept only fact-backed initial/imported
+    // evidence. Delivery receipts are separately authorized but are not facts.
+    if (item.fact_id !== null && ['author_initial', 'imported'].includes(item.acquisition_kind)) {
+      visibleItems.push(item);
+    }
   }
 
   return Object.freeze({
