@@ -59,6 +59,20 @@ test('manifest-bound Windows VFS opens main and sidecar handles through the brok
   assert.match(vfsSource, /GetHandleInformation\(candidate,&handle_flags\)/);
 });
 
+test('Windows native smoke launches a separate broker process and verifies transferred handles', () => {
+  assert.match(source, /LE_BROKER_ENABLE_CONSOLE_TEST/);
+  assert.match(source, /--console-test/);
+  assert.match(smoke, /CreateProcessW/);
+  assert.match(smoke, /LOGIC_ENGINE_BROKER_EXE/);
+  assert.match(smoke, /broker_test_request\(2,"main","main"/);
+  assert.match(smoke, /broker_test_request\(7,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(3,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(8,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(4,"main","wal"/);
+  assert.match(smoke, /broker_test_request\(5,"main","shm"/);
+  assert.match(smoke, /TerminateProcess/);
+});
+
 test('Windows broker metadata store enforces pinned ancestry, NTFS and protected ACLs', () => {
   assert.match(store, /le_store_open_parent_chain\(configured_directory/);
   assert.match(store, /#include \"\.\.\/secure-vfs-probe\/windows_relative_open\.h\"/);
