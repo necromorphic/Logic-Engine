@@ -1289,8 +1289,8 @@ export class LogicEngine {
 
   /**
    * Parse an untrusted model response and resolve its opaque evidence handles
-   * against a fresh Core read. This deliberately does not commit a belief:
-   * ADR stance/modality semantics still require an explicit Core mapping.
+   * against a fresh Core read. This method deliberately does not commit; the
+   * separate commit wrapper is the only proposal-output write path.
    */
   resolveNpcBeliefProposalOutput(input) {
     assert(isSafeNpcInputRecord(input)
