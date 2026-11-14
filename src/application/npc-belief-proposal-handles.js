@@ -217,6 +217,7 @@ function containsInternalReference(value, forbiddenIds, depth = 0) {
   if (value && typeof value === 'object') {
     return Object.entries(value).some(([key, child]) =>
       INTERNAL_VALUE_KEYS.has(key.toLowerCase()) || /(?:^|_)(?:id|ref|digest)$/i.test(key)
+      || /^(?:nctx1|prh1|evh1)\./.test(key)
       || containsInternalReference(child, forbiddenIds, depth + 1));
   }
   return false;
