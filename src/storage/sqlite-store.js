@@ -963,6 +963,54 @@ export class SQLiteStore {
           }
         },
       },
+      {
+        version: 20,
+        apply: () => {
+          this.db.exec(`CREATE TABLE npc_belief_transitions_new(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            transition_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            proposition_ref TEXT NOT NULL,
+            proposition_value_json TEXT NOT NULL,
+            stance TEXT NOT NULL CHECK(stance IN (
+              'believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict',
+              'supported','contradicted','uncertain','dropped'
+            )),
+            modality TEXT NOT NULL CHECK(length(modality) BETWEEN 1 AND 64),
+            supporting_acquisition_ids_json TEXT NOT NULL,
+            contradicting_acquisition_ids_json TEXT NOT NULL,
+            evidence_acquisition_ids_json TEXT NOT NULL,
+            reason_rule_ref TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            snapshot_revision INTEGER NOT NULL,
+            snapshot_commit_sequence INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            PRIMARY KEY(world_id,transition_id),
+            UNIQUE(world_id,event_id),
+            UNIQUE(world_id,idempotency_key),
+            FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
+          );
+          INSERT INTO npc_belief_transitions_new(
+            world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,modality,
+            supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+            reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+          )
+          SELECT world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,'asserted',
+            supporting_acquisition_ids_json,contradicting_acquisition_ids_json,evidence_acquisition_ids_json,
+            reason_rule_ref,idempotency_key,request_hash,snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
+          FROM npc_belief_transitions;
+          DROP TABLE npc_belief_transitions;
+          ALTER TABLE npc_belief_transitions_new RENAME TO npc_belief_transitions;
+          CREATE INDEX npc_belief_transitions_current
+            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('NPC_BELIEF_MODALITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
@@ -3204,11 +3252,11 @@ export class SQLiteStore {
 
     // Belief transitions are derived from typed canonical event effects too.
     const insertBeliefTransition = this.db.prepare(`INSERT INTO npc_belief_transitions(
-      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,
+      world_id,transition_id,actor_id,proposition_ref,proposition_value_json,stance,modality,
       supporting_acquisition_ids_json,contradicting_acquisition_ids_json,
       evidence_acquisition_ids_json,reason_rule_ref,idempotency_key,request_hash,
       snapshot_revision,snapshot_commit_sequence,event_id,committed_revision
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind !== 'npc.belief.transition') continue;
@@ -3219,6 +3267,7 @@ export class SQLiteStore {
         }
         insertBeliefTransition.run(
           id, effect.transition_id, effect.actor_id, effect.proposition_ref, enc(effect.proposition_value), effect.stance,
+          effect.modality ?? 'asserted',
           enc(effect.supporting_acquisition_ids), enc(effect.contradicting_acquisition_ids),
           enc(effect.evidence_acquisition_ids), effect.reason_rule_ref, effect.idempotency_key,
           effect.request_hash, effect.snapshot_revision, effect.snapshot_commit_sequence,
