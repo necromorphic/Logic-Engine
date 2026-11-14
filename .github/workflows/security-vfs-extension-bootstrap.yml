@@ -94,7 +94,7 @@ jobs:
         with:
           node-version: '22.13.0'
       - name: Parse and test Windows service installer path guards
-        shell: pwsh
+        shell: powershell
         run: |
           $tokens = $null
           $errors = $null
@@ -120,7 +120,7 @@ jobs:
             throw 'Drive-root containment was not detected'
           }
       - name: Build VFS registration probe
-        shell: pwsh
+        shell: powershell
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
           $vs = & $vswhere -latest -products '*' -property installationPath
@@ -134,15 +134,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows relative-open test compilation failed' }
       - name: Stop MSVC background helper processes
         if: always()
-        shell: pwsh
+        shell: powershell
         run: |
           $helpers = Get-Process -Name vctip -ErrorAction SilentlyContinue
           if ($helpers) { $helpers | Stop-Process -Force -ErrorAction SilentlyContinue }
       - name: Verify Windows handle-relative directory anchoring
-        shell: pwsh
+        shell: powershell
         run: native/secure-vfs-probe/windows_relative_open_test.exe
       - name: Verify persistent VFS registration through node:sqlite
-        shell: pwsh
+        shell: powershell
         env:
           LOGIC_ENGINE_VFS_PROBE_PATH: native/secure-vfs-probe/secure_vfs_probe.dll
         run: node --test tests/security-vfs-extension-bootstrap.test.js
