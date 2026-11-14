@@ -241,11 +241,13 @@ static int startup_recover(
  return le_win_reconcile_manifest_namespace(manifest,manifest_length,(const wchar_t*)context);
 }
 static void run(void) {
- SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;ZeroMemory(&sa,sizeof(sa));
+ SECURITY_ATTRIBUTES sa;PSECURITY_DESCRIPTOR sd=NULL;BOOL first_instance=TRUE;ZeroMemory(&sa,sizeof(sa));
  if(!pipe_sa(&sa,&sd)){status(SERVICE_STOPPED,GetLastError());return;}status(SERVICE_RUNNING,0);
  while(!InterlockedCompareExchange(&stopping,0,0)){
-  HANDLE p=CreateNamedPipeW(PIPE_NAME,PIPE_ACCESS_DUPLEX|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
+  DWORD open_mode=PIPE_ACCESS_DUPLEX|(first_instance?FILE_FLAG_FIRST_PIPE_INSTANCE:0u);
+  HANDLE p=CreateNamedPipeW(PIPE_NAME,open_mode,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,8,MAX_PACKET,MAX_PACKET,1000,&sa);
   if(p==INVALID_HANDLE_VALUE){DWORD e=GetLastError();if(e==ERROR_ACCESS_DENIED||e==ERROR_INVALID_PARAMETER)break;if(WaitForSingleObject(stop_event,500)==WAIT_OBJECT_0)break;continue;}
+  first_instance=FALSE;
   if(ConnectNamedPipe(p,NULL)||GetLastError()==ERROR_PIPE_CONNECTED)client(p);
   DisconnectNamedPipe(p);CloseHandle(p);if(WaitForSingleObject(stop_event,0)==WAIT_OBJECT_0)break;
  }
