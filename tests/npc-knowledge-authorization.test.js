@@ -298,6 +298,8 @@ test('communication visibility requires a trusted receipt verifier and exact act
     acquisition_authorization_ref: 'host-conversation-binding:receipt-a',
     provenance_ref: 'host-delivery-event:77777777-7777-4777-8777-777777777777',
     provenance_digest: sourceEvidence.receipt_digest,
+    receipt_digest: sourceEvidence.receipt_digest,
+    receipt_proof: sourceEvidence.receipt_proof,
     source_evidence: sourceEvidence,
   };
   const verified = createHostBoundNpcKnowledgeAuthorizers({
