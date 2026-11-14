@@ -204,7 +204,7 @@ The existing Core-owned acquisition projection has two forward schema migrations
 
 - Migration 18 rebuilds `knowledge_acquisitions` to support `communication_delivered`: `fact_id` becomes nullable; typed `source_evidence_json` and normalized Host source identity/digest columns are added; the CHECK constraint preserves the strict fact-backed shape for `author_initial`/`imported` and requires the complete source binding for `communication_delivered`. Existing schema-v17 rows are copied with their legacy acquisition snapshots unchanged.
 - Migration 19 rebuilds the projection to add the `direct_observation` discriminant. It requires a non-null typed source-evidence object, null fact/value/source-event snapshots, and null Host-specific normalized columns. It copies all existing v18 evidence JSON and source identity columns, recreates both projection indexes, and runs `PRAGMA foreign_key_check`.
-- Read-only Core startup now requires schema migration version 19. It must not accept a v17/v18 database as current.
+- Read-only Core startup now requires schema migration version 20 because the Stage 3B belief projection migration extends the canonical schema. It must not accept a v17/v18/v19 database as current.
 
 The schema's `direct_observation` discriminant is storage compatibility only. `src/core/rules.js` still rejects unsupported acquisition kinds; no observation producer or ingress was added. The generic public event API remains unable to mint acquisition effects.
 
@@ -213,7 +213,7 @@ The schema's `direct_observation` discriminant is storage compatibility only. `s
 - Source review of migration 18/19, preservation SELECTs, index recreation, foreign-key checks and read-only schema gate: **INSPECTED** after edits.
 - Source review of signed delivery route, Host inventory verifier and shared Coordinator lease: **INSPECTED**.
 - Automated tests: **NOT RUN** by instruction.
-- Migration against real v17/v18 databases, value-preservation checks, runtime `foreign_key_check`, read-only startup at v19, event replay/rebuild, and commit-vs-revocation concurrency: **NOT VERIFIED**.
+- Migration against real v17/v18 databases, value-preservation checks, runtime `foreign_key_check`, read-only startup at v20, event replay/rebuild, and commit-vs-revocation concurrency: **NOT VERIFIED**.
 - Typed authorized acquisition read (including delivery-source revalidation on read): **IMPLEMENTED IN SOURCE; NOT VERIFIED**. It returns message/version identity and digest metadata only; no message text is returned.
 - Communication-delivered items are not treated as canonical facts. The current belief-context reducer continues to accept only fact-backed evidence; a communication item cannot be cited as a proposition until a separate testimony/belief contract is implemented.
 - Direct-observation producer: **NOT IMPLEMENTED / FAIL-CLOSED**.
