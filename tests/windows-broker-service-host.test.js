@@ -58,6 +58,11 @@ test('manifest-bound Windows VFS opens main and sidecar handles through the brok
   assert.match(vfsSource, /PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u/);
   assert.match(vfsSource, /probe_win_broker_open_role_request/);
   assert.match(vfsSource, /request\.flags=probe_win_net32\(read_only\?1u:0u\)/);
+  const statusHelper = vfsSource.slice(
+    vfsSource.lastIndexOf('static int probe_win_broker_role_request(const char *role, uint16_t'),
+    vfsSource.lastIndexOf('static int probe_win_broker_open_role_request('),
+  );
+  assert.doesNotMatch(statusHelper, /read_only/);
   assert.match(vfsSource, /broker_allowed_access/);
   assert.match(vfsSource, /role->manifest_bound/);
   assert.match(vfsSource, /probe_win_sidecar_identity_record_locked\(role_index, suffix, &info_identity, role->manifest_bound\)/);
