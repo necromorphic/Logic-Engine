@@ -736,7 +736,9 @@ export class SillyTavernPatchManager {
       this.stRoot,
       'plugins/logic-engine-extension-gateway/st-source-attestation.mjs',
     );
-    if (this.trustedHostOverlayFiles.size === 0 && await exists(hostAttestationPath)) {
+    const rollbackHasVerifiedHostBaseline = Object.keys(journal.hostOverlayFiles ?? {}).length > 0
+      || this.trustedHostOverlayFiles.size > 0;
+    if (rollbackHasVerifiedHostBaseline && await exists(hostAttestationPath)) {
       await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/st-source-attestation.mjs');
       await assertRegularFile(this.stRoot, 'plugins/logic-engine-extension-gateway/pinned-source-manifest.json');
       const generatorPath = await assertRegularFile(
