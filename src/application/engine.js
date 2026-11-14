@@ -1306,12 +1306,49 @@ export class LogicEngine {
       authorization_context: input.authorization_context,
       proposal: parsed.proposal,
     });
+    if (resolved.status !== 'ready') return resolved;
     return Object.freeze({
       status: 'resolved_uncommitted',
       stance: parsed.stance,
       modality: parsed.modality,
       snapshot: resolved.snapshot,
       resolution: resolved.resolution,
+    });
+  }
+
+  /**
+   * Parse, resolve, and commit one model proposal through the existing
+   * Core-owned transition path. Idempotency is derived server-side from the
+   * scoped context and validated proposal; the model cannot choose the key.
+   */
+  commitNpcBeliefProposalOutput(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'raw_output'])
+      && typeof input.raw_output === 'string',
+    'INVALID_NPC_BELIEF_PROPOSAL_OUTPUT',
+    'Belief proposal commit requires an exact authorization context and raw model-output string.');
+
+    const parsed = parseNpcBeliefProposalOutput(input.raw_output);
+    if (parsed.status !== 'parsed') return parsed;
+    const resolved = this.resolveNpcBeliefProposalOutput(input);
+    if (resolved.status !== 'resolved_uncommitted') return resolved;
+
+    const idempotencyKey = 'npc-belief-proposal:' + hashRequest({
+      context_handle: parsed.proposal.context_handle,
+      proposal: parsed.proposal,
+      stance: parsed.stance,
+      modality: parsed.modality,
+    }).slice(0, 48);
+    return this.recordNpcBeliefTransition({
+      ...input.authorization_context,
+      proposition_ref: resolved.resolution.proposition_ref,
+      proposition_value: resolved.resolution.proposition_value,
+      stance: resolved.stance,
+      modality: resolved.modality,
+      supporting_acquisition_ids: resolved.resolution.supporting_acquisition_ids,
+      contradicting_acquisition_ids: resolved.resolution.contradicting_acquisition_ids,
+      reason_rule_ref: resolved.resolution.reason_rule_ref,
+      idempotency_key: idempotencyKey,
     });
   }
 
@@ -1417,7 +1454,7 @@ export class LogicEngine {
       const limit = Object.hasOwn(input, 'limit') ? (input.limit ?? 200) : 200;
       const allowed = [
         'world_id', 'conversation_id', 'adapter_id', 'actor_id', 'recipient', 'purpose', 'expected_revision', 'expected_commit_sequence',
-        'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
+        'limit', 'proposition_ref', 'proposition_value', 'stance', 'modality', 'supporting_acquisition_ids',
         'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
       ];
       assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -1428,6 +1465,12 @@ export class LogicEngine {
       }
       assert(['npc_turn_context', 'npc_action_evaluation'].includes(input.purpose),
         'INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
+      const modality = input.modality ?? 'asserted';
+      assert(typeof modality === 'string' && /^[a-z][a-z0-9_.-]{0,63}$/.test(modality),
+        'INVALID_NPC_BELIEF_TRANSITION', 'Belief modality must be a canonical lowercase token.');
+      assert(!['supported', 'contradicted', 'uncertain', 'dropped'].includes(input.stance)
+        || Object.hasOwn(input, 'modality'),
+      'INVALID_NPC_BELIEF_TRANSITION', 'ADR belief proposals require an explicit modality.');
       assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
         && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
       'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
@@ -1445,6 +1488,7 @@ export class LogicEngine {
         proposition_ref: input.proposition_ref,
         proposition_value: input.proposition_value,
         stance: input.stance,
+        modality,
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
@@ -1499,7 +1543,7 @@ export class LogicEngine {
       };
       const read = this.readNpcKnowledge(readRequest);
       const currentRow = this.store.db.prepare(`
-        SELECT b.stance, b.evidence_acquisition_ids_json
+        SELECT b.stance, b.modality, b.evidence_acquisition_ids_json
         FROM npc_belief_transitions AS b
         JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
@@ -1510,6 +1554,7 @@ export class LogicEngine {
         actor_id: input.actor_id,
         proposition_ref: input.proposition_ref,
         stance: currentRow.stance,
+        modality: currentRow.modality,
         evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
       } : null;
       const proposal = {
@@ -1519,6 +1564,7 @@ export class LogicEngine {
         proposition_ref: input.proposition_ref,
         proposition_value: input.proposition_value,
         stance: input.stance,
+        modality,
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
         reason_rule_ref: input.reason_rule_ref,
@@ -1579,6 +1625,7 @@ export class LogicEngine {
             proposition_ref: transition.proposition_ref,
             proposition_value: transition.proposition_value,
             stance: transition.stance,
+            modality: transition.modality,
             supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
             contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
             evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
@@ -1714,7 +1761,7 @@ export class LogicEngine {
         return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
       }
       const row = this.store.db.prepare(`
-        SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
+        SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance, b.modality,
           b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
           b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
           b.snapshot_commit_sequence, b.event_id, b.committed_revision
@@ -1732,6 +1779,7 @@ export class LogicEngine {
         proposition_ref: row.proposition_ref,
         ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
         stance: row.stance,
+        modality: row.modality,
         evidence_status: surviving.length === evidence.length ? 'supported'
           : surviving.length > 0 ? 'partially_supported' : 'unsupported',
         evidence_acquisition_ids: Object.freeze(surviving),
