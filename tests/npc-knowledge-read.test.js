@@ -585,6 +585,7 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   assert.equal(canonicalEvent.effects[0].kind, 'npc.belief.transition');
   assert.deepEqual(canonicalEvent.effects[0].evidence_acquisition_ids, [read.items[0].acquisition_id]);
   assert.deepEqual(canonicalEvent.effects[0].proposition_value, read.items[0].value);
+  assert.equal(canonicalEvent.effects[0].modality, 'asserted');
 
   const replay = engine.recordNpcBeliefTransition(input);
   assert.equal(replay.status, 'ready');
@@ -669,6 +670,7 @@ test('belief transition projection rebuilds from canonical event effects', (t) =
   assert.ok(row);
   assert.equal(row.event_id, first.transition.event_id);
   assert.equal(row.stance, 'believes_true');
+  assert.equal(row.modality, 'asserted');
   assert.deepEqual(JSON.parse(row.proposition_value_json), read.items[0].value);
   assert.deepEqual(JSON.parse(row.evidence_acquisition_ids_json), [read.items[0].acquisition_id]);
 });
