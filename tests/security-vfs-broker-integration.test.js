@@ -302,8 +302,8 @@ test('Linux SQLite VFS obtains main and sidecar descriptors from the authenticat
   try {
     assert.equal(
       recovered.prepare('SELECT count(*) AS count FROM broker_probe').get().count,
-      3,
-      'crash recovery must discard the uncommitted row and preserve committed transactions',
+      4,
+      'crash recovery must discard the uncommitted row and preserve committed transactions, including the cross-process commit',
     );
     assert.equal(
       recovered.prepare('PRAGMA integrity_check').get().integrity_check,
