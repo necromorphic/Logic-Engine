@@ -677,6 +677,40 @@ test('journal restore conflicts produce a stable diagnostic without changing per
   assert.equal(await recovered.journal.isEnrolled('chat-1'), false);
 });
 
+test('exact enrollment marker does not permit replacement of partial persisted message identities', async () => {
+  const f = makeFixture();
+  f.chat[0]._logicEngineLifecycle = {
+    messageId: '11111111-1111-4111-8111-111111111111',
+    activeVersionIndex: 0,
+    versions: [{
+      versionId: '33333333-3333-4333-8333-333333333333',
+      versionIndex: 0,
+      payloadDigest: await contentDigest(f.chat[0].mes),
+      parentVersionId: null,
+    }],
+  };
+  const before = structuredClone(f.chat[0]._logicEngineLifecycle);
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: { getItem: key => key === 'logic-engine-host-lifecycle:chat-1' ? 'enrolled:chat-file-1' : null },
+  });
+  try {
+    await assert.rejects(
+      f.bridge.ensureCurrentConversationEnrolled(),
+      error => error.code === 'HOST_PERSISTED_IDENTITY_INCOMPLETE',
+    );
+    assert.deepEqual(f.chat[0]._logicEngineLifecycle, before);
+    assert.ok(!f.chat[1]._logicEngineLifecycle);
+    assert.equal(f.saveCount, 0);
+    assert.equal(await f.journal.isEnrolled('chat-1'), false);
+  } finally {
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else delete globalThis.localStorage;
+  }
+});
+
 test('partial persisted Host identities are never replaced by automatic enrollment', async () => {
   const f = makeFixture();
   f.chat[0]._logicEngineLifecycle = {

@@ -417,8 +417,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (restored) return;
 
     // Never replace partial, malformed, or stale per-message identities with
-    // freshly minted IDs. Automatic enrollment is allowed only for a genuinely
-    // unmarked chat whose messages have no Host lifecycle identity metadata.
+    // freshly minted IDs. A chat with no message identity metadata can receive a
+    // forward-only baseline; any existing marker is validated below as a locator
+    // hint, never treated as proof of a completed enrollment.
     const chat = getChat();
     const hasPersistedIdentity = Array.isArray(chat)
       && chat.some(message => message && Object.hasOwn(message, '_logicEngineLifecycle'));
