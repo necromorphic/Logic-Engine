@@ -16,8 +16,10 @@ const ASYNC_FUNCTION_CONSTRUCTOR = Object.getPrototypeOf(async function asyncMar
  * 2. this exact Host conversation is actively bound to this exact world;
  * 3. this exact adapter is actively bound to this exact actor in that world.
  *
- * Per-acquisition visibility additionally requires provenance_ref + digest to
- * match the trusted source registry for the world's exact World Pack version.
+ * Fact-backed per-acquisition visibility additionally requires provenance_ref
+ * + digest to match the trusted source registry for the world's exact World Pack
+ * version. Delivered communication instead requires a verified Host receipt
+ * bound to the exact recipient and active conversation.
  * No request field or model proposal can create any of these bindings.
  */
 export function createHostBoundNpcKnowledgeAuthorizers({
