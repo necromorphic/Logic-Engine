@@ -99,7 +99,7 @@ static void close_remote_client_handle(HANDLE process, uint64_t remote_value) {
  }
 }
 static BOOL duplicate_file_handle_to_client(HANDLE source,HANDLE process,BOOL read_only,uint64_t *remote_value) {
- HANDLE remote=NULL;DWORD desired_access=read_only?GENERIC_READ:(GENERIC_READ|GENERIC_WRITE);
+ HANDLE remote=NULL;DWORD desired_access=read_only?FILE_GENERIC_READ:(FILE_GENERIC_READ|FILE_GENERIC_WRITE);
  if(!source||source==INVALID_HANDLE_VALUE||!process||!remote_value)return FALSE;
  *remote_value=0;
  if(!DuplicateHandle(GetCurrentProcess(),source,process,&remote,desired_access,FALSE,0))
