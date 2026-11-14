@@ -537,6 +537,63 @@ test('Patch Manager rollback preserves a Host-owned file listed by a legacy Fina
 });
 
 
+
+test('Patch Manager recovery preserves an attested Host-owned created file when a legacy journal omits its ownership map', async (t) => {
+  const { manager, stRoot, extensionRoot, patchPath } = await fixture(t);
+  const hostPath = 'src/host-inventory-handler.mjs';
+  const nativePath = 'src/native-route.js';
+  const hostBytes = "export const owner = 'host-bundle';\\n";
+  const hostHash = hash(Buffer.from(hostBytes, 'utf8'));
+  const nativeBytes = "export const nativeRoute = 'stock';\\n";
+  const nativeHash = hash(Buffer.from(nativeBytes, 'utf8'));
+  await writeFile(join(stRoot, hostPath), hostBytes);
+
+  const manifest = JSON.parse(await readFile(manager.manifestPath, 'utf8'));
+  manifest.createdFiles[hostPath] = hostHash;
+  await writeFile(manager.manifestPath, JSON.stringify(manifest));
+  await manager.execute('install');
+
+  const managerDir = join(stRoot, 'data', 'logic-engine', 'final-send-patch');
+  const state = JSON.parse(await readFile(join(managerDir, 'state.json'), 'utf8'));
+  const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
+  await mkdir(gatewayDir, { recursive: true });
+  await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+  await writeFile(join(gatewayDir, 'pinned-source-manifest.json'), JSON.stringify({
+    files: [
+      { path: nativePath, sha256: nativeHash },
+      { path: hostPath, sha256: hostHash },
+    ],
+  }));
+
+  const generatorDir = join(extensionRoot, 'host-adapter/prototype');
+  await mkdir(generatorDir, { recursive: true });
+  await writeFile(join(generatorDir, 'generate-pinned-source-manifest.mjs'),
+    "process.stdout.write('manifest regeneration simulated\\n');\\n");
+
+  // Simulate a predecessor journal whose Host overlay map omits the handler,
+  // even though the current verified Host manifest still attests that file.
+  await writeFile(join(managerDir, 'transaction.json'), JSON.stringify({
+    manifestId: state.manifestId,
+    phase: 'ROLLING_BACK',
+    backups: state.backups,
+    createdFiles: { ...state.createdFiles, [hostPath]: hostHash },
+    sourceFilesAfter: state.sourceFilesAfter,
+    sourceFilesBefore: state.sourceFilesBefore,
+    hostOverlayFiles: { [nativePath]: nativeHash },
+  }));
+
+  const recoveryManager = new SillyTavernPatchManager({
+    extensionRoot,
+    stRoot,
+    manifestPath: manager.manifestPath,
+    patchPath,
+  });
+  assert.equal((await recoveryManager.execute('status')).status, 'NOT_INSTALLED');
+  assert.equal(await readFile(join(stRoot, hostPath), 'utf8'), hostBytes,
+    'recovery must preserve a Host-owned handler attested by the current Host manifest');
+});
+
 test('Patch Manager recovery defers Host attestation when a Host-owned file is missing', async (t) => {
   const { manager, stRoot, extensionRoot, patchPath } = await fixture(t);
   const hostPath = 'src/host-inventory-handler.mjs';
