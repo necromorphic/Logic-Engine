@@ -521,6 +521,44 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
   });
 });
 
+test('Core commits strict model output through fresh resolution and replays after the snapshot advances', (t) => {
+  const { store, engine } = setup(t);
+  const proposalContext = engine.createNpcBeliefProposalContext(request(store));
+  assert.equal(proposalContext.status, 'ready');
+  const proposition = proposalContext.model_context.propositions[0];
+  const evidence = proposition.evidence[0];
+  const raw_output = JSON.stringify({
+    schema_version: 1,
+    context_handle: proposalContext.model_context.context_handle,
+    proposition_handle: proposition.handle,
+    object: evidence.object,
+    modality: 'asserted',
+    stance: 'supported',
+    supporting_evidence_handles: [evidence.handle],
+    contradicting_evidence_handles: [],
+  });
+  const input = {
+    authorization_context: proposalContext.authorization_context,
+    raw_output,
+  };
+
+  const first = engine.commitNpcBeliefProposalOutput(input);
+  assert.equal(first.status, 'ready');
+  assert.equal(first.idempotent_replay, false);
+  assert.equal(first.transition.stance, 'supported');
+  assert.equal(first.transition.modality, 'asserted');
+
+  const replay = engine.commitNpcBeliefProposalOutput(input);
+  assert.equal(replay.status, 'ready');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.transition.event_id, first.transition.event_id);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+
+  const event = store.events('world-a').find(item => item.event_id === first.transition.event_id);
+  assert.equal(event.effects[0].stance, 'supported');
+  assert.equal(event.effects[0].modality, 'asserted');
+});
+
 test('Core persists an explicit belief transition, supports idempotent replay, and reports current evidence status', (t) => {
   const { store, engine } = setup(t);
   const current = request(store);
