@@ -727,6 +727,25 @@ test('Core accepts ADR belief states, persists modality, and requires a prior va
   const propositionRef = propositionRefFor(firstRead.items[0]);
   const acquisitionId = firstRead.items[0].acquisition_id;
   const originalValue = firstRead.items[0].value;
+  const invalidModalityBase = {
+    ...request(store),
+    proposition_ref: propositionRef,
+    proposition_value: originalValue,
+    stance: 'supported',
+    supporting_acquisition_ids: [acquisitionId],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...invalidModalityBase,
+    modality: undefined,
+    idempotency_key: 'adr-undefined-modality',
+  }), { code: 'INVALID_NPC_BELIEF_TRANSITION' });
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...invalidModalityBase,
+    modality: null,
+    idempotency_key: 'adr-null-modality',
+  }), { code: 'INVALID_NPC_BELIEF_TRANSITION' });
 
   const commit = (stance, propositionValue, key) => {
     const current = request(store);
