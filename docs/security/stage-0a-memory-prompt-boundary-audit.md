@@ -2,7 +2,7 @@
 
 **Audit base:** PR #949 branch head used when Stage 0A was opened: `4e57147475db805cc538c51b323f1b3eebfc7cb6`.
 
-**SillyTavern source:** supplied release archive, version `1.19.0`. The five pinned server generation files match the repository source manifest (hashes below).
+**SillyTavern source:** upstream repository `SillyTavern/SillyTavern`, pinned commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. The pinned `package.json` reports version `1.19.0`. The five server generation files were inspected from that Git commit through GitHub source access. The locally supplied ZIP archive was not downloaded or inspected in this work block; archive-level SHA-256 verification is **NOT VERIFIED**.
 
 **Scope:** prompt serialization and role boundary only. No Core authority/acquisition/belief changes, no Gateway/authentication rewrite, no ST-VectorService changes, and no new Memory→NPC mechanism.
 
@@ -16,18 +16,20 @@
 
 Receiver/projection modules validate and prepare data; they do not independently append prompt messages or initiate model transport. Gateway event listeners attach locators only.
 
-## SillyTavern source verification
+## SillyTavern source inspection
 
-| Pinned server file | SHA-256 | Result |
+The following files were read from the pinned upstream Git commit, not from a locally installed or extracted SillyTavern checkout:
+
+| File | Git blob SHA | Inspection |
 |---|---|---|
-| `src/endpoints/backends/chat-completions.js` | `53f429859efcfb29dd8becfebf7ff0ae49256ea795a0c81c320930fab5a407e7` | PASS |
-| `src/endpoints/backends/text-completions.js` | `877b2b6279091c70495e561c00ce021592205e1d42ea4fe5f20f23dd67071971` | PASS |
-| `src/endpoints/backends/kobold.js` | `ce23d72599580d5822d17fda14c8413882237c1ab984b1be63ee063256286801` | PASS |
-| `src/endpoints/novelai.js` | `0b6b41052ae0311ae6e716955b0805a44b1b63e3a58bf403b81becf0ff1b04ce` | PASS |
-| `src/endpoints/horde.js` | `9a0280cfa2c5498f540b8593b100e80cbacdefa563038a6cc6c60c9c9923f3f4` | PASS |
+| `src/endpoints/backends/chat-completions.js` | `0d98c77f7b64502c5b0f504eaa1f67df0f26041e` | Server generation handler and serialized outbound body |
+| `src/endpoints/backends/text-completions.js` | `c92fc3a14fabd0ad120f877874bc16353eed4831` | Flat completion request path |
+| `src/endpoints/backends/kobold.js` | `895263199588a2f62d4102523921775e8136739c` | Text generation request path |
+| `src/endpoints/novelai.js` | `30f6e70131f30517810a9650f7294efb6fb7467e` | Text generation request path |
+| `src/endpoints/horde.js` | `4c256de981e5dc04b38537231f99e738f8940f05` | Text generation request path |
 
-The supplied archive's `package.json` reports version `1.19.0`. The hashes were recomputed directly from the supplied archive.
-
+These are Git blob identifiers, not SHA-256 digests. The SHA-256 values previously listed from the local archive are not independently verified here and have been removed from this audit. No model API was called and no installed SillyTavern instance was used.
+ 
 ## Stage 0A serialization contract
 
 - Protected Memory is serialized as a JSON data envelope with `type: logic_engine_untrusted_memory` and `trust_level: untrusted_data`.
@@ -36,7 +38,7 @@ The supplied archive's `package.json` reports version `1.19.0`. The hashes were 
 - Only a serialized role-bearing `messages[]` body is accepted. A body without that structure is rejected before transport. Flat prompts and non-message formats are never guessed, rewritten, or used as a fallback.
 - Ordinary generation without protected Memory retains the native transport path.
 
-This is a structural privilege-boundary guarantee, not a claim that a model can never follow malicious content inside a user message. Prompt injection remains untrusted user-level content. No model/provider-specific behavior is part of this contract.
+This is a structural privilege-boundary guarantee, not a claim that a model can never follow malicious content inside a user message. Prompt injection remains untrusted user-level content. No model API, model-provider integration, or provider-specific behavior is part of this contract.
 
 ## Runtime state and exclusions
 
@@ -49,7 +51,7 @@ This is a structural privilege-boundary guarantee, not a claim that a model can 
 
 Focused tests must prove:
 - user-role-only insertion and preservation of the existing system role and message order;
-- prompt-injection, fake-role, JSON and delimiter payloads remain inside the serialized data string;
+- prompt-injection, fake-role, JSON and delimiter payloads remain inside the serialized data string without changing the message-role structure;
 - non-message/flat serialized bodies are rejected before transport;
 - ordinary unprotected generation remains native;
 - Memory→NPC remains `DISABLED_FAIL_CLOSED`.
