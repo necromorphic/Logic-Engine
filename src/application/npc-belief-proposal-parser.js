@@ -117,6 +117,30 @@ function assertNoDuplicateJsonKeys(source) {
   if (offset !== source.length) fail();
 }
 
+function safeJsonTree(value, depth = 0, budget = { nodes: 0 }) {
+  budget.nodes += 1;
+  if (depth > 32 || budget.nodes > 10000) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+        || !safeJsonTree(descriptor.value, depth + 1, budget)) return false;
+    }
+    return true;
+  }
+  if (!plainDataObject(value)) return false;
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !safeJsonTree(descriptor.value, depth + 1, budget)) return false;
+  }
+  return true;
+}
+
 /**
  * Parse only the agreed top-level proposal envelope. No markdown extraction,
  * free-text recovery, scope fields, Core IDs, or model-controlled idempotency.
@@ -146,6 +170,7 @@ export function parseNpcBeliefProposalOutput(rawOutput) {
     || !/^nctx1\.[A-Za-z0-9_-]{22}\.[0-9]{13}\.[A-Za-z0-9_-]{43}$/.test(parsed.context_handle)
     || typeof parsed.proposition_handle !== 'string'
     || !/^prh1\.[A-Za-z0-9_-]{43}$/.test(parsed.proposition_handle)
+    || !safeJsonTree(parsed.object)
     || typeof parsed.modality !== 'string'
     || !/^[a-z][a-z0-9_.-]{0,63}$/.test(parsed.modality)
     || !MODEL_STANCES.has(parsed.stance)
