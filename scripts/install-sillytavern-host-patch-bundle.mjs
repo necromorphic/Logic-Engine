@@ -220,22 +220,6 @@ try {
     finalSendManifestRelativePath,
     ...finalSendManager.patchArtifacts.map(artifact => artifact.path),
   ];
-  for (const relativePath of finalSendRuntimeRelativePaths) {
-    if (typeof relativePath !== 'string' || !relativePath || relativePath.includes('\\')
-      || path.posix.isAbsolute(relativePath)
-      || relativePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\0'))) {
-      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_INVALID');
-    }
-    const source = path.resolve(repoRoot, ...relativePath.split('/'));
-    const sourceRelative = path.relative(repoRoot, source);
-    if (!sourceRelative || sourceRelative === '..' || sourceRelative.startsWith('..' + path.sep)
-      || path.isAbsolute(sourceRelative)) {
-      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_ESCAPE');
-    }
-    const destination = path.resolve(stagedCorePlugin, ...relativePath.split('/'));
-    await mkdir(path.dirname(destination), { recursive: true });
-    await copyFile(source, destination);
-  }
 
   // Reproduce the independently verified Final-Send state in staging before
   // layering the Host lifecycle/inventory patches. This prevents the bundle
@@ -288,6 +272,24 @@ try {
   for (const name of Object.keys(PINNED_LOGIC_ENGINE_PLUGIN_GIT_BLOB_SHAS)) {
     const source = path.join(repoRoot, name);
     const destination = path.join(stagedCorePlugin, name);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(source, destination);
+  }
+
+  // Copy the exact deployment Patch Manager inputs into the staged Core plugin.
+  for (const relativePath of finalSendRuntimeRelativePaths) {
+    if (typeof relativePath !== 'string' || !relativePath || relativePath.includes('\\')
+      || path.posix.isAbsolute(relativePath)
+      || relativePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\0'))) {
+      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_INVALID');
+    }
+    const source = path.resolve(repoRoot, ...relativePath.split('/'));
+    const sourceRelative = path.relative(repoRoot, source);
+    if (!sourceRelative || sourceRelative === '..' || sourceRelative.startsWith('..' + path.sep)
+      || path.isAbsolute(sourceRelative)) {
+      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_ESCAPE');
+    }
+    const destination = path.resolve(stagedCorePlugin, ...relativePath.split('/'));
     await mkdir(path.dirname(destination), { recursive: true });
     await copyFile(source, destination);
   }
