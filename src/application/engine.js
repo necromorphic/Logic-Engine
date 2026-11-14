@@ -1543,7 +1543,7 @@ export class LogicEngine {
       };
       const read = this.readNpcKnowledge(readRequest);
       const currentRow = this.store.db.prepare(`
-        SELECT b.stance, b.modality, b.evidence_acquisition_ids_json
+        SELECT b.stance, b.modality, b.proposition_value_json, b.evidence_acquisition_ids_json
         FROM npc_belief_transitions AS b
         JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
         WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
@@ -1555,6 +1555,7 @@ export class LogicEngine {
         proposition_ref: input.proposition_ref,
         stance: currentRow.stance,
         modality: currentRow.modality,
+        proposition_value: JSON.parse(currentRow.proposition_value_json),
         evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
       } : null;
       const proposal = {
