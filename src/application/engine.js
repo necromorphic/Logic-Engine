@@ -905,6 +905,7 @@ export class LogicEngine {
           a.source_message_id, a.source_version_id, a.source_content_sha256,
           f.subject_ref, f.predicate, f.value_json, f.source_event_ids_json
         FROM knowledge_acquisitions AS a
+        JOIN world_events AS e ON e.world_id=a.world_id AND e.event_id=a.event_id AND e.validity='valid'
         LEFT JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
         WHERE a.world_id=? AND a.subject_id=? AND (
           (a.acquisition_kind IN ('author_initial','imported') AND f.status='active')
