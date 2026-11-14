@@ -16,6 +16,12 @@
 
 Receiver/projection modules validate and prepare data; they do not independently append prompt messages or initiate model transport. Gateway event listeners attach locators only.
 
+## Final-Send transport boundary review
+
+The pinned chat-completion generation handler contains an auxiliary OpenRouter model-capability lookup (`GET /models`) that can execute inside the same request-local generation context as the final generation POST. The original Hook routed every `fetch()` call in that context through the protected dispatch Gateway. That incorrectly classified the auxiliary GET as a generation dispatch; the Gateway's POST-only request contract would reject it. The Hook now preserves the composed Host-abort signal but sends non-POST requests through SillyTavern's native fetch. Only POST requests continue into Final-Send. The pinned text-completion, Kobold, NovelAI text, and Horde text generation paths use POST for their final generation handoff.
+
+This is a SillyTavern server transport-boundary correction. It does not call or test any model API, does not change Memory Provider behavior, and does not alter ST-VectorService.
+
 ## SillyTavern source inspection
 
 The following files were read from the pinned upstream Git commit, not from a locally installed or extracted SillyTavern checkout:
