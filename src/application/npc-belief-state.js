@@ -291,15 +291,16 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   const evidenceMatchesClaim = propositionValues.has(propositionValueKey);
   if (ADR_STANCES.has(proposal.stance)) {
     if (proposal.stance === 'supported'
-      && (!evidenceMatchesClaim || supportValues.size === 0 || contradictValues.size > 0)) {
+      && (!evidenceMatchesClaim || hasConflict || supportValues.size === 0 || contradictValues.size > 0)) {
       return Object.freeze({ status: 'non_ready', reason: 'supported_stance_requires_support_only', transition: null });
     }
     if (proposal.stance === 'contradicted'
-      && (evidenceMatchesClaim || contradictValues.size === 0 || supportValues.size > 0)) {
+      && (evidenceMatchesClaim || hasConflict || contradictValues.size === 0 || supportValues.size > 0)) {
       return Object.freeze({ status: 'non_ready', reason: 'contradicted_stance_requires_contradiction_only', transition: null });
     }
     if (proposal.stance === 'uncertain' && hasConflict
-      && (supportValues.size === 0 || contradictValues.size === 0)) {
+      && !((supportValues.size > 0 && contradictValues.size > 0)
+        || (supportValues.size === 0 && contradictValues.size > 1))) {
       return Object.freeze({ status: 'non_ready', reason: 'uncertain_conflict_requires_both_evidence_sides', transition: null });
     }
     if (proposal.stance === 'dropped' && currentBelief === null) {
@@ -342,6 +343,13 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
       return Object.freeze({ status: 'non_ready', reason: 'current_belief_scope_invalid', transition: null });
     }
     prior = currentBelief;
+    if (proposal.stance === 'dropped') {
+      let priorValue;
+      try { priorValue = stableJson(currentBelief.proposition_value); } catch { priorValue = null; }
+      if (priorValue === null || priorValue !== propositionValueKey) {
+        return Object.freeze({ status: 'non_ready', reason: 'dropped_stance_requires_matching_existing_belief', transition: null });
+      }
+    }
   }
 
   const survivingPriorEvidence = prior
