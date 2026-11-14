@@ -9,6 +9,7 @@ import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
 import { buildNpcBeliefContext, npcPropositionRefFor, reduceNpcBeliefTransition } from './npc-belief-state.js';
+import { parseNpcBeliefProposalOutput } from './npc-belief-proposal-parser.js';
 import {
   createNpcBeliefProposalContext as createOpaqueNpcBeliefProposalContext,
   resolveNpcBeliefProposalHandles as resolveOpaqueNpcBeliefProposalHandles,
@@ -1283,6 +1284,34 @@ export class LogicEngine {
           limit: input.limit,
         }),
       });
+    });
+  }
+
+  /**
+   * Parse an untrusted model response and resolve its opaque evidence handles
+   * against a fresh Core read. This deliberately does not commit a belief:
+   * ADR stance/modality semantics still require an explicit Core mapping.
+   */
+  resolveNpcBeliefProposalOutput(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'raw_output'])
+      && typeof input.raw_output === 'string',
+    'INVALID_NPC_BELIEF_PROPOSAL_OUTPUT',
+    'Belief proposal output requires an exact authorization context and raw model-output string.');
+
+    const parsed = parseNpcBeliefProposalOutput(input.raw_output);
+    if (parsed.status !== 'parsed') return parsed;
+
+    const resolved = this.resolveNpcBeliefProposalHandles({
+      authorization_context: input.authorization_context,
+      proposal: parsed.proposal,
+    });
+    return Object.freeze({
+      status: 'resolved_uncommitted',
+      stance: parsed.stance,
+      modality: parsed.modality,
+      snapshot: resolved.snapshot,
+      resolution: resolved.resolution,
     });
   }
 
