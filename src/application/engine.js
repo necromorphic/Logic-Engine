@@ -1221,6 +1221,120 @@ export class LogicEngine {
    * This is an internal, non-HTTP method. Visibility is checked per acquisition;
    * model proposals cannot create evidence or commit world effects.
    */
+  /**
+   * Create a prompt-safe NPC belief evidence projection. Only model-facing
+   * opaque handles and proposition content are returned in model_context;
+   * Core IDs and snapshot scope remain in authorization_context.
+   */
+  createNpcBeliefProposalContext(input) {
+    return withNpcAuthorizationLease(this.store, () => {
+      const { read, visibleRead } = readVisibleNpcKnowledge(this, input);
+      assert(typeof this.npcEvidenceHandleKeyProvider === 'function',
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'A deployment-owned evidence-handle key provider is required.', 503);
+      let key;
+      try { key = this.npcEvidenceHandleKeyProvider(input.adapter_id); }
+      catch {
+        throw new EngineError('NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+          'The evidence-handle key provider failed.', 503);
+      }
+      assert(typeof key === 'string' && key.length >= 16,
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'No valid evidence-handle key is configured for this adapter.', 503);
+
+      const withheld = new Set(visibleRead.withheld_proposition_refs);
+      const visibleItems = visibleRead.items.filter(item =>
+        !withheld.has(npcPropositionRefFor(item)));
+      const handles = createOpaqueNpcBeliefProposalContext({
+        read: visibleRead,
+        visibleItems,
+        key,
+        limit: input.limit,
+      });
+      assert(handles.status === 'ready' && handles.model_context.propositions.length > 0,
+        'NPC_BELIEF_EVIDENCE_UNAVAILABLE',
+        'No complete authorized fact-backed proposition is available for a belief proposal.', 409);
+
+      const snapshotNow = this.getSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_BELIEF_CONTEXT_STALE',
+      'World snapshot changed while creating the NPC belief proposal context.', 409);
+
+      return Object.freeze({
+        status: 'ready',
+        model_context: handles.model_context,
+        authorization_context: Object.freeze({
+          world_id: read.world_id,
+          conversation_id: read.conversation_id,
+          adapter_id: read.adapter_id,
+          actor_id: read.actor_id,
+          recipient: read.recipient,
+          purpose: read.purpose,
+          expected_revision: read.snapshot.world_revision,
+          expected_commit_sequence: read.snapshot.commit_sequence,
+          limit: input.limit,
+        }),
+      });
+    });
+  }
+
+  /**
+   * Resolve model-selected opaque handles against a fresh authorized Core
+   * read. The returned acquisition IDs are for trusted Core code only.
+   */
+  resolveNpcBeliefProposalHandles(input) {
+    assert(isSafeNpcInputRecord(input)
+      && exactDataRecord(input, ['authorization_context', 'proposal']),
+    'INVALID_NPC_BELIEF_HANDLE_RESOLUTION',
+    'Belief handle resolution requires an exact authorization context and proposal record.');
+    return withNpcAuthorizationLease(this.store, () => {
+      const authorizationContext = input.authorization_context;
+      const { read, visibleRead } = readVisibleNpcKnowledge(this, authorizationContext);
+      assert(typeof this.npcEvidenceHandleKeyProvider === 'function',
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'A deployment-owned evidence-handle key provider is required.', 503);
+      let key;
+      try { key = this.npcEvidenceHandleKeyProvider(authorizationContext.adapter_id); }
+      catch {
+        throw new EngineError('NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+          'The evidence-handle key provider failed.', 503);
+      }
+      assert(typeof key === 'string' && key.length >= 16,
+        'NPC_EVIDENCE_HANDLE_KEY_UNAVAILABLE',
+        'No valid evidence-handle key is configured for this adapter.', 503);
+
+      const withheld = new Set(visibleRead.withheld_proposition_refs);
+      const visibleItems = visibleRead.items.filter(item =>
+        !withheld.has(npcPropositionRefFor(item)));
+      const resolved = resolveOpaqueNpcBeliefProposalHandles({
+        read: visibleRead,
+        visibleItems,
+        key,
+        authorizationContext,
+        proposal: input.proposal,
+      });
+      assert(resolved.status === 'ready',
+        'NPC_BELIEF_HANDLE_RESOLUTION_FAILED',
+        'Opaque evidence handles failed current Core scope/provenance validation.', 409,
+        { reason: resolved.reason });
+
+      const snapshotNow = this.getSnapshot(read.world_id);
+      assert(snapshotNow && snapshotNow.status === 'active'
+        && snapshotNow.world_revision === read.snapshot.world_revision
+        && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
+      'NPC_BELIEF_CONTEXT_STALE',
+      'World snapshot changed while resolving the NPC belief proposal.', 409);
+
+      return Object.freeze({
+        status: 'ready',
+        snapshot: read.snapshot,
+        resolution: resolved.resolution,
+      });
+    });
+  }
+
   prepareNpcBeliefContext(input, proposal, currentBelief = null) {
     return withNpcAuthorizationLease(this.store, () => {
       const { read, visibleRead } = readVisibleNpcKnowledge(this, input);
