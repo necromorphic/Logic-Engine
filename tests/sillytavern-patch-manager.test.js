@@ -513,8 +513,8 @@ test('Patch Manager skips Host Bundle patches only when the installed Host overl
 test('Patch Manager verifies backup bytes against recorded attested Host overlay identity', async (t) => {
   const { manager, stRoot, extensionRoot } = await fixture(t);
   const hostPath = 'src/native-route.js';
-  const stockBytes = "export const nativeRoute = 'stock';\\n";
-  const overlayBytes = "export const nativeRoute = 'host-overlay';\\n";
+  const stockBytes = "export const nativeRoute = 'stock';\n";
+  const overlayBytes = "export const nativeRoute = 'host-overlay';\n";
   const stockHash = hash(Buffer.from(stockBytes, 'utf8'));
   const overlayHash = hash(Buffer.from(overlayBytes, 'utf8'));
   await writeFile(join(stRoot, hostPath), overlayBytes);
@@ -526,7 +526,7 @@ test('Patch Manager verifies backup bytes against recorded attested Host overlay
   const gatewayDir = join(stRoot, 'plugins/logic-engine-extension-gateway');
   await mkdir(gatewayDir, { recursive: true });
   await writeFile(join(gatewayDir, 'st-source-attestation.mjs'),
-    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\\n");
+    "export async function verifyPinnedSourceIdentity() { return { status: 'CURRENT_IDENTITIES_VERIFIED' }; }\n");
   await writeFile(join(gatewayDir, 'pinned-source-manifest.json'),
     JSON.stringify({ files: [{ path: hostPath, sha256: overlayHash }] }));
 
@@ -541,7 +541,7 @@ test('Patch Manager verifies backup bytes against recorded attested Host overlay
 
   const state = JSON.parse(await readFile(join(stRoot, 'data/logic-engine/final-send-patch/state.json'), 'utf8'));
   const backupPath = join(stRoot, 'data/logic-engine/final-send-patch', state.backups[hostPath].backupPath);
-  const backupHash = hash(Buffer.from((await readFile(backupPath, 'utf8')).replace(/\\r\\n/g, '\\n'), 'utf8'));
+  const backupHash = hash(Buffer.from((await readFile(backupPath, 'utf8')).replace(/\r\n/g, '\n'), 'utf8'));
   assert.equal(backupHash, overlayHash);
   assert.equal(state.hostOverlayFiles[hostPath], overlayHash);
   assert.equal((await overlayAwareManager.inspectInstalledReadOnly()).status, 'INSTALLED_AND_BACKUPS_VERIFIED');
