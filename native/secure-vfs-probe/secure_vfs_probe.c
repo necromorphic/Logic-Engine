@@ -713,6 +713,8 @@ typedef HANDLE (WINAPI *probe_create_file_w_fn)(
 #define PROBE_WIN_BROKER_OP_OPEN_SIDECAR 3u
 #define PROBE_WIN_BROKER_OP_CREATE_SIDECAR 5u
 #define PROBE_WIN_BROKER_OP_OPEN_OR_CREATE_SIDECAR 7u
+#define PROBE_WIN_BROKER_STATUS_OK 0u
+#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
 static int probe_win_manifest_role_ready(int role_index);
 static int probe_win_broker_open_role_request(
     const char *role, uint16_t operation, const char *kind,
@@ -774,7 +776,6 @@ static HANDLE WINAPI probe_create_file_w(
     wchar_t *relative_name;
     ULONG disposition, options, native_attributes;
     ACCESS_MASK desired_access = (ACCESS_MASK)access;
-    LogicEngineWinFileIdentity expected_sidecar;
     const LogicEngineWinFileIdentity *expected =
       main_role_open ? &role->identity : NULL;
     if (security || template_file
@@ -1906,8 +1907,6 @@ static const wchar_t *probe_win_sidecar_suffix(const ProbeDatabaseRole *role,
   return relative_name + base_length;
 }
 
-#define PROBE_WIN_BROKER_STATUS_OK 0u
-#define PROBE_WIN_BROKER_STATUS_NOT_FOUND 5u
 #define PROBE_WIN_BROKER_OP_ACCESS_ROLE_FILE 8u
 static int probe_win_broker_role_request(const char *role,uint16_t operation,
     const char *kind,uint32_t *status);
@@ -2098,11 +2097,12 @@ static int probe_win_broker_open_role_request(const char *role,uint16_t operatio
     if (response.payload_length!=sizeof(wire_handle)
         ||!probe_win_pipe_read_all(pipe,&wire_handle,sizeof(wire_handle))) goto done;
     handle_value=probe_win_net64(wire_handle);
-    received=(HANDLE)(uintptr_t)handle_value;
-    if (!handle_value || received==NULL || received==INVALID_HANDLE_VALUE) goto done;
     {
+      HANDLE candidate=(HANDLE)(uintptr_t)handle_value;
       DWORD handle_flags=0;
-      if (!GetHandleInformation(received,&handle_flags)) goto done;
+      if (!handle_value || candidate==NULL || candidate==INVALID_HANDLE_VALUE
+          || !GetHandleInformation(candidate,&handle_flags)) goto done;
+      received=candidate;
     }
     *opened=received;received=INVALID_HANDLE_VALUE;
   } else if (response.payload_length!=0) goto done;
