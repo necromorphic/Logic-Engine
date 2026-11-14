@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('../index.mjs', import.meta.url), 'utf8');
 const managerSource = await readFile(new URL('../scripts/sillytavern-patch-manager.mjs', import.meta.url), 'utf8');
+const hostBundleInstallerSource = await readFile(new URL('../scripts/install-sillytavern-host-patch-bundle.mjs', import.meta.url), 'utf8');
 
 test('server plugin bootstraps the shared multi-route Patch Manager as sole owner', () => {
   assert.match(source, /import \{ SillyTavernPatchManager \} from '\.\/scripts\/sillytavern-patch-manager\.mjs'/);
@@ -48,4 +49,13 @@ test('server plugin verifies the preinstalled patch read-only and never uninstal
   assert.match(exitSource, /unregisterLogicEngineFinalSendAdapter/);
   assert.match(exitSource, /registeredRuntime\?\.close/);
   assert.doesNotMatch(exitSource, /execute\(['"]uninstall['"]\)/);
+});
+
+
+test('Host bundle synchronizes the Core plugin Patch Manager manifest and every declared artifact', () => {
+  assert.match(hostBundleInstallerSource, /finalSendManager\.manifestPath/);
+  assert.match(hostBundleInstallerSource, /finalSendManager\.patchArtifacts\.map\(artifact => artifact\.path\)/);
+  assert.match(hostBundleInstallerSource, /FINAL_SEND_RUNTIME_ASSET_PATH_INVALID/);
+  assert.match(hostBundleInstallerSource, /FINAL_SEND_RUNTIME_ASSET_PATH_ESCAPE/);
+  assert.match(hostBundleInstallerSource, /finalSendRuntimeRelativePaths\.map\(relativePath => 'plugins\/logic-engine\/' \+ relativePath\)/);
 });

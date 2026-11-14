@@ -210,6 +210,33 @@ try {
   const finalSendInstalled = finalSendInspection.status === 'INSTALLED_AND_BACKUPS_VERIFIED';
   const finalSendManifest = finalSendManager.manifest;
 
+  // The Core plugin runs its own copy of Patch Manager after startup. Keep its
+  // manifest and every declared patch artifact byte-identical to the deployment
+  // manager's inputs; otherwise the Host bundle can migrate state with the repo
+  // manifest while the runtime plugin continues reading a stale copied manifest.
+  const finalSendManifestRelativePath = path.relative(repoRoot, finalSendManager.manifestPath)
+    .split(path.sep).join('/');
+  const finalSendRuntimeRelativePaths = [
+    finalSendManifestRelativePath,
+    ...finalSendManager.patchArtifacts.map(artifact => artifact.path),
+  ];
+  for (const relativePath of finalSendRuntimeRelativePaths) {
+    if (typeof relativePath !== 'string' || !relativePath || relativePath.includes('\\')
+      || path.posix.isAbsolute(relativePath)
+      || relativePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':') || part.includes('\\0'))) {
+      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_INVALID');
+    }
+    const source = path.resolve(repoRoot, ...relativePath.split('/'));
+    const sourceRelative = path.relative(repoRoot, source);
+    if (!sourceRelative || sourceRelative === '..' || sourceRelative.startsWith('..' + path.sep)
+      || path.isAbsolute(sourceRelative)) {
+      throw new Error('FINAL_SEND_RUNTIME_ASSET_PATH_ESCAPE');
+    }
+    const destination = path.resolve(stagedCorePlugin, ...relativePath.split('/'));
+    await mkdir(path.dirname(destination), { recursive: true });
+    await copyFile(source, destination);
+  }
+
   // Reproduce the independently verified Final-Send state in staging before
   // layering the Host lifecycle/inventory patches. This prevents the bundle
   // from silently overwriting Final-Send on shared files such as chat-completions
@@ -336,6 +363,7 @@ try {
     ...SOURCE_FILE_PATHS,
     'plugins/logic-engine-extension-gateway/pinned-source-manifest.json',
     'plugins/logic-engine/scripts/sillytavern-patch-manager.mjs',
+    ...finalSendRuntimeRelativePaths.map(relativePath => 'plugins/logic-engine/' + relativePath),
   ];
   await mkdir(backupRoot, { recursive: true });
   for (const relativePath of filesToInstall) {
