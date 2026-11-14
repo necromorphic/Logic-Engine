@@ -1330,15 +1330,44 @@ export class LogicEngine {
 
     const parsed = parseNpcBeliefProposalOutput(input.raw_output);
     if (parsed.status !== 'parsed') return parsed;
-    const resolved = this.resolveNpcBeliefProposalOutput(input);
-    if (resolved.status !== 'resolved_uncommitted') return resolved;
-
     const idempotencyKey = 'npc-belief-proposal:' + hashRequest({
       context_handle: parsed.proposal.context_handle,
       proposal: parsed.proposal,
       stance: parsed.stance,
       modality: parsed.modality,
     }).slice(0, 48);
+    const authorization = input.authorization_context;
+
+    // A retry after a successful commit necessarily carries the now-stale
+    // proposal snapshot. Authenticate the current scope before returning the
+    // prior acknowledgement; do not try to resolve expired/stale handles again.
+    const existingReplay = this.store.db.prepare(`
+      SELECT transition_id, event_id, committed_revision
+      FROM npc_belief_transitions
+      WHERE world_id=? AND idempotency_key=?
+    `).get(authorization.world_id, idempotencyKey);
+    if (existingReplay) {
+      const currentWorld = this.store.world(authorization.world_id);
+      assert(currentWorld && currentWorld.status === 'active',
+        'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
+      this.readNpcKnowledge({
+        ...authorization,
+        expected_revision: currentWorld.world_revision,
+        expected_commit_sequence: this.store.currentCommitSequence(authorization.world_id),
+      });
+      return {
+        status: 'ready',
+        idempotent_replay: true,
+        transition: {
+          transition_id: existingReplay.transition_id,
+          event_id: existingReplay.event_id,
+          committed_revision: existingReplay.committed_revision,
+        },
+      };
+    }
+
+    const resolved = this.resolveNpcBeliefProposalOutput(input);
+    if (resolved.status !== 'resolved_uncommitted') return resolved;
     return this.recordNpcBeliefTransition({
       ...input.authorization_context,
       proposition_ref: resolved.resolution.proposition_ref,
