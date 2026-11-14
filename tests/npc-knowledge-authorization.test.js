@@ -329,6 +329,18 @@ test('communication visibility requires a trusted receipt verifier and exact act
     trustedInitialKnowledgeSources: [source, importedSource],
   });
   assert.equal(noVerifier.visibilityAuthorizer(acquisition).status, 'denied');
+  const registryOnly = createHostBoundNpcKnowledgeAuthorizers({
+    store,
+    adapterIds: ['adapter-st'],
+    trustedInitialKnowledgeSources: [source, importedSource, {
+      ...source,
+      source_kind: 'communication_delivered',
+      source_ref: acquisition.provenance_ref,
+      sha256: acquisition.provenance_digest,
+      authorization_ref: acquisition.acquisition_authorization_ref,
+    }],
+  });
+  assert.equal(registryOnly.visibilityAuthorizer(acquisition).status, 'denied');
 
   assert.throws(() => createHostBoundNpcKnowledgeAuthorizers({
     store,
